@@ -54,11 +54,13 @@ public partial class CopilotService
         ["SessionCompactionCompleteEvent"] = EventVisibility.TimelineOnly,
         ["PendingMessagesModifiedEvent"] = EventVisibility.TimelineOnly,
         ["ToolUserRequestedEvent"] = EventVisibility.TimelineOnly,
-        ["SkillInvokedEvent"] = EventVisibility.TimelineOnly,
-        ["SubagentSelectedEvent"] = EventVisibility.TimelineOnly,
-        ["SubagentStartedEvent"] = EventVisibility.TimelineOnly,
-        ["SubagentCompletedEvent"] = EventVisibility.TimelineOnly,
-        ["SubagentFailedEvent"] = EventVisibility.TimelineOnly,
+        ["SkillInvokedEvent"] = EventVisibility.ChatVisible,
+        ["SubagentSelectedEvent"] = EventVisibility.ChatVisible,
+        ["SubagentDeselectedEvent"] = EventVisibility.ChatVisible,
+        ["SubagentStartedEvent"] = EventVisibility.ChatVisible,
+        ["SubagentCompletedEvent"] = EventVisibility.ChatVisible,
+        ["SubagentFailedEvent"] = EventVisibility.ChatVisible,
+        ["CommandsChangedEvent"] = EventVisibility.TimelineOnly,
 
         // Currently noisy internal events
         ["SessionLifecycleEvent"] = EventVisibility.Ignore,
@@ -827,7 +829,112 @@ public partial class CopilotService
                     Invoke(() => OnStateChanged?.Invoke());
                 }
                 break;
-                
+
+            // ──────────────────────────────────────────────────────────────────────
+            // Subagent lifecycle: the CLI can automatically select specialized agents
+            // (e.g. code-review, security-review) when processing a prompt.
+            // Show these in chat so the user knows which agent is active.
+            // ──────────────────────────────────────────────────────────────────────
+            case SubagentSelectedEvent subagentSelected:
+            {
+                var d = subagentSelected.Data;
+                var displayName = !string.IsNullOrEmpty(d?.AgentDisplayName) ? d.AgentDisplayName : d?.AgentName;
+                if (!string.IsNullOrEmpty(displayName))
+                {
+                    Invoke(() =>
+                    {
+                        state.Info.ActiveAgentName = d!.AgentName;
+                        state.Info.ActiveAgentDisplayName = displayName;
+                        state.Info.History.Add(ChatMessage.SystemMessage($"🤖 Agent: **{displayName}**"));
+                        NotifyStateChangedCoalesced();
+                    });
+                }
+                break;
+            }
+
+            case SubagentDeselectedEvent:
+                Invoke(() =>
+                {
+                    state.Info.ActiveAgentName = null;
+                    state.Info.ActiveAgentDisplayName = null;
+                    NotifyStateChangedCoalesced();
+                });
+                break;
+
+            case SubagentStartedEvent subagentStarted:
+            {
+                var d = subagentStarted.Data;
+                var displayName = !string.IsNullOrEmpty(d?.AgentDisplayName) ? d.AgentDisplayName : d?.AgentName;
+                if (!string.IsNullOrEmpty(displayName))
+                {
+                    var desc = !string.IsNullOrEmpty(d?.AgentDescription) ? $" — {d.AgentDescription}" : "";
+                    Invoke(() =>
+                    {
+                        state.Info.History.Add(ChatMessage.SystemMessage($"▶️ Starting agent: **{displayName}**{desc}"));
+                        NotifyStateChangedCoalesced();
+                    });
+                }
+                break;
+            }
+
+            case SubagentCompletedEvent subagentCompleted:
+            {
+                var d = subagentCompleted.Data;
+                var displayName = !string.IsNullOrEmpty(d?.AgentDisplayName) ? d.AgentDisplayName : d?.AgentName;
+                if (!string.IsNullOrEmpty(displayName))
+                {
+                    Invoke(() =>
+                    {
+                        state.Info.History.Add(ChatMessage.SystemMessage($"✅ Agent completed: **{displayName}**"));
+                        // Clear active agent after completion
+                        if (string.Equals(state.Info.ActiveAgentName, d?.AgentName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            state.Info.ActiveAgentName = null;
+                            state.Info.ActiveAgentDisplayName = null;
+                        }
+                        NotifyStateChangedCoalesced();
+                    });
+                }
+                break;
+            }
+
+            case SubagentFailedEvent subagentFailed:
+            {
+                var d = subagentFailed.Data;
+                var displayName = !string.IsNullOrEmpty(d?.AgentDisplayName) ? d.AgentDisplayName : d?.AgentName;
+                var errDetail = !string.IsNullOrEmpty(d?.Error) ? $": {d.Error}" : "";
+                if (!string.IsNullOrEmpty(displayName))
+                {
+                    Invoke(() =>
+                    {
+                        state.Info.History.Add(ChatMessage.ErrorMessage($"Agent failed: **{displayName}**{errDetail}"));
+                        if (string.Equals(state.Info.ActiveAgentName, d?.AgentName, StringComparison.OrdinalIgnoreCase))
+                        {
+                            state.Info.ActiveAgentName = null;
+                            state.Info.ActiveAgentDisplayName = null;
+                        }
+                        NotifyStateChangedCoalesced();
+                    });
+                }
+                break;
+            }
+
+            case SkillInvokedEvent skillInvoked:
+            {
+                var skillName = skillInvoked.Data?.Name;
+                var pluginName = skillInvoked.Data?.PluginName;
+                var label = !string.IsNullOrEmpty(pluginName) ? $"{skillName} ({pluginName})" : skillName;
+                if (!string.IsNullOrEmpty(label))
+                {
+                    Invoke(() =>
+                    {
+                        state.Info.History.Add(ChatMessage.SystemMessage($"⚡ Skill: **{label}**"));
+                        NotifyStateChangedCoalesced();
+                    });
+                }
+                break;
+            }
+
             default:
                 LogUnhandledSessionEvent(sessionName, evt);
                 break;
@@ -1406,7 +1513,7 @@ public partial class CopilotService
                 var ctxPct = (double)state.Info.ContextCurrentTokens.Value / state.Info.ContextTokenLimit.Value;
                 if (ctxPct > 0.9)
                 {
-                    var ctxWarning = ChatMessage.SystemMessage($"🔴 Context {ctxPct:P0} full — reflection may lose earlier history. Consider `/reflect stop`.");
+                    var ctxWarning = ChatMessage.SystemMessage($"🔴 Context {ctxPct:P0} full — reflection may lose earlier history.");
                     state.Info.History.Add(ctxWarning);
                     state.Info.MessageCount = state.Info.History.Count;
                     if (!string.IsNullOrEmpty(state.Info.SessionId))

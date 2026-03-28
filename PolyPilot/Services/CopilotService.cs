@@ -1906,6 +1906,93 @@ The user can also check configured servers with the /mcp command.
         return agents;
     }
 
+    /// <summary>
+    /// Lists agents available in the current session via the SDK AgentApi.
+    /// Returns an empty list if the session doesn't exist, is not connected, or the API fails.
+    /// </summary>
+    public async Task<List<AgentInfo>> ListAgentsFromApiAsync(string sessionName)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state) || state.Session == null)
+            return [];
+
+        try
+        {
+            var result = await state.Session.Rpc.Agent.ListAsync(CancellationToken.None);
+            return result?.Agents?
+                .Where(a => !string.IsNullOrEmpty(a?.Name))
+                .Select(a => new AgentInfo(
+                    a!.Name!,
+                    a.Description ?? a.DisplayName ?? "",
+                    "cli"))
+                .ToList() ?? [];
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Agents] ListAsync failed for '{sessionName}': {ex.Message}");
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Selects a CLI agent for the given session via the SDK AgentApi.
+    /// Returns true on success, false on error.
+    /// </summary>
+    public async Task<bool> SelectAgentAsync(string sessionName, string agentName)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state) || state.Session == null)
+            return false;
+
+        try
+        {
+            await state.Session.Rpc.Agent.SelectAsync(agentName, CancellationToken.None);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Agents] SelectAsync('{agentName}') failed for '{sessionName}': {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Deselects the active CLI agent for the given session.
+    /// </summary>
+    public async Task DeselectAgentAsync(string sessionName)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state) || state.Session == null)
+            return;
+
+        try
+        {
+            await state.Session.Rpc.Agent.DeselectAsync(CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Agents] DeselectAsync failed for '{sessionName}': {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Starts fleet mode (parallel subagent execution) for the given session with the provided prompt.
+    /// Returns true if the fleet was started successfully, false otherwise.
+    /// </summary>
+    public async Task<bool> StartFleetAsync(string sessionName, string prompt)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state) || state.Session == null)
+            return false;
+
+        try
+        {
+            var result = await state.Session.Rpc.Fleet.StartAsync(prompt, CancellationToken.None);
+            return result?.Started ?? false;
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[Fleet] StartAsync failed for '{sessionName}': {ex.Message}");
+            return false;
+        }
+    }
+
     private static void ScanAgentDirectory(string agentsDir, string source, List<AgentInfo> agents, HashSet<string> seen)
     {
         foreach (var file in Directory.GetFiles(agentsDir, "*.md"))

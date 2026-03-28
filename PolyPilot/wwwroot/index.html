@@ -759,15 +759,16 @@
             window.__slashCmdSetup = true;
 
             var COMMANDS = [
+                { cmd: '/agent', usage: '[name]', desc: 'List or select a CLI agent', hasArgs: true },
                 { cmd: '/clear', desc: 'Clear chat history', hasArgs: false },
                 { cmd: '/compact', desc: 'Summarize conversation', hasArgs: false },
                 { cmd: '/diff', usage: '[args]', desc: 'Show git diff', hasArgs: true },
+                { cmd: '/fleet', usage: '<prompt>', desc: 'Start fleet mode (parallel subagent execution)', hasArgs: true },
                 { cmd: '/help', desc: 'Show available commands', hasArgs: false },
                 { cmd: '/mcp', usage: '[show|add|edit|delete|disable|enable] [server-name] | reload', desc: 'Manage MCP servers', hasArgs: true },
                 { cmd: '/new', usage: '[name]', desc: 'Create a new session', hasArgs: true },
                 { cmd: '/plugin', usage: '[enable|disable] [plugin-name]', desc: 'Manage installed plugins', hasArgs: true },
                 { cmd: '/prompt', usage: '[use|save|delete] [name]', desc: 'List saved prompts', hasArgs: true },
-                { cmd: '/reflect', usage: '<goal>', desc: 'Start a reflection cycle', hasArgs: true },
                 { cmd: '/rename', usage: '<name>', desc: 'Rename current session', hasArgs: true },
                 { cmd: '/sessions', desc: 'List all sessions', hasArgs: false },
                 { cmd: '/status', usage: '[path] [--short]', desc: 'Show git status', hasArgs: true },

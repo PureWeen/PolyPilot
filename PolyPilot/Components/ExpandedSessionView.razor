@@ -264,10 +264,6 @@
                 <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")' title="Plan mode — create a plan before implementing">Plan</button>
                 <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")' title="Autopilot mode — auto-approve tool calls">Autopilot</button>
             </div>
-            @if (Session.ReflectionCycle is null || !Session.ReflectionCycle.IsActive)
-            {
-                <button class="mode-btn" style="margin-left:8px;opacity:0.7" title="Start a reflection cycle" @onclick="InsertReflectCommand">Reflect</button>
-            }
             <span class="status-sep">·</span>
             <span class="log-label" style="font-size:var(--type-footnote)" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log</span>
             <span class="status-sep">·</span>
@@ -281,6 +277,11 @@
             {
                 <span class="status-sep">·</span>
                 <span class="skills-trigger" data-trigger="agents" @onclick="ShowAgentsPopup" title="View available agents">@availableAgents.Count agents</span>
+            }
+            @if (!string.IsNullOrEmpty(Session.ActiveAgentDisplayName ?? Session.ActiveAgentName))
+            {
+                <span class="status-sep">·</span>
+                <span class="active-agent-badge" title="Active CLI agent">🤖 @(Session.ActiveAgentDisplayName ?? Session.ActiveAgentName)</span>
             }
             @if (availablePrompts != null)
             {
@@ -1041,12 +1042,6 @@
                 document.body.appendChild(ov);
             }})()
         ");
-    }
-
-    private async Task InsertReflectCommand()
-    {
-        var inputId = EscapeForJs("input-" + Session.Name.Replace(" ", "-"));
-        await JS.InvokeVoidAsync("eval", $"var el = document.getElementById('{inputId}'); if(el){{ el.value = '/reflect '; el.focus(); }}");
     }
 
     private static string EscapeForJs(string s) =>

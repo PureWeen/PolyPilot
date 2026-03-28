@@ -205,6 +205,17 @@ public class AgentSessionInfo
     /// </summary>
     public bool IsOrchestratorWorker { get; set; }
 
+    /// <summary>
+    /// The name of the CLI subagent currently active in this session (e.g. "code-review"),
+    /// or null if no subagent is active. Updated by SubagentSelectedEvent / SubagentDeselectedEvent.
+    /// </summary>
+    public string? ActiveAgentName { get; set; }
+
+    /// <summary>
+    /// Display name of the active subagent (e.g. "Code Review"), or null if none.
+    /// </summary>
+    public string? ActiveAgentDisplayName { get; set; }
+
     internal static readonly string[] QuestionPhrases =
     [
         "let me know", "which would you prefer", "would you like", "should i", "do you want",
