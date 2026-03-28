@@ -643,6 +643,7 @@ public partial class CopilotService
                 // Do NOT treat this as terminal — flush text and wait for the real idle.
                 if (HasActiveBackgroundTasks(idle))
                 {
+                    state.HasDeferredIdle = true; // Track for watchdog freshness window
                     Debug($"[IDLE-DEFER] '{sessionName}' session.idle received with active background tasks — " +
                           $"deferring completion (IsProcessing={state.Info.IsProcessing}, " +
                           $"response={state.CurrentResponse.Length}+{state.FlushedResponse.Length} chars)");
@@ -2173,7 +2174,7 @@ public partial class CopilotService
                                 // - "after turn start" alone stays true forever once any event is written
                                 // - "recent" alone could match stale files from a previous turn
                                 var caseBEventsActive = false;
-                                var freshnessSeconds = isMultiAgentSession
+                                var freshnessSeconds = (isMultiAgentSession || state.HasDeferredIdle)
                                     ? WatchdogMultiAgentCaseBFreshnessSeconds
                                     : WatchdogCaseBFreshnessSeconds;
                                 try

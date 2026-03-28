@@ -534,6 +534,11 @@ public partial class CopilotService : IAsyncDisposable
         /// When this reaches WatchdogCaseBMaxStaleChecks, deferral is stopped even if the file
         /// modification time is within the freshness window (dead connection detected).</summary>
         public int WatchdogCaseBStaleCount;
+        /// <summary>True when an IDLE-DEFER has been observed for this session — the CLI reported
+        /// active background tasks (subagents/shells). The watchdog uses this to apply the longer
+        /// multi-agent freshness window even for non-multi-agent-group sessions, because the CLI
+        /// has confirmed it's running background work that won't produce events.jsonl writes.</summary>
+        public volatile bool HasDeferredIdle;
         /// <summary>True if the TurnEnd→Idle fallback was canceled by an AssistantTurnStartEvent.
         /// Used for diagnostic logging: when the next TurnEnd re-arms the fallback, the log shows
         /// the self-healing loop in action (TurnEnd → TurnStart cancel → TurnEnd re-arm).</summary>
@@ -3049,6 +3054,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ClearPermissionDenials();
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
+        state.HasDeferredIdle = false; // Reset deferred idle flag from previous turn
         state.IsReconnectedSend = false; // Clear reconnect flag — new turn starts fresh (see watchdog reconnect timeout)
         state.PrematureIdleSignal.Reset(); // Clear premature idle detection from previous turn
         state.FallbackCanceledByTurnStart = false;
