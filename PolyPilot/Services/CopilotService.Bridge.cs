@@ -528,12 +528,22 @@ public partial class CopilotService
 
                     if (!turnEndGuardActive)
                     {
+                        if (state.Info.IsProcessing != rs.IsProcessing)
+                            Debug($"SyncRemoteSessions: '{rs.Name}' IsProcessing {state.Info.IsProcessing} -> {rs.IsProcessing}");
                         state.Info.IsProcessing = rs.IsProcessing;
                         state.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
                         state.Info.ToolCallCount = rs.ToolCallCount;
                         state.Info.ProcessingPhase = rs.ProcessingPhase;
                     }
+                    else
+                    {
+                        Debug($"SyncRemoteSessions: '{rs.Name}' TurnEnd guard blocked IsProcessing=true");
+                    }
                     state.Info.MessageCount = rs.MessageCount;
+                }
+                else
+                {
+                    Debug($"SyncRemoteSessions: '{rs.Name}' skipped — streaming guard active");
                 }
                 if (!string.IsNullOrEmpty(rs.Model))
                     state.Info.Model = rs.Model;
