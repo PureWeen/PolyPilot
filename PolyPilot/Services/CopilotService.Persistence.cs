@@ -407,7 +407,12 @@ public partial class CopilotService
             // waiting for tool results that will never arrive. It silently queues/ignores
             // new SendAsync calls until the pending tools are resolved. An explicit abort
             // clears this state and allows new messages to flow.
-            if (wasResumed && HasInterruptedToolExecution(sessionId))
+            //
+            // IMPORTANT: Only abort if the CLI has actually stopped working. In persistent
+            // mode, the headless server keeps running tools even while PolyPilot is down.
+            // If IsSessionStillProcessing() says the CLI is active, the tool results WILL
+            // arrive — aborting would kill legitimate in-progress work.
+            if (wasResumed && HasInterruptedToolExecution(sessionId) && !IsSessionStillProcessing(sessionId))
             {
                 Debug($"[RESUME-ABORT] '{sessionName}' has interrupted tool execution — sending abort to clear pending state");
                 try
@@ -419,6 +424,18 @@ public partial class CopilotService
                 {
                     Debug($"[RESUME-ABORT] '{sessionName}' abort failed (non-fatal): {abortEx.Message}");
                 }
+            }
+            else if (wasResumed && HasInterruptedToolExecution(sessionId))
+            {
+                Debug($"[RESUME-SKIP-ABORT] '{sessionName}' has unmatched tool starts but CLI is still active — NOT aborting");
+                // The CLI is still running tools — mark the session as processing so the UI
+                // shows it as busy. Set watchdog flags so it gets the longer tool timeout.
+                state.Info.IsProcessing = true;
+                state.Info.IsResumed = true;
+                state.HasUsedToolsThisTurn = true;
+                state.Info.ProcessingPhase = 3; // Working
+                state.Info.ProcessingStartedAt = DateTime.UtcNow;
+                NotifyStateChanged();
             }
 
             Debug($"Lazy-resume complete: '{sessionName}'");
