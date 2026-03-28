@@ -740,6 +740,27 @@ public partial class CopilotService
                 }
             }
 
+            // Force-sync processing state for ALL sessions from the server snapshot.
+            // SyncRemoteSessions skips sessions in _remoteStreamingSessions, but a user-initiated
+            // force sync should always apply the server's authoritative IsProcessing state.
+            // Also clear stuck streaming guards — if the server says a session is idle,
+            // any lingering guard from a dropped connection should be cleared.
+            foreach (var rs in _bridgeClient.Sessions)
+            {
+                if (_sessions.TryGetValue(rs.Name, out var syncState))
+                {
+                    if (syncState.Info.IsProcessing != rs.IsProcessing)
+                        Debug($"[SYNC] '{rs.Name}' IsProcessing {syncState.Info.IsProcessing} -> {rs.IsProcessing}");
+                    syncState.Info.IsProcessing = rs.IsProcessing;
+                    syncState.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
+                    syncState.Info.ToolCallCount = rs.ToolCallCount;
+                    syncState.Info.ProcessingPhase = rs.ProcessingPhase;
+                    // Clear stuck streaming guard if server says session is idle
+                    if (!rs.IsProcessing)
+                        _remoteStreamingSessions.TryRemove(rs.Name, out _);
+                }
+            }
+
             // Snapshot post-sync state
             var postSyncSessionCount = _sessions.Count;
             var postSyncMessageCount = 0;

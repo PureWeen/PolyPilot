@@ -348,4 +348,32 @@ public class BridgeDisconnectTests
 
         Assert.False(session.IsProcessing);
     }
+
+    [Fact]
+    public async Task ForceSync_ClearsIsProcessing_EvenWithStreamingGuard()
+    {
+        // Scenario: Streaming guard is stuck (TurnStart received but TurnEnd lost).
+        // SyncRemoteSessions skips the session. But ForceRefreshRemoteAsync should
+        // always apply the server's authoritative IsProcessing state.
+        var svc = CreateRemoteService();
+        await AddRemoteSession(svc, "stuck-session");
+        var session = svc.GetSession("stuck-session")!;
+
+        // Session appears processing with a stuck streaming guard
+        session.IsProcessing = true;
+        svc.SetRemoteStreamingGuardForTesting("stuck-session", true);
+
+        // SyncRemoteSessions should skip (streaming guard active)
+        _bridgeClient.Sessions = new() { new SessionSummary { Name = "stuck-session", IsProcessing = false } };
+        svc.SyncRemoteSessions();
+        Assert.True(session.IsProcessing); // Guard blocks the update
+
+        // Force sync should override the streaming guard
+        _bridgeClient.SessionHistories["stuck-session"] = new List<ChatMessage>();
+        var result = await svc.ForceRefreshRemoteAsync("stuck-session");
+
+        Assert.True(result.Success);
+        Assert.False(session.IsProcessing);
+        Assert.False(svc.IsRemoteStreamingGuardActive("stuck-session"));
+    }
 }
