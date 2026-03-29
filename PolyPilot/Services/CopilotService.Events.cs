@@ -782,6 +782,7 @@ public partial class CopilotService
                 CancelToolHealthCheck(state);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
+                state.HasDeferredIdle = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
                 Interlocked.Exchange(ref state.EventCountThisTurn, 0);
@@ -1028,6 +1029,7 @@ public partial class CopilotService
         CancelToolHealthCheck(state);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
+        state.HasDeferredIdle = false;
         state.IsReconnectedSend = false; // Clear reconnect flag on turn completion (defense-in-depth)
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -1776,6 +1778,7 @@ public partial class CopilotService
             // Full cleanup mirroring CompleteResponse — missing fields here caused stuck sessions
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
             state.HasUsedToolsThisTurn = false;
+            state.HasDeferredIdle = false;
             state.FallbackCanceledByTurnStart = false;
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
@@ -2349,6 +2352,7 @@ public partial class CopilotService
                         CancelToolHealthCheck(state);
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
+                        state.HasDeferredIdle = false;
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                         Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
                         Interlocked.Exchange(ref state.EventCountThisTurn, 0);
@@ -2443,6 +2447,7 @@ public partial class CopilotService
                     Interlocked.Exchange(ref state.SendingFlag, 0);
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                     state.HasUsedToolsThisTurn = false;
+                    state.HasDeferredIdle = false;
                     Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                     Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
                     Interlocked.Exchange(ref state.EventCountThisTurn, 0);

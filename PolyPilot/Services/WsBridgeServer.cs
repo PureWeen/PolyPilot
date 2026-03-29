@@ -308,23 +308,11 @@ public class WsBridgeServer : IDisposable
         // macOS TIME_WAIT can hold the port for several seconds after kill.
         try { await Task.Delay(2000, ct); } catch (OperationCanceledException) { return false; }
 
-        // Try wildcard binding first (allows LAN / Tailscale access).
-        foreach (var prefix in new[] { $"http://+:{_bridgePort}/", $"http://localhost:{_bridgePort}/" })
+        if (TryBindListener(_bridgePort))
         {
-            try
-            {
-                var listener = new HttpListener();
-                listener.Prefixes.Add(prefix);
-                listener.Start();
-                _listener = listener;
-                Console.WriteLine($"[WsBridge] Restarted listening on {prefix}");
-                OnStateChanged?.Invoke();
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[WsBridge] Restart on {prefix} failed: {ex.Message}");
-            }
+            Console.WriteLine($"[WsBridge] Restarted listening on port {_bridgePort}");
+            OnStateChanged?.Invoke();
+            return true;
         }
         return false;
     }

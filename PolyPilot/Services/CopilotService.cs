@@ -1092,6 +1092,7 @@ public partial class CopilotService : IAsyncDisposable
         _sessions.Clear();
         _closedSessionIds.Clear();
         _closedSessionNames.Clear();
+        _recentTurnEndSessions.Clear();
         lock (_imageQueueLock)
         {
             _queuedImagePaths.Clear();
@@ -1305,6 +1306,7 @@ public partial class CopilotService : IAsyncDisposable
             _sessions.Clear();
             _closedSessionIds.Clear();
             _closedSessionNames.Clear();
+            _recentTurnEndSessions.Clear();
 
             // 2. Dispose old client
             if (_client != null)

@@ -294,6 +294,7 @@ public partial class CopilotService
             {
                 Debug($"[BRIDGE-SESSION-COMPLETE] '{session.Name}' clearing stale IsProcessing");
                 session.IsProcessing = false;
+                session.IsResumed = false;
                 session.ProcessingStartedAt = null;
                 session.ToolCallCount = 0;
                 session.ProcessingPhase = 0;

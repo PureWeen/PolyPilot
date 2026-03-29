@@ -435,6 +435,7 @@ public partial class CopilotService
                 state.HasUsedToolsThisTurn = true;
                 state.Info.ProcessingPhase = 3; // Working
                 state.Info.ProcessingStartedAt = DateTime.UtcNow;
+                StartProcessingWatchdog(state, sessionName);
                 NotifyStateChanged();
             }
 
