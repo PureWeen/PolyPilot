@@ -205,6 +205,40 @@ public class ServerRecoveryTests
         Assert.Null(mgr.LastGitHubToken);
     }
 
+    // ===== RunProcessWithTimeout =====
+
+    [Fact]
+    public void RunProcessWithTimeout_ReturnsOutput_OnSuccess()
+    {
+        // `echo` is universally available — should return the text
+        var result = CopilotService.RunProcessWithTimeout("echo", new[] { "hello" }, 3000);
+        Assert.Equal("hello", result);
+    }
+
+    [Fact]
+    public void RunProcessWithTimeout_ReturnsNull_OnNonZeroExit()
+    {
+        // `false` exits with code 1
+        var result = CopilotService.RunProcessWithTimeout("false", Array.Empty<string>(), 3000);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void RunProcessWithTimeout_ReturnsNull_OnMissingBinary()
+    {
+        var result = CopilotService.RunProcessWithTimeout("nonexistent-binary-12345",
+            Array.Empty<string>(), 3000);
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void RunProcessWithTimeout_ReturnsNull_WhenTimeoutExceeded()
+    {
+        // `sleep 30` with a 100ms timeout should be killed
+        var result = CopilotService.RunProcessWithTimeout("sleep", new[] { "30" }, 100);
+        Assert.Null(result);
+    }
+
     // ===== IsConnectionError now catches auth errors =====
 
     [Theory]

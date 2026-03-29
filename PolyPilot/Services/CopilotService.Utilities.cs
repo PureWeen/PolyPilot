@@ -843,10 +843,11 @@ public partial class CopilotService
     /// <summary>
     /// Checks the CLI server's authentication status via the SDK and surfaces a
     /// dismissible banner if the server is not authenticated.
+    /// Returns true if authenticated, false otherwise.
     /// </summary>
-    private async Task CheckAuthStatusAsync()
+    private async Task<bool> CheckAuthStatusAsync()
     {
-        if (IsDemoMode || IsRemoteMode || _client == null) return;
+        if (IsDemoMode || IsRemoteMode || _client == null) return false;
         try
         {
             var status = await _client.GetAuthStatusAsync();
@@ -859,6 +860,7 @@ public partial class CopilotService
                     OnStateChanged?.Invoke();
                 });
                 Debug($"[AUTH] Authenticated as {status.Login} via {status.AuthType}");
+                return true;
             }
             else
             {
@@ -869,6 +871,7 @@ public partial class CopilotService
                 });
                 Debug($"[AUTH] Not authenticated: {status.StatusMessage}");
                 StartAuthPolling();
+                return false;
             }
         }
         catch (Exception ex)
@@ -877,6 +880,7 @@ public partial class CopilotService
             // Treat a thrown exception (server not ready, transient error) as possibly unauthenticated
             // and start polling so the banner can appear once the server is reachable.
             StartAuthPolling();
+            return false;
         }
     }
 
@@ -904,6 +908,8 @@ public partial class CopilotService
                         if (status.IsAuthenticated)
                         {
                             Debug($"[AUTH-POLL] Auth detected ({status.Login}) — triggering server restart");
+                            // Re-resolve token in case it changed
+                            _resolvedGitHubToken = ResolveGitHubTokenForServer();
                             StopAuthPolling();
                             var recovered = await TryRecoverPersistentServerAsync();
                             if (recovered)
@@ -914,6 +920,16 @@ public partial class CopilotService
                                     _ = FetchGitHubUserInfoAsync();
                                     OnStateChanged?.Invoke();
                                 });
+                            }
+                            else
+                            {
+                                Debug("[AUTH-POLL] Server recovery failed — restarting polling");
+                                InvokeOnUI(() =>
+                                {
+                                    AuthNotice = "Authentication detected but server restart failed. Will retry...";
+                                    OnStateChanged?.Invoke();
+                                });
+                                StartAuthPolling();
                             }
                             return;
                         }
@@ -978,34 +994,11 @@ public partial class CopilotService
         }
 
         // 3. gh CLI fallback — works when the user authenticated via `gh auth login`
-        try
+        var ghToken = RunProcessWithTimeout("gh", new[] { "auth", "token" }, 5000);
+        if (ghToken != null)
         {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = "gh",
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                CreateNoWindow = true
-            };
-            psi.ArgumentList.Add("auth");
-            psi.ArgumentList.Add("token");
-
-            using var proc = System.Diagnostics.Process.Start(psi);
-            if (proc != null)
-            {
-                var token = proc.StandardOutput.ReadToEnd().Trim();
-                proc.WaitForExit(5000);
-                if (proc.ExitCode == 0 && !string.IsNullOrEmpty(token))
-                {
-                    Console.WriteLine("[AUTH] Resolved token from `gh auth token`");
-                    return token;
-                }
-            }
-        }
-        catch
-        {
-            // gh CLI not available — that's fine
+            Console.WriteLine("[AUTH] Resolved token from `gh auth token`");
+            return ghToken;
         }
 
         Console.WriteLine("[AUTH] No GitHub token could be resolved for server forwarding");
@@ -1023,38 +1016,51 @@ public partial class CopilotService
         // has changed across CLI versions. We try all known names (most common first).
         foreach (var serviceName in new[] { "copilot-cli", "github-copilot", "GitHub Copilot" })
         {
-            try
-            {
-                var psi = new System.Diagnostics.ProcessStartInfo
-                {
-                    FileName = "security",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-                // find-generic-password -s <service> -w  → prints just the password
-                // Omitting -a (account) matches the first entry for this service,
-                // which is correct for the common single-account case.
-                psi.ArgumentList.Add("find-generic-password");
-                psi.ArgumentList.Add("-s");
-                psi.ArgumentList.Add(serviceName);
-                psi.ArgumentList.Add("-w");
-
-                using var proc = System.Diagnostics.Process.Start(psi);
-                if (proc == null) continue;
-
-                var token = proc.StandardOutput.ReadToEnd().Trim();
-                proc.WaitForExit(3000);
-
-                if (proc.ExitCode == 0 && !string.IsNullOrEmpty(token))
-                    return token;
-            }
-            catch
-            {
-                // security CLI error or timeout — try next service name
-            }
+            var token = RunProcessWithTimeout("security",
+                new[] { "find-generic-password", "-s", serviceName, "-w" }, 3000);
+            if (token != null)
+                return token;
         }
         return null;
+    }
+
+    /// <summary>
+    /// Runs a process with a timeout, returning trimmed stdout on success or null on failure/timeout.
+    /// Kills the process if it exceeds the timeout to prevent zombies.
+    /// </summary>
+    internal static string? RunProcessWithTimeout(string fileName, string[] args, int timeoutMs)
+    {
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = fileName,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+            foreach (var arg in args)
+                psi.ArgumentList.Add(arg);
+
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc == null) return null;
+
+            // Read output asynchronously with timeout to prevent blocking on
+            // ACL dialogs (security) or network hangs (gh)
+            var readTask = proc.StandardOutput.ReadToEndAsync();
+            if (!proc.WaitForExit(timeoutMs))
+            {
+                try { proc.Kill(); } catch { }
+                return null;
+            }
+            // Process exited within timeout — ReadToEndAsync should complete quickly
+            var output = readTask.GetAwaiter().GetResult().Trim();
+            return proc.ExitCode == 0 && !string.IsNullOrEmpty(output) ? output : null;
+        }
+        catch
+        {
+            return null;
+        }
     }
 }

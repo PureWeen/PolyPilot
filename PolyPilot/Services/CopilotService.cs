@@ -299,9 +299,12 @@ public partial class CopilotService : IAsyncDisposable
     public string? AuthNotice { get; private set; }
     public void ClearAuthNotice()
     {
-        AuthNotice = null;
         StopAuthPolling();
-        InvokeOnUI(() => OnStateChanged?.Invoke());
+        InvokeOnUI(() =>
+        {
+            AuthNotice = null;
+            OnStateChanged?.Invoke();
+        });
     }
 
     /// <summary>Returns the full `copilot login` command using the resolved CLI path.</summary>
@@ -324,8 +327,8 @@ public partial class CopilotService : IAsyncDisposable
         var recovered = await TryRecoverPersistentServerAsync();
         if (recovered)
         {
-            await CheckAuthStatusAsync();
-            if (AuthNotice == null)
+            var isAuthenticated = await CheckAuthStatusAsync();
+            if (isAuthenticated)
             {
                 Debug("[AUTH] Re-authentication successful");
                 _ = FetchGitHubUserInfoAsync();
@@ -333,11 +336,7 @@ public partial class CopilotService : IAsyncDisposable
             else
             {
                 Debug("[AUTH] Server restarted but still not authenticated");
-                InvokeOnUI(() =>
-                {
-                    AuthNotice = "Server restarted but still not authenticated. Please ensure `copilot login` completed successfully and try again.";
-                    OnStateChanged?.Invoke();
-                });
+                // CheckAuthStatusAsync already set AuthNotice and started polling
             }
         }
         else
@@ -345,6 +344,7 @@ public partial class CopilotService : IAsyncDisposable
             InvokeOnUI(() =>
             {
                 AuthNotice = "Server restart failed — please try running `copilot login` again.";
+                StartAuthPolling();
                 OnStateChanged?.Invoke();
             });
         }
@@ -1188,6 +1188,7 @@ public partial class CopilotService : IAsyncDisposable
         IsDemoMode = false;
         FallbackNotice = null; // Clear any previous fallback notice
         AuthNotice = null; // Clear any previous auth notice
+        _resolvedGitHubToken = null; // Force re-resolve on next server start
         StopAuthPolling();
         CurrentMode = settings.Mode;
         CodespacesEnabled = settings.CodespacesEnabled && settings.Mode == ConnectionMode.Embedded;
