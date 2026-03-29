@@ -48,3 +48,4 @@ screenshot_*.png
 *.screenshot.png
 *.bmp
 *.tiff
+app.db
