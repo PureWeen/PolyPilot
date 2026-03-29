@@ -3345,6 +3345,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     };
                                                     // Mirror primary reconnect: reset tool tracking for new connection
                                                     siblingState.HasUsedToolsThisTurn = false;
+                                                    siblingState.HasDeferredIdle = false;
                                                     Interlocked.Exchange(ref siblingState.ActiveToolCallCount, 0);
                                                     Interlocked.Exchange(ref siblingState.SuccessfulToolCountThisTurn, 0);
                                                     Interlocked.Exchange(ref siblingState.ToolHealthStaleChecks, 0);
@@ -3536,6 +3537,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // inflates the watchdog timeout from 120s to 600s, making stuck
                     // sessions wait 5x longer than necessary to recover.
                     newState.HasUsedToolsThisTurn = false;
+                    newState.HasDeferredIdle = false;
                     Interlocked.Exchange(ref newState.ActiveToolCallCount, 0);
                     Interlocked.Exchange(ref newState.SuccessfulToolCountThisTurn, 0);
                     newState.IsMultiAgentSession = state.IsMultiAgentSession;
@@ -3571,6 +3573,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // Reset HasUsedToolsThisTurn so the retried turn starts with the default
                     // 120s watchdog tier instead of the inflated 600s from stale tool state.
                     state.HasUsedToolsThisTurn = false;
+                    state.HasDeferredIdle = false;
 
                     // Schedule persistence of the new session ID so it survives app restart.
                     // Without this, the debounced save captures the pre-reconnect snapshot
@@ -3632,6 +3635,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                     state.HasUsedToolsThisTurn = false;
+                    state.HasDeferredIdle = false;
                     Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                     state.Info.IsResumed = false;
                     state.Info.IsProcessing = false;
@@ -3654,6 +3658,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
+                state.HasDeferredIdle = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 state.Info.IsResumed = false;
                 state.Info.IsProcessing = false;
@@ -3804,6 +3809,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ProcessingPhase = 0;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
+        state.HasDeferredIdle = false;
         state.IsReconnectedSend = false; // INV-1: clear all per-turn flags on abort
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
         // Release send lock — allows a subsequent SteerSessionAsync to acquire it immediately
@@ -3911,6 +3917,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Debug($"[STEER-ERROR] '{sessionName}' soft steer SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
+                state.HasDeferredIdle = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 state.Info.IsResumed = false;
                 Interlocked.Exchange(ref state.SendingFlag, 0);
@@ -4196,6 +4203,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
                     state.HasUsedToolsThisTurn = false;
+                    state.HasDeferredIdle = false;
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                     Interlocked.Exchange(ref state.SendingFlag, 0);
                     state.Info.ProcessingStartedAt = null;

@@ -2084,6 +2084,7 @@ public partial class CopilotService
                 Interlocked.Exchange(ref state.WatchdogCaseBLastFileSize, 0);
                 Interlocked.Exchange(ref state.WatchdogCaseBStaleCount, 0);
                 state.HasUsedToolsThisTurn = false;
+                state.HasDeferredIdle = false;
                 state.FallbackCanceledByTurnStart = false;
                 state.Info.IsResumed = false;
                 state.Info.ProcessingStartedAt = null;

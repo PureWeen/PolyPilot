@@ -2503,6 +2503,7 @@ public partial class CopilotService
             state.Info.IsProcessing = false;
             state.Info.IsResumed = false;
             state.HasUsedToolsThisTurn = false;
+            state.HasDeferredIdle = false;
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
             Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
@@ -2601,6 +2602,7 @@ public partial class CopilotService
             Interlocked.Exchange(ref state.SendingFlag, 0);
             // Clear stale tool flag so watchdog uses normal timeout if resend is skipped
             newState.HasUsedToolsThisTurn = false;
+            newState.HasDeferredIdle = false;
 
             // Replace in sessions dictionary BEFORE registering event handler
             // so HandleSessionEvent's isCurrentState check passes for the new state.
@@ -2638,6 +2640,7 @@ public partial class CopilotService
                 state.Info.IsProcessing = false;
                 state.Info.IsResumed = false;
                 state.HasUsedToolsThisTurn = false;
+                state.HasDeferredIdle = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
