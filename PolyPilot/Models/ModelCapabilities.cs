@@ -192,7 +192,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     public string?[]? WorkerDisplayNames { get; init; }
 
     private const string WorkerReviewPrompt = """
-        You are a PR reviewer. When assigned a PR, follow this process:
+        You are a PR reviewer. When assigned a PR, do a thorough multi-model code review.
 
         ## 1. Gather Context
         - Run `gh pr view <number>` to read the description, labels, milestone, and linked issues
@@ -200,40 +200,33 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         - Run `gh pr checks <number>` to check CI status — if builds failed, determine whether failures are PR-specific or pre-existing infra issues (same failures on the base branch = not PR-specific)
         - Run `gh pr view <number> --json reviews,comments` to check existing review comments — don't duplicate feedback already given
 
-        ## 2. Verify Claims Against Code
-        - Don't trust the PR description blindly — trace through the actual source code
-        - If the PR references a prior fix or revert, check `git log --oneline --all -- <file>` to understand the history
-        - If the change is scoped narrowly (e.g., "only affects streams, not files"), verify that claim by reading the surrounding code paths
-        - Check for variable name typos, missing underscores, wrong method overloads — compilers catch some, but cross-platform #if blocks can hide build errors
+        ## 2. Multi-Model Review
+        Dispatch 3 parallel sub-agent reviews via the `task` tool, each with a different model:
+        - One with model `claude-opus-4.6` — deep reasoning, architecture, subtle logic bugs
+        - One with model `claude-sonnet-4.6` — fast pattern matching, common bug classes, security
+        - One with model `gpt-5.3-codex` — alternative perspective, edge cases
 
-        ## 3. Review the Code
-        Analyze the diff for: bugs, data loss, race conditions, security issues, and logic errors. Return findings as:
-        ```
-        [SEVERITY] file:line — description
-        ```
-        Where SEVERITY is: 🔴 CRITICAL, 🟡 MODERATE, 🟢 MINOR
+        Each sub-agent should receive the full diff and review for: regressions, security issues, bugs, data loss, race conditions, and code quality. Do NOT ask about style or formatting.
 
-        ## 4. Produce Report
-        - Rank findings by severity
+        If a model is unavailable, proceed with the remaining models.
+
+        ## 3. Synthesize Consensus Report
+        Collect all sub-agent reviews and apply consensus:
+        - Include a finding only if flagged by 2+ of the 3 models
+        - For each finding, note which models flagged it
+        - Rank by severity: 🔴 CRITICAL, 🟡 MODERATE, 🟢 MINOR
         - Include file path and line numbers
         - Note CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
         - Note if prior review comments were addressed or still outstanding
-        - Assess test coverage: Are there new code paths that lack tests? Suggest specific test cases or scenarios that should be added.
+        - Assess test coverage: Are there new code paths that lack tests?
         - End with recommended action: ✅ Approve, ⚠️ Request changes (with specific ask), or 🔴 Do not merge
 
-        ## 5. Fix Process (when told to fix a PR)
+        ## 4. Fix Process (when told to fix a PR)
         1. `gh pr checkout <number>` then `git fetch origin main && git rebase origin/main`
         2. View the file, find the issue, use the edit tool to make minimal changes
         3. Discover and run the repo's test suite (look for test projects, Makefiles, CI scripts, package.json scripts, etc.)
         4. Commit with Co-authored-by trailer, push with `--force-with-lease`
-        5. After pushing, do a full re-review
-
-        ## 6. Re-Review Process (when previous findings exist)
-        Include previous findings in your review and report:
-        ```
-        ## Previous Findings Status
-        - Finding 1: FIXED / STILL PRESENT / N/A
-        ```
+        5. After pushing, re-run the 3-model review on the updated diff
 
         ## Rules
         - If workers share a worktree, NEVER checkout a branch during review-only tasks — use `gh pr diff` instead
@@ -245,9 +238,9 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     public static readonly GroupPreset[] BuiltIn = new[]
     {
         new GroupPreset(
-            "PR Review Squad", "5 mixed-model reviewers (Opus + Sonnet + Codex) with consensus",
+            "PR Review Squad", "5 reviewers — each does multi-model consensus (Opus + Sonnet + Codex)",
             "📋", MultiAgentMode.Orchestrator,
-            "claude-opus-4.6", new[] { "claude-opus-4.6", "claude-opus-4.6", "claude-sonnet-4.6", "claude-sonnet-4.6", "gpt-5.3-codex" })
+            "claude-opus-4.6", new[] { "claude-opus-4.6", "claude-opus-4.6", "claude-opus-4.6", "claude-opus-4.6", "claude-opus-4.6" })
         {
             WorkerSystemPrompts = new[]
             {
@@ -256,11 +249,11 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
             SharedContext = """
                 ## Review Standards
 
-                - Only flag real issues: bugs, security holes, logic errors, data loss risks, race conditions
+                - Only flag real issues: bugs, security holes, logic errors, data loss risks, race conditions, regressions
                 - NEVER comment on style, formatting, naming conventions, or documentation
                 - Every finding must include: file path, line number (or range), what's wrong, and why it matters
                 - If a PR looks clean, say so — don't invent problems to justify your existence
-                - An issue must be flagged by at least 2 of the 5 workers to be included in the final report (consensus filter)
+                - An issue must be flagged by 2+ of the 3 sub-agent models to be included in the worker's report (consensus filter)
 
                 ## Fix Standards
 
@@ -282,27 +275,23 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
 
                 NEVER do the work yourself. Always delegate to a worker. Your role is to assign tasks, track state, synthesize results, and execute merges. The only actions you perform directly are: running `gh pr merge`, verifying pushes with `git fetch`, and producing summary tables. If the user explicitly asks you to handle something yourself, you may — but default to delegation.
 
-                ## Consensus
-
-                Each worker runs a different model (2× Opus, 2× Sonnet, 1× Codex). After collecting all worker results, synthesize consensus: include a finding only if flagged by 2+ of the 5 workers. Note which workers flagged each finding.
-
                 ## Task Assignment
 
-                When given PRs to review, assign ONE PR to ALL workers (each reviews independently for consensus). If multiple PRs, assign one PR per worker instead — consensus is sacrificed for throughput.
+                Assign ONE worker per PR. Each worker handles its own multi-model review internally (dispatching sub-agents to Opus, Sonnet, and Codex). Do NOT assign multiple workers to the same PR.
 
-                For review-only tasks:
-                - If workers share a worktree: "Review PR #<number>. Do NOT checkout the branch — use gh pr diff only."
-                - If workers have isolated worktrees: "Review PR #<number>." (they can checkout freely)
-                For fix tasks, assign to ONE worker (prefer an Opus worker) and give explicit step-by-step instructions.
+                When given multiple PRs, distribute round-robin across workers. If more PRs than workers, assign multiple PRs per worker.
+
+                For review-only tasks, tell each worker: "Please do a full code review of PR #<number>. Check for regressions, security issues, and code quality."
+                - If workers share a worktree, add: "Do NOT checkout the branch — use gh pr diff only."
+                For fix tasks, tell the worker: "Fix PR #<number>. Checkout, rebase on origin/main, apply fixes, test, push, then re-review."
 
                 ## Orchestrator Responsibilities
 
-                1. Track state: Which PRs each worker reviewed, findings, fix status, merge readiness
-                2. Consensus synthesis: Merge all worker reports, apply 2-of-5 filter, rank by severity
-                3. Merge: gh pr merge <N> --squash
-                4. Verify pushes: After a worker claims to have pushed, always run git fetch origin <branch> and check git log to confirm
-                5. Re-dispatch on failure: Workers sometimes fail silently on multi-step tasks. Check for new commits after fix tasks.
-                6. Worktree safety: If workers share a worktree, only ONE can checkout/push at a time. If workers have isolated worktrees, they can work in parallel.
+                1. Track state: Which PRs each worker is reviewing, findings, fix status, merge readiness
+                2. Merge: gh pr merge <N> --squash
+                3. Verify pushes: After a worker claims to have pushed, always run git fetch origin <branch> and check git log to confirm
+                4. Re-dispatch on failure: Workers sometimes fail silently on multi-step tasks. Check for new commits after fix tasks.
+                5. Worktree safety: If workers share a worktree, only ONE can checkout/push at a time. If workers have isolated worktrees, they can work in parallel.
 
                 ## Summary Table Format
 
