@@ -58,12 +58,12 @@ public class ScheduledTaskService : IDisposable
 
     public IReadOnlyList<ScheduledTask> GetTasks()
     {
-        lock (_lock) return _tasks.ToList();
+        lock (_lock) return _tasks.Select(t => t.Clone()).ToList();
     }
 
     public ScheduledTask? GetTask(string id)
     {
-        lock (_lock) return _tasks.FirstOrDefault(t => t.Id == id);
+        lock (_lock) return _tasks.FirstOrDefault(t => t.Id == id)?.Clone();
     }
 
     public void AddTask(ScheduledTask task)
@@ -125,21 +125,22 @@ public class ScheduledTaskService : IDisposable
 
         try
         {
-            List<ScheduledTask> dueTasks;
+            List<string> dueTaskIds;
             var now = DateTime.UtcNow;
 
+            // Collect IDs only — do not hold task references across the lock boundary.
+            // ExecuteTaskAsync will re-fetch a fresh snapshot of each task under its own lock.
             lock (_lock)
             {
-                dueTasks = _tasks.Where(t => t.IsDue(now)).ToList();
+                dueTaskIds = _tasks.Where(t => t.IsDue(now)).Select(t => t.Id).ToList();
             }
 
-            if (dueTasks.Count > 0)
-                Console.WriteLine($"[ScheduledTask] Evaluation: {dueTasks.Count} task(s) due");
+            if (dueTaskIds.Count > 0)
+                Console.WriteLine($"[ScheduledTask] Evaluation: {dueTaskIds.Count} task(s) due");
 
-            foreach (var task in dueTasks)
+            foreach (var taskId in dueTaskIds)
             {
-                Console.WriteLine($"[ScheduledTask] Executing: {task.Name}");
-                await ExecuteTaskAsync(task, now);
+                await ExecuteTaskAsync(taskId, now);
             }
         }
         finally
@@ -148,9 +149,22 @@ public class ScheduledTaskService : IDisposable
         }
     }
 
-    /// <summary>Execute a single scheduled task.</summary>
-    internal async Task ExecuteTaskAsync(ScheduledTask task, DateTime utcNow)
+    /// <summary>
+    /// Execute a scheduled task by ID. Takes a snapshot of task data under lock so
+    /// async execution does not race with UI mutations or timer evaluations.
+    /// </summary>
+    internal async Task ExecuteTaskAsync(string taskId, DateTime utcNow)
     {
+        // Snapshot the task data under lock so we don't race with UpdateTask/SetEnabled
+        ScheduledTask snapshot;
+        lock (_lock)
+        {
+            var canonical = _tasks.FirstOrDefault(t => t.Id == taskId);
+            if (canonical == null) return; // task was deleted between evaluation and execution
+            snapshot = canonical.Clone();
+        }
+
+        Console.WriteLine($"[ScheduledTask] Executing: {snapshot.Name}");
         var run = new ScheduledTaskRun { StartedAt = utcNow };
 
         try
@@ -159,22 +173,22 @@ public class ScheduledTaskService : IDisposable
             {
                 run.Error = "CopilotService not initialized";
                 run.Success = false;
-                RecordRunAndSave(task, run);
+                RecordRunAndSave(taskId, run);
                 return;
             }
 
             string sessionName;
 
-            if (!string.IsNullOrEmpty(task.SessionName))
+            if (!string.IsNullOrEmpty(snapshot.SessionName))
             {
                 // Use existing session
-                sessionName = task.SessionName;
+                sessionName = snapshot.SessionName;
                 var sessions = _copilotService.GetAllSessions();
                 if (!sessions.Any(s => s.Name == sessionName))
                 {
                     run.Error = $"Session '{sessionName}' not found";
                     run.Success = false;
-                    RecordRunAndSave(task, run);
+                    RecordRunAndSave(taskId, run);
                     return;
                 }
             }
@@ -182,22 +196,22 @@ public class ScheduledTaskService : IDisposable
             {
                 // Create a new session for this run
                 var timestamp = utcNow.ToLocalTime().ToString("MMM dd HH:mm");
-                sessionName = $"⏰ {task.Name} ({timestamp})";
+                sessionName = $"⏰ {snapshot.Name} ({timestamp})";
                 try
                 {
-                    await _copilotService.CreateSessionAsync(sessionName, task.Model, task.WorkingDirectory);
+                    await _copilotService.CreateSessionAsync(sessionName, snapshot.Model, snapshot.WorkingDirectory);
                 }
                 catch (Exception ex)
                 {
                     run.Error = $"Failed to create session: {ex.Message}";
                     run.Success = false;
-                    RecordRunAndSave(task, run);
+                    RecordRunAndSave(taskId, run);
                     return;
                 }
             }
 
             run.SessionName = sessionName;
-            await _copilotService.SendPromptAsync(sessionName, task.Prompt);
+            await _copilotService.SendPromptAsync(sessionName, snapshot.Prompt);
 
             run.CompletedAt = DateTime.UtcNow;
             run.Success = true;
@@ -207,17 +221,29 @@ public class ScheduledTaskService : IDisposable
             run.CompletedAt = DateTime.UtcNow;
             run.Error = ex.Message;
             run.Success = false;
-            Console.WriteLine($"[ScheduledTask] Execution failed for '{task.Name}': {ex.Message}");
+            Console.WriteLine($"[ScheduledTask] Execution failed for '{snapshot.Name}': {ex.Message}");
         }
 
-        RecordRunAndSave(task, run);
+        RecordRunAndSave(taskId, run);
     }
 
-    private void RecordRunAndSave(ScheduledTask task, ScheduledTaskRun run)
+    /// <summary>
+    /// Convenience overload that accepts a task object (e.g., from "Run Now" in the UI).
+    /// Delegates to the ID-based overload so the canonical internal instance is always updated.
+    /// </summary>
+    internal Task ExecuteTaskAsync(ScheduledTask task, DateTime utcNow)
+        => ExecuteTaskAsync(task.Id, utcNow);
+
+    /// <summary>
+    /// Records a run on the canonical task instance (looked up by ID under lock) and persists.
+    /// Always operates on the internal task object so UI snapshots cannot corrupt state.
+    /// </summary>
+    private void RecordRunAndSave(string taskId, ScheduledTaskRun run)
     {
         lock (_lock)
         {
-            task.RecordRun(run);
+            var canonical = _tasks.FirstOrDefault(t => t.Id == taskId);
+            canonical?.RecordRun(run);
             SaveTasksLocked();
         }
         OnTasksChanged?.Invoke();

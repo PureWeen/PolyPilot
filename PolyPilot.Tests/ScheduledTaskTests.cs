@@ -752,4 +752,125 @@ public class ScheduledTaskTests
         // Should return the 3rd interval boundary (180 min after last run = 5 min ago)
         Assert.True(next!.Value <= now);
     }
+
+    // ── Clone / thread-safety tests ─────────────────────────────
+
+    [Fact]
+    public void Clone_ReturnsIndependentCopy()
+    {
+        var original = new ScheduledTask
+        {
+            Name = "Original",
+            Prompt = "Do something",
+            Schedule = ScheduleType.Weekly,
+            DaysOfWeek = new List<int> { 1, 3 },
+            RecentRuns = new List<ScheduledTaskRun>
+            {
+                new() { StartedAt = DateTime.UtcNow, Success = true }
+            }
+        };
+
+        var clone = original.Clone();
+
+        // Same data
+        Assert.Equal(original.Id, clone.Id);
+        Assert.Equal(original.Name, clone.Name);
+        Assert.Equal(original.Prompt, clone.Prompt);
+        Assert.Equal(original.DaysOfWeek, clone.DaysOfWeek);
+        Assert.Single(clone.RecentRuns);
+
+        // Mutating the clone must NOT affect the original
+        clone.Name = "Modified";
+        clone.DaysOfWeek.Add(5);
+        clone.RecentRuns.Add(new ScheduledTaskRun { StartedAt = DateTime.UtcNow, Success = false });
+
+        Assert.Equal("Original", original.Name);
+        Assert.Equal(2, original.DaysOfWeek.Count);
+        Assert.Single(original.RecentRuns);
+    }
+
+    [Fact]
+    public void GetTasks_ReturnsClones_MutationDoesNotAffectService()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var svc = CreateService();
+            svc.AddTask(new ScheduledTask { Name = "Test", Prompt = "p" });
+
+            var snapshot = svc.GetTasks()[0];
+            snapshot.Name = "Mutated by caller";
+
+            // Service must still have the original name
+            Assert.Equal("Test", svc.GetTasks()[0].Name);
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public void GetTask_ReturnsClone_MutationDoesNotAffectService()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var svc = CreateService();
+            var task = new ScheduledTask { Name = "Test", Prompt = "p" };
+            svc.AddTask(task);
+
+            var clone = svc.GetTask(task.Id);
+            Assert.NotNull(clone);
+            clone!.Name = "Mutated by caller";
+
+            Assert.Equal("Test", svc.GetTask(task.Id)!.Name);
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public async Task ExecuteTask_RecordsRunOnCanonicalInstance_NotStaleClone()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var svc = CreateService();
+            var task = new ScheduledTask { Name = "test", Prompt = "p" };
+            svc.AddTask(task);
+
+            // Get a stale snapshot
+            var staleClone = svc.GetTask(task.Id)!;
+
+            // Execute using the stale clone — should still update the canonical task
+            await svc.ExecuteTaskAsync(staleClone, DateTime.UtcNow);
+
+            // Canonical task in service should have the run recorded
+            var updated = svc.GetTask(task.Id);
+            Assert.NotNull(updated);
+            Assert.Single(updated!.RecentRuns);
+
+            // The stale clone should NOT have been updated (it's a snapshot)
+            Assert.Empty(staleClone.RecentRuns);
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
 }
