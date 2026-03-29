@@ -1984,25 +1984,30 @@ The user can also check configured servers with the /mcp command.
 
     /// <summary>
     /// Starts fleet mode (parallel subagent execution) for the given session with the provided prompt.
-    /// Returns true if the fleet was started successfully, false otherwise.
+    /// Returns (true, null) on success or (false, reason) on failure.
     /// </summary>
-    public async Task<bool> StartFleetAsync(string sessionName, string prompt)
+    public async Task<(bool Started, string? Error)> StartFleetAsync(string sessionName, string prompt)
     {
-        if (!_sessions.TryGetValue(sessionName, out var state) || state.Session == null)
-            return false;
+        if (!_sessions.TryGetValue(sessionName, out var state))
+            return (false, "Session not found.");
+
+        if (state.Session == null)
+            return (false, "Session is not connected (Session object is null).");
 
         if (state.Info.IsProcessing)
-            return false;
+            return (false, "Session is currently processing. Wait for it to finish.");
 
         try
         {
             var result = await state.Session.Rpc.Fleet.StartAsync(prompt, CancellationToken.None);
-            return result?.Started ?? false;
+            if (result?.Started == true)
+                return (true, null);
+            return (false, "CLI returned Started=false. Fleet mode may not be supported by this CLI version.");
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[Fleet] StartAsync failed for '{sessionName}': {ex.Message}");
-            return false;
+            Console.WriteLine($"[Fleet] StartAsync failed for '{sessionName}': {ex.Message}");
+            return (false, $"RPC error: {ex.Message}");
         }
     }
 
