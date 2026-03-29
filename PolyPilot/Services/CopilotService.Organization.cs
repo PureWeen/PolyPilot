@@ -81,6 +81,11 @@ public partial class CopilotService
     // so the model sees them in its conversation context.
     private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _reflectQueuedPrompts = new();
 
+    // Per-group queued user prompts for non-reflect Orchestrator mode.
+    // When a user sends a message while an orchestrator dispatch is running,
+    // the message is queued here and drained after the current dispatch completes.
+    private readonly ConcurrentDictionary<string, ConcurrentQueue<string>> _orchestratorQueuedPrompts = new();
+
     #region Session Organization (groups, pinning, sorting)
 
     public async Task<string> CreateMultiAgentGroupAsync(string groupName, string orchestratorModel, string workerModel, int workerCount, MultiAgentMode mode, string? systemPrompt = null)
@@ -1637,9 +1642,31 @@ public partial class CopilotService
         if (members.Count == 0) { Debug($"[DISPATCH] SendToMultiAgentGroupAsync: no members for group '{group.Name}'"); return; }
 
         // Serialize dispatches to the same group (bridge + event queue drain race).
-        // Callers wait their turn rather than being dropped.
+        // For Orchestrator mode: non-blocking check — queue if busy, with user feedback.
+        // For other modes: blocking wait (they complete quickly).
         var dispatchLock = _groupDispatchLocks.GetOrAdd(groupId, _ => new SemaphoreSlim(1, 1));
-        await dispatchLock.WaitAsync(cancellationToken);
+
+        if (group.OrchestratorMode == MultiAgentMode.Orchestrator)
+        {
+            if (!dispatchLock.Wait(0))
+            {
+                // Orchestrator is busy — queue the prompt and show feedback
+                var orchestratorName = GetOrchestratorSession(groupId);
+                Debug($"[DISPATCH] Orchestrator busy for group '{group.Name}' — queuing prompt for after current dispatch");
+                var queue = _orchestratorQueuedPrompts.GetOrAdd(groupId, _ => new ConcurrentQueue<string>());
+                queue.Enqueue(prompt);
+                if (orchestratorName != null)
+                {
+                    AddOrchestratorSystemMessage(orchestratorName,
+                        $"📨 New task queued (will be sent to orchestrator when current work completes): {prompt}");
+                }
+                return;
+            }
+        }
+        else
+        {
+            await dispatchLock.WaitAsync(cancellationToken);
+        }
 
         try
         {
@@ -1657,6 +1684,8 @@ public partial class CopilotService
 
                 case MultiAgentMode.Orchestrator:
                     await SendViaOrchestratorAsync(groupId, members, prompt, cancellationToken);
+                    // Drain any prompts queued while this dispatch was running
+                    await DrainOrchestratorQueueAsync(groupId, members, cancellationToken);
                     break;
 
                 case MultiAgentMode.OrchestratorReflect:
@@ -1676,9 +1705,38 @@ public partial class CopilotService
     }
 
     /// <summary>
-    /// Build a multi-agent context prefix for a session in a group.
-    /// Includes model info for each member so agents know each other's capabilities.
+    /// Drain queued user prompts that arrived while a non-reflect orchestrator dispatch was running.
+    /// Each queued prompt is sent to the orchestrator as a new task, which dispatches to available workers.
+    /// Called while still holding the dispatch lock, so no new dispatches can interleave.
     /// </summary>
+    private async Task DrainOrchestratorQueueAsync(string groupId, List<string> members, CancellationToken cancellationToken)
+    {
+        if (!_orchestratorQueuedPrompts.TryGetValue(groupId, out var queue))
+            return;
+
+        while (queue.TryDequeue(out var queuedPrompt))
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Debug($"[DISPATCH] Draining queued orchestrator prompt for group '{groupId}' (len={queuedPrompt.Length})");
+
+            try
+            {
+                await SendViaOrchestratorAsync(groupId, members, queuedPrompt, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                Debug($"[DISPATCH] Queued orchestrator prompt failed: {ex.GetType().Name}: {ex.Message}");
+                var orchestratorName = GetOrchestratorSession(groupId);
+                if (orchestratorName != null)
+                {
+                    AddOrchestratorSystemMessage(orchestratorName,
+                        $"⚠️ Failed to process queued task: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    /// <summary>
     private string BuildMultiAgentPrefix(string sessionName, SessionGroup group, List<string> allMembers)
     {
         var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
