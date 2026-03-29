@@ -430,13 +430,17 @@ public partial class CopilotService
                 Debug($"[RESUME-SKIP-ABORT] '{sessionName}' has unmatched tool starts but CLI is still active — NOT aborting");
                 // The CLI is still running tools — mark the session as processing so the UI
                 // shows it as busy. Set watchdog flags so it gets the longer tool timeout.
-                state.Info.IsProcessing = true;
-                state.Info.IsResumed = true;
-                state.HasUsedToolsThisTurn = true;
-                state.Info.ProcessingPhase = 3; // Working
-                state.Info.ProcessingStartedAt = DateTime.UtcNow;
-                StartProcessingWatchdog(state, sessionName);
-                NotifyStateChanged();
+                // INV-2: marshal to UI thread — EnsureSessionConnectedAsync runs from Task.Run.
+                InvokeOnUI(() =>
+                {
+                    state.Info.IsProcessing = true;
+                    state.Info.IsResumed = true;
+                    state.HasUsedToolsThisTurn = true;
+                    state.Info.ProcessingPhase = 3; // Working
+                    state.Info.ProcessingStartedAt = DateTime.UtcNow;
+                    StartProcessingWatchdog(state, sessionName);
+                    NotifyStateChanged();
+                });
             }
 
             Debug($"Lazy-resume complete: '{sessionName}'");
