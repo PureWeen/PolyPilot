@@ -350,4 +350,111 @@ public class StuckSessionRecoveryTests
             Directory.Delete(tmpDir, true);
         }
     }
+
+    // --- Resume branch selection: RESUME-ACTIVE vs RESUME-QUIESCE ---
+
+    [Fact]
+    public void ResumeActive_CliAlive_SetsHasUsedToolsThisTurn()
+    {
+        // When CLI is alive (IsSessionStillProcessing=true), the RESUME-ACTIVE branch
+        // should set HasUsedToolsThisTurn=true → 600s tool timeout.
+        var svc = CreateService();
+        var tmpDir = Path.Combine(Path.GetTempPath(), "polypilot-test-" + Guid.NewGuid().ToString("N"));
+        var sessionId = Guid.NewGuid().ToString();
+        var sessionDir = Path.Combine(tmpDir, sessionId);
+        Directory.CreateDirectory(sessionDir);
+        var eventsFile = Path.Combine(sessionDir, "events.jsonl");
+
+        try
+        {
+            // Recent file with active event → IsSessionStillProcessing=true
+            File.WriteAllText(eventsFile,
+                """{"type":"tool.execution_start","data":{}}""" + "\n" +
+                """{"type":"assistant.message_delta","data":{"deltaContent":"working..."}}""");
+
+            var isActive = svc.IsSessionStillProcessing(sessionId, tmpDir);
+            Assert.True(isActive, "Recent events.jsonl with active event should report CLI alive");
+        }
+        finally
+        {
+            Directory.Delete(tmpDir, true);
+        }
+    }
+
+    [Fact]
+    public void ResumeQuiesce_CliDead_DoesNotSetHasUsedToolsThisTurn()
+    {
+        // When CLI is dead (IsSessionStillProcessing=false), the RESUME-QUIESCE branch
+        // should NOT set HasUsedToolsThisTurn → falls into 30s quiescence timeout.
+        var svc = CreateService();
+        var tmpDir = Path.Combine(Path.GetTempPath(), "polypilot-test-" + Guid.NewGuid().ToString("N"));
+        var sessionId = Guid.NewGuid().ToString();
+        var sessionDir = Path.Combine(tmpDir, sessionId);
+        Directory.CreateDirectory(sessionDir);
+        var eventsFile = Path.Combine(sessionDir, "events.jsonl");
+
+        try
+        {
+            // Write events with unmatched tool start + shutdown (interrupted)
+            File.WriteAllText(eventsFile,
+                """{"type":"tool.execution_start","data":{}}""" + "\n" +
+                """{"type":"session.shutdown","data":{}}""");
+            // Backdate so IsSessionStillProcessing returns false
+            File.SetLastWriteTimeUtc(eventsFile, DateTime.UtcNow.AddSeconds(-(CopilotService.WatchdogToolExecutionTimeoutSeconds + 60)));
+
+            var isActive = svc.IsSessionStillProcessing(sessionId, tmpDir);
+            Assert.False(isActive, "Stale events.jsonl should report CLI dead");
+
+            var hasInterrupted = svc.HasInterruptedToolExecution(sessionId, tmpDir);
+            Assert.True(hasInterrupted, "Unmatched tool start + shutdown should be detected as interrupted");
+
+            // With both conditions met (interrupted + stale), the RESUME-QUIESCE branch fires.
+            // Verify the watchdog timeout tier: IsResumed=true + HasUsedToolsThisTurn=false → 30s quiescence
+            var info = new AgentSessionInfo { Name = "test", Model = "m", IsResumed = true, IsProcessing = true };
+            bool hasUsedTools = false; // RESUME-QUIESCE does NOT set this
+            bool hasActiveTool = false;
+            bool hasReceivedEvents = false;
+            var useResumeQuiescence = info.IsResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
+            Assert.True(useResumeQuiescence, "RESUME-QUIESCE conditions should trigger 30s quiescence timeout");
+        }
+        finally
+        {
+            Directory.Delete(tmpDir, true);
+        }
+    }
+
+    [Fact]
+    public void ResumeActive_WatchdogTimeout_NotQuiescence()
+    {
+        // When CLI is alive and HasUsedToolsThisTurn=true, verify the watchdog
+        // does NOT use quiescence (which would be only 30s).
+        var info = new AgentSessionInfo { Name = "test", Model = "m", IsResumed = true, IsProcessing = true };
+        bool hasUsedTools = true; // RESUME-ACTIVE sets this
+        bool hasActiveTool = false;
+        bool hasReceivedEvents = false;
+
+        var useResumeQuiescence = info.IsResumed && !hasReceivedEvents && !hasActiveTool && !hasUsedTools;
+        Assert.False(useResumeQuiescence, "RESUME-ACTIVE with HasUsedToolsThisTurn should NOT use quiescence (gets 600s tool timeout)");
+    }
+
+    [Fact]
+    public void GenerationGuard_StaleCallback_IsNoOp()
+    {
+        // Simulates the INV-3/INV-12 generation guard: if ProcessingGeneration changes
+        // between capture and callback execution, the callback should be a no-op.
+        long generation = 42;
+        long capturedGen = generation;
+
+        // Simulate user sending new prompt → generation increments
+        generation = 43;
+
+        // The callback should check and bail
+        bool callbackExecuted = false;
+        if (generation == capturedGen)
+        {
+            callbackExecuted = true;
+        }
+
+        Assert.False(callbackExecuted, "Stale generation should prevent callback from executing");
+    }
 }

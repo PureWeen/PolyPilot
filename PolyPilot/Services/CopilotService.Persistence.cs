@@ -436,7 +436,19 @@ public partial class CopilotService
                 }
                 else
                 {
-                    Debug($"[RESUME-QUIESCE] '{sessionName}' has unmatched tool starts but CLI is stale — 30s quiescence timeout");
+                    Debug($"[RESUME-QUIESCE] '{sessionName}' has unmatched tool starts but CLI is stale — clearing SDK tool state + 30s quiescence timeout");
+                    // CLI is dead — clear SDK-internal pending tool expectations so future
+                    // SendAsync calls aren't silently dropped. This is safe because the CLI
+                    // won't be delivering those tool results anyway.
+                    try
+                    {
+                        await copilotSession.AbortAsync(cancellationToken);
+                        Debug($"[RESUME-QUIESCE] '{sessionName}' abort sent to clear pending tool state");
+                    }
+                    catch (Exception abortEx)
+                    {
+                        Debug($"[RESUME-QUIESCE] '{sessionName}' abort failed (non-fatal): {abortEx.Message}");
+                    }
                     InvokeOnUI(() =>
                     {
                         if (Interlocked.Read(ref state.ProcessingGeneration) != gen) return;
