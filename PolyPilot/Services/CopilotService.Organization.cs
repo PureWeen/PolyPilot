@@ -1038,6 +1038,9 @@ public partial class CopilotService
 
         // Collect all worktree IDs for cleanup before removing metadata
         var worktreeIds = new HashSet<string>();
+
+        // Clean up orchestrator queue state for this group
+        _orchestratorQueuedPrompts.TryRemove(groupId, out _);
         if (group2?.WorktreeId != null) worktreeIds.Add(group2.WorktreeId);
         // CreatedWorktreeIds is the authoritative list (covers cases where session creation failed)
         if (group2?.CreatedWorktreeIds != null)
@@ -1929,19 +1932,33 @@ public partial class CopilotService
             // Bounded wait: if any worker is stuck, proceed with partial results
             // rather than blocking the entire orchestrator group indefinitely.
             var allDone = Task.WhenAll(workerTasks);
-            var timeout = Task.Delay(OrchestratorCollectionTimeout, cancellationToken);
+            // Use CancellationToken.None for the timeout delay — if the caller's token
+            // is cancelled, Task.WhenAny returns the cancelled allDone (not timeout),
+            // and OperationCanceledException propagates cleanly without entering the
+            // force-complete branch.
+            var timeout = Task.Delay(OrchestratorCollectionTimeout, CancellationToken.None);
             WorkerResult[] results;
             if (await Task.WhenAny(allDone, timeout) != allDone)
             {
                 Debug($"[DISPATCH] Orchestrator collection timeout ({OrchestratorCollectionTimeout.TotalMinutes}m) — force-completing stuck workers");
                 foreach (var a in assignments)
                 {
-                    if (_sessions.TryGetValue(a.WorkerName, out var ws) && ws.Info.IsProcessing)
+                    if (_sessions.TryGetValue(a.WorkerName, out var ws))
                     {
-                        Debug($"[DISPATCH] Force-completing stuck worker '{a.WorkerName}'");
-                        AddOrchestratorSystemMessage(a.WorkerName,
-                            "⚠️ Worker timed out — orchestrator is proceeding with partial results.");
-                        await ForceCompleteProcessingAsync(a.WorkerName, ws, $"orchestrator collection timeout ({OrchestratorCollectionTimeout.TotalMinutes}m)");
+                        if (ws.Info.IsProcessing)
+                        {
+                            Debug($"[DISPATCH] Force-completing stuck worker '{a.WorkerName}'");
+                            AddOrchestratorSystemMessage(a.WorkerName,
+                                "⚠️ Worker timed out — orchestrator is proceeding with partial results.");
+                            await ForceCompleteProcessingAsync(a.WorkerName, ws, $"orchestrator collection timeout ({OrchestratorCollectionTimeout.TotalMinutes}m)");
+                        }
+                        else if (ws.ResponseCompletion?.Task.IsCompleted == false)
+                        {
+                            // Worker hasn't started processing yet (e.g., stuck in SendAsync).
+                            // Resolve the TCS so ExecuteWorkerAsync unblocks.
+                            Debug($"[DISPATCH] Resolving TCS for non-processing worker '{a.WorkerName}'");
+                            ws.ResponseCompletion?.TrySetResult("(worker timed out — never started processing)");
+                        }
                     }
                 }
                 // Collect results — all tasks should now be completed (force-completed or already done).
