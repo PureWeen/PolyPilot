@@ -186,6 +186,37 @@ public class ScheduledTask
         LastRunAt = run.StartedAt;
     }
 
+    /// <summary>
+    /// Returns a deep copy of this task, including all schedule fields and run history.
+    /// Used so callers (UI, tests) get an independent snapshot that cannot race with
+    /// the background timer mutating <see cref="RecentRuns"/> or <see cref="LastRunAt"/>.
+    /// </summary>
+    public ScheduledTask Clone() => new ScheduledTask
+    {
+        Id = Id,
+        Name = Name,
+        Prompt = Prompt,
+        SessionName = SessionName,
+        Model = Model,
+        WorkingDirectory = WorkingDirectory,
+        Schedule = Schedule,
+        IntervalMinutes = IntervalMinutes,
+        TimeOfDay = TimeOfDay,
+        DaysOfWeek = DaysOfWeek.ToList(),
+        CronExpression = CronExpression,
+        IsEnabled = IsEnabled,
+        CreatedAt = CreatedAt,
+        LastRunAt = LastRunAt,
+        RecentRuns = RecentRuns.Select(r => new ScheduledTaskRun
+        {
+            StartedAt = r.StartedAt,
+            CompletedAt = r.CompletedAt,
+            SessionName = r.SessionName,
+            Success = r.Success,
+            Error = r.Error
+        }).ToList()
+    };
+
     /// <summary>Human-readable schedule description for the UI.</summary>
     [JsonIgnore]
     public string ScheduleDescription
