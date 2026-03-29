@@ -2223,7 +2223,7 @@
         if (started)
             session.History.Add(ChatMessage.SystemMessage($"🚀 Fleet started for: *{arg}*"));
         else
-            session.History.Add(ChatMessage.ErrorMessage($"Failed to start fleet mode: {error}"));
+            session.History.Add(ChatMessage.ErrorMessage($"Failed to start fleet mode: {error ?? "Unknown error"}"));
     }
 
     private async Task HandlePromptCommand(string sessionName, AgentSessionInfo session, string arg)
