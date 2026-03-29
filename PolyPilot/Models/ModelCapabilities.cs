@@ -245,13 +245,13 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     public static readonly GroupPreset[] BuiltIn = new[]
     {
         new GroupPreset(
-            "PR Review Squad", "3 mixed-model reviewers (Opus + Sonnet + Codex) with consensus",
+            "PR Review Squad", "5 mixed-model reviewers (Opus + Sonnet + Codex) with consensus",
             "📋", MultiAgentMode.Orchestrator,
-            "claude-opus-4.6", new[] { "claude-opus-4.6", "claude-sonnet-4.6", "gpt-5.3-codex" })
+            "claude-opus-4.6", new[] { "claude-opus-4.6", "claude-opus-4.6", "claude-sonnet-4.6", "claude-sonnet-4.6", "gpt-5.3-codex" })
         {
             WorkerSystemPrompts = new[]
             {
-                WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt,
+                WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt, WorkerReviewPrompt,
             },
             SharedContext = """
                 ## Review Standards
@@ -260,7 +260,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 - NEVER comment on style, formatting, naming conventions, or documentation
                 - Every finding must include: file path, line number (or range), what's wrong, and why it matters
                 - If a PR looks clean, say so — don't invent problems to justify your existence
-                - An issue must be flagged by at least 2 of the 3 workers to be included in the final report (consensus filter)
+                - An issue must be flagged by at least 2 of the 5 workers to be included in the final report (consensus filter)
 
                 ## Fix Standards
 
@@ -284,7 +284,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
 
                 ## Consensus
 
-                Each worker runs a different model (Opus, Sonnet, Codex). After collecting all worker results, synthesize consensus: include a finding only if flagged by 2+ of the 3 workers. Note which workers flagged each finding.
+                Each worker runs a different model (2× Opus, 2× Sonnet, 1× Codex). After collecting all worker results, synthesize consensus: include a finding only if flagged by 2+ of the 5 workers. Note which workers flagged each finding.
 
                 ## Task Assignment
 
@@ -293,12 +293,12 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 For review-only tasks:
                 - If workers share a worktree: "Review PR #<number>. Do NOT checkout the branch — use gh pr diff only."
                 - If workers have isolated worktrees: "Review PR #<number>." (they can checkout freely)
-                For fix tasks, assign to ONE worker (prefer Opus) and give explicit step-by-step instructions.
+                For fix tasks, assign to ONE worker (prefer an Opus worker) and give explicit step-by-step instructions.
 
                 ## Orchestrator Responsibilities
 
                 1. Track state: Which PRs each worker reviewed, findings, fix status, merge readiness
-                2. Consensus synthesis: Merge all worker reports, apply 2-of-3 filter, rank by severity
+                2. Consensus synthesis: Merge all worker reports, apply 2-of-5 filter, rank by severity
                 3. Merge: gh pr merge <N> --squash
                 4. Verify pushes: After a worker claims to have pushed, always run git fetch origin <branch> and check git log to confirm
                 5. Re-dispatch on failure: Workers sometimes fail silently on multi-step tasks. Check for new commits after fix tasks.

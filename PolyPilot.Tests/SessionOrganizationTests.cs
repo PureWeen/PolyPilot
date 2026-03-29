@@ -2084,7 +2084,7 @@ public class GroupPresetTests
     {
         var prSquad = GroupPreset.BuiltIn.FirstOrDefault(p => p.Name == "PR Review Squad");
         Assert.NotNull(prSquad);
-        Assert.Equal(3, prSquad!.WorkerModels.Length);
+        Assert.Equal(5, prSquad!.WorkerModels.Length);
         Assert.Equal(MultiAgentMode.Orchestrator, prSquad.Mode);
         Assert.NotNull(prSquad.SharedContext);
         Assert.NotNull(prSquad.RoutingContext);
@@ -2527,7 +2527,7 @@ public class MultiAgentScenarioTests
         Assert.Equal("📋", prReview.Emoji);
         Assert.Equal(MultiAgentMode.Orchestrator, prReview.Mode);
         Assert.Equal("claude-opus-4.6", prReview.OrchestratorModel);
-        Assert.Equal(3, prReview.WorkerModels.Length);
+        Assert.Equal(5, prReview.WorkerModels.Length);
 
         // Step 4: System creates the group - verify the preset structure
         // (CopilotService.CreateGroupFromPresetAsync does the actual creation at runtime)
