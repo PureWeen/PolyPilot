@@ -1711,13 +1711,16 @@ public partial class CopilotService
     /// Drain queued user prompts that arrived while a non-reflect orchestrator dispatch was running.
     /// Each queued prompt is sent to the orchestrator as a new task, which dispatches to available workers.
     /// Called while still holding the dispatch lock, so no new dispatches can interleave.
+    /// Capped at 3 per cycle to prevent unbounded lock holding.
     /// </summary>
     private async Task DrainOrchestratorQueueAsync(string groupId, List<string> members, CancellationToken cancellationToken)
     {
         if (!_orchestratorQueuedPrompts.TryGetValue(groupId, out var queue))
             return;
 
-        while (queue.TryDequeue(out var queuedPrompt))
+        const int maxDrainPerCycle = 3;
+        int drained = 0;
+        while (drained < maxDrainPerCycle && queue.TryDequeue(out var queuedPrompt))
         {
             cancellationToken.ThrowIfCancellationRequested();
             Debug($"[DISPATCH] Draining queued orchestrator prompt for group '{groupId}' (len={queuedPrompt.Length})");
@@ -1735,6 +1738,19 @@ public partial class CopilotService
                     AddOrchestratorSystemMessage(orchestratorName,
                         $"⚠️ Failed to process queued task: {ex.Message}");
                 }
+            }
+            drained++;
+        }
+
+        // If there are still queued prompts, notify the user
+        if (queue.Count > 0)
+        {
+            Debug($"[DISPATCH] {queue.Count} queued prompt(s) remain after draining {drained} — will process on next cycle");
+            var orchName = GetOrchestratorSession(groupId);
+            if (orchName != null)
+            {
+                AddOrchestratorSystemMessage(orchName,
+                    $"📨 {queue.Count} queued message(s) remaining — will process after this cycle completes.");
             }
         }
     }
@@ -1914,6 +1930,7 @@ public partial class CopilotService
             // rather than blocking the entire orchestrator group indefinitely.
             var allDone = Task.WhenAll(workerTasks);
             var timeout = Task.Delay(OrchestratorCollectionTimeout, cancellationToken);
+            WorkerResult[] results;
             if (await Task.WhenAny(allDone, timeout) != allDone)
             {
                 Debug($"[DISPATCH] Orchestrator collection timeout ({OrchestratorCollectionTimeout.TotalMinutes}m) — force-completing stuck workers");
@@ -1924,17 +1941,23 @@ public partial class CopilotService
                         Debug($"[DISPATCH] Force-completing stuck worker '{a.WorkerName}'");
                         AddOrchestratorSystemMessage(a.WorkerName,
                             "⚠️ Worker timed out — orchestrator is proceeding with partial results.");
-                        InvokeOnUI(() =>
-                        {
-                            ws.ResponseCompletion?.TrySetResult(
-                                ws.CurrentResponse.Length > 0 ? ws.CurrentResponse.ToString() : "(worker timed out — no response)");
-                        });
+                        await ForceCompleteProcessingAsync(a.WorkerName, ws, $"orchestrator collection timeout ({OrchestratorCollectionTimeout.TotalMinutes}m)");
                     }
                 }
-                // Now all tasks should complete (force-completed or already done)
-                try { await allDone; } catch (OperationCanceledException) { }
+                // Collect results — all tasks should now be completed (force-completed or already done).
+                // Use try/catch since force-completed tasks may fault.
+                var partialResults = new List<WorkerResult>();
+                foreach (var t in workerTasks)
+                {
+                    try { partialResults.Add(await t); }
+                    catch (Exception ex) { partialResults.Add(new WorkerResult("unknown", null, false, $"Error: {ex.Message}", TimeSpan.Zero)); }
+                }
+                results = partialResults.ToArray();
             }
-            var results = await allDone;
+            else
+            {
+                results = await allDone;
+            }
 
             // After early dispatch, the orchestrator may still be doing tool work.
             await WaitForSessionIdleAsync(orchestratorName, cancellationToken);

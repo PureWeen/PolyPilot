@@ -2006,7 +2006,7 @@ The user can also check configured servers with the /mcp command.
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Fleet] StartAsync failed for '{sessionName}': {ex}");
+            Debug($"[Fleet] StartAsync failed for '{sessionName}': {ex.GetType().Name}: {ex.Message}");
             return (false, "RPC error communicating with CLI. Check logs for details.");
         }
     }
