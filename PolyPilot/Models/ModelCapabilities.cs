@@ -208,20 +208,31 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
 
         Each sub-agent should receive the full diff and review for: regressions, security issues, bugs, data loss, race conditions, and code quality. Do NOT ask about style or formatting.
 
-        If a model is unavailable, proceed with the remaining models.
+        If a model is unavailable, proceed with the remaining models. If only 1 model ran, include all its findings with a ⚠️ LOW CONFIDENCE disclaimer.
 
-        ## 3. Synthesize Consensus Report
-        Collect all sub-agent reviews and apply consensus:
-        - Include a finding only if flagged by 2+ models (if only 2 models ran, require both to agree)
-        - For each finding, note which models flagged it
-        - Rank by severity: 🔴 CRITICAL, 🟡 MODERATE, 🟢 MINOR
-        - Include file path and line numbers
-        - Note CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
+        ## 3. Adversarial Consensus
+        After collecting all sub-agent reviews:
+        - If all 3 models agree on a finding, include it immediately
+        - If only 1 model flagged a finding, share that finding with the other 2 models (dispatch follow-up sub-agents) and ask: "Model X found this issue — do you agree or disagree? Explain why."
+        - If after the adversarial round, 2+ models agree, include the finding. If still only 1 model, discard it (note in informational section)
+        - For findings where models disagree on severity, use the median severity
+
+        ## 4. Synthesize Final Report
+        Produce ONE comprehensive report with:
+        - Findings ranked by severity: 🔴 CRITICAL, 🟡 MODERATE, 🟢 MINOR
+        - For each finding: file path, line numbers, which models flagged it, what's wrong, why it matters
+        - CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
         - Note if prior review comments were addressed or still outstanding
         - Assess test coverage: Are there new code paths that lack tests?
         - End with recommended action: ✅ Approve, ⚠️ Request changes (with specific ask), or 🔴 Do not merge
 
-        ## 4. Fix Process (when told to fix a PR)
+        ## 5. Posting the Review
+        Post exactly ONE comment per review using `gh pr comment <number> --body "<report>"`.
+        - If you previously posted a comment on this PR, EDIT it instead: find your comment ID with `gh api repos/{owner}/{repo}/issues/{number}/comments` and update via `gh api repos/{owner}/{repo}/issues/comments/{id} -X PATCH -f body="<report>"`
+        - NEVER post multiple comments — always update/replace the existing one
+        - The comment should be self-contained: include all findings, consensus results, and recommendation in a single comment
+
+        ## 6. Fix Process (when told to fix a PR)
         1. `gh pr checkout <number>` then `git fetch origin main && git merge origin/main` (resolve any conflicts)
         2. View the file, find the issue, use the edit tool to make minimal changes
         3. Discover and run the repo's test suite (look for test projects, Makefiles, CI scripts, package.json scripts, etc.)
@@ -229,20 +240,21 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         5. Verify push landed: `git fetch origin <branch> && git log --oneline origin/<branch> -3` — confirm your commit appears
         6. If push didn't land, investigate and retry before reporting success
 
-        ## 5. Re-Review Process (when re-reviewing after fixes)
+        ## 7. Re-Review Process (when re-reviewing after fixes)
         Re-run the 3-model review on the updated diff. For each finding from the previous review, report status:
         - ✅ FIXED — the issue is resolved
         - ❌ STILL PRESENT — the issue remains
         - ⚠️ PARTIALLY FIXED — partially addressed, explain what remains
         - ➖ N/A — no longer applicable (code removed, etc.)
 
-        Include the previous findings table and append the new status column.
+        Update (EDIT, not add) your existing PR comment with the re-review results appended.
 
         ## Rules
         - If workers share a worktree, NEVER checkout a branch during review-only tasks — use `gh pr diff` instead
         - If each worker has its own isolated worktree, you may freely checkout branches for both review and fix tasks
         - Always include the FULL diff — never truncate
         - Use the edit tool for file changes, not sed
+        - NEVER post more than one comment on a PR — always edit/replace
         """;
 
     public static readonly GroupPreset[] BuiltIn = new[]
@@ -263,7 +275,8 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 - NEVER comment on style, formatting, naming conventions, or documentation
                 - Every finding must include: file path, line number (or range), what's wrong, and why it matters
                 - If a PR looks clean, say so — don't invent problems to justify your existence
-                - An issue must be flagged by 2+ sub-agent models to be included in the worker's report (if only 2 models ran, require both)
+                - An issue must survive adversarial consensus: if only 1 model flags it, the other models get a chance to agree/disagree before inclusion
+                - Post exactly ONE comment per PR — always edit/replace, never add multiple comments
 
                 ## Fix Standards
 

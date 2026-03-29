@@ -2095,13 +2095,15 @@ public class GroupPresetTests
         foreach (var model in prSquad.WorkerModels)
             Assert.Equal("claude-opus-4.6", model);
 
-        // Worker prompts must instruct multi-model sub-agent dispatch
+        // Worker prompts must instruct multi-model sub-agent dispatch and adversarial consensus
         foreach (var prompt in prSquad.WorkerSystemPrompts)
         {
             Assert.Contains("claude-opus-4.6", prompt);
             Assert.Contains("claude-sonnet-4.6", prompt);
             Assert.Contains("gpt-5.3-codex", prompt);
             Assert.Contains("task", prompt); // dispatch via task tool
+            Assert.Contains("Adversarial Consensus", prompt);
+            Assert.Contains("NEVER post more than one comment", prompt);
         }
 
         // Fix process must use merge, not rebase
