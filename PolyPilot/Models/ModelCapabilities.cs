@@ -222,11 +222,21 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         - End with recommended action: ✅ Approve, ⚠️ Request changes (with specific ask), or 🔴 Do not merge
 
         ## 4. Fix Process (when told to fix a PR)
-        1. `gh pr checkout <number>` then `git fetch origin main && git rebase origin/main`
+        1. `gh pr checkout <number>` then `git fetch origin main && git merge origin/main` (resolve any conflicts)
         2. View the file, find the issue, use the edit tool to make minimal changes
         3. Discover and run the repo's test suite (look for test projects, Makefiles, CI scripts, package.json scripts, etc.)
-        4. Commit with Co-authored-by trailer, push with `--force-with-lease`
-        5. After pushing, re-run the 3-model review on the updated diff
+        4. `git add <specific-files>` (NEVER `git add -A`), verify with `git status`, commit with Co-authored-by trailer, push
+        5. Verify push landed: `git fetch origin <branch> && git log --oneline origin/<branch> -3` — confirm your commit appears
+        6. If push didn't land, investigate and retry before reporting success
+
+        ## 5. Re-Review Process (when re-reviewing after fixes)
+        Re-run the 3-model review on the updated diff. For each finding from the previous review, report status:
+        - ✅ FIXED — the issue is resolved
+        - ❌ STILL PRESENT — the issue remains
+        - ⚠️ PARTIALLY FIXED — partially addressed, explain what remains
+        - ➖ N/A — no longer applicable (code removed, etc.)
+
+        Include the previous findings table and append the new status column.
 
         ## Rules
         - If workers share a worktree, NEVER checkout a branch during review-only tasks — use `gh pr diff` instead
@@ -257,10 +267,10 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
 
                 ## Fix Standards
 
-                - When fixing a PR: checkout, git rebase origin/main, apply minimal fixes, run tests, commit with Co-authored-by trailer, push
+                - When fixing a PR: checkout, git merge origin/main, apply minimal fixes, run tests, commit with Co-authored-by trailer, push
                 - After pushing fixes, always do a full re-review
                 - Include previous findings in re-review prompts so sub-agents can verify fix status
-                - Use --force-with-lease (never --force) when pushing rebased branches
+                - Verify push landed: git fetch origin <branch> && git log to confirm your commit appears
                 - Never git add -A blindly — use git add <specific-files> and check git status first
 
                 ## Operational Lessons
@@ -283,7 +293,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
 
                 For review-only tasks, tell each worker: "Please do a full code review of PR #<number>. Check for regressions, security issues, and code quality."
                 - If workers share a worktree, add: "Do NOT checkout the branch — use gh pr diff only."
-                For fix tasks, tell the worker: "Fix PR #<number>. Checkout, rebase on origin/main, apply fixes, test, push, then re-review."
+                For fix tasks, tell the worker: "Fix PR #<number>. Checkout, merge origin/main, apply fixes, test, push, then re-review."
 
                 ## Orchestrator Responsibilities
 

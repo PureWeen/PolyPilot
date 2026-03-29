@@ -2090,6 +2090,27 @@ public class GroupPresetTests
         Assert.NotNull(prSquad.RoutingContext);
         Assert.NotNull(prSquad.WorkerSystemPrompts);
         Assert.Equal(prSquad.WorkerModels.Length, prSquad.WorkerSystemPrompts!.Length);
+
+        // All 5 workers must be Opus (they dispatch sub-agents internally)
+        foreach (var model in prSquad.WorkerModels)
+            Assert.Equal("claude-opus-4.6", model);
+
+        // Worker prompts must instruct multi-model sub-agent dispatch
+        foreach (var prompt in prSquad.WorkerSystemPrompts)
+        {
+            Assert.Contains("claude-opus-4.6", prompt);
+            Assert.Contains("claude-sonnet-4.6", prompt);
+            Assert.Contains("gpt-5.3-codex", prompt);
+            Assert.Contains("task", prompt); // dispatch via task tool
+        }
+
+        // Fix process must use merge, not rebase
+        Assert.Contains("git merge", prSquad.SharedContext!);
+        Assert.DoesNotContain("git rebase", prSquad.SharedContext);
+        Assert.DoesNotContain("force-with-lease", prSquad.SharedContext);
+
+        // Routing must enforce 1 worker per PR
+        Assert.Contains("ONE worker per PR", prSquad.RoutingContext!);
     }
 
     [Fact]
