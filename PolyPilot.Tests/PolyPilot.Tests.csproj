@@ -100,6 +100,8 @@
     <Compile Include="../PolyPilot/Models/ExternalSessionInfo.cs" Link="Shared/ExternalSessionInfo.cs" />
     <Compile Include="../PolyPilot/Services/ExternalSessionScanner.cs" Link="Shared/ExternalSessionScanner.cs" />
     <Compile Include="../PolyPilot/Services/WindowFocusHelper.cs" Link="Shared/WindowFocusHelper.cs" />
+    <Compile Include="../PolyPilot/Models/ScheduledTask.cs" Link="Shared/ScheduledTask.cs" />
+    <Compile Include="../PolyPilot/Services/ScheduledTaskService.cs" Link="Shared/ScheduledTaskService.cs" />
   </ItemGroup>
 
   <ItemGroup>

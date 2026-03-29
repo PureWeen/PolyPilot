@@ -117,6 +117,7 @@ public static class MauiProgram
 	builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
 	builder.Services.AddSingleton<EfficiencyAnalysisService>();
 	builder.Services.AddSingleton<PrLinkService>();
+	builder.Services.AddSingleton<ScheduledTaskService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
