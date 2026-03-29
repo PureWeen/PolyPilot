@@ -38,7 +38,10 @@ public partial class CopilotService
     private static readonly TimeSpan WorkerExecutionTimeoutRemote = TimeSpan.FromMinutes(10);
     private static readonly Regex WorkerNamePattern = new(@"-[Ww]orker-\d+(-\d+)?$", RegexOptions.Compiled);
 
-    /// <summary>How long to poll for premature idle indicators after the initial TCS completes.
+    /// <summary>Maximum time the orchestrator waits for all workers to complete.
+    /// Shorter than WorkerExecutionTimeout — if a worker is stuck, the orchestrator
+    /// proceeds with partial results rather than blocking the group forever.</summary>
+    private static readonly TimeSpan OrchestratorCollectionTimeout = TimeSpan.FromMinutes(15);
     /// Checks both WasPrematurelyIdled flag (set by EVT-REARM) and events.jsonl freshness
     /// (CLI still writing events). The events.jsonl check catches cases where EVT-REARM
     /// takes 30-60s to fire.</summary>
@@ -1906,7 +1909,32 @@ public partial class CopilotService
                 if (workerTasks.Count < assignments.Count)
                     await Task.Delay(1000, cancellationToken);
             }
-            var results = await Task.WhenAll(workerTasks);
+
+            // Bounded wait: if any worker is stuck, proceed with partial results
+            // rather than blocking the entire orchestrator group indefinitely.
+            var allDone = Task.WhenAll(workerTasks);
+            var timeout = Task.Delay(OrchestratorCollectionTimeout, cancellationToken);
+            if (await Task.WhenAny(allDone, timeout) != allDone)
+            {
+                Debug($"[DISPATCH] Orchestrator collection timeout ({OrchestratorCollectionTimeout.TotalMinutes}m) — force-completing stuck workers");
+                foreach (var a in assignments)
+                {
+                    if (_sessions.TryGetValue(a.WorkerName, out var ws) && ws.Info.IsProcessing)
+                    {
+                        Debug($"[DISPATCH] Force-completing stuck worker '{a.WorkerName}'");
+                        AddOrchestratorSystemMessage(a.WorkerName,
+                            "⚠️ Worker timed out — orchestrator is proceeding with partial results.");
+                        InvokeOnUI(() =>
+                        {
+                            ws.ResponseCompletion?.TrySetResult(
+                                ws.CurrentResponse.Length > 0 ? ws.CurrentResponse.ToString() : "(worker timed out — no response)");
+                        });
+                    }
+                }
+                // Now all tasks should complete (force-completed or already done)
+                try { await allDone; } catch (OperationCanceledException) { }
+            }
+            var results = await allDone;
 
             // After early dispatch, the orchestrator may still be doing tool work.
             await WaitForSessionIdleAsync(orchestratorName, cancellationToken);

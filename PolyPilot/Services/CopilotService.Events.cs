@@ -233,7 +233,9 @@ public partial class CopilotService
             // JSON-RPC connection is alive, so future Case A resets are legitimate.
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
             Interlocked.Exchange(ref state.WatchdogCaseBResets, 0);
-            Interlocked.Exchange(ref state.WatchdogCaseBLastFileSize, 0);
+            // Don't reset WatchdogCaseBLastFileSize to 0 — keep the last known file size
+            // so when Case B first triggers after events stop, prevSize > 0 and the stale
+            // detection works on the first iteration instead of wasting a 180s cycle.
             Interlocked.Exchange(ref state.WatchdogCaseBStaleCount, 0);
             // Clear the reconnect flag — event stream is alive for this session.
             state.IsReconnectedSend = false;
