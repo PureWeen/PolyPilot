@@ -203,8 +203,8 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         ## 2. Multi-Model Review
         Dispatch 3 parallel sub-agent reviews via the `task` tool, each with a different model:
         - One with model `claude-opus-4.6` — deep reasoning, architecture, subtle logic bugs
-        - One with model `claude-sonnet-4.5` — fast pattern matching, common bug classes, security
-        - One with model `gpt-5.1-codex` — alternative perspective, edge cases
+        - One with model `claude-sonnet-4.6` — fast pattern matching, common bug classes, security
+        - One with model `gpt-5.3-codex` — alternative perspective, edge cases
 
         Each sub-agent should receive the full diff and review for: regressions, security issues, bugs, data loss, race conditions, and code quality. Do NOT ask about style or formatting.
 
