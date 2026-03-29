@@ -412,22 +412,43 @@ public partial class CopilotService
             // run 15-30+ minutes without writing to events.jsonl.
             if (wasResumed && HasInterruptedToolExecution(sessionId))
             {
-                Debug($"[RESUME-ACTIVE] '{sessionName}' has unmatched tool starts — marking as processing and waiting for events");
+                // Use CLI liveness to choose watchdog tier — never abort in either case.
                 // INV-2: marshal to UI thread — EnsureSessionConnectedAsync runs from Task.Run.
                 // INV-3/INV-12: capture generation to prevent stale callback from re-arming
                 // IsProcessing after a user-initiated turn has already completed.
+                bool cliStillActive = IsSessionStillProcessing(sessionId);
                 var gen = Interlocked.Read(ref state.ProcessingGeneration);
-                InvokeOnUI(() =>
+
+                if (cliStillActive)
                 {
-                    if (Interlocked.Read(ref state.ProcessingGeneration) != gen) return;
-                    state.Info.IsProcessing = true;
-                    state.Info.IsResumed = true;
-                    state.HasUsedToolsThisTurn = true;
-                    state.Info.ProcessingPhase = 3; // Working
-                    state.Info.ProcessingStartedAt = DateTime.UtcNow;
-                    StartProcessingWatchdog(state, sessionName);
-                    NotifyStateChanged();
-                });
+                    Debug($"[RESUME-ACTIVE] '{sessionName}' has unmatched tool starts and CLI is alive — 600s tool timeout");
+                    InvokeOnUI(() =>
+                    {
+                        if (Interlocked.Read(ref state.ProcessingGeneration) != gen) return;
+                        state.Info.IsProcessing = true;
+                        state.Info.IsResumed = true;
+                        state.HasUsedToolsThisTurn = true;
+                        state.Info.ProcessingPhase = 3; // Working
+                        state.Info.ProcessingStartedAt = DateTime.UtcNow;
+                        StartProcessingWatchdog(state, sessionName);
+                        NotifyStateChanged();
+                    });
+                }
+                else
+                {
+                    Debug($"[RESUME-QUIESCE] '{sessionName}' has unmatched tool starts but CLI is stale — 30s quiescence timeout");
+                    InvokeOnUI(() =>
+                    {
+                        if (Interlocked.Read(ref state.ProcessingGeneration) != gen) return;
+                        state.Info.IsProcessing = true;
+                        state.Info.IsResumed = true;
+                        // Do NOT set HasUsedToolsThisTurn — lets watchdog use 30s resume quiescence
+                        state.Info.ProcessingPhase = 3; // Working
+                        state.Info.ProcessingStartedAt = DateTime.UtcNow;
+                        StartProcessingWatchdog(state, sessionName);
+                        NotifyStateChanged();
+                    });
+                }
             }
 
             Debug($"Lazy-resume complete: '{sessionName}'");
