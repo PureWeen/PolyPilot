@@ -694,7 +694,7 @@ public partial class CopilotService : IAsyncDisposable
             message.StartsWith("[RECONNECT") || message.StartsWith("[UI-ERR") ||
             message.StartsWith("[DISPATCH") || message.StartsWith("[WATCHDOG") ||
             message.StartsWith("[HEALTH") || message.StartsWith("[ZERO-IDLE") ||
-            message.StartsWith("[PERMISSION") || message.StartsWith("[RESUME-ABORT") ||
+            message.StartsWith("[PERMISSION") || message.StartsWith("[RESUME-ACTIVE") || message.StartsWith("[RESUME-CHECK") ||
             message.StartsWith("[KEEPALIVE") || message.StartsWith("[ERROR") ||
             message.StartsWith("[ABORT") || message.StartsWith("[BRIDGE") ||
             message.StartsWith("[SYNC") ||

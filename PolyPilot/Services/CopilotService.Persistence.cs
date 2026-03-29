@@ -414,8 +414,12 @@ public partial class CopilotService
             {
                 Debug($"[RESUME-ACTIVE] '{sessionName}' has unmatched tool starts — marking as processing and waiting for events");
                 // INV-2: marshal to UI thread — EnsureSessionConnectedAsync runs from Task.Run.
+                // INV-3/INV-12: capture generation to prevent stale callback from re-arming
+                // IsProcessing after a user-initiated turn has already completed.
+                var gen = Interlocked.Read(ref state.ProcessingGeneration);
                 InvokeOnUI(() =>
                 {
+                    if (Interlocked.Read(ref state.ProcessingGeneration) != gen) return;
                     state.Info.IsProcessing = true;
                     state.Info.IsResumed = true;
                     state.HasUsedToolsThisTurn = true;

@@ -271,14 +271,14 @@ public partial class CopilotService
             var result = unmatchedStarts > 0 && (sawShutdown || !sawOnlyControlEvents);
             if (result)
             {
-                Debug($"[RESUME-ABORT] events.jsonl for '{sessionId}' has {unmatchedStarts} interrupted tool(s) " +
+                Debug($"[RESUME-CHECK] events.jsonl for '{sessionId}' has {unmatchedStarts} interrupted tool(s) " +
                       $"(shutdown={sawShutdown}, force-kill={!sawShutdown})");
             }
             return result;
         }
         catch (Exception ex)
         {
-            Debug($"[RESUME-ABORT] Failed to check events.jsonl for '{sessionId}': {ex.Message}");
+            Debug($"[RESUME-CHECK] Failed to check events.jsonl for '{sessionId}': {ex.Message}");
             return false;
         }
     }
