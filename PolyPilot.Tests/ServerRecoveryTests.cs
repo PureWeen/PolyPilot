@@ -161,13 +161,59 @@ public class ServerRecoveryTests
         Assert.True(token == null || token.Length > 0);
     }
 
+    private static readonly string[] TokenEnvVars = { "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN" };
+
     [Fact]
     public void ResolveGitHubTokenFromEnv_ReturnsNull_WhenNoEnvVarsSet()
     {
-        // Should return null gracefully — only checks env vars, no subprocess calls.
-        var token = CopilotService.ResolveGitHubTokenFromEnv();
-        // Can't assert null (test runner may have GH_TOKEN), but must not throw.
-        Assert.True(token == null || token.Length > 0);
+        // Save and clear all token env vars to isolate the test
+        var saved = TokenEnvVars.Select(v => (v, Environment.GetEnvironmentVariable(v))).ToArray();
+        try
+        {
+            foreach (var v in TokenEnvVars)
+                Environment.SetEnvironmentVariable(v, null);
+            Assert.Null(CopilotService.ResolveGitHubTokenFromEnv());
+        }
+        finally
+        {
+            foreach (var (v, val) in saved)
+                Environment.SetEnvironmentVariable(v, val);
+        }
+    }
+
+    [Fact]
+    public void ResolveGitHubTokenFromEnv_ReturnsToken_WhenEnvVarSet()
+    {
+        var saved = Environment.GetEnvironmentVariable("COPILOT_GITHUB_TOKEN");
+        try
+        {
+            Environment.SetEnvironmentVariable("COPILOT_GITHUB_TOKEN", "test-token-abc");
+            Assert.Equal("test-token-abc", CopilotService.ResolveGitHubTokenFromEnv());
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("COPILOT_GITHUB_TOKEN", saved);
+        }
+    }
+
+    [Fact]
+    public void ResolveGitHubTokenFromEnv_RespectsPrecedence()
+    {
+        // COPILOT_GITHUB_TOKEN should win over GH_TOKEN
+        var saved = TokenEnvVars.Select(v => (v, Environment.GetEnvironmentVariable(v))).ToArray();
+        try
+        {
+            foreach (var v in TokenEnvVars)
+                Environment.SetEnvironmentVariable(v, null);
+            Environment.SetEnvironmentVariable("GH_TOKEN", "gh-token");
+            Environment.SetEnvironmentVariable("COPILOT_GITHUB_TOKEN", "copilot-token");
+            Assert.Equal("copilot-token", CopilotService.ResolveGitHubTokenFromEnv());
+        }
+        finally
+        {
+            foreach (var (v, val) in saved)
+                Environment.SetEnvironmentVariable(v, val);
+        }
     }
 
     // ===== TryReadCopilotKeychainToken =====

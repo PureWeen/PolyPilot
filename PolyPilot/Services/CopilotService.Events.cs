@@ -2500,7 +2500,11 @@ public partial class CopilotService
                             Debug($"[SERVER-RECOVERY] {serviceTimeouts} consecutive watchdog timeouts — triggering persistent server recovery");
                             _ = Task.Run(async () =>
                             {
-                                try { await TryRecoverPersistentServerAsync(); }
+                                try
+                                {
+                                    var recovered = await TryRecoverPersistentServerAsync();
+                                    if (recovered) _ = CheckAuthStatusAsync();
+                                }
                                 catch (Exception recoverEx) { Debug($"[SERVER-RECOVERY] Background recovery failed: {recoverEx.Message}"); }
                             });
                         }

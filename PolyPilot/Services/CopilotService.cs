@@ -82,6 +82,7 @@ public partial class CopilotService : IAsyncDisposable
     private CancellationTokenSource? _codespaceHealthCts;
     private CancellationTokenSource? _authPollCts;
     private readonly object _authPollLock = new();
+    private readonly SemaphoreSlim _tokenResolutionLock = new(1, 1);
     private string? _resolvedGitHubToken;
     private Task? _codespaceHealthTask;
     // Cached dotfiles status — checked once when first SetupRequired state is encountered
@@ -742,7 +743,11 @@ public partial class CopilotService : IAsyncDisposable
         {
             Debug($"[HEALTH] Ping failed after resume/wake ({ex.Message}) — attempting persistent server recovery");
             if (CurrentMode == ConnectionMode.Persistent)
-                _ = Task.Run(() => TryRecoverPersistentServerAsync(), CancellationToken.None);
+                _ = Task.Run(async () =>
+                {
+                    var recovered = await TryRecoverPersistentServerAsync();
+                    if (recovered) _ = CheckAuthStatusAsync();
+                }, CancellationToken.None);
         }
     }
 
@@ -4763,6 +4768,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             try { await _client.DisposeAsync(); } catch { }
         }
         _recoveryLock.Dispose();
+        _tokenResolutionLock.Dispose();
     }
 
     private void StartExternalSessionScannerIfNeeded()

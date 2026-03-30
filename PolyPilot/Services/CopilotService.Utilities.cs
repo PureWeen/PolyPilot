@@ -879,37 +879,51 @@ public partial class CopilotService
                 // Lazy token resolution: if we haven't tried the full chain yet (Keychain + gh),
                 // do it now and auto-restart the server. This handles the case where the headless
                 // server can't access the Keychain on its own (macOS ACL restriction).
-                if (_resolvedGitHubToken == null)
+                // SemaphoreSlim(1,1) prevents concurrent callers from both triggering Keychain
+                // dialogs. Loser falls through to StartAuthPolling (correct — next poll retries).
+                // See .claude/skills/auth-token-safety/SKILL.md (INV-A2).
+                if (_resolvedGitHubToken == null && await _tokenResolutionLock.WaitAsync(0))
                 {
-                    var fullToken = await Task.Run(() => ResolveGitHubTokenForServer());
-                    if (fullToken != null)
+                    try
                     {
-                        Debug("[AUTH] Lazy token resolution found a token — restarting server with it");
-                        _resolvedGitHubToken = fullToken;
-                        var recovered = await TryRecoverPersistentServerAsync();
-                        if (recovered)
+                        // Double-check after acquiring lock — winner may have set it
+                        if (_resolvedGitHubToken == null)
                         {
-                            // Re-check auth after restart
-                            try
+                            var fullToken = await Task.Run(() => ResolveGitHubTokenForServer());
+                            if (fullToken != null)
                             {
-                                var recheck = await _client!.GetAuthStatusAsync();
-                                if (recheck.IsAuthenticated)
+                                Debug("[AUTH] Lazy token resolution found a token — restarting server with it");
+                                _resolvedGitHubToken = fullToken;
+                                var recovered = await TryRecoverPersistentServerAsync();
+                                if (recovered)
                                 {
-                                    InvokeOnUI(() =>
+                                    // Re-check auth after restart
+                                    try
                                     {
-                                        AuthNotice = null;
-                                        OnStateChanged?.Invoke();
-                                    });
-                                    Debug($"[AUTH] Authenticated after lazy restart as {recheck.Login}");
-                                    _ = FetchGitHubUserInfoAsync();
-                                    return true;
+                                        var recheck = await _client!.GetAuthStatusAsync();
+                                        if (recheck.IsAuthenticated)
+                                        {
+                                            InvokeOnUI(() =>
+                                            {
+                                                AuthNotice = null;
+                                                OnStateChanged?.Invoke();
+                                            });
+                                            Debug($"[AUTH] Authenticated after lazy restart as {recheck.Login}");
+                                            _ = FetchGitHubUserInfoAsync();
+                                            return true;
+                                        }
+                                    }
+                                    catch (Exception recheckEx)
+                                    {
+                                        Debug($"[AUTH] Re-check after lazy restart failed: {recheckEx.Message}");
+                                    }
                                 }
                             }
-                            catch (Exception recheckEx)
-                            {
-                                Debug($"[AUTH] Re-check after lazy restart failed: {recheckEx.Message}");
-                            }
                         }
+                    }
+                    finally
+                    {
+                        _tokenResolutionLock.Release();
                     }
                 }
 
