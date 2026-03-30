@@ -189,7 +189,13 @@ public class ProcessHelperTests
         Exception? unobservedException = null;
         EventHandler<UnobservedTaskExceptionEventArgs> handler = (sender, args) =>
         {
-            if (args.Exception?.InnerException is InvalidOperationException)
+            // Only capture exceptions from Process operations (HasExited/Kill).
+            // Other tests may leak unobserved tasks (e.g., "DB connection failed"
+            // from StubChatDatabase) — ignore those to avoid flaky cross-test pollution.
+            if (args.Exception?.InnerException is InvalidOperationException ioe
+                && (ioe.Message.Contains("process", StringComparison.OrdinalIgnoreCase)
+                    || ioe.Message.Contains("exited", StringComparison.OrdinalIgnoreCase)
+                    || ioe.Message.Contains("handle", StringComparison.OrdinalIgnoreCase)))
             {
                 unobservedException = args.Exception;
                 unobservedSignal.Set();
