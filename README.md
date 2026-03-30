@@ -60,7 +60,7 @@ Point each agent at a different repo or directory. Native folder pickers on macO
 Clone repositories, create branches and worktrees, and launch sessions — all from the sidebar. **Quick Branch + Session** creates a new branch and session in one click. **Named Branch + Session** lets you specify a branch name or PR number (`#123`). Worktrees are tracked, linked to sessions, and cleaned up automatically when sessions close.
 
 ### 🤖 Multi-Agent Presets & Squad Teams
-Launch pre-configured teams with one click. Built-in presets like **PR Review Squad** spin up an orchestrator plus multiple workers, each with their own model and role. Auto-discovers `.squad` and `.ai-team` directories in your repos for custom team definitions with agent charters and routing configs.
+Launch pre-configured teams with one click. Built-in presets like **PR Review Squad** spin up an orchestrator plus specialized workers — each internally dispatching parallel sub-agent reviews across multiple models (Opus, Sonnet, Codex) and synthesizing consensus reports. Auto-discovers `.squad` and `.ai-team` directories in your repos for custom team definitions with agent charters and routing configs.
 
 ### 🔀 Worktree Strategies
 Control how multi-agent teams share code:
@@ -72,10 +72,13 @@ Control how multi-agent teams share code:
 Groups, pinning, and multiple sort modes (Last Active, Created, A–Z, Manual) let you manage large fleets of agents without losing track. Collapsible groups keep things tidy.
 
 ### 🎉 Fiesta Mode — Multi-Machine Orchestration
-Discover and link other PolyPilot instances on your LAN. Start a "Fiesta" to fan out work to linked worker machines via `@mention` routing. Workers are discovered automatically and linked in Settings. Use `@worker-name` in your prompts to dispatch tasks to specific machines.
+Discover and link other PolyPilot instances on your LAN. Start a "Fiesta" to fan out work to linked worker machines via `@mention` routing. Workers are discovered automatically, or pair instantly with a compact pairing string or push-to-pair button in Settings. Use `@worker-name` in your prompts to dispatch tasks to specific machines.
 
 ### ⌨️ Slash Commands
-Built-in slash commands give you quick control without leaving the chat: `/help`, `/clear`, `/version`, `/compact`, `/new`, `/sessions`, `/rename`, `/diff`, `/status`, `/mcp`, `/plugin`.
+Built-in slash commands give you quick control without leaving the chat: `/help`, `/clear`, `/version`, `/compact`, `/new`, `/sessions`, `/rename`, `/diff`, `/status`, `/mcp`, `/plugin`, `/agent`.
+
+### 🤖 CLI Agent & Skill Visibility
+When the Copilot CLI invokes a specialized agent (code-review, security-review) or a skill plugin, PolyPilot surfaces it in the chat — see which agent is running, when it starts and finishes, and any errors. Use `/agent` to list, select, or deselect agents manually.
 
 ### 🔔 Smart Notifications
 Get notified when agents finish tasks, encounter errors, or need your attention — even when the app is in the background.
