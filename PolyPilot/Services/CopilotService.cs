@@ -974,7 +974,18 @@ public partial class CopilotService : IAsyncDisposable
 
         try
         {
-            await _client.StartAsync(cancellationToken);
+            // Timeout prevents hanging forever if the server is unresponsive
+            using var startCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            startCts.CancelAfter(TimeSpan.FromSeconds(30));
+            try
+            {
+                await _client.StartAsync(startCts.Token);
+            }
+            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+            {
+                // Our 30s timeout fired, not the caller's token — convert to a descriptive exception
+                throw new TimeoutException("Client StartAsync did not complete within 30 seconds — server may be unresponsive");
+            }
             IsInitialized = true;
             NeedsConfiguration = false;
             Debug($"Copilot client started in {settings.Mode} mode");
@@ -982,11 +993,13 @@ public partial class CopilotService : IAsyncDisposable
         }
         catch (OperationCanceledException) { throw; }
         catch (Exception ex) when (settings.Mode == ConnectionMode.Persistent
-            && ex.Message.Contains("version mismatch", StringComparison.OrdinalIgnoreCase))
+            && (ex.Message.Contains("version mismatch", StringComparison.OrdinalIgnoreCase)
+                || ex is TimeoutException))
         {
-            // The persistent server is running an older/newer protocol version than the SDK.
+            // The persistent server is unresponsive or running an older/newer protocol version.
             // Kill it, restart with the current CLI, and retry once.
-            Debug($"Protocol version mismatch with persistent server — restarting: {ex.Message}");
+            var reason = ex is TimeoutException ? "unresponsive (StartAsync timeout)" : "version mismatch";
+            Debug($"Persistent server {reason} — restarting: {ex.Message}");
             try { await _client.DisposeAsync(); } catch { }
             _client = null;
 
@@ -1021,7 +1034,7 @@ public partial class CopilotService : IAsyncDisposable
                     _client = null;
                     IsInitialized = false;
                     NeedsConfiguration = true;
-                    FallbackNotice = BuildServerFallbackNotice(null, Path.Combine(PolyPilotBaseDir, "event-diagnostics.log"), "version mismatch restart failed — reconnection failed", embeddedFallback: false);
+                    FallbackNotice = BuildServerFallbackNotice(null, Path.Combine(PolyPilotBaseDir, "event-diagnostics.log"), $"{reason} restart failed — reconnection failed", embeddedFallback: false);
                     OnStateChanged?.Invoke();
                     return;
                 }
@@ -1030,7 +1043,7 @@ public partial class CopilotService : IAsyncDisposable
             {
                 Debug("Server restart failed, falling back to Embedded mode");
                 CurrentMode = ConnectionMode.Embedded;
-                FallbackNotice = BuildServerFallbackNotice(null, Path.Combine(PolyPilotBaseDir, "event-diagnostics.log"), "had a version mismatch and couldn't restart");
+                FallbackNotice = BuildServerFallbackNotice(null, Path.Combine(PolyPilotBaseDir, "event-diagnostics.log"), $"had {reason} and couldn't restart");
                 var embeddedSettings = new ConnectionSettings { Mode = ConnectionMode.Embedded, Host = settings.Host, Port = settings.Port };
                 _client = CreateClient(embeddedSettings);
                 try
