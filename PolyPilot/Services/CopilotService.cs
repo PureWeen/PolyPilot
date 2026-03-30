@@ -311,7 +311,7 @@ public partial class CopilotService : IAsyncDisposable
     public string GetLoginCommand()
     {
         var cliPath = ResolveCopilotCliPath(_currentSettings?.CliSource ?? CliSourceMode.BuiltIn);
-        return string.IsNullOrEmpty(cliPath) ? "copilot login" : $"{cliPath} login";
+        return string.IsNullOrEmpty(cliPath) ? "copilot login" : $"\"{cliPath}\" login";
     }
 
     /// <summary>
@@ -322,8 +322,9 @@ public partial class CopilotService : IAsyncDisposable
     {
         StopAuthPolling();
         Debug("[AUTH] Re-authenticate requested — forcing server restart to pick up new credentials");
-        // Re-resolve the token in case the user just ran `copilot login` or `gh auth login`
-        _resolvedGitHubToken = ResolveGitHubTokenForServer();
+        // Re-resolve the token off the UI thread — spawns up to 4 child processes
+        // (3× security + 1× gh) which can block for their timeout durations.
+        _resolvedGitHubToken = await Task.Run(() => ResolveGitHubTokenForServer());
         var recovered = await TryRecoverPersistentServerAsync();
         if (recovered)
         {

@@ -1037,7 +1037,7 @@ public partial class CopilotService
                 FileName = fileName,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true,
+                RedirectStandardError = false, // Don't redirect — unused output fills pipe buffer and blocks
                 CreateNoWindow = true
             };
             foreach (var arg in args)
