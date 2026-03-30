@@ -901,6 +901,7 @@ public partial class CopilotService
                                         OnStateChanged?.Invoke();
                                     });
                                     Debug($"[AUTH] Authenticated after lazy restart as {recheck.Login}");
+                                    _ = FetchGitHubUserInfoAsync();
                                     return true;
                                 }
                             }
