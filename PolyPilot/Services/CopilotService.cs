@@ -4079,6 +4079,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Soft steer is only available for real SDK sessions (not demo/remote which lack CopilotSession).
         if (state.Info.IsProcessing && toolsActiveOrUsed && !IsDemoMode && !IsRemoteMode && state.Session != null)
         {
+            // Pre-check: if no SDK events have arrived in 30+ seconds, the connection is likely dead.
+            // Skip soft steer entirely and go straight to hard steer (abort + re-send with reconnect).
+            var secsSinceLastEvent = (DateTime.UtcNow.Ticks - Interlocked.Read(ref state.LastEventAtTicks)) / TimeSpan.TicksPerSecond;
+            if (secsSinceLastEvent > 30)
+            {
+                Debug($"[STEER-SKIP-SOFT] '{sessionName}' last SDK event was {secsSinceLastEvent}s ago — connection likely dead, going to hard steer");
+                // Fall through to hard steer below
+            }
+            else
+            {
             // Soft steer: inject into the current agentic turn via ImmediatePromptProcessor.
             // The current tool call(s) finish cleanly; the steering message is prepended to
             // the next LLM call within this turn, preserving full tool context.
@@ -4103,9 +4113,17 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             bool softSteerSucceeded = false;
             try
             {
-                // NOTE: No cancellationToken passed (implicitly CancellationToken.None).
-                // This is intentional — see issue #319 for the SDK RequestId serialization bug.
-                await state.Session.SendAsync(softSteerOptions);
+                // Timeout prevents hanging forever on a dead connection.
+                // 15s is shorter than the normal 60s SendAsync timeout since steer injection should be fast.
+                var sendTask = state.Session.SendAsync(softSteerOptions);
+                var completed = await Task.WhenAny(sendTask, Task.Delay(15_000));
+                if (completed != sendTask)
+                {
+                    // Observe the abandoned sendTask's exception to prevent UnobservedTaskException on GC.
+                    _ = sendTask.ContinueWith(static t => { _ = t.Exception; }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+                    throw new TimeoutException("Soft steer SendAsync did not complete within 15s — connection likely dead");
+                }
+                await sendTask; // propagate any exception
                 softSteerSucceeded = true;
                 // Write to DB only after successful send to avoid orphaned entries on connection errors.
                 if (!string.IsNullOrEmpty(state.Info.SessionId))
@@ -4141,6 +4159,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 state.HasDeferredIdle = false;
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 state.Info.IsResumed = false;
+                state.IsReconnectedSend = false; // INV-1 item 8: prevent stale 35s timeout on next watchdog start
                 Interlocked.Exchange(ref state.SendingFlag, 0);
                 // Clear IsProcessing BEFORE completing TCS (INV-O3)
                 state.Info.IsProcessing = false;
@@ -4166,7 +4185,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             if (softSteerSucceeded)
                 return;
             // Connection error was caught above — fall through to hard steer.
-        }
+            } // end else (connection not stale)
+        } // end if (soft steer eligible)
 
         // Hard steer: abort current streaming turn immediately, mark partial response as
         // interrupted, then start a fresh turn with the steering message.
