@@ -848,6 +848,12 @@ public partial class CopilotService
     /// Checks the CLI server's authentication status via the SDK and surfaces a
     /// dismissible banner if the server is not authenticated.
     /// Returns true if authenticated, false otherwise.
+    ///
+    /// On first auth failure (when no token has been resolved yet), performs a lazy
+    /// full token resolution (including Keychain) and auto-restarts the server.
+    /// This avoids preemptive Keychain reads at startup while still fixing auth
+    /// for users whose headless server can't access the Keychain.
+    /// See .claude/skills/auth-token-safety/SKILL.md (INV-A1, INV-A2).
     /// </summary>
     private async Task<bool> CheckAuthStatusAsync()
     {
@@ -868,12 +874,49 @@ public partial class CopilotService
             }
             else
             {
+                Debug($"[AUTH] Not authenticated: {status.StatusMessage}");
+
+                // Lazy token resolution: if we haven't tried the full chain yet (Keychain + gh),
+                // do it now and auto-restart the server. This handles the case where the headless
+                // server can't access the Keychain on its own (macOS ACL restriction).
+                if (_resolvedGitHubToken == null)
+                {
+                    var fullToken = await Task.Run(() => ResolveGitHubTokenForServer());
+                    if (fullToken != null)
+                    {
+                        Debug("[AUTH] Lazy token resolution found a token — restarting server with it");
+                        _resolvedGitHubToken = fullToken;
+                        var recovered = await TryRecoverPersistentServerAsync();
+                        if (recovered)
+                        {
+                            // Re-check auth after restart
+                            try
+                            {
+                                var recheck = await _client!.GetAuthStatusAsync();
+                                if (recheck.IsAuthenticated)
+                                {
+                                    InvokeOnUI(() =>
+                                    {
+                                        AuthNotice = null;
+                                        OnStateChanged?.Invoke();
+                                    });
+                                    Debug($"[AUTH] Authenticated after lazy restart as {recheck.Login}");
+                                    return true;
+                                }
+                            }
+                            catch (Exception recheckEx)
+                            {
+                                Debug($"[AUTH] Re-check after lazy restart failed: {recheckEx.Message}");
+                            }
+                        }
+                    }
+                }
+
                 InvokeOnUI(() =>
                 {
                     AuthNotice = "Not authenticated — run the login command below, then click Re-authenticate.";
                     OnStateChanged?.Invoke();
                 });
-                Debug($"[AUTH] Not authenticated: {status.StatusMessage}");
                 StartAuthPolling();
                 return false;
             }
@@ -912,8 +955,10 @@ public partial class CopilotService
                         if (status.IsAuthenticated)
                         {
                             Debug($"[AUTH-POLL] Auth detected ({status.Login}) — triggering server restart");
-                            // Re-resolve token in case it changed
-                            _resolvedGitHubToken = ResolveGitHubTokenForServer();
+                            // Use cached token only — do NOT call ResolveGitHubTokenForServer()
+                            // here. The polling loop runs every 10s; re-reading Keychain would
+                            // trigger a macOS password dialog on every cycle.
+                            // See .claude/skills/auth-token-safety/SKILL.md (INV-A2).
                             StopAuthPolling();
                             var recovered = await TryRecoverPersistentServerAsync();
                             if (recovered)
@@ -963,17 +1008,11 @@ public partial class CopilotService
     }
 
     /// <summary>
-    /// Attempts to resolve a GitHub token that can be forwarded to the headless server
-    /// via the GITHUB_TOKEN env var. This helps when the server can't access the macOS
-    /// Keychain (e.g., Keychain entry ACL blocks headless processes).
-    /// Checks, in order:
-    ///   1. COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN env vars
-    ///   2. macOS Keychain entry written by `copilot login` (service "copilot-cli" / "github-copilot")
-    ///   3. `gh auth token` if the gh CLI is installed and authenticated
+    /// Resolves a GitHub token from environment variables only (no Keychain, no subprocess).
+    /// Safe to call preemptively — never triggers a password dialog or blocks.
     /// </summary>
-    internal static string? ResolveGitHubTokenForServer()
+    internal static string? ResolveGitHubTokenFromEnv()
     {
-        // 1. Environment variables (same precedence as copilot CLI)
         foreach (var envVar in new[] { "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN" })
         {
             var val = Environment.GetEnvironmentVariable(envVar);
@@ -983,10 +1022,31 @@ public partial class CopilotService
                 return val;
             }
         }
+        return null;
+    }
+
+    /// <summary>
+    /// Full token resolution chain including macOS Keychain and gh CLI.
+    /// ⚠️ DANGEROUS: Keychain read triggers a macOS password dialog. Only call on
+    /// explicit user action (ReauthenticateAsync) or after confirmed auth failure.
+    /// Never call preemptively at startup or in automatic polling loops.
+    /// See .claude/skills/auth-token-safety/SKILL.md (INV-A1, INV-A2).
+    ///
+    /// Resolution order:
+    ///   1. COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN env vars (no prompt)
+    ///   2. macOS Keychain entry written by `copilot login` (⚠️ may prompt)
+    ///   3. `gh auth token` if the gh CLI is installed (no prompt)
+    /// </summary>
+    internal static string? ResolveGitHubTokenForServer()
+    {
+        // 1. Environment variables (same precedence as copilot CLI) — no prompt
+        var envToken = ResolveGitHubTokenFromEnv();
+        if (envToken != null) return envToken;
 
         // 2. macOS Keychain — `copilot login` stores the OAuth token here via keytar.node.
         //    The headless server process may not inherit the ACL for this entry, so we read
         //    it from the UI process (which has full login-keychain access) and forward it.
+        //    ⚠️ This triggers a macOS password dialog if PolyPilot isn't in the ACL.
         if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
         {
             var keychainToken = TryReadCopilotKeychainToken();

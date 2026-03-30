@@ -926,10 +926,12 @@ public partial class CopilotService : IAsyncDisposable
         // In Persistent mode, auto-start the server if not already running
         if (settings.Mode == ConnectionMode.Persistent)
         {
-            // Resolve a GitHub token that can be forwarded to the headless server.
-            // This handles the case where the Keychain entry created by `copilot login`
-            // is inaccessible to a headless process (macOS Keychain ACL restriction).
-            _resolvedGitHubToken ??= await Task.Run(() => ResolveGitHubTokenForServer());
+            // Only forward tokens from env vars at startup — no Keychain read (would
+            // trigger a macOS password dialog for every user). If the server can't
+            // self-authenticate, CheckAuthStatusAsync below will detect it and lazily
+            // resolve the full token chain (including Keychain) on first auth failure.
+            // See .claude/skills/auth-token-safety/SKILL.md (INV-A1).
+            _resolvedGitHubToken ??= ResolveGitHubTokenFromEnv();
 
             if (!_serverManager.CheckServerRunning("127.0.0.1", settings.Port))
             {

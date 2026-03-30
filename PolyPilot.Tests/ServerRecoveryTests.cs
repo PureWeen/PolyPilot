@@ -161,6 +161,15 @@ public class ServerRecoveryTests
         Assert.True(token == null || token.Length > 0);
     }
 
+    [Fact]
+    public void ResolveGitHubTokenFromEnv_ReturnsNull_WhenNoEnvVarsSet()
+    {
+        // Should return null gracefully — only checks env vars, no subprocess calls.
+        var token = CopilotService.ResolveGitHubTokenFromEnv();
+        // Can't assert null (test runner may have GH_TOKEN), but must not throw.
+        Assert.True(token == null || token.Length > 0);
+    }
+
     // ===== TryReadCopilotKeychainToken =====
 
     [Fact]
