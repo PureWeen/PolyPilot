@@ -97,7 +97,7 @@ public class TurnEndFallbackTests
     {
         // Verify the Task.Run+Task.Delay pattern does NOT fire when CTS is cancelled
         // before the delay elapses — simulating CancelTurnEndFallback() being called.
-        var fired = false;
+        var tcs = new TaskCompletionSource<bool>();
         using var cts = new CancellationTokenSource();
         var token = cts.Token;
 
@@ -106,14 +106,14 @@ public class TurnEndFallbackTests
             try
             {
                 await Task.Delay(100, token);
-                fired = true;
+                tcs.TrySetResult(true); // fired
             }
-            catch (OperationCanceledException) { /* expected */ }
+            catch (OperationCanceledException) { tcs.TrySetResult(false); }
         });
 
         // Cancel before the 100ms delay elapses
         cts.Cancel();
-        await Task.Delay(200);
+        var fired = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(fired, "Fallback timer must not fire when CTS is cancelled");
     }
@@ -122,21 +122,28 @@ public class TurnEndFallbackTests
     public async Task FallbackTimer_CancelledAfterIsCancellationRequestedCheck_DoesNotFire()
     {
         // Verify the explicit IsCancellationRequested guard inside the fallback closure.
-        // Simulates Task.Delay completing but the token being cancelled just before the guard.
-        var fired = false;
+        // Use a synchronization primitive to ensure cancel happens before the guard check.
+        var tcs = new TaskCompletionSource<bool>();
+        var readyToCheck = new TaskCompletionSource();
         using var cts = new CancellationTokenSource();
         var token = cts.Token;
 
         _ = Task.Run(async () =>
         {
             await Task.Delay(50); // unlinked delay — always completes
+            // Signal that we're about to check the guard
+            readyToCheck.TrySetResult();
+            // Small yield to let the main thread cancel
+            await Task.Delay(10);
             // Guard: explicit check mirrors the code in the real fallback
-            if (token.IsCancellationRequested) return;
-            fired = true;
+            if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
+            tcs.TrySetResult(true);
         });
 
-        cts.Cancel(); // cancel before the guard runs
-        await Task.Delay(150);
+        // Wait for the task to reach the guard area, then cancel
+        await readyToCheck.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        cts.Cancel();
+        var fired = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.False(fired, "Explicit IsCancellationRequested guard must prevent firing after cancel");
     }
@@ -172,26 +179,28 @@ public class TurnEndFallbackTests
         // Simulates: TurnEnd (tools used) starts timer -> TurnStart arrives -> cancels -> no fire
         var cts = new CancellationTokenSource();
         var token = cts.Token;
-        bool completeResponseFired = false;
+        var tcs = new TaskCompletionSource<bool>();
 
         var fallbackTask = Task.Run(async () =>
         {
             try
             {
-                await Task.Delay(50, token); // accelerated base delay (mirrors other tests in this file)
-                if (token.IsCancellationRequested) return;
-                await Task.Delay(100, token); // accelerated extended delay
-                if (token.IsCancellationRequested) return;
-                completeResponseFired = true;
+                await Task.Delay(200, token); // accelerated base delay
+                if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
+                await Task.Delay(200, token); // accelerated extended delay
+                if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
+                tcs.TrySetResult(true); // fired
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException) { tcs.TrySetResult(false); }
         });
 
-        await Task.Delay(50);
+        // Cancel well before the 200ms first delay completes
+        await Task.Delay(30);
         cts.Cancel();
         cts.Dispose();
         await fallbackTask;
-        Assert.False(completeResponseFired, "Fallback must not fire when cancelled by TurnStart");
+        var fired = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(fired, "Fallback must not fire when cancelled by TurnStart");
     }
 
     [Fact]
@@ -200,22 +209,22 @@ public class TurnEndFallbackTests
         // Simulates: TurnEnd (tools used) + no TurnStart + no SessionIdle -> fallback fires
         var cts = new CancellationTokenSource();
         var token = cts.Token;
-        bool completeResponseFired = false;
+        var tcs = new TaskCompletionSource<bool>();
 
         _ = Task.Run(async () =>
         {
             try
             {
                 await Task.Delay(50, token); // accelerated base delay
-                if (token.IsCancellationRequested) return;
+                if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
                 await Task.Delay(100, token); // accelerated extended delay
-                if (token.IsCancellationRequested) return;
-                completeResponseFired = true;
+                if (token.IsCancellationRequested) { tcs.TrySetResult(false); return; }
+                tcs.TrySetResult(true);
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException) { tcs.TrySetResult(false); }
         });
 
-        await Task.Delay(800);
-        Assert.True(completeResponseFired, "Fallback must fire when no TurnStart or SessionIdle arrives");
+        var fired = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(fired, "Fallback must fire when no TurnStart or SessionIdle arrives");
     }
 }
