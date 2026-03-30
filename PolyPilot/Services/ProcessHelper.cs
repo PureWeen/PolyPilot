@@ -47,10 +47,22 @@ public static class ProcessHelper
             if (!process.HasExited)
                 process.Kill(entireProcessTree);
         }
+        catch (UnauthorizedAccessException ex)
+        {
+            // Access denied — process belongs to another user or is protected.
+            // Log so the caller knows the process may still be running and holding ports.
+            Console.WriteLine($"[ProcessHelper] SafeKill: access denied for PID {TryGetPid(process)} — {ex.Message}");
+        }
         catch
         {
-            // Process already exited, disposed, or access denied — nothing to do
+            // Process already exited, disposed, or other transient error — nothing to do.
         }
+    }
+
+    private static int TryGetPid(Process process)
+    {
+        try { return process.Id; }
+        catch { return -1; }
     }
 
     /// <summary>

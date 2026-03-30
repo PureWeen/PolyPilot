@@ -354,12 +354,12 @@ public class FiestaPairingTests : IDisposable
         Assert.Equal(5, value);
     }
 
-    // ---- Test 8: 6th pending request is rejected (exceeds MaxPendingPairRequests) ----
+    // ---- Test 8: HandleIncomingPairHandshakeAsync rejects when at capacity ----
 
     [Fact]
-    public async Task ApprovePairRequest_SixthRequest_CannotBeApproved()
+    public async Task HandleIncomingPairHandshake_AtCapacity_SendsDenialAndSkipsDict()
     {
-        // Fill 5 slots directly so the 6th would be rejected.
+        // Fill 5 slots directly (MaxPendingPairRequests = 5)
         var dictField = typeof(FiestaService).GetField("_pendingPairRequests",
             BindingFlags.NonPublic | BindingFlags.Instance)!;
         var dict = (Dictionary<string, PendingPairRequest>)dictField.GetValue(_fiesta)!;
@@ -379,17 +379,66 @@ public class FiestaPairingTests : IDisposable
             };
         }
 
-        // Verify dict is at capacity
-        int count;
-        lock (dict) count = dict.Count;
-        Assert.Equal(5, count);
+        int countBefore;
+        lock (dict) countBefore = dict.Count;
+        Assert.Equal(5, countBefore);
 
-        // A 6th approve for a non-existent request returns false (it was never added)
-        var result = await _fiesta.ApprovePairRequestAsync("slot-never-added");
-        Assert.False(result);
+        // Build a FiestaPairRequest message for the 6th connection
+        const string overflowId = "slot-overflow";
+        var pairRequestPayload = new FiestaPairRequestPayload
+        {
+            RequestId = overflowId,
+            HostName = "overflow-host",
+            HostInstanceId = "overflow-inst"
+        };
+        var pairMsg = BridgeMessage.Create(BridgeMessageTypes.FiestaPairRequest, pairRequestPayload);
+        var msgBytes = System.Text.Encoding.UTF8.GetBytes(pairMsg.Serialize());
 
-        // Original 5 are still intact
-        lock (dict) Assert.Equal(5, dict.Count);
+        // Create a WebSocket that returns the pair request message on first ReceiveAsync,
+        // then captures whatever is sent back (should be Approved=false).
+        byte[]? responseBytes = null;
+        var responseSent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readCount = 0;
+        var overflowSocket = new CountingSendWebSocket(onSendAsync: (buf, _) =>
+        {
+            responseBytes = buf.Array![buf.Offset..(buf.Offset + buf.Count)];
+            responseSent.TrySetResult(true);
+            return Task.CompletedTask;
+        })
+        {
+            ReceiveAsyncOverride = (buffer, ct) =>
+            {
+                if (Interlocked.Increment(ref readCount) == 1)
+                {
+                    // Return the FiestaPairRequest message
+                    msgBytes.CopyTo(buffer.Array!, buffer.Offset);
+                    return Task.FromResult(new WebSocketReceiveResult(msgBytes.Length, WebSocketMessageType.Text, true));
+                }
+                // Subsequent reads: signal close
+                return Task.FromResult(new WebSocketReceiveResult(0, WebSocketMessageType.Close, true));
+            }
+        };
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await _fiesta.HandleIncomingPairHandshakeAsync(overflowSocket, "127.0.0.1", cts.Token);
+
+        // The overflow slot must NOT be in the pending dict
+        int countAfter;
+        lock (dict) countAfter = dict.Count;
+        Assert.Equal(5, countAfter);
+        lock (dict) Assert.False(dict.ContainsKey(overflowId), "Overflow request must not be in pending dict");
+
+        // Must have sent a denial
+        await Task.WhenAny(responseSent.Task, Task.Delay(3000));
+        Assert.True(responseSent.Task.IsCompleted, "Overflow request should receive a denial response");
+        Assert.NotNull(responseBytes);
+        var json = System.Text.Encoding.UTF8.GetString(responseBytes!);
+        var msg = JsonSerializer.Deserialize<BridgeMessage>(json,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        Assert.Equal(BridgeMessageTypes.FiestaPairResponse, msg?.Type);
+        var resp = msg?.GetPayload<FiestaPairResponsePayload>();
+        Assert.NotNull(resp);
+        Assert.False(resp!.Approved, "Overflow request must be denied");
     }
 
     // ---- Test 9: DenyPairRequest when TCS already resolved (timeout path) ----
@@ -427,11 +476,15 @@ public class FiestaPairingTests : IDisposable
 
     /// <summary>
     /// A WebSocket that counts calls to SendAsync and optionally delegates to a custom action.
+    /// ReceiveAsyncOverride can be set to control what ReadSingleMessageAsync receives.
     /// </summary>
     private sealed class CountingSendWebSocket : WebSocket
     {
         private readonly Func<ArraySegment<byte>, CancellationToken, Task> _onSendAsync;
         public int SendCount;
+
+        /// <summary>When set, ReceiveAsync delegates to this instead of returning Close.</summary>
+        public Func<ArraySegment<byte>, CancellationToken, Task<WebSocketReceiveResult>>? ReceiveAsyncOverride;
 
         public CountingSendWebSocket(Func<ArraySegment<byte>, CancellationToken, Task> onSendAsync)
             => _onSendAsync = onSendAsync;
@@ -445,7 +498,8 @@ public class FiestaPairingTests : IDisposable
         public override Task CloseAsync(WebSocketCloseStatus c, string? d, CancellationToken ct) => Task.CompletedTask;
         public override Task CloseOutputAsync(WebSocketCloseStatus c, string? d, CancellationToken ct) => Task.CompletedTask;
         public override Task<WebSocketReceiveResult> ReceiveAsync(ArraySegment<byte> buffer, CancellationToken ct)
-            => Task.FromResult(new WebSocketReceiveResult(0, WebSocketMessageType.Close, true));
+            => ReceiveAsyncOverride?.Invoke(buffer, ct)
+               ?? Task.FromResult(new WebSocketReceiveResult(0, WebSocketMessageType.Close, true));
 
         public override async Task SendAsync(ArraySegment<byte> buffer, WebSocketMessageType type, bool end, CancellationToken ct)
         {

@@ -982,9 +982,27 @@ public class FiestaService : IDisposable
         var safeName = SanitizeFiestaName(fiestaName);
         var baseDir = Path.GetFullPath(Path.Combine(CopilotService.BaseDir, "workspace"));
         var fullPath = Path.GetFullPath(Path.Combine(baseDir, safeName));
+
+        // Primary guard: reject paths that escape baseDir by path components (covers ".." attacks).
         var relativePath = Path.GetRelativePath(baseDir, fullPath);
         if (relativePath.StartsWith("..", StringComparison.Ordinal))
             throw new InvalidOperationException("Workspace path escapes the base directory.");
+
+        // Secondary guard: if the directory already exists, resolve symlinks and re-validate.
+        // Path.GetFullPath does NOT resolve symlinks, so a symlink inside the workspace tree
+        // could redirect to an arbitrary location. ResolveLinkTarget(returnFinalTarget: true)
+        // follows the full chain. Only needed when the directory exists (pre-created symlinks).
+        if (Directory.Exists(fullPath))
+        {
+            var resolved = Directory.ResolveLinkTarget(fullPath, returnFinalTarget: true)?.FullName;
+            if (resolved != null)
+            {
+                var resolvedRelative = Path.GetRelativePath(baseDir, resolved);
+                if (resolvedRelative.StartsWith("..", StringComparison.Ordinal))
+                    throw new InvalidOperationException("Workspace directory is a symlink that escapes the base directory.");
+            }
+        }
+
         return fullPath;
     }
 

@@ -350,8 +350,9 @@
                 @* Incoming pair requests (worker side) *@
                 @foreach (var req in FiestaService.PendingPairRequests)
                 {
+                    var secondsLeft = Math.Max(0, (int)(req.ExpiresAt - DateTime.UtcNow).TotalSeconds);
                     <div class="pair-request-banner">
-                        <p><strong>@req.HostName</strong> (<code>@req.RemoteIp</code>) wants to pair with this machine.</p>
+                        <p><strong>@req.HostName</strong> (<code>@req.RemoteIp</code>) wants to pair with this machine. <span class="pair-expiry">Expires in @secondsLeft s</span></p>
                         <div class="pair-request-actions">
                             <button class="start-btn" @onclick="() => ApproveFiestaPairRequest(req.RequestId)">Allow</button>
                             <button class="stop-btn" @onclick="() => DenyFiestaPairRequest(req.RequestId)">Deny</button>
