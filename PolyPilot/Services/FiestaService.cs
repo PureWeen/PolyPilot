@@ -646,42 +646,49 @@ public class FiestaService : IDisposable
                 return _bridgeServer.ServerPassword;
         }
 
-        // Slow path: load settings outside the lock so disk I/O doesn't block
-        // callers that read _pendingPairRequests or _linkedWorkers concurrently.
+        // Slow path: load settings outside the lock so steady-state pairing operations
+        // (which hold _stateLock for _pendingPairRequests / _linkedWorkers reads) are
+        // not blocked by disk I/O.
         var settings = ConnectionSettings.Load();
-
-        string password;
+        string candidatePassword;
         bool needsSave = false;
+
         if (!string.IsNullOrWhiteSpace(settings.ServerPassword))
         {
-            password = settings.ServerPassword;
+            candidatePassword = settings.ServerPassword;
         }
         else
         {
-            // Auto-generate a URL-safe Base64 token.
-            password = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(18))
-                              .Replace('+', '-').Replace('/', '_').TrimEnd('=');
-            settings.ServerPassword = password;
+            // Generate a candidate; the final winner is decided inside the lock below.
+            candidatePassword = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(18))
+                                       .Replace('+', '-').Replace('/', '_').TrimEnd('=');
             needsSave = true;
         }
 
-        if (needsSave)
-            settings.Save();
-
-        // Store back under lock.  A concurrent call may have already set it;
-        // accept either value as long as it's non-empty.
+        // Re-enter the lock to elect exactly one winner.
+        // If another thread already stored a password we use that.
+        // If we win, we also save — under the lock — so the disk write and the
+        // runtime state stay in sync even when two threads race here simultaneously.
+        string password;
         lock (_stateLock)
         {
-            if (string.IsNullOrWhiteSpace(_bridgeServer.ServerPassword))
+            if (!string.IsNullOrWhiteSpace(_bridgeServer.ServerPassword))
             {
-                _bridgeServer.ServerPassword = password;
-                if (needsSave)
-                    Console.WriteLine("[Fiesta] Auto-generated server password for pairing.");
+                // Another thread already set it — no save needed.
+                password = _bridgeServer.ServerPassword;
             }
             else
             {
-                // Another thread got here first — use whatever it stored.
-                password = _bridgeServer.ServerPassword;
+                password = candidatePassword;
+                _bridgeServer.ServerPassword = password;
+                if (needsSave)
+                {
+                    // Persist inside the lock so disk and runtime value are always the same.
+                    // This I/O happens only once per process lifetime (when no password existed).
+                    settings.ServerPassword = password;
+                    settings.Save();
+                    Console.WriteLine("[Fiesta] Auto-generated server password for pairing.");
+                }
             }
         }
 

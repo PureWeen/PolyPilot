@@ -459,38 +459,55 @@ public class ExternalSessionScannerTests : IDisposable
         var dir = Path.Combine(_sessionStateDir, sessionId);
         Directory.CreateDirectory(dir);
 
-        // Start a "dotnet" process with stdin redirected so it blocks until we kill it.
-        // Redirecting stdin keeps most processes alive until the input stream is closed.
-        using var child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("dotnet", "--help")
+        // Use a command guaranteed to run for much longer than the test:
+        // `dotnet repl` / `dotnet watch` aren't available everywhere, but
+        // reading stdin on a `dotnet` REPL-like loop works cross-platform.
+        // Simplest portable option: run `sleep` on Unix, `timeout` on Windows.
+        System.Diagnostics.Process child;
+        if (OperatingSystem.IsWindows())
         {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-        });
+            child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd", "/c timeout /t 60 /nobreak")
+            {
+                RedirectStandardOutput = true,
+                RedirectStandardInput = true,
+                UseShellExecute = false,
+            })!;
+        }
+        else
+        {
+            child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("sleep", "60")
+            {
+                UseShellExecute = false,
+            })!;
+        }
+
         Assert.NotNull(child);
 
-        // Write the lock file immediately — before the process has a chance to exit.
-        File.WriteAllText(Path.Combine(dir, $"inuse.{child.Id}.lock"), "");
-
-        // If `dotnet --help` already exited (very fast machine), skip rather than fail.
-        // This is the same spirit as the original test; we only assert when the race
-        // condition actually gives us a live process to detect.
-        if (child.HasExited)
+        try
         {
-            return; // Too fast — timing race; skip assertion.
+            File.WriteAllText(Path.Combine(dir, $"inuse.{child.Id}.lock"), "");
+
+            // `sleep 60` / `timeout /t 60` will not exit in the test window — no race guard needed.
+            Assert.False(child.HasExited, "Long-running child process should still be alive");
+
+            // FindActiveLockPid requires a dotnet/copilot/node/github process name.
+            // `sleep`/`cmd` won't pass that filter. We need to use the current test process instead.
+            // Verify the behaviour using the test process itself (definitely alive, name = "dotnet").
+            var testSessionId = Guid.NewGuid().ToString();
+            var testDir = Path.Combine(_sessionStateDir, testSessionId);
+            Directory.CreateDirectory(testDir);
+            var myPid = Environment.ProcessId;
+            File.WriteAllText(Path.Combine(testDir, $"inuse.{myPid}.lock"), "");
+
+            var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
+            var detectedPid = scanner.FindActiveLockPid(testDir);
+            Assert.Equal(myPid, detectedPid);
         }
-
-        var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
-        var detectedPid = scanner.FindActiveLockPid(dir);
-
-        // Only assert when we know the process is still alive — avoids the race where
-        // `dotnet --help` finishes between the lock write and FindActiveLockPid.
-        if (!child.HasExited)
+        finally
         {
-            Assert.Equal(child.Id, detectedPid);
+            if (!child.HasExited) child.Kill();
+            child.Dispose();
         }
-
-        if (!child.HasExited) child.Kill();
     }
 
     [Fact]

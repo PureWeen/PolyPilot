@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using PolyPilot.Models;
 using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
@@ -12,8 +13,11 @@ namespace PolyPilot.Tests;
 /// This has caused production data loss (squad groups destroyed) multiple times.
 ///
 /// This runs automatically via [ModuleInitializer] before any test executes.
-/// If you add new file paths to CopilotService, you MUST also clear them
-/// in SetBaseDirForTesting() or they will leak to the real filesystem.
+/// If you add new file paths to CopilotService or any service that persists state,
+/// you MUST also redirect them in Initialize() or they will leak to the real filesystem.
+///
+/// Currently isolated: CopilotService BaseDir/CaptureDir, RepoManager, AuditLogService,
+/// PromptLibraryService, FiestaService state file, ConnectionSettings settings file.
 /// </summary>
 internal static class TestSetup
 {
@@ -30,5 +34,6 @@ internal static class TestSetup
         AuditLogService.SetLogDirForTesting(Path.Combine(TestBaseDir, "audit_logs"));
         PromptLibraryService.SetUserPromptsDirForTesting(Path.Combine(TestBaseDir, "prompts"));
         FiestaService.SetStateFilePathForTesting(Path.Combine(TestBaseDir, "fiesta.json"));
+        ConnectionSettings.SetSettingsFilePathForTesting(Path.Combine(TestBaseDir, "settings.json"));
     }
 }

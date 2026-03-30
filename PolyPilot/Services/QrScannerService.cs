@@ -11,12 +11,14 @@ public class QrScannerService
 
     public Task<string?> ScanAsync()
     {
+        TaskCompletionSource<string?> captured;
         lock (_lock)
         {
             if (_tcs != null && !_tcs.Task.IsCompleted)
                 return _tcs.Task;
 
             _tcs = new TaskCompletionSource<string?>();
+            captured = _tcs; // capture inside lock — safe from field-swap races
         }
 
         MainThread.BeginInvokeOnMainThread(async () =>
@@ -28,20 +30,22 @@ public class QrScannerService
                 if (currentPage != null)
                     await currentPage.Navigation.PushModalAsync(scannerPage);
                 else
-                    _tcs?.TrySetResult(null);
+                    captured.TrySetResult(null);
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"[QrScanner] Error launching scanner: {ex}");
-                _tcs?.TrySetResult(null);
+                captured.TrySetResult(null);
             }
         });
 
-        return _tcs.Task;
+        return captured.Task;
     }
 
     internal void SetResult(string? value)
     {
-        _tcs?.TrySetResult(value);
+        TaskCompletionSource<string?>? current;
+        lock (_lock) current = _tcs;
+        current?.TrySetResult(value);
     }
 }

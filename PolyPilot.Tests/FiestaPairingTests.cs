@@ -297,56 +297,48 @@ public class FiestaPairingTests : IDisposable
     {
         // Create a fresh bridge server with NO pre-set password so the auto-generate
         // path in EnsureServerPassword is exercised.
+        // ConnectionSettings is already redirected to the test dir by TestSetup.Initialize(),
+        // so Load()/Save() will NOT touch ~/.polypilot/settings.json.
         var freshBridge = new WsBridgeServer();
         Assert.True(string.IsNullOrWhiteSpace(freshBridge.ServerPassword),
             "Precondition: ServerPassword must be empty before the test");
 
-        // Redirect Load()/Save() so we don't write to the real settings file
-        var tempSettings = Path.Combine(TestSetup.TestBaseDir, $"settings-{Guid.NewGuid():N}.json");
-        ConnectionSettings.SetSettingsFilePathForTesting(tempSettings);
+        var freshFiesta = new FiestaService(_copilot, freshBridge, new TailscaleService());
         try
         {
-            var freshFiesta = new FiestaService(_copilot, freshBridge, new TailscaleService());
-            try
+            const string requestId = "req-autopass-001";
+            var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var socket = new CountingSendWebSocket(onSendAsync: (_, _) => Task.CompletedTask);
+            var pending = new PendingPairRequest
             {
-                const string requestId = "req-autopass-001";
-                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-                var socket = new CountingSendWebSocket(onSendAsync: (_, _) => Task.CompletedTask);
-                var pending = new PendingPairRequest
-                {
-                    RequestId = requestId,
-                    HostName = "auto-host",
-                    HostInstanceId = "auto-id",
-                    RemoteIp = "127.0.0.1",
-                    Socket = socket,
-                    CompletionSource = tcs,
-                    ExpiresAt = DateTime.UtcNow.AddSeconds(60)
-                };
+                RequestId = requestId,
+                HostName = "auto-host",
+                HostInstanceId = "auto-id",
+                RemoteIp = "127.0.0.1",
+                Socket = socket,
+                CompletionSource = tcs,
+                ExpiresAt = DateTime.UtcNow.AddSeconds(60)
+            };
 
-                var dictField = typeof(FiestaService).GetField("_pendingPairRequests",
-                    BindingFlags.NonPublic | BindingFlags.Instance)!;
-                var dict = (Dictionary<string, PendingPairRequest>)dictField.GetValue(freshFiesta)!;
-                lock (dict) dict[requestId] = pending;
+            var dictField = typeof(FiestaService).GetField("_pendingPairRequests",
+                BindingFlags.NonPublic | BindingFlags.Instance)!;
+            var dict = (Dictionary<string, PendingPairRequest>)dictField.GetValue(freshFiesta)!;
+            lock (dict) dict[requestId] = pending;
 
-                var result = await freshFiesta.ApprovePairRequestAsync(requestId);
+            var result = await freshFiesta.ApprovePairRequestAsync(requestId);
 
-                // Should succeed and have auto-generated a non-empty password
-                Assert.True(result);
-                Assert.False(string.IsNullOrWhiteSpace(freshBridge.ServerPassword),
-                    "EnsureServerPassword should have set a non-empty password on the bridge server");
-                // Password should be URL-safe (no '+' or '/')
-                Assert.DoesNotContain("+", freshBridge.ServerPassword);
-                Assert.DoesNotContain("/", freshBridge.ServerPassword);
-            }
-            finally
-            {
-                freshFiesta.Dispose();
-                freshBridge.Dispose();
-            }
+            // Should succeed and have auto-generated a non-empty password
+            Assert.True(result);
+            Assert.False(string.IsNullOrWhiteSpace(freshBridge.ServerPassword),
+                "EnsureServerPassword should have set a non-empty password on the bridge server");
+            // Password should be URL-safe (no '+' or '/')
+            Assert.DoesNotContain("+", freshBridge.ServerPassword);
+            Assert.DoesNotContain("/", freshBridge.ServerPassword);
         }
         finally
         {
-            ConnectionSettings.SetSettingsFilePathForTesting(null);
+            freshFiesta.Dispose();
+            freshBridge.Dispose();
         }
     }
 
