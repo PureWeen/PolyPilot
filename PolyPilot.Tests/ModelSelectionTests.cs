@@ -64,6 +64,15 @@ public class ModelSelectionTests
     }
 
     [Theory]
+    [InlineData("Claude Opus 4.6 (1M Context)(Internal Only)", "claude-opus-4.6-1m")]
+    [InlineData("Claude Opus 4.6 (1M Context)", "claude-opus-4.6-1m")]
+    [InlineData("claude-opus-4.6-1m", "claude-opus-4.6-1m")]
+    public void NormalizeToSlug_DisplayName_With1MSuffix(string input, string expected)
+    {
+        Assert.Equal(expected, ModelHelper.NormalizeToSlug(input));
+    }
+
+    [Theory]
     [InlineData(null, "")]
     [InlineData("", "")]
     [InlineData("  ", "")]

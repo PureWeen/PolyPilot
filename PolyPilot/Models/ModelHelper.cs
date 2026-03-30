@@ -50,9 +50,11 @@ public static class ModelHelper
             return trimmed;
 
         // Strip parenthetical suffixes like "(Preview)", "(fast mode)", "(high)"
+        // Handle multiple parenthetical groups, e.g. "(1M Context)(Internal Only)"
         var parenIndex = trimmed.IndexOf('(');
         var baseName = parenIndex > 0 ? trimmed[..parenIndex].Trim() : trimmed;
-        var parenContent = parenIndex > 0 ? trimmed[parenIndex..].Trim('(', ')', ' ') : null;
+        // Collect all parenthetical content for suffix matching
+        var parenContent = parenIndex > 0 ? trimmed[parenIndex..] : null;
 
         // Lowercase and replace spaces with hyphens
         var slug = baseName.ToLowerInvariant().Replace(' ', '-');
@@ -66,10 +68,12 @@ public static class ModelHelper
         {
             var normalizedParen = parenContent.ToLowerInvariant().Replace(' ', '-');
             // Known suffix patterns that are part of the slug
-            if (normalizedParen == "preview")
+            if (normalizedParen.Contains("preview"))
                 slug += "-preview";
-            else if (normalizedParen == "fast-mode" || normalizedParen == "fast")
+            else if (normalizedParen.Contains("fast-mode") || normalizedParen.Contains("fast"))
                 slug += "-fast";
+            else if (normalizedParen.Contains("1m"))
+                slug += "-1m";
         }
 
         return slug;
