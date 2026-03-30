@@ -37,8 +37,19 @@ public class ServerManager : IServerManager
         try
         {
             using var client = new TcpClient();
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
-            client.ConnectAsync(host, port.Value, cts.Token).AsTask().GetAwaiter().GetResult();
+            // Use Task.WaitAny with a timeout task instead of CancellationTokenSource.
+            // CancellationTokenSource disposal while ConnectAsync is still running its
+            // internal cleanup can produce unobserved ObjectDisposedException tasks.
+            var connectTask = client.ConnectAsync(host, port.Value);
+            int index = Task.WaitAny(new[] { connectTask }, TimeSpan.FromSeconds(1));
+            if (index == -1)
+            {
+                // Timed out — observe any future exception to prevent unobserved task
+                _ = connectTask.ContinueWith(t => { _ = t.Exception; },
+                    TaskContinuationOptions.OnlyOnFaulted);
+                return false;
+            }
+            connectTask.GetAwaiter().GetResult();
             return true;
         }
         catch

@@ -8,6 +8,7 @@ namespace PolyPilot.Tests;
 /// Tests for ServerManager.CheckServerRunning to verify socket exceptions
 /// are properly observed and don't cause UnobservedTaskException crashes.
 /// </summary>
+[Collection("SocketIsolated")]
 public class ServerManagerTests
 {
     [Fact]

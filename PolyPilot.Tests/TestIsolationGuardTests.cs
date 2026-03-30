@@ -88,10 +88,8 @@ public class TestIsolationGuardTests
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
             ".polypilot", "organization.json");
 
-        // Snapshot the real file's last-write time (if it exists)
-        var beforeTime = File.Exists(realOrgFile)
-            ? File.GetLastWriteTimeUtc(realOrgFile)
-            : (DateTime?)null;
+        // Use a unique sentinel group name to detect if the test write leaks to the real file
+        var sentinelGroupName = $"IsolationTest-{Guid.NewGuid():N}";
 
         // Create a service and do something that triggers a write
         var services = new ServiceCollection();
@@ -99,21 +97,29 @@ public class TestIsolationGuardTests
             new StubChatDatabase(), new StubServerManager(),
             new StubWsBridgeClient(), new RepoManager(),
             services.BuildServiceProvider(), new StubDemoService());
-        svc.CreateGroup("IsolationTest");
+        svc.CreateGroup(sentinelGroupName);
 
         // Wait for the 2s debounce timer to fire
         await Task.Delay(3000);
-
-        // Verify the real file was NOT modified
-        if (beforeTime.HasValue)
-        {
-            var afterTime = File.GetLastWriteTimeUtc(realOrgFile);
-            Assert.Equal(beforeTime.Value, afterTime);
-        }
 
         // Verify the write went to the test directory instead
         var testOrgFile = Path.Combine(TestSetup.TestBaseDir, "organization.json");
         Assert.True(File.Exists(testOrgFile),
             $"Organization file should have been written to test dir: {testOrgFile}");
+        var testOrgContent = await File.ReadAllTextAsync(testOrgFile);
+        // Note: we don't assert sentinelGroupName in testOrgContent because parallel tests
+        // also write to the shared TestSetup.TestBaseDir and may have overwritten it.
+        // The key isolation invariant is: (a) the file exists in test dir, and (b) the
+        // sentinel does NOT appear in the real file.
+        _ = testOrgContent; // read to confirm the file is readable
+
+        // Verify the sentinel group did NOT leak into the real file.
+        // We check content rather than timestamps because the running app also
+        // writes to the real file during normal operation.
+        if (File.Exists(realOrgFile))
+        {
+            var realContent = await File.ReadAllTextAsync(realOrgFile);
+            Assert.DoesNotContain(sentinelGroupName, realContent);
+        }
     }
 }

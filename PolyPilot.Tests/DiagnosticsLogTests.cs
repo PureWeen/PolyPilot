@@ -9,6 +9,12 @@ namespace PolyPilot.Tests;
 /// (not just DEBUG). The #if DEBUG guard was removed so Release builds also
 /// get lifecycle diagnostics for post-mortem analysis.
 /// </summary>
+/// <remarks>
+/// In the "BaseDir" collection because CopilotService.BaseDir is a shared static.
+/// MultiAgentRegressionTests temporarily changes it via SetBaseDirForTesting(),
+/// which would change the log file path mid-test if we ran in parallel with them.
+/// </remarks>
+[Collection("BaseDir")]
 public class DiagnosticsLogTests
 {
     private readonly StubChatDatabase _chatDb = new();

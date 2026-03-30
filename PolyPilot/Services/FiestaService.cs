@@ -1033,8 +1033,14 @@ public class FiestaService : IDisposable
     private void StartDiscovery()
     {
         _discoveryCts = new CancellationTokenSource();
-        _broadcastTask = Task.Run(() => BroadcastPresenceLoopAsync(_discoveryCts.Token));
-        _listenTask = Task.Run(() => ListenForWorkersLoopAsync(_discoveryCts.Token));
+        // Capture the token struct NOW, before Task.Run queues the work.
+        // If Dispose() runs before the thread-pool picks up the lambda, accessing
+        // _discoveryCts.Token on a disposed CTS throws ObjectDisposedException.
+        // A captured CancellationToken struct remains valid (IsCancellationRequested=true)
+        // even after the parent CTS is cancelled and disposed.
+        var token = _discoveryCts.Token;
+        _broadcastTask = Task.Run(() => BroadcastPresenceLoopAsync(token));
+        _listenTask = Task.Run(() => ListenForWorkersLoopAsync(token));
     }
 
     private async Task BroadcastPresenceLoopAsync(CancellationToken ct)

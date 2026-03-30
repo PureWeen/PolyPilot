@@ -67,7 +67,9 @@ public class TurnEndFallbackTests
     {
         // Verify the Task.Run+Task.Delay pattern fires its completion action
         // when the CTS is never cancelled. Uses 50ms to keep the test fast.
-        var fired = false;
+        // Uses TaskCompletionSource instead of a bool field to avoid memory-ordering
+        // issues and to provide a reliable, load-tolerant signal mechanism.
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cts = new CancellationTokenSource();
         var token = cts.Token;
 
@@ -76,14 +78,18 @@ public class TurnEndFallbackTests
             try
             {
                 await Task.Delay(50, token);
-                if (token.IsCancellationRequested) return;
-                fired = true;
+                if (!token.IsCancellationRequested)
+                    tcs.TrySetResult(true);
+                else
+                    tcs.TrySetResult(false);
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException) { tcs.TrySetResult(false); }
         });
 
-        await Task.Delay(500);
-        Assert.True(fired, "Fallback timer should fire when CTS is not cancelled");
+        // Wait up to 5s — robust against thread-pool starvation under heavy parallel load
+        var completedTask = await Task.WhenAny(tcs.Task, Task.Delay(5000));
+        Assert.True(completedTask == tcs.Task, "Fallback timer task should complete within 5s");
+        Assert.True(tcs.Task.Result, "Fallback timer should fire when CTS is not cancelled");
     }
 
     [Fact]
