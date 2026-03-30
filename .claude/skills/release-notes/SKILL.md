@@ -137,8 +137,11 @@ Bad highlights:
 - **Linux:** [.deb](https://github.com/PureWeen/PolyPilot/releases/download/vCURR/polypilot_CURR_amd64.deb) · [.AppImage](https://github.com/PureWeen/PolyPilot/releases/download/vCURR/PolyPilot-CURR-x86_64.AppImage) · [.flatpak](https://github.com/PureWeen/PolyPilot/releases/download/vCURR/com.microsoft.PolyPilot.flatpak)
 ```
 
-Replace `vCURR` and `vPREV` with actual tag names. The asset filenames match what
-`.github/workflows/build.yml` uploads (lines 719-727).
+Replace `vCURR`/`vPREV` with actual tag names (e.g., `v1.0.17`) and `CURR` with the
+bare version (e.g., `1.0.17`). The asset filenames match what `.github/workflows/build.yml`
+uploads (lines 719-727). Actual assets per release: `PolyPilot.zip` (macOS),
+`PolyPilot-Windows.zip`, `PolyPilot-Android.apk`, `polypilot_{ver}_amd64.deb`,
+`PolyPilot-{ver}-x86_64.AppImage`, `com.microsoft.PolyPilot.flatpak`.
 
 ### Example (real v1.0.15 notes, rewritten)
 

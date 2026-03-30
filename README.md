@@ -82,6 +82,12 @@ Sessions survive everything — app restarts, machine reboots, CLI crashes. Hist
 ### ⌨️ Slash Commands
 Quick control without leaving the chat: `/help` `/clear` `/compact` `/new` `/sessions` `/rename` `/diff` `/status` `/mcp` `/plugin` `/agent`
 
+### 🔔 Notifications & Tailscale
+Get notified when agents finish or hit errors — even in the background. Tailscale VPN is detected automatically for easy fleet sharing across your network.
+
+### 🎮 Demo Mode
+Try the full UI without a Copilot connection — simulated streaming, tool calls, and activity indicators with realistic timing.
+
 ---
 
 ## 🖥️ Supported Platforms
@@ -91,7 +97,7 @@ Quick control without leaving the chat: `/help` `/clear` `/compact` `/new` `/ses
 | **macOS** | ✅ Primary | `brew install --cask polypilot` |
 | **Windows** | ✅ Supported | [Download .zip](https://github.com/PureWeen/PolyPilot/releases/latest) |
 | **Android** | ✅ Supported | [Download .apk](https://github.com/PureWeen/PolyPilot/releases/latest) |
-| **iOS** | ✅ Supported | TestFlight |
+| **iOS** | ✅ Supported | [Build from source](https://github.com/PureWeen/PolyPilot#build-from-source) |
 | **Linux** | 🧪 Experimental | [.deb / .AppImage / .flatpak](https://github.com/PureWeen/PolyPilot/releases/latest) |
 
 Mobile connects to a desktop instance via WebSocket bridge — your fleet runs on the workstation, your phone is the remote control.
@@ -133,7 +139,7 @@ PolyPilot builds itself. Open a Copilot session pointed at the PolyPilot repo, m
 
 ## 🧪 Testing
 
-- **2,900+ unit tests** — models, services, orchestration, persistence, parsing
+- **3,000+ unit tests** — models, services, orchestration, persistence, parsing
 - **Executable UI scenarios** — end-to-end CDP flows validated against a running instance
 
 ```bash
