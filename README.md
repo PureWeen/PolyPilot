@@ -9,204 +9,138 @@
 </p>
 
 <p align="center">
-  <em>Multi-agent orchestration • Real-time streaming • Cross-platform • Remote access from your phone</em>
+  <a href="https://github.com/PureWeen/PolyPilot/releases/latest"><img src="https://img.shields.io/github/v/release/PureWeen/PolyPilot?style=flat-square&color=blue" alt="Latest Release"></a>
+  <a href="https://github.com/PureWeen/PolyPilot/releases/latest"><img src="https://img.shields.io/github/downloads/PureWeen/PolyPilot/total?style=flat-square&color=green" alt="Downloads"></a>
+  <img src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Android%20%7C%20iOS%20%7C%20Linux-lightgrey?style=flat-square" alt="Platforms">
 </p>
 
 ---
 
+<p align="center">
+  <img src="docs/desktop-sessions.png" alt="PolyPilot Dashboard" width="700">
+</p>
+
 ## What is PolyPilot?
 
-PolyPilot is a **multi-agent control plane for GitHub Copilot**. It's a cross-platform native app (macOS, Windows, Android, iOS) built with .NET MAUI and Blazor that lets you spin up, orchestrate, and monitor **dozens of parallel Copilot coding agents** — each with its own model, working directory, and conversation — all from one dashboard.
+**Mission control for AI-powered development.** Launch dozens of GitHub Copilot agents, assign them to different repos, watch them work in real time, and manage everything from one dashboard — or from your phone.
 
-Think of it as **mission control for AI-powered development**: you launch agents, assign them tasks across different repos, watch them work in real time, and manage everything from a single pane of glass — or from your phone while you're away from your desk.
+| | |
+|---|---|
+| 🚀 **Run 10+ agents simultaneously** | Each with its own model, repo, and conversation |
+| 🧠 **Mix models freely** | Claude Opus + GPT-5 + Sonnet in the same workspace |
+| 🤖 **One-click team presets** | PR Review Squad, multi-agent orchestration, custom squads |
+| 📱 **Control from your phone** | Scan a QR code, manage your fleet from anywhere |
+| 🎉 **Fiesta Mode** | Spread work across multiple machines on your LAN |
+| 🔄 **Sessions never die** | Persistent across restarts, auto-reconnect, auto-resume |
 
-### Why PolyPilot?
-
-The Copilot CLI is powerful, but it's one agent in one terminal. What if you could:
-
-- 🚀 **Run 10+ Copilot agents simultaneously**, each working on a different task or repo
-- 🔄 **Resume any session** across app restarts — your agents never lose context
-- 📱 **Monitor and control everything from your phone** via secure WebSocket bridge and DevTunnel
-- 🧠 **Mix and match models** — Claude, GPT, Gemini — in the same workspace
-- 🏗️ **Organize agents into groups**, pin favorites, and sort by activity
-- 🌿 **Manage repos and worktrees** — clone repos, create branches, spin up isolated worktrees per agent
-
-That's PolyPilot.
+---
 
 ## ✨ Key Features
 
-### 🎛️ Multi-Session Orchestrator Dashboard
-A real-time grid view of all active agents. Each card shows streaming output, tool execution status, token usage, and queue depth. Send targeted prompts to individual agents from a single dashboard.
+### 🎛️ Fleet Dashboard
+A real-time grid of all active agents. Streaming output, tool execution, token usage — everything at a glance. Send prompts to any agent without switching windows.
 
-### 💬 Rich Chat Interface
-Full-featured chat UI with streaming responses, Markdown rendering (code blocks, inline code, bold), real-time activity indicators, and auto-scrolling. See exactly what each agent is thinking and doing — including tool calls, reasoning blocks, and intent changes.
+<p align="center">
+  <img src="docs/desktop-chat.png" alt="PolyPilot Chat" width="600">
+</p>
 
-### 🔧 Live Agent Activity Feed
-Watch your agents work in real time: `💭 Thinking...` → `🔧 Running bash...` → `✅ Tool completed`. Full visibility into multi-step agentic workflows with tool execution tracking and reasoning transparency.
+### 🤖 Multi-Agent Teams
+Launch pre-built or custom agent teams with one click:
 
-### 💾 Session Persistence & Resume
-Sessions survive app restarts. Active sessions are automatically saved and restored. Conversation history is reconstructed from event logs. Browse and resume any previously saved session from the sidebar — agents never lose their place.
+- **PR Review Squad** — 5 Opus workers each dispatch 3 sub-agents (Opus, Sonnet, Codex) and synthesize consensus reviews
+- **Custom Squads** — Drop a `.squad/` directory in your repo with agent charters, routing rules, and shared context
+- **Worktree Strategies** — Shared, orchestrator-isolated, or fully-isolated branches per agent
 
-### 📱 Remote Access from Your Phone
-Run agents on your desktop, monitor from your phone. PolyPilot's WebSocket bridge + Azure DevTunnel integration creates a secure tunnel so you can watch agents work, send prompts, and manage sessions from anywhere. Just scan a QR code to connect.
+### 🎉 Fiesta Mode
+Turn your LAN into a compute cluster. Discover other PolyPilot instances, pair with a string or push-to-pair, then dispatch tasks to any machine with `@worker-name`. One PolyPilot to rule them all.
 
-### 🧠 Multi-Model Support
-Create sessions with different AI models and compare results side by side. Assign Claude to one task, GPT to another, and Gemini to a third — all running in parallel in the same workspace.
+### 📱 Remote Access
+Your agents run on your desktop. You control them from your pocket.
 
-### 📂 Per-Session Working Directories
-Point each agent at a different repo or directory. Native folder pickers on macOS and Windows. Manage worktrees for parallel git operations across agents.
+1. Start a tunnel in Settings (powered by [Azure DevTunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/))
+2. Scan the QR code on your phone
+3. Full control: send prompts, watch streaming output, manage sessions
 
-### 🌿 Repository & Worktree Management
-Clone repositories, create branches and worktrees, and launch sessions — all from the sidebar. **Quick Branch + Session** creates a new branch and session in one click. **Named Branch + Session** lets you specify a branch name or PR number (`#123`). Worktrees are tracked, linked to sessions, and cleaned up automatically when sessions close.
+### 💬 Rich Chat
+Streaming Markdown, code blocks, reasoning traces, tool call visualization, and real-time activity indicators (`💭 Thinking...` → `🔧 Running bash...` → `✅ Done`). You see everything the agent sees.
 
-### 🤖 Multi-Agent Presets & Squad Teams
-Launch pre-configured teams with one click. Built-in presets like **PR Review Squad** spin up an orchestrator plus specialized workers — each internally dispatching parallel sub-agent reviews across multiple models (Opus, Sonnet, Codex) and synthesizing consensus reports. Auto-discovers `.squad` and `.ai-team` directories in your repos for custom team definitions with agent charters and routing configs.
+### 🧠 Any Model, Any Task
+Create sessions with different models and compare results side by side. Claude for architecture, GPT for code generation, Gemini for review — all in parallel. Models are assigned per-session, and the `/agent` command lets you select specialized CLI agents (code-review, security-review) on the fly.
 
-### 🔀 Worktree Strategies
-Control how multi-agent teams share code:
-- **Shared** — all agents work in the same directory
-- **Orchestrator Isolated** — orchestrator gets its own branch, workers share one
-- **Fully Isolated** — every agent gets a unique worktree and branch for zero-conflict parallel work
-
-### 🏗️ Session Organization
-Groups, pinning, and multiple sort modes (Last Active, Created, A–Z, Manual) let you manage large fleets of agents without losing track. Collapsible groups keep things tidy.
-
-### 🎉 Fiesta Mode — Multi-Machine Orchestration
-Discover and link other PolyPilot instances on your LAN. Start a "Fiesta" to fan out work to linked worker machines via `@mention` routing. Workers are discovered automatically, or pair instantly with a compact pairing string or push-to-pair button in Settings. Use `@worker-name` in your prompts to dispatch tasks to specific machines.
-
-### ⌨️ Slash Commands
-Built-in slash commands give you quick control without leaving the chat: `/help`, `/clear`, `/version`, `/compact`, `/new`, `/sessions`, `/rename`, `/diff`, `/status`, `/mcp`, `/plugin`, `/agent`.
-
-### 🤖 CLI Agent & Skill Visibility
-When the Copilot CLI invokes a specialized agent (code-review, security-review) or a skill plugin, PolyPilot surfaces it in the chat — see which agent is running, when it starts and finishes, and any errors. Use `/agent` to list, select, or deselect agents manually.
-
-### 🔔 Smart Notifications
-Get notified when agents finish tasks, encounter errors, or need your attention — even when the app is in the background.
-
-### 🛡️ Processing Watchdog
-Automatically detects agents stuck in a "Thinking..." state and recovers them. A 3-tier timeout system handles quiescent sessions (30s), active tool execution (10min), and general inactivity (2min) — no more zombie sessions.
+### 🌿 Git-Native Workflow
+- **Quick Branch + Session** — one click to create a branch and start coding
+- **Named Branch + Session** — specify a name or PR number (`#123`)
+- **Worktree management** — clone, branch, isolate — all from the sidebar
+- **Auto-cleanup** — worktrees are tracked and removed when sessions close
 
 ### 🔁 Reflection Cycles
-Goal-based iterative refinement for agents. Set a goal, and the agent will loop — executing, evaluating, and refining — until it meets the completion criteria or hits a max iteration count. Great for test-driven workflows and multi-step tasks.
+Set a goal and let the agent loop: execute → evaluate → refine → repeat. Configurable iteration limits and completion criteria. Perfect for TDD and multi-step tasks.
 
-### 📊 Usage Stats
-Track session metrics: messages sent, tokens used, session duration, and lines suggested. Visible in the bottom bar for quick reference.
+### 💾 Bulletproof Persistence
+Sessions survive everything — app restarts, machine reboots, CLI crashes. History is reconstructed from event logs. A 3-tier watchdog recovers stuck agents automatically. No zombie sessions, no lost work.
 
-### 🎮 Demo Mode
-Test the UI without a Copilot connection. The built-in demo service simulates streaming responses, tool calls, and activity indicators with realistic timing.
+### ⌨️ Slash Commands
+Quick control without leaving the chat: `/help` `/clear` `/compact` `/new` `/sessions` `/rename` `/diff` `/status` `/mcp` `/plugin` `/agent`
 
-### 🔌 Flexible Connection Modes
-From embedded stdio for quick single-machine use, to a persistent server that survives app restarts, to remote mode for mobile access — pick the transport that fits your workflow.
+---
 
-### 🛡️ Auto-Reconnect
-If an agent's underlying process dies mid-conversation, PolyPilot automatically resumes the session and retries — transparent to you.
+## 🖥️ Supported Platforms
 
-### 🔄 Git Auto-Update
-When running from a git checkout, PolyPilot can automatically detect and pull updates from the main branch — keeping your instance up to date without manual intervention.
+| Platform | Status | Install |
+|----------|--------|---------|
+| **macOS** | ✅ Primary | `brew install --cask polypilot` |
+| **Windows** | ✅ Supported | [Download .zip](https://github.com/PureWeen/PolyPilot/releases/latest) |
+| **Android** | ✅ Supported | [Download .apk](https://github.com/PureWeen/PolyPilot/releases/latest) |
+| **iOS** | ✅ Supported | TestFlight |
+| **Linux** | 🧪 Experimental | [.deb / .AppImage / .flatpak](https://github.com/PureWeen/PolyPilot/releases/latest) |
 
-### 🌐 Tailscale Integration
-Detects your Tailscale VPN status and IP automatically, making it easy to share your agent fleet across your Tailscale network.
+Mobile connects to a desktop instance via WebSocket bridge — your fleet runs on the workstation, your phone is the remote control.
 
-## 🔁 Iterating on PolyPilot — Self-Building Workflow
+## 🚀 Getting Started
 
-PolyPilot is designed to be developed **from within itself**. You can open a Copilot session pointed at the PolyPilot repo, make changes, and use the included `relaunch.sh` script to seamlessly rebuild and relaunch — all without leaving the app.
-
-### How it works
-
-```bash
-# macOS
-./relaunch.sh
-
-# Windows
-powershell -ExecutionPolicy Bypass -File relaunch.ps1
-```
-
-On macOS, the script:
-1. **Builds** the project (`dotnet build -f net10.0-maccatalyst`)
-2. **Copies** the built app to a staging directory
-3. **Launches** the new instance
-4. **Verifies** the new instance is stable (waits a few seconds)
-5. **Kills** the old instance — seamless handoff, no downtime
-
-On Windows, `relaunch.ps1` follows the same pattern for the WinUI target.
-
-If the build fails, the old instance keeps running and you see clear error output. No stale binaries are ever launched.
-
-This means an agent working inside PolyPilot can edit code, run `./relaunch.sh`, and immediately test its own changes in the freshly-built app — a tight feedback loop for AI-driven development.
-
-> **Most of PolyPilot's features were built by GitHub Copilot coding agents — orchestrated from within PolyPilot itself.**
-
-## Supported Platforms
-
-| Platform | Status |
-|----------|--------|
-| **macOS** (Mac Catalyst) | ✅ Primary development target |
-| **Windows** | ✅ Supported |
-| **Android** | ✅ Supported (Remote mode) |
-| **iOS** | ✅ Supported (Remote mode) |
-| **Linux** (GTK head) | 🧪 Experimental (`PolyPilot.Gtk`) |
-
-Mobile devices connect to a desktop instance via WebSocket bridge — run your agent fleet on your workstation, control it from your pocket.
-
-## Getting Started
-
-### Install with Homebrew (macOS)
+### Homebrew (macOS — recommended)
 
 ```bash
 brew tap PureWeen/tap
 brew install --cask polypilot
 ```
 
-This installs the notarized PolyPilot.app and the GitHub Copilot CLI automatically.
+### Build from Source
 
-### Prerequisites (build from source)
-
-- **.NET 10 SDK** (Preview)
-- **.NET MAUI workload** — `dotnet workload install maui`
-- **GitHub Copilot CLI** — `brew install copilot-cli` or `npm install -g @github/copilot`
-- **GitHub Copilot subscription**
-
-### Build & Run
+**Prerequisites:** [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) + `dotnet workload install maui` + [GitHub Copilot CLI](https://docs.github.com/en/copilot) + Copilot subscription
 
 ```bash
 cd PolyPilot
 
 # macOS
-dotnet build -f net10.0-maccatalyst
-open bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/PolyPilot.app
-
-# Or use the hot-relaunch script for iterative development
-./relaunch.sh
+./relaunch.sh                                       # Build + hot-relaunch
 
 # Windows
 dotnet build -f net10.0-windows10.0.19041.0
 
-# Android (deploy to connected device)
+# Android
 dotnet build -f net10.0-android -t:Install
 
-# Linux (GTK head)
-dotnet build PolyPilot.Gtk/PolyPilot.Gtk.csproj
+# Linux
 dotnet run --project PolyPilot.Gtk/PolyPilot.Gtk.csproj
 ```
 
+## 🔁 Self-Building Workflow
+
+PolyPilot builds itself. Open a Copilot session pointed at the PolyPilot repo, make changes, run `./relaunch.sh`, and the app seamlessly rebuilds and relaunches — no downtime, no stale binaries, no leaving the app.
+
+> **Most of PolyPilot's features were built by GitHub Copilot coding agents — orchestrated from within PolyPilot itself.**
+
 ## 🧪 Testing
 
-PolyPilot has two layers of testing:
+- **2,900+ unit tests** — models, services, orchestration, persistence, parsing
+- **Executable UI scenarios** — end-to-end CDP flows validated against a running instance
 
-- **1,200+ unit tests** (xUnit, .NET 10) — deterministic tests covering models, services, multi-agent orchestration, persistence, and parsing. Run with `cd PolyPilot.Tests && dotnet test`.
-- **Executable UI scenarios** (JSON + MauiDevFlow CDP) — end-to-end flows validated against a running app instance. 25+ multi-agent scenarios (reflection loops, Squad discovery, group lifecycle) and 10+ mode-switch scenarios.
+```bash
+cd PolyPilot.Tests && dotnet test
+```
 
-The test project shares source files with the main MAUI project via `<Compile Include>` links, so tests run on any machine without platform SDKs. `ScenarioReferenceTests.cs` cross-references every CDP scenario with its deterministic unit-test equivalent.
-
-See [`docs/testing.md`](docs/testing.md) for the full testing guide, scenario format, and how to add new tests.
-
-## 📱 Remote Access via DevTunnel
-
-Mobile devices connect to your desktop over [Azure DevTunnels](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/) — a secure tunnel to control your agent fleet from anywhere.
-
-1. Install the DevTunnel CLI (`brew install --cask devtunnel` on macOS, `winget install Microsoft.devtunnel` on Windows)
-2. In PolyPilot Settings, click **Login with GitHub** then **Start Tunnel**
-3. Scan the **QR code** from your phone to connect instantly
+See [`docs/testing.md`](docs/testing.md) for the full guide.
 
 ---
 

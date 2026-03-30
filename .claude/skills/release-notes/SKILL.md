@@ -27,18 +27,22 @@ release notes** and keeps the README current.
 
 ## Step 1: Gather Changes Since Last Release
 
+**Start with commits, then ALWAYS read PR bodies for the headline features.**
+The commit subject line is never enough — the PR body has the "why", the architecture
+decisions, and the user-facing description you need for highlights.
+
 ```bash
 # Find the previous tag
 PREV_TAG=$(git tag --sort=-v:refname | head -2 | tail -1)
 CURR_TAG=$(git tag --sort=-v:refname | head -1)
 
-# List commits between tags
+# List commits between tags (overview)
 git --no-pager log ${PREV_TAG}..${CURR_TAG} --oneline
 
-# Get full commit messages (for PR numbers and descriptions)
-git --no-pager log ${PREV_TAG}..${CURR_TAG} --pretty=format:"%h %s" 
+# CRITICAL: Read PR bodies for any feat: commits — this is where the good stuff is
+gh pr view <PR_NUMBER> --json body -q '.body'
 
-# For PRs with more detail
+# Batch: get all merged PRs with titles and bodies
 gh pr list --state merged --search "merged:>=$(git log -1 --format=%ci $PREV_TAG | cut -d' ' -f1)" --limit 50 --json number,title,labels,body
 ```
 
@@ -46,6 +50,10 @@ If preparing notes for a release that hasn't been tagged yet, compare against `H
 ```bash
 git --no-pager log ${PREV_TAG}..HEAD --oneline
 ```
+
+**Do not skip reading PR bodies.** A commit that says `feat: mixed-model PR Review Squad`
+tells you nothing. The PR body explains that 5 Opus workers each dispatch 3 sub-agents
+across Opus/Sonnet/Codex and synthesize 2-of-3 consensus reports. That's the highlight.
 
 ---
 
@@ -122,10 +130,15 @@ Bad highlights:
 
 **Full Changelog**: https://github.com/PureWeen/PolyPilot/compare/vPREV...vCURR
 
-**Install/Update:**
-- **macOS (Homebrew):** `brew upgrade polypilot` or `brew install --cask polypilot`
-- **Direct download:** See assets below
+**Install / Update:**
+- **macOS:** `brew upgrade polypilot` — or download [PolyPilot.zip](https://github.com/PureWeen/PolyPilot/releases/download/vCURR/PolyPilot.zip)
+- **Windows:** [PolyPilot-Windows.zip](https://github.com/PureWeen/PolyPilot/releases/download/vCURR/PolyPilot-Windows.zip)
+- **Android:** [PolyPilot-Android.apk](https://github.com/PureWeen/PolyPilot/releases/download/vCURR/PolyPilot-Android.apk)
+- **Linux:** [.deb](https://github.com/PureWeen/PolyPilot/releases/download/vCURR/polypilot_CURR_amd64.deb) · [.AppImage](https://github.com/PureWeen/PolyPilot/releases/download/vCURR/PolyPilot-CURR-x86_64.AppImage) · [.flatpak](https://github.com/PureWeen/PolyPilot/releases/download/vCURR/com.microsoft.PolyPilot.flatpak)
 ```
+
+Replace `vCURR` and `vPREV` with actual tag names. The asset filenames match what
+`.github/workflows/build.yml` uploads (lines 719-727).
 
 ### Example (real v1.0.15 notes, rewritten)
 
@@ -191,48 +204,70 @@ gh release create v1.0.17 \
 
 ## Step 5: Update the README
 
-### What to Update
+### Philosophy: The README Sells, It Doesn't Document
 
-The README (`README.md` at repo root) should be updated when:
+The README is a **landing page**, not a technical spec. It should make someone excited
+to try PolyPilot in 30 seconds of scrolling. Every sentence should answer "what can I do?"
+not "how is it implemented?"
 
-1. **New major features** are added — add to the "Key Features" section
-2. **Platform support changes** — update the platform table
-3. **Installation method changes** — update Getting Started
-4. **New slash commands** — update the slash commands list
+**Good README voice:**
+- "Launch pre-built agent teams with one click — 5 workers dispatch sub-agents across models and synthesize consensus reviews"
+- "Scan a QR code, control your agent fleet from your pocket"
+- "Set a goal and let the agent loop: execute → evaluate → refine → repeat"
 
-### README Update Strategy
+**Bad README voice (too implementation-focused):**
+- "Uses ConcurrentDictionary<string, SessionState> for thread-safe session management"
+- "Events from the SDK arrive on background threads and are marshaled via SynchronizationContext.Post"
+- "The 3-tier timeout system handles quiescent sessions (30s), active tool execution (10min), and general inactivity (2min)"
 
-The README is a **living document** that describes the current state of the app,
-not a changelog. Don't add version-specific notes to the README body.
+### What to Update (and when)
 
-**Feature section updates:**
-- Add new feature subsections under "✨ Key Features" following the existing pattern:
-  ```markdown
-  ### 🎉 Feature Name
-  One-paragraph description of what it does and why it matters.
-  ```
-- Remove or update features that have been significantly reworked
-- Keep the order: most impressive/visible features first
+| Trigger | README Section | Action |
+|---------|---------------|--------|
+| New major feature | Key Features | Add or update a feature block |
+| Feature significantly reworked | Key Features | Rewrite the block with new capabilities |
+| New platform supported | Supported Platforms | Update the table |
+| New install method | Getting Started | Add install instructions |
+| New slash command | Slash Commands | Add to the list |
+| Test count milestone | Testing | Update the number |
 
-**What NOT to put in README:**
-- Version-specific changelog (that goes in GitHub Releases)
-- "What's New in v1.0.x" sections (gets stale quickly)
+### Structure
+
+The README follows this flow (preserve it):
+
+```
+1. Logo + badges + tagline
+2. Screenshot
+3. "What is PolyPilot?" — one paragraph + quick-scan table
+4. "Key Features" — the showcase (biggest section, most visual)
+5. "Supported Platforms" — table with install links
+6. "Getting Started" — Homebrew + build from source
+7. "Self-Building Workflow" — the meta story
+8. "Testing" — brief
+9. Footer
+```
+
+### Adding a New Feature to Key Features
+
+Follow this pattern — short heading, 1-3 sentences max, focus on what the user gets:
+
+```markdown
+### 🎉 Feature Name
+What it lets you do in one sentence. Maybe a second sentence with a concrete example
+or the "wow" detail. Never mention implementation classes or internal architecture.
+```
+
+Consolidate related capabilities. Don't add a separate section for every PR — group
+"CLI Agent Visibility" and "/agent command" into one "Any Model, Any Task" section
+rather than three separate entries.
+
+### What NOT to Put in the README
+
+- Version-specific changelog (goes in GitHub Releases)
+- "What's New in v1.0.x" sections (gets stale instantly)
+- Internal architecture (ConcurrentDictionary, SynchronizationContext, event marshaling)
+- Timeout values, watchdog tiers, or other implementation constants
 - Dates or timestamps
-
-### Current README Structure (preserve this)
-
-```
-1. Logo + title + tagline
-2. "What is PolyPilot?" — overview paragraph
-3. "Why PolyPilot?" — bullet list of value props
-4. "Key Features" — detailed feature descriptions (this is where new features go)
-5. "Iterating on PolyPilot" — self-building workflow
-6. "Supported Platforms" — platform table
-7. "Getting Started" — install + build instructions
-8. "Testing" — test overview
-9. "Remote Access via DevTunnel" — mobile setup
-10. Footer
-```
 
 ---
 
