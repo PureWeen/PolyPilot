@@ -44,9 +44,12 @@ public class ServerManager : IServerManager
             int index = Task.WaitAny(new[] { connectTask }, TimeSpan.FromSeconds(1));
             if (index == -1)
             {
-                // Timed out — observe any future exception to prevent unobserved task
+                // Timed out — observe any future exception (Faulted or Cancelled) to prevent
+                // unobserved task exceptions. NotOnRanToCompletion covers both Faulted and
+                // Cancelled states; OnlyOnFaulted would miss Cancelled (which can occur if the
+                // TcpClient is disposed while the connect is still in-flight).
                 _ = connectTask.ContinueWith(t => { _ = t.Exception; },
-                    TaskContinuationOptions.OnlyOnFaulted);
+                    TaskContinuationOptions.NotOnRanToCompletion);
                 return false;
             }
             connectTask.GetAwaiter().GetResult();

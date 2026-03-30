@@ -910,6 +910,7 @@
         GitAutoUpdate.OnStateChanged += OnAutoUpdateStateChanged;
         FiestaService.OnStateChanged += OnFiestaStateChanged;
         FiestaService.OnPairRequested += OnFiestaPairRequested;
+        FiestaService.OnPairApprovalSendFailed += OnFiestaPairApprovalSendFailed;
 
         var uiState = CopilotService.LoadUiState();
         if (uiState?.FontSize > 0) fontSize = uiState.FontSize;
@@ -1010,6 +1011,7 @@
         GitAutoUpdate.OnStateChanged -= OnAutoUpdateStateChanged;
         FiestaService.OnStateChanged -= OnFiestaStateChanged;
         FiestaService.OnPairRequested -= OnFiestaPairRequested;
+        FiestaService.OnPairApprovalSendFailed -= OnFiestaPairApprovalSendFailed;
         _ = JS.InvokeVoidAsync("eval", "document.querySelector('article.content')?.classList.remove('settings-content-active');");
         _ = JS.InvokeVoidAsync("eval", "window.__settingsRef = null;");
         _selfRef?.Dispose();
@@ -1531,6 +1533,15 @@
     private void OnFiestaPairRequested(string requestId, string hostName, string remoteIp)
     {
         InvokeAsync(StateHasChanged);
+    }
+
+    private void OnFiestaPairApprovalSendFailed(string requestId, string errorMessage)
+    {
+        InvokeAsync(() =>
+        {
+            ShowStatus("Approval send failed — ask the host to re-initiate pairing.", "error", 5000);
+            StateHasChanged();
+        });
     }
 
     private static string? TryExtractHost(string url)

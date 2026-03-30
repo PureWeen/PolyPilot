@@ -14,6 +14,7 @@ public class FiestaService : IDisposable
 {
     private const int DiscoveryPort = 43223;
     private const int MaxPendingPairRequests = 5;
+    private const int MaxPendingPairRequestsPerIp = 2;
     private static readonly TimeSpan DiscoveryInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DiscoveryStaleAfter = TimeSpan.FromSeconds(20);
     private static readonly Regex MentionRegex = new(@"(?<!\S)@(?<name>[A-Za-z0-9._-]+)", RegexOptions.Compiled);
@@ -44,6 +45,13 @@ public class FiestaService : IDisposable
     public event Action<string, FiestaTaskUpdate>? OnHostTaskUpdate;
     /// <summary>Fires on the worker side when a remote host requests pairing. Args: requestId, hostName, remoteIp.</summary>
     public event Action<string, string, string>? OnPairRequested;
+    /// <summary>
+    /// Fires when ApprovePairRequestAsync succeeds in claiming the TCS but the send fails.
+    /// The pairing cannot be completed for this request — the host will time out and show "Unreachable".
+    /// UI should prompt the user to retry pairing from the host side.
+    /// Args: requestId, errorMessage.
+    /// </summary>
+    public event Action<string, string>? OnPairApprovalSendFailed;
 
     public FiestaService(CopilotService copilot, WsBridgeServer bridgeServer, TailscaleService tailscale)
     {
@@ -417,7 +425,9 @@ public class FiestaService : IDisposable
         bool isDuplicate;
         lock (_stateLock)
         {
-            isDuplicate = _pendingPairRequests.Count >= MaxPendingPairRequests;
+            var requestsFromIp = _pendingPairRequests.Values.Count(r => r.RemoteIp == remoteIp);
+            isDuplicate = _pendingPairRequests.Count >= MaxPendingPairRequests
+                       || requestsFromIp >= MaxPendingPairRequestsPerIp;
             if (!isDuplicate)
             {
                 _pendingPairRequests[req.RequestId] = pending;
@@ -522,8 +532,10 @@ public class FiestaService : IDisposable
         catch (Exception ex)
         {
             // TCS already resolved to true so this request cannot be retried or denied.
-            // Log clearly: the worker will time out and show "Unreachable".
-            Console.WriteLine($"[Fiesta] Approval send failed (request={requestId}, irrecoverable): {ex.Message}");
+            // Log clearly and fire event so the UI can prompt the user to retry from the host side.
+            var msg = ex.Message;
+            Console.WriteLine($"[Fiesta] Approval send failed (request={requestId}, irrecoverable): {msg}");
+            OnPairApprovalSendFailed?.Invoke(requestId, msg);
             return false;
         }
         finally

@@ -441,6 +441,101 @@ public class FiestaPairingTests : IDisposable
         Assert.False(resp!.Approved, "Overflow request must be denied");
     }
 
+    // ---- Test 8b: MaxPendingPairRequestsPerIp constant = 2 ----
+
+    [Fact]
+    public void MaxPendingPairRequestsPerIp_ConstantIs2()
+    {
+        var field = typeof(FiestaService).GetField("MaxPendingPairRequestsPerIp",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        Assert.NotNull(field);
+        var value = (int)field.GetValue(null)!;
+        Assert.Equal(2, value);
+    }
+
+    // ---- Test 8c: Per-IP rate limit — third request from same IP is denied ----
+
+    [Fact]
+    public async Task HandleIncomingPairHandshake_PerIpLimit_ThirdRequestFromSameIpDenied()
+    {
+        const string repeatIp = "10.0.0.42";
+        var dictField = typeof(FiestaService).GetField("_pendingPairRequests",
+            BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var dict = (Dictionary<string, PendingPairRequest>)dictField.GetValue(_fiesta)!;
+
+        // Fill 2 slots with the same IP (at per-IP limit, but total < MaxPendingPairRequests)
+        for (int i = 0; i < 2; i++)
+        {
+            var id = $"per-ip-slot-{i}";
+            lock (dict) dict[id] = new PendingPairRequest
+            {
+                RequestId = id,
+                HostName = $"host-{i}",
+                HostInstanceId = $"inst-{i}",
+                RemoteIp = repeatIp,
+                Socket = new CountingSendWebSocket(onSendAsync: (_, _) => Task.CompletedTask),
+                CompletionSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously),
+                ExpiresAt = DateTime.UtcNow.AddSeconds(60)
+            };
+        }
+
+        int countBefore;
+        lock (dict) countBefore = dict.Count;
+        Assert.Equal(2, countBefore);
+
+        const string thirdId = "per-ip-overflow";
+        var pairRequestPayload = new FiestaPairRequestPayload
+        {
+            RequestId = thirdId,
+            HostName = "repeat-host",
+            HostInstanceId = "repeat-inst"
+        };
+        var pairMsg = BridgeMessage.Create(BridgeMessageTypes.FiestaPairRequest, pairRequestPayload);
+        var msgBytes = System.Text.Encoding.UTF8.GetBytes(pairMsg.Serialize());
+
+        byte[]? responseBytes = null;
+        var responseSent = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var readCount = 0;
+        var overflowSocket = new CountingSendWebSocket(onSendAsync: (buf, _) =>
+        {
+            responseBytes = buf.Array![buf.Offset..(buf.Offset + buf.Count)];
+            responseSent.TrySetResult(true);
+            return Task.CompletedTask;
+        })
+        {
+            ReceiveAsyncOverride = (buffer, ct) =>
+            {
+                if (Interlocked.Increment(ref readCount) == 1)
+                {
+                    msgBytes.CopyTo(buffer.Array!, buffer.Offset);
+                    return Task.FromResult(new WebSocketReceiveResult(msgBytes.Length, WebSocketMessageType.Text, true));
+                }
+                return Task.FromResult(new WebSocketReceiveResult(0, WebSocketMessageType.Close, true));
+            }
+        };
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await _fiesta.HandleIncomingPairHandshakeAsync(overflowSocket, repeatIp, cts.Token);
+
+        // Must not have added the third request
+        int countAfter;
+        lock (dict) countAfter = dict.Count;
+        Assert.Equal(2, countAfter);
+        lock (dict) Assert.False(dict.ContainsKey(thirdId), "Third request from same IP must not be in pending dict");
+
+        // Must have sent a denial
+        await Task.WhenAny(responseSent.Task, Task.Delay(3000));
+        Assert.True(responseSent.Task.IsCompleted, "Third request from same IP should receive a denial");
+        Assert.NotNull(responseBytes);
+        var json = System.Text.Encoding.UTF8.GetString(responseBytes!);
+        var msg = JsonSerializer.Deserialize<BridgeMessage>(json,
+            new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.CamelCase });
+        Assert.Equal(BridgeMessageTypes.FiestaPairResponse, msg?.Type);
+        var resp = msg?.GetPayload<FiestaPairResponsePayload>();
+        Assert.NotNull(resp);
+        Assert.False(resp!.Approved, "Third request from same IP must be denied");
+    }
+
     // ---- Test 9: DenyPairRequest when TCS already resolved (timeout path) ----
 
     [Fact]
