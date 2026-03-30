@@ -7,6 +7,7 @@
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
 @inject ISpeechToText SpeechToText
+@inject PrLinkService PrLinkService
 
 @{
     var isCompleted = IsCompleted;
@@ -20,6 +21,10 @@
         @if (!string.IsNullOrEmpty(Session.GitBranch))
         {
             <span class="chat-header-branch" title="@Session.GitBranch">@Session.GitBranch</span>
+        }
+        @if (_prUrl != null && PlatformHelper.IsDesktop)
+        {
+            <button class="pr-badge" title="@_prUrl">@_prLabel</button>
         }
         <div class="chat-header-badges">
             @if (Session.IsProcessing)
@@ -584,6 +589,10 @@
     private static string TruncateFileName(string name, int maxLen) =>
         name.Length <= maxLen ? name : name[..maxLen] + "…";
 
+    private string? _prUrl;
+    private string _prLabel = "PR";
+    private string? _lastPrCheckedDir;
+
     private List<SkillInfo>? availableSkills;
     private List<AgentInfo>? availableAgents;
     private List<SavedPrompt>? availablePrompts;
@@ -668,6 +677,34 @@
             foreach (var worker in FiestaWorkers)
                 _selectedWorkerIds.Add(worker.Id);
         }
+
+        if (PlatformHelper.IsDesktop)
+        {
+            var dir = Session.WorkingDirectory;
+            if (!string.IsNullOrEmpty(dir) && dir != _lastPrCheckedDir)
+            {
+                _lastPrCheckedDir = dir;
+                _ = FetchPrUrlAsync(dir);
+            }
+        }
+    }
+
+    private async Task FetchPrUrlAsync(string dir)
+    {
+        _prUrl = await PrLinkService.GetPrUrlForDirectoryAsync(dir);
+        if (_prUrl != null)
+        {
+            var lastSlash = _prUrl.LastIndexOf('/');
+            if (lastSlash >= 0 && lastSlash < _prUrl.Length - 1)
+                _prLabel = "#" + _prUrl[(lastSlash + 1)..];
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OpenPrUrl()
+    {
+        if (_prUrl != null)
+            try { await Launcher.Default.OpenAsync(new Uri(_prUrl)); } catch { }
     }
 
     private void ToggleFiestaPicker()

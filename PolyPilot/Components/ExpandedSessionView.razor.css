@@ -23,6 +23,21 @@
 }
 .chat-header-title { margin: 0; font-size: var(--type-title2); min-width: 0; flex-shrink: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chat-header-branch { font-size: var(--type-footnote); color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; flex-shrink: 2; }
+.pr-badge {
+    display: inline-block;
+    background: #0969da;
+    color: #fff;
+    font-size: var(--type-caption2);
+    font-weight: 600;
+    padding: 1px 5px;
+    border: none;
+    border-radius: 10px;
+    text-decoration: none;
+    cursor: pointer;
+    line-height: 16px;
+    flex-shrink: 0;
+}
+.pr-badge:hover { background: #0550ae; }
 .chat-header-badges { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 1; flex-wrap: wrap; min-width: 0; }
 
 /* Info popover */

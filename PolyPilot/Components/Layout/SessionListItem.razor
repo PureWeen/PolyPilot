@@ -73,7 +73,7 @@
                 }
                 @if (_prUrl != null && PlatformHelper.IsDesktop)
                 {
-                    <a class="pr-badge" title="@_prUrl" @onclick="OpenPrUrl" @onclick:stopPropagation="true">@_prLabel</a>
+                    <button class="pr-badge" title="@_prUrl">@_prLabel</button>
                 }
                 @if (provider != null && Session.IsProcessing)
                 {
@@ -322,7 +322,12 @@
     private async Task OpenPrUrl()
     {
         if (_prUrl != null)
-            await JS.InvokeVoidAsync("open", _prUrl, "_blank");
+            try { await Launcher.Default.OpenAsync(new Uri(_prUrl)); } catch { }
+    }
+
+    private async Task HandleItemClick()
+    {
+        if (!IsDisabled) await OnSelect.InvokeAsync();
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

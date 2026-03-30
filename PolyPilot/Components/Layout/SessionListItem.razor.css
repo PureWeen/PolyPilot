@@ -291,6 +291,7 @@
     font-size: var(--type-caption2);
     font-weight: 600;
     padding: 1px 5px;
+    border: none;
     border-radius: 10px;
     text-decoration: none;
     cursor: pointer;
