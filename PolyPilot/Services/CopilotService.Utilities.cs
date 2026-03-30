@@ -794,8 +794,8 @@ public partial class CopilotService
             if (modelList != null && modelList.Count > 0)
             {
                 var models = modelList
-                    .Where(m => !string.IsNullOrEmpty(m.Name))
-                    .Select(m => m.Name!)
+                    .Where(m => !string.IsNullOrEmpty(m.Id))
+                    .Select(m => m.Id!)
                     .OrderBy(m => m)
                     .ToList();
                 if (models.Count > 0)
