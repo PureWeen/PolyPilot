@@ -800,7 +800,7 @@ public partial class CopilotService
                     .ToList();
                 if (models.Count > 0)
                 {
-                    AvailableModels = models;
+                    _localAvailableModels = models;
                     Debug($"Loaded {models.Count} models from SDK");
                     OnStateChanged?.Invoke();
                 }

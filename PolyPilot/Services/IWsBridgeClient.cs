@@ -17,6 +17,7 @@ public interface IWsBridgeClient
     string? GitHubAvatarUrl { get; }
     string? GitHubLogin { get; }
     string? ServerMachineName { get; }
+    List<string> AvailableModels { get; }
 
     // Events
     event Action? OnStateChanged;

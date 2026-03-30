@@ -139,6 +139,8 @@ public class SessionsListPayload
     public string? GitHubLogin { get; set; }
     /// <summary>Server's machine name, used by remote clients to open VS Code via Remote - Tunnels.</summary>
     public string? ServerMachineName { get; set; }
+    /// <summary>Available model display names fetched from the SDK on the desktop. Null means not yet fetched.</summary>
+    public List<string>? AvailableModels { get; set; }
 }
 
 public class SessionSummary

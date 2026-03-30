@@ -260,7 +260,11 @@ public partial class CopilotService : IAsyncDisposable
     public string? ActiveSessionName => _activeSessionName;
     public IChatDatabase ChatDb => _chatDb;
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
-    public List<string> AvailableModels { get; private set; } = new();
+    public List<string> AvailableModels =>
+        IsRemoteMode && _bridgeClient.AvailableModels.Count > 0
+            ? _bridgeClient.AvailableModels
+            : _localAvailableModels;
+    private List<string> _localAvailableModels = new();
 
     private readonly RepoManager _repoManager;
     private readonly CodespaceService _codespaceService;
