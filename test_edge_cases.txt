@@ -1,0 +1,21 @@
+Testing edge cases for NormalizeToSlug:
+
+Input: "Claude Opus 4.6 (1M Context)(Preview)"
+- parenContent = "(1M Context)(Preview)" (from first paren to end)
+- normalizedParen = "(1m-context)(preview)"
+- normalizedParen.Contains("preview") = TRUE
+- Result: "claude-opus-4.6-preview" ❌ (loses 1M info)
+
+Input: "Claude Opus 4.6 (Preview)(1M Context)"  
+- parenContent = "(Preview)(1M Context)"
+- normalizedParen = "(preview)(1m-context)"
+- normalizedParen.Contains("preview") = TRUE
+- Result: "claude-opus-4.6-preview" ❌ (loses 1M info)
+
+Input: "Claude Opus 4.6 (Fast Mode)(1M Context)"
+- parenContent = "(Fast Mode)(1M Context)"
+- normalizedParen = "(fast-mode)(1m-context)"
+- normalizedParen.Contains("fast-mode") = TRUE
+- Result: "claude-opus-4.6-fast" ❌ (loses 1M info)
+
+The if-else chain is problematic!

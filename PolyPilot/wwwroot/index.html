@@ -22,6 +22,27 @@
         <span class="dismiss">🗙</span>
     </div>
 
+    <script>
+        // Prevent PR badge clicks from selecting the parent session.
+        // MUST be loaded BEFORE blazor.webview.js so our capture-phase handler
+        // runs before Blazor's event delegation. stopImmediatePropagation only
+        // blocks listeners registered AFTER this one.
+        ['click', 'pointerdown', 'pointerup', 'mousedown', 'mouseup'].forEach(function(evtName) {
+            document.addEventListener(evtName, function(e) {
+                var badge = e.target.closest('.pr-badge');
+                if (badge) {
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
+                    if (evtName === 'click') {
+                        var url = badge.getAttribute('title');
+                        if (url && url.startsWith('https://') && window.__dashRef) {
+                            window.__dashRef.invokeMethodAsync('JsOpenUrlInBackground', url).catch(function(){});
+                        }
+                    }
+                }
+            }, true);
+        });
+    </script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
     <script src="chobitsu.js"></script>
     <script>
@@ -1211,28 +1232,6 @@
     </script>
 
     <script>
-        // Prevent PR badge clicks from selecting the parent session.
-        // Blazor in MAUI Blazor Hybrid WebViews dispatches @onclick from multiple
-        // native events (click, pointerdown, pointerup, mousedown, mouseup).
-        // We must intercept ALL of them in the capture phase to prevent the parent
-        // session-item's @onclick from firing.
-        ['click', 'pointerdown', 'pointerup', 'mousedown', 'mouseup'].forEach(function(evtName) {
-            document.addEventListener(evtName, function(e) {
-                var badge = e.target.closest('.pr-badge');
-                if (badge) {
-                    e.stopImmediatePropagation();
-                    e.preventDefault();
-                    // Only open URL on the actual click event, not on pointer/mouse down/up
-                    if (evtName === 'click') {
-                        var url = badge.getAttribute('title');
-                        if (url && url.startsWith('https://') && window.__dashRef) {
-                            window.__dashRef.invokeMethodAsync('JsOpenUrlInBackground', url).catch(function(){});
-                        }
-                    }
-                }
-            }, true);
-        });
-
         // Command+Click (Mac) opens external links in background without focusing browser
         document.addEventListener('click', function(e) {
             if (!e.metaKey) return;

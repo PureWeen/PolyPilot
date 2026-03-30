@@ -9,43 +9,43 @@
 dotnet build -f net10.0-maccatalyst   # Build only
 ```
 
-#### ⚠️ CRITICAL: Relaunch from a Copilot agent session
+#### ⚠️ Relaunch from a Copilot agent session
 
 `relaunch.sh` is **async by default** — it returns immediately after a successful build, then kills the old UI and launches the new one in a detached background process after a 10-second delay. This is critical because PolyPilot hosts the Copilot sessions via TCP to the persistent CLI server. If the script blocked and killed the UI synchronously, the TCP connection would drop mid-tool-call and the agent's turn would be interrupted.
 
-> **🚨 THE RELAUNCH CALL MUST BE THE LAST TOOL CALL IN YOUR RESPONSE. 🚨**
+> **🚨 RULES FOR CALLING RELAUNCH.SH 🚨**
 > 1. Do NOT chain ANYTHING after `./relaunch.sh` in the same bash call — no `&&`, `;`, `|`, `sleep`.
-> 2. Do NOT make any other tool calls AFTER the relaunch bash call in the same response.
->    The old UI will be killed ~10 seconds after the script returns. Any tool call that
->    is still in-flight when the kill fires will be interrupted.
-> 3. Verify relaunch success on your **next turn** (after the user responds or you resume).
+> 2. You have ~10 seconds after relaunch.sh returns to make additional quick tool calls
+>    (e.g., `maui-devflow wait`, `tail`, short verification commands). Use this window
+>    to keep working — verify the relaunch, reconnect to MauiDevFlow, test your changes.
+> 3. If one tool call gets interrupted by the kill, that's OK — the CLI keeps your session
+>    alive. Just continue on the next turn.
+> 4. Do NOT make long-running tool calls (>8s) after relaunch — they will be interrupted.
 
-**Correct pattern:**
+**Correct pattern — keep working after relaunch:**
 ```bash
-# FIRST tool call — relaunch.sh ONLY, nothing else (use mode="sync"):
+# Tool call 1: relaunch (returns immediately after build)
 ./relaunch.sh
 ```
+After relaunch.sh returns, the old UI will be killed in ~10s and a new one launched.
+Your turn may get interrupted if a tool call is in-flight when the kill happens — that's OK,
+the CLI keeps your session alive. On your next turn, verify and continue:
 ```bash
-# SECOND tool call (after tool returns) — verify success.
-# Relaunch takes ~21s (10s delay + 3s kill + 8s stability), so this should succeed:
-tail -5 ~/.polypilot/relaunch.log
-# Expected: "SUCCESS: New instance stable (PID XXXXX)"
-# Failure:  "FAILED: Unstable after 2 attempts" or "FAILED: Could not launch"
+# Next turn: verify relaunch + reconnect to MauiDevFlow
+tail -3 ~/.polypilot/relaunch.log && maui-devflow wait --timeout 30
+```
+```bash
+# Then test your changes via CDP
+maui-devflow cdp Runtime evaluate '...'
 ```
 
 **NEVER do this:**
 ```bash
-# ❌ WRONG — sleep blocks the tool call, UI gets killed at t+5s, turn interrupted
+# ❌ WRONG — chaining in the same bash call blocks the tool return
 ./relaunch.sh && sleep 15 && cat ~/.polypilot/relaunch.log
 
-# ❌ WRONG — any long-running command chained after relaunch.sh risks interruption
-./relaunch.sh && maui-devflow wait --timeout 30
-
-# ❌ WRONG — even a short sleep will get killed
+# ❌ WRONG — sleep/long commands chained after relaunch
 ./relaunch.sh; sleep 10; tail ~/.polypilot/relaunch.log
-
-# ❌ WRONG — async mode means you must read_bash later, risking commands in the danger window
-# Always use mode="sync" (default) so you see "Build succeeded" immediately
 ```
 
 The `--sync` flag restores the old blocking behavior (for human terminal use only — NEVER use from an agent).
