@@ -3106,6 +3106,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (!_sessions.TryGetValue(sessionName, out var state))
             throw new InvalidOperationException($"Session '{sessionName}' not found.");
 
+        // Orphaned states have ProcessingGeneration=long.MaxValue (from reconnect).
+        // They're dead — the event handler is disconnected, watchdog exits immediately.
+        if (state.IsOrphaned)
+            throw new InvalidOperationException($"Session '{sessionName}' state is orphaned (stale after reconnect).");
+
         if (state.Info.IsCreating)
             throw new InvalidOperationException("Session is still being created. Please wait.");
 

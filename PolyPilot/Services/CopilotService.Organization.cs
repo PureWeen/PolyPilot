@@ -2317,10 +2317,22 @@ public partial class CopilotService
         const int maxRetries = 2;
         var dispatchTime = DateTime.Now;
 
+        // Pre-dispatch: if worker state is orphaned (from a prior reconnect), the state
+        // has ProcessingGeneration=long.MaxValue and the watchdog will kill it immediately.
+        // Re-fetch the latest state from the dictionary — the reconnect path creates a
+        // fresh non-orphaned SessionState and swaps it in.
+        if (_sessions.TryGetValue(workerName, out var preCheck) && preCheck.IsOrphaned)
+        {
+            Debug($"[DISPATCH] Worker '{workerName}' state is orphaned — will use fresh state from dictionary on send");
+            // The orphaned state is stale. SendPromptAsync will re-fetch from _sessions.
+            // Nothing to do here except log. If no fresh state exists, SendPromptAsync
+            // will fail and the retry loop will handle it.
+        }
+
         // Pre-dispatch: if worker is still processing from a previous run (e.g., restored
         // mid-processing after app relaunch), wait for it to become idle. The watchdog will
         // clear IsProcessing within 30-120s for restored sessions.
-        if (_sessions.TryGetValue(workerName, out var preState) && preState.Info.IsProcessing)
+        if (_sessions.TryGetValue(workerName, out var preState) && !preState.IsOrphaned && preState.Info.IsProcessing)
         {
             Debug($"[DISPATCH] Worker '{workerName}' is still processing from previous run — waiting up to 150s");
             var waitStart = DateTime.UtcNow;
@@ -2493,7 +2505,7 @@ public partial class CopilotService
                 Debug($"[DISPATCH] Worker '{workerName}' completed (response len={response?.Length ?? 0}, elapsed={sw.Elapsed.TotalSeconds:F1}s)");
                 return new WorkerResult(workerName, response, true, null, sw.Elapsed);
             }
-            catch (Exception ex) when (attempt < maxRetries && (IsConnectionError(ex) || IsInitializationError(ex)))
+            catch (Exception ex) when (attempt < maxRetries && (IsConnectionError(ex) || IsInitializationError(ex) || IsOrphanedError(ex)))
             {
                 Debug($"[DISPATCH] Worker '{workerName}' attempt {attempt} failed with {ex.GetType().Name} — retrying in 2s");
                 // If the service became uninitialized (e.g., a concurrent worker's connection

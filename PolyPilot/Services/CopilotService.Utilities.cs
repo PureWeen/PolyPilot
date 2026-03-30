@@ -487,6 +487,9 @@ public partial class CopilotService
     internal static bool IsInitializationError(Exception ex) =>
         ex is InvalidOperationException && ex.Message.Contains("not initialized", StringComparison.OrdinalIgnoreCase);
 
+    internal static bool IsOrphanedError(Exception ex) =>
+        ex is InvalidOperationException && ex.Message.Contains("orphaned", StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// Returns true if the exception indicates the CLI server process is dead
     /// (e.g., Process.HasExited throws because the Process handle was never started

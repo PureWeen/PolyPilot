@@ -2430,7 +2430,7 @@ public class MultiAgentRegressionTests
         // Must be called within ExecuteWorkerAsync (find the method definition, not a call site)
         var execIdx = source.IndexOf("private async Task<WorkerResult> ExecuteWorkerAsync", StringComparison.Ordinal);
         Assert.True(execIdx >= 0, "ExecuteWorkerAsync method definition must exist");
-        var execBlock = source.Substring(execIdx, Math.Min(5000, source.Length - execIdx));
+        var execBlock = source.Substring(execIdx, Math.Min(6000, source.Length - execIdx));
         Assert.Contains("RecoverFromPrematureIdleIfNeededAsync", execBlock);
     }
 
@@ -2444,7 +2444,7 @@ public class MultiAgentRegressionTests
 
         var execIdx = source.IndexOf("private async Task<WorkerResult> ExecuteWorkerAsync", StringComparison.Ordinal);
         Assert.True(execIdx >= 0, "ExecuteWorkerAsync method definition must exist");
-        var execBlock = source.Substring(execIdx, Math.Min(5000, source.Length - execIdx));
+        var execBlock = source.Substring(execIdx, Math.Min(6000, source.Length - execIdx));
 
         // Must check IsMultiAgentSession before calling recovery
         var recoveryIdx = execBlock.IndexOf("RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
