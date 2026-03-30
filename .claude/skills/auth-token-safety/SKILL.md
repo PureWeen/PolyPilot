@@ -3,18 +3,21 @@ name: auth-token-safety
 description: >
   Invariants, design rationale, and regression traps for PolyPilot's authentication
   and token forwarding system. Use when: (1) Modifying ResolveGitHubTokenForServer,
-  TryReadCopilotKeychainToken, or RunProcessWithTimeout, (2) Touching CheckAuthStatusAsync,
-  StartAuthPolling, StopAuthPolling, or ReauthenticateAsync, (3) Adding or modifying
-  code paths that start the headless copilot server (StartServerAsync calls),
+  ResolveGitHubTokenFromEnv, TryReadCopilotKeychainToken, or RunProcessWithTimeout,
+  (2) Touching CheckAuthStatusAsync, StartAuthPolling, StopAuthPolling, or ReauthenticateAsync,
+  (3) Adding or modifying code paths that start the headless copilot server (StartServerAsync calls),
   (4) Modifying TryRecoverPersistentServerAsync or watchdog server recovery,
   (5) Touching InitializeAsync's Persistent mode startup path, (6) Debugging auth
   errors like "Session was not created with authentication info or custom provider",
   (7) Working with AuthNotice, the auth banner UI, or ClearAuthNotice,
   (8) Modifying _resolvedGitHubToken caching or invalidation,
   (9) Any change involving macOS Keychain access or the `security` CLI,
-  (10) Adding new env var token sources or changing token resolution order.
-  Covers: 9 invariants from PR #446 (8 review rounds), the macOS Keychain ACL problem,
-  token expiration trap, and the three-tier token resolution design.
+  (10) Adding new env var token sources or changing token resolution order,
+  (11) Modifying _tokenResolutionLock or lazy resolution concurrency,
+  (12) Adding callers of TryRecoverPersistentServerAsync (must add CheckAuthStatusAsync after).
+  Covers: 12 invariants from PR #446 (8 review rounds) and PR #456 (lazy Keychain fix),
+  the macOS Keychain ACL problem, token expiration trap, save-then-clear pattern,
+  SemaphoreSlim thread safety, and the three-tier token resolution design.
 ---
 
 # Auth Token Safety
@@ -46,7 +49,7 @@ Keychain → password prompt to the user → **recurring hourly prompts**.
 
 ---
 
-## The 9 Invariants
+## The 12 Invariants
 
 ### INV-A1: Never read Keychain preemptively
 
@@ -157,6 +160,64 @@ Both `StartAuthPolling` and `StopAuthPolling` must hold this lock.
 **Cleanup:** `DisposeAsync` must call `StopAuthPolling()`. The fire-and-forget polling
 `Task` is not awaited (matches codebase pattern for `FetchGitHubUserInfoAsync` etc.).
 
+### INV-A10: Thread-safe lazy resolution via SemaphoreSlim
+
+`CheckAuthStatusAsync` contains a "lazy resolution" block: when auth fails and
+`_resolvedGitHubToken == null`, it reads the Keychain. Two concurrent auth failures
+(e.g., two sessions fail simultaneously) can both pass the `== null` check and both
+trigger Keychain reads — double password dialog.
+
+**Fix:** `_tokenResolutionLock` (`SemaphoreSlim(1,1)`) with try-enter + double-check:
+```csharp
+if (_resolvedGitHubToken == null && _tokenResolutionLock.Wait(0))
+{
+    try
+    {
+        if (_resolvedGitHubToken == null)  // double-check after acquiring lock
+        {
+            _resolvedGitHubToken = await Task.Run(() => ResolveGitHubTokenForServer());
+        }
+    }
+    finally { _tokenResolutionLock.Release(); }
+}
+```
+
+`Wait(0)` = try-enter (non-blocking). If the lock is held, the second caller skips the
+block entirely and uses whatever token value exists — no queueing, no dialog.
+
+**Dispose:** `_tokenResolutionLock` must be disposed in `DisposeAsync`.
+
+### INV-A11: Call CheckAuthStatusAsync AFTER recovery, not INSIDE it
+
+After `TryRecoverPersistentServerAsync` succeeds, if the server started without a token
+and can't self-authenticate, nothing triggers the lazy resolution path. The user is
+silently unauthenticated until a session fails.
+
+**Fix:** Call `_ = CheckAuthStatusAsync()` in the CALLERS of `TryRecoverPersistentServerAsync`:
+- Health-check recovery path (`CopilotService.cs ~746`)
+- Watchdog recovery path (`CopilotService.Events.cs ~2503`)
+
+**Why not inside `TryRecoverPersistentServerAsync`?** Re-entrancy risk:
+CheckAuthStatusAsync → lazy path → server recovery → CheckAuthStatusAsync → loop.
+Calling from callers after recovery returns avoids this. ReauthenticateAsync calling
+it twice is harmless — second call sees authenticated and returns immediately.
+
+### INV-A12: Save-then-clear token in TryRecoverPersistentServerAsync
+
+When clearing `_resolvedGitHubToken` for recovery (so the lazy path can fire fresh),
+save the current value to a local variable first:
+```csharp
+var tokenToForward = _resolvedGitHubToken;
+_resolvedGitHubToken = null;  // clear so lazy path fires after restart
+// pass tokenToForward to StartServerAsync (may still be valid for this restart)
+```
+
+**Why:** If commit N sets the token via lazy resolution, and commit N+1 naively
+clears `_resolvedGitHubToken = null` inside recovery, it discards the just-resolved
+token before passing it to `StartServerAsync`. The server starts with no token.
+`ReauthenticateAsync` had the same bug — it resolved a fresh token, then recovery
+cleared it before use.
+
 ---
 
 ## Token Resolution Chain
@@ -242,6 +303,18 @@ Static env var token expires → server auth fails → recovery restarts server 
 stale token → fails again → polling detects auth → re-reads Keychain → password prompt.
 **The loop repeats hourly** (aligned with `WatchdogMaxProcessingTimeSeconds = 3600`).
 
+### Pattern 5: Save-then-clear ordering in recovery
+If recovery clears `_resolvedGitHubToken = null` without saving to a local first, the
+token resolved by the lazy path (or ReauthenticateAsync) is lost before being passed
+to `StartServerAsync`. The server starts tokenless → auth fails → user sees banner.
+Always: `var tokenToForward = _resolvedGitHubToken; _resolvedGitHubToken = null;`
+
+### Pattern 6: Missing CheckAuthStatusAsync after recovery
+`TryRecoverPersistentServerAsync` restarts the server but doesn't check if the new
+server is authenticated. If the server can't self-auth and no cached token exists,
+the user is silently unauthenticated. Every caller of `TryRecoverPersistentServerAsync`
+must call `_ = CheckAuthStatusAsync()` after it returns true.
+
 ---
 
 ## Files Reference
@@ -249,6 +322,7 @@ stale token → fails again → polling detects auth → re-reads Keychain → p
 | File | What's there |
 |------|-------------|
 | `CopilotService.cs` ~75 | `_resolvedGitHubToken` field |
+| `CopilotService.cs` ~85 | `_tokenResolutionLock` SemaphoreSlim |
 | `CopilotService.cs` ~287 | `AuthNotice` property |
 | `CopilotService.cs` ~300 | `ClearAuthNotice()` |
 | `CopilotService.cs` ~311 | `GetLoginCommand()` |
@@ -282,3 +356,14 @@ PR #446 went through 8 review rounds. Key lessons:
 - R8: Approved
 - Post-merge regression: User reports hourly password prompts. Root cause: polling loop
   re-reads Keychain on every auth detection cycle + token expiration creates hourly loop
+
+PR #456 (fix for the hourly prompt regression):
+- Commit 1: Split ResolveGitHubTokenFromEnv (safe) / ResolveGitHubTokenForServer (dangerous).
+  InitializeAsync uses env-only at startup, CheckAuthStatusAsync does lazy full-chain resolve.
+  Polling uses cached token only.
+- Commit 2: Clear stale token on recovery (INV-A3 fix) + fetch user info after lazy restart.
+- Commit 3: Save-then-clear pattern — fix token discard bug where recovery cleared the
+  just-resolved token before passing it to StartServerAsync (INV-A12).
+- Commit 4: SemaphoreSlim for thread-safe lazy resolution (INV-A10), CheckAuthStatusAsync
+  after recovery in callers (INV-A11), proper isolated env-var tests replacing tautological ones.
+- 3-model consensus (Opus/Sonnet/Codex) validated each major design decision.
