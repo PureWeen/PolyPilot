@@ -149,7 +149,15 @@ public class ScheduledTask
                 {
                     var candidate = localNow.Date.AddDays(i).AddHours(h).AddMinutes(m);
                     var candidateUtc = candidate.ToUniversalTime();
-                    if (candidateUtc <= now && i == 0) continue; // today's slot already passed
+                    if (candidateUtc <= now && i == 0)
+                    {
+                        // Today's slot time has passed. Only skip if we already ran today
+                        // (mirrors Daily logic). If LastRunAt is before today, the task missed
+                        // its slot today and should still be treated as due.
+                        if (LastRunAt.HasValue && LastRunAt.Value.ToLocalTime().Date >= localNow.Date)
+                            continue;
+                        // Slot passed but not yet run today — fall through to check the day
+                    }
                     var dow = (int)candidate.DayOfWeek;
                     if (DaysOfWeek.Contains(dow))
                     {
@@ -313,8 +321,8 @@ public class ScheduledTask
         if (!TryParseCron(CronExpression, out var cron)) return null;
 
         var local = now.ToLocalTime();
-        // Start from next minute to avoid re-firing on the same minute
-        var candidate = new DateTime(local.Year, local.Month, local.Day, local.Hour, local.Minute, 0).AddMinutes(1);
+        // Start from the current minute. LastRunAt prevents re-firing within the same minute.
+        var candidate = new DateTime(local.Year, local.Month, local.Day, local.Hour, local.Minute, 0, DateTimeKind.Local);
 
         // Search up to 366 days ahead
         for (int i = 0; i < 366 * 24 * 60; i++)

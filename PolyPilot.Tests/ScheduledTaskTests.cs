@@ -252,6 +252,58 @@ public class ScheduledTaskTests
     }
 
     [Fact]
+    public void GetNextRunTimeUtc_Weekly_MissedTodaySlot_StillDue()
+    {
+        // Regression test for: weekly task's slot time passed today but it hasn't run today —
+        // should return today's slot (due), not skip to next week.
+        var now = DateTime.UtcNow;
+        var localNow = now.ToLocalTime();
+
+        // Use a time 2 hours ago (slot has passed today)
+        var slotLocal = localNow.AddHours(-2);
+        var timeStr = $"{slotLocal.Hour:D2}:{slotLocal.Minute:D2}";
+        var todayDow = (int)localNow.DayOfWeek;
+
+        var task = new ScheduledTask
+        {
+            Schedule = ScheduleType.Weekly,
+            TimeOfDay = timeStr,
+            DaysOfWeek = new List<int> { todayDow }, // today is a scheduled day
+            IsEnabled = true,
+            LastRunAt = now.AddDays(-7) // ran last week, not today
+        };
+
+        var next = task.GetNextRunTimeUtc(now);
+        Assert.NotNull(next);
+        // Should be today's slot (in the past) — meaning IsDue() is true
+        Assert.True(next!.Value <= now, $"Expected past slot <= now, got {next.Value:O}");
+        Assert.True(task.IsDue(now), "Task should be due — missed today's slot");
+    }
+
+    [Fact]
+    public void GetNextRunTimeUtc_Weekly_AlreadyRanToday_NotDue()
+    {
+        // Task ran today at the scheduled slot — should NOT fire again today.
+        var now = DateTime.UtcNow;
+        var localNow = now.ToLocalTime();
+
+        var slotLocal = localNow.AddHours(-2);
+        var timeStr = $"{slotLocal.Hour:D2}:{slotLocal.Minute:D2}";
+        var todayDow = (int)localNow.DayOfWeek;
+
+        var task = new ScheduledTask
+        {
+            Schedule = ScheduleType.Weekly,
+            TimeOfDay = timeStr,
+            DaysOfWeek = new List<int> { todayDow },
+            IsEnabled = true,
+            LastRunAt = slotLocal.AddMinutes(1).ToUniversalTime() // ran at today's slot
+        };
+
+        Assert.False(task.IsDue(now), "Task should not fire — already ran today");
+    }
+
+    [Fact]
     public void GetNextRunTimeUtc_IntervalNeverRun_ReturnsNow()
     {
         var now = DateTime.UtcNow;
@@ -385,14 +437,71 @@ public class ScheduledTaskTests
             var task = new ScheduledTask { Name = "Original", Prompt = "original" };
             svc.AddTask(task);
 
-            task.Name = "Updated";
-            task.Prompt = "updated";
-            svc.UpdateTask(task);
+            var clone = svc.GetTask(task.Id)!;
+            clone.Name = "Updated";
+            clone.Prompt = "updated";
+            svc.UpdateTask(clone);
 
             var loaded = svc.GetTask(task.Id);
             Assert.NotNull(loaded);
             Assert.Equal("Updated", loaded!.Name);
             Assert.Equal("updated", loaded.Prompt);
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public void Service_UpdateTask_PreservesRunHistoryAndLastRunAt()
+    {
+        // Regression test: editing a task while the timer ran must not erase run history.
+        // UpdateTask merges user-editable fields onto the canonical instance,
+        // never overwriting LastRunAt or RecentRuns.
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var svc = CreateService();
+            var task = new ScheduledTask { Name = "Original", Prompt = "original" };
+            svc.AddTask(task);
+
+            // Simulate: user opens edit form → gets a snapshot clone (no runs yet)
+            var staleClone = svc.GetTask(task.Id)!;
+            Assert.Empty(staleClone.RecentRuns);
+
+            // Simulate: timer fires and records a run on the canonical instance.
+            // AddTask stores the reference directly, so `task` IS the canonical object.
+            task.RecordRun(new ScheduledTaskRun
+            {
+                StartedAt = DateTime.UtcNow,
+                CompletedAt = DateTime.UtcNow,
+                Success = true,
+                SessionName = "timer-session"
+            });
+            svc.SaveTasks(); // persist the run
+
+            // Verify canonical now has a run
+            var checkAfterRun = svc.GetTask(task.Id)!;
+            Assert.Single(checkAfterRun.RecentRuns);
+            Assert.NotNull(checkAfterRun.LastRunAt);
+
+            // Now "user saves" using the stale clone (which has no runs)
+            staleClone.Name = "Edited Name";
+            staleClone.Prompt = "edited prompt";
+            svc.UpdateTask(staleClone);
+
+            // Verify: name/prompt updated, but runs preserved
+            var result = svc.GetTask(task.Id)!;
+            Assert.Equal("Edited Name", result.Name);
+            Assert.Equal("edited prompt", result.Prompt);
+            Assert.Single(result.RecentRuns); // run from timer still present
+            Assert.NotNull(result.LastRunAt); // LastRunAt not wiped
+            Assert.Equal("timer-session", result.RecentRuns[0].SessionName);
         }
         finally
         {
@@ -480,6 +589,28 @@ public class ScheduledTaskTests
     }
 
     [Fact]
+    public void Service_Start_AfterDispose_DoesNotCreateTimer()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var svc = CreateService();
+            svc.Dispose();
+            // Should not throw or create a zombie timer
+            svc.Start();
+            // If Start created a timer, it would fire EvaluateTasksAsync — no way to
+            // observe directly without reflection, but at least verify no exception.
+        }
+        finally
+        {
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
     public void Service_LoadTasks_HandlesCorruptFile()
     {
         var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
@@ -515,6 +646,39 @@ public class ScheduledTaskTests
         }
         finally
         {
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public void Service_SaveTasks_AtomicWrite_NoTmpFileRemains()
+    {
+        // Verify the atomic write pattern (write to .tmp, rename) doesn't leave temp files.
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var svc = CreateService();
+            svc.AddTask(new ScheduledTask { Name = "AtomicTest", Prompt = "test" });
+
+            // File should exist after save
+            Assert.True(File.Exists(tempFile), "Task file should exist after AddTask");
+            // .tmp file should NOT linger
+            Assert.False(File.Exists(tempFile + ".tmp"), "Temp file should not remain after atomic write");
+
+            // Verify content is valid JSON
+            var json = File.ReadAllText(tempFile);
+            var tasks = JsonSerializer.Deserialize<List<ScheduledTask>>(json);
+            Assert.NotNull(tasks);
+            Assert.Single(tasks!);
+            Assert.Equal("AtomicTest", tasks[0].Name);
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+            try { File.Delete(tempFile + ".tmp"); } catch { }
             ScheduledTaskService.SetTasksFilePathForTesting(
                 Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
         }
@@ -597,28 +761,44 @@ public class ScheduledTaskTests
     [Fact]
     public void CronSchedule_IsDue_ReturnsTrueWhenCronMatches()
     {
-        // Cron with "* * * * *" (every minute) — GetNextCronTimeUtc starts from now+1min
-        // to avoid re-firing, so we set LastRunAt far enough in the past that the next
-        // minute after now is still due.
         var now = DateTime.UtcNow;
         var localNow = now.ToLocalTime();
-        // Build a cron that matches the CURRENT minute
+        // Build a cron that matches the CURRENT minute — task has never run
         var currentMinuteCron = $"{localNow.Minute} {localNow.Hour} * * *";
         var task = new ScheduledTask
         {
             Schedule = ScheduleType.Cron,
             CronExpression = currentMinuteCron,
             IsEnabled = true,
-            LastRunAt = null // never run — first occurrence at current minute should be found
+            LastRunAt = null // never run
         };
-        // GetNextCronTimeUtc starts from now+1min, so current minute won't match.
-        // Instead test that GetNextRunTimeUtc returns a valid future time.
+        // GetNextCronTimeUtc now starts from the current minute (not +1), so it should
+        // find the current minute as a match and return it as <= now → IsDue() == true.
         var next = task.GetNextRunTimeUtc(now);
         Assert.NotNull(next);
-        // It should be at the same hour:minute tomorrow (since we're past the current minute start)
-        var nextLocal = next!.Value.ToLocalTime();
-        Assert.Equal(localNow.Hour, nextLocal.Hour);
-        Assert.Equal(localNow.Minute, nextLocal.Minute);
+        Assert.True(next!.Value <= now, $"Expected next ({next.Value:O}) <= now ({now:O})");
+        Assert.True(task.IsDue(now));
+    }
+
+    [Fact]
+    public void CronSchedule_IsDue_ReturnsFalseWhenAlreadyRanThisMinute()
+    {
+        var now = DateTime.UtcNow;
+        var localNow = now.ToLocalTime();
+        var currentMinuteCron = $"{localNow.Minute} {localNow.Hour} * * *";
+        // Ensure LastRunAt is within the current minute (after the minute boundary).
+        // Use the minute boundary + 1 second so it's always in the same minute.
+        var minuteStart = new DateTime(localNow.Year, localNow.Month, localNow.Day,
+            localNow.Hour, localNow.Minute, 0, DateTimeKind.Local).ToUniversalTime();
+        var task = new ScheduledTask
+        {
+            Schedule = ScheduleType.Cron,
+            CronExpression = currentMinuteCron,
+            IsEnabled = true,
+            LastRunAt = minuteStart.AddSeconds(1) // ran 1s into this minute — same minute
+        };
+        // Already ran this minute — next run should be tomorrow at same time (or skipped)
+        Assert.False(task.IsDue(now), "Task should not fire again in the same minute");
     }
 
     [Fact]

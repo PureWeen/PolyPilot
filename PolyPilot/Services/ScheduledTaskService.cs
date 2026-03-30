@@ -39,6 +39,7 @@ public class ScheduledTaskService : IDisposable
     /// <summary>Start the background evaluation timer.</summary>
     public void Start()
     {
+        if (_disposed) return;
         _evaluationTimer?.Dispose();
         _evaluationTimer = new Timer(
             _ => _ = EvaluateTasksAsync(),
@@ -73,12 +74,29 @@ public class ScheduledTaskService : IDisposable
         OnTasksChanged?.Invoke();
     }
 
-    public void UpdateTask(ScheduledTask task)
+    public void UpdateTask(ScheduledTask updated)
     {
         lock (_lock)
         {
-            var idx = _tasks.FindIndex(t => t.Id == task.Id);
-            if (idx >= 0) _tasks[idx] = task;
+            var idx = _tasks.FindIndex(t => t.Id == updated.Id);
+            if (idx >= 0)
+            {
+                var canonical = _tasks[idx];
+                // Merge only user-editable fields. Never overwrite LastRunAt, RecentRuns, or
+                // CreatedAt — those are owned by the service and may have been updated by the
+                // background timer while the edit form was open.
+                canonical.Name = updated.Name;
+                canonical.Prompt = updated.Prompt;
+                canonical.SessionName = updated.SessionName;
+                canonical.Model = updated.Model;
+                canonical.WorkingDirectory = updated.WorkingDirectory;
+                canonical.Schedule = updated.Schedule;
+                canonical.IntervalMinutes = updated.IntervalMinutes;
+                canonical.TimeOfDay = updated.TimeOfDay;
+                canonical.DaysOfWeek = updated.DaysOfWeek.ToList();
+                canonical.CronExpression = updated.CronExpression;
+                canonical.IsEnabled = updated.IsEnabled;
+            }
         }
         SaveTasks();
         OnTasksChanged?.Invoke();
@@ -140,7 +158,15 @@ public class ScheduledTaskService : IDisposable
 
             foreach (var taskId in dueTaskIds)
             {
-                await ExecuteTaskAsync(taskId, now);
+                try
+                {
+                    await ExecuteTaskAsync(taskId, now);
+                }
+                catch (Exception ex)
+                {
+                    // Isolate failures so one bad task doesn't prevent remaining tasks from running
+                    Console.WriteLine($"[ScheduledTask] Unhandled error executing task {taskId}: {ex.Message}");
+                }
             }
         }
         finally
@@ -244,8 +270,8 @@ public class ScheduledTaskService : IDisposable
         {
             var canonical = _tasks.FirstOrDefault(t => t.Id == taskId);
             canonical?.RecordRun(run);
-            SaveTasksLocked();
         }
+        SaveTasks(); // I/O outside lock
         OnTasksChanged?.Invoke();
     }
 
@@ -275,21 +301,26 @@ public class ScheduledTaskService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Saves tasks to disk atomically (snapshot under lock, write outside lock).
+    /// Uses write-to-temp + rename to prevent data loss on crash.
+    /// </summary>
     internal void SaveTasks()
     {
-        lock (_lock) SaveTasksLocked();
-    }
+        List<ScheduledTask> snapshot;
+        lock (_lock)
+        {
+            snapshot = _tasks.Select(t => t.Clone()).ToList();
+        }
 
-    /// <summary>Saves tasks to disk. Caller MUST hold _lock.</summary>
-    private void SaveTasksLocked()
-    {
         try
         {
-            var snapshot = _tasks.ToList();
             var dir = Path.GetDirectoryName(TasksFilePath)!;
             Directory.CreateDirectory(dir);
             var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(TasksFilePath, json);
+            var tempPath = TasksFilePath + ".tmp";
+            File.WriteAllText(tempPath, json);
+            File.Move(tempPath, TasksFilePath, overwrite: true);
         }
         catch (Exception ex)
         {
