@@ -165,6 +165,9 @@ public class ConnectionSettings
     private static string SettingsPath => _settingsPath ??= Path.Combine(
         GetPolyPilotDir(), "settings.json");
 
+    /// <summary>For test isolation only — redirects Load()/Save() to a temp file.</summary>
+    internal static void SetSettingsFilePathForTesting(string? path) => _settingsPath = path;
+
     private static string GetPolyPilotDir()
     {
 #if IOS || ANDROID

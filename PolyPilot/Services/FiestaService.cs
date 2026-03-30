@@ -13,6 +13,7 @@ namespace PolyPilot.Services;
 public class FiestaService : IDisposable
 {
     private const int DiscoveryPort = 43223;
+    private const int MaxPendingPairRequests = 5;
     private static readonly TimeSpan DiscoveryInterval = TimeSpan.FromSeconds(5);
     private static readonly TimeSpan DiscoveryStaleAfter = TimeSpan.FromSeconds(20);
     private static readonly Regex MentionRegex = new(@"(?<!\S)@(?<name>[A-Za-z0-9._-]+)", RegexOptions.Compiled);
@@ -416,7 +417,7 @@ public class FiestaService : IDisposable
         bool isDuplicate;
         lock (_stateLock)
         {
-            isDuplicate = _pendingPairRequests.Count >= 1;
+            isDuplicate = _pendingPairRequests.Count >= MaxPendingPairRequests;
             if (!isDuplicate)
             {
                 _pendingPairRequests[req.RequestId] = pending;
@@ -520,7 +521,9 @@ public class FiestaService : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[Fiesta] Failed to send pair approval: {ex.Message}");
+            // TCS already resolved to true so this request cannot be retried or denied.
+            // Log clearly: the worker will time out and show "Unreachable".
+            Console.WriteLine($"[Fiesta] Approval send failed (request={requestId}, irrecoverable): {ex.Message}");
             return false;
         }
         finally
@@ -636,29 +639,53 @@ public class FiestaService : IDisposable
 
     private string EnsureServerPassword()
     {
+        // Fast path: check the runtime value without disk I/O.
         lock (_stateLock)
         {
-            // First check the runtime value already set on the bridge server
             if (!string.IsNullOrWhiteSpace(_bridgeServer.ServerPassword))
                 return _bridgeServer.ServerPassword;
-
-            // Fall back to persisted settings
-            var settings = ConnectionSettings.Load();
-            if (!string.IsNullOrWhiteSpace(settings.ServerPassword))
-            {
-                _bridgeServer.ServerPassword = settings.ServerPassword;
-                return settings.ServerPassword;
-            }
-
-            // Auto-generate and persist
-            var generated = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(18))
-                                   .Replace('+', '-').Replace('/', '_').TrimEnd('=');
-            settings.ServerPassword = generated;
-            settings.Save();
-            _bridgeServer.ServerPassword = generated;
-            Console.WriteLine("[Fiesta] Auto-generated server password for pairing.");
-            return generated;
         }
+
+        // Slow path: load settings outside the lock so disk I/O doesn't block
+        // callers that read _pendingPairRequests or _linkedWorkers concurrently.
+        var settings = ConnectionSettings.Load();
+
+        string password;
+        bool needsSave = false;
+        if (!string.IsNullOrWhiteSpace(settings.ServerPassword))
+        {
+            password = settings.ServerPassword;
+        }
+        else
+        {
+            // Auto-generate a URL-safe Base64 token.
+            password = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(18))
+                              .Replace('+', '-').Replace('/', '_').TrimEnd('=');
+            settings.ServerPassword = password;
+            needsSave = true;
+        }
+
+        if (needsSave)
+            settings.Save();
+
+        // Store back under lock.  A concurrent call may have already set it;
+        // accept either value as long as it's non-empty.
+        lock (_stateLock)
+        {
+            if (string.IsNullOrWhiteSpace(_bridgeServer.ServerPassword))
+            {
+                _bridgeServer.ServerPassword = password;
+                if (needsSave)
+                    Console.WriteLine("[Fiesta] Auto-generated server password for pairing.");
+            }
+            else
+            {
+                // Another thread got here first — use whatever it stored.
+                password = _bridgeServer.ServerPassword;
+            }
+        }
+
+        return password;
     }
 
     private async Task HandleFiestaAssignAsync(string clientId, WebSocket ws, FiestaAssignPayload assign, CancellationToken ct)
@@ -1200,10 +1227,23 @@ public class FiestaService : IDisposable
         name.Contains("VirtualBox", StringComparison.OrdinalIgnoreCase) ||
         name.Contains("ZeroTier", StringComparison.OrdinalIgnoreCase);
 
-    private static bool IsVirtualAdapterIp(string ip) =>
-        ip.StartsWith("172.17.", StringComparison.Ordinal) ||  // Docker default bridge
-        ip.StartsWith("172.18.", StringComparison.Ordinal);    // Docker custom networks
-    // Note: 172.16-31 is RFC-1918 but IsRfc1918_172 distinguishes real from Docker in scoring
+    private static bool IsVirtualAdapterIp(string ip)
+    {
+        // Filter known virtual/container subnets that Docker and VM managers use by default.
+        // 172.17–172.24 covers Docker's default bridge (172.17), Docker custom networks
+        // (typically 172.18–172.24), and common VMware/VirtualBox host-only subnets.
+        // 172.25–172.31 are also in RFC-1918 /12 but are less commonly assigned by tooling;
+        // we leave them through so legitimate corporate LANs in that range still work.
+        // The name-based filter (IsVirtualAdapterName) is the primary defense for adapters
+        // with names like "br-*", "docker*", "vEthernet", etc.
+        if (ip.StartsWith("172.", StringComparison.Ordinal))
+        {
+            var parts = ip.Split('.');
+            if (parts.Length >= 2 && int.TryParse(parts[1], out var oct) && oct >= 17 && oct <= 24)
+                return true;
+        }
+        return false;
+    }
 
     private static bool IsRfc1918_172(string ip)
     {

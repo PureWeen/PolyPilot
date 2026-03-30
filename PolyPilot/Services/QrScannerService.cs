@@ -6,14 +6,18 @@ namespace PolyPilot.Services;
 /// </summary>
 public class QrScannerService
 {
+    private readonly object _lock = new();
     private TaskCompletionSource<string?>? _tcs;
 
     public Task<string?> ScanAsync()
     {
-        if (_tcs != null && !_tcs.Task.IsCompleted)
-            return _tcs.Task;
+        lock (_lock)
+        {
+            if (_tcs != null && !_tcs.Task.IsCompleted)
+                return _tcs.Task;
 
-        _tcs = new TaskCompletionSource<string?>();
+            _tcs = new TaskCompletionSource<string?>();
+        }
 
         MainThread.BeginInvokeOnMainThread(async () =>
         {

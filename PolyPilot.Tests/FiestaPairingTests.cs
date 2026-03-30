@@ -290,7 +290,148 @@ public class FiestaPairingTests : IDisposable
         Assert.Equal(1, countingSocket.SendCount);
     }
 
-    // ---- Helpers: fake WebSocket implementations ----
+    // ---- Test 6: EnsureServerPassword auto-generates when not pre-set ----
+
+    [Fact]
+    public async Task ApprovePairRequestAsync_AutoGeneratesPassword_WhenNotPreSet()
+    {
+        // Create a fresh bridge server with NO pre-set password so the auto-generate
+        // path in EnsureServerPassword is exercised.
+        var freshBridge = new WsBridgeServer();
+        Assert.True(string.IsNullOrWhiteSpace(freshBridge.ServerPassword),
+            "Precondition: ServerPassword must be empty before the test");
+
+        // Redirect Load()/Save() so we don't write to the real settings file
+        var tempSettings = Path.Combine(TestSetup.TestBaseDir, $"settings-{Guid.NewGuid():N}.json");
+        ConnectionSettings.SetSettingsFilePathForTesting(tempSettings);
+        try
+        {
+            var freshFiesta = new FiestaService(_copilot, freshBridge, new TailscaleService());
+            try
+            {
+                const string requestId = "req-autopass-001";
+                var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                var socket = new CountingSendWebSocket(onSendAsync: (_, _) => Task.CompletedTask);
+                var pending = new PendingPairRequest
+                {
+                    RequestId = requestId,
+                    HostName = "auto-host",
+                    HostInstanceId = "auto-id",
+                    RemoteIp = "127.0.0.1",
+                    Socket = socket,
+                    CompletionSource = tcs,
+                    ExpiresAt = DateTime.UtcNow.AddSeconds(60)
+                };
+
+                var dictField = typeof(FiestaService).GetField("_pendingPairRequests",
+                    BindingFlags.NonPublic | BindingFlags.Instance)!;
+                var dict = (Dictionary<string, PendingPairRequest>)dictField.GetValue(freshFiesta)!;
+                lock (dict) dict[requestId] = pending;
+
+                var result = await freshFiesta.ApprovePairRequestAsync(requestId);
+
+                // Should succeed and have auto-generated a non-empty password
+                Assert.True(result);
+                Assert.False(string.IsNullOrWhiteSpace(freshBridge.ServerPassword),
+                    "EnsureServerPassword should have set a non-empty password on the bridge server");
+                // Password should be URL-safe (no '+' or '/')
+                Assert.DoesNotContain("+", freshBridge.ServerPassword);
+                Assert.DoesNotContain("/", freshBridge.ServerPassword);
+            }
+            finally
+            {
+                freshFiesta.Dispose();
+                freshBridge.Dispose();
+            }
+        }
+        finally
+        {
+            ConnectionSettings.SetSettingsFilePathForTesting(null);
+        }
+    }
+
+    // ---- Test 7: MaxPendingPairRequests constant = 5 ----
+
+    [Fact]
+    public void MaxPendingPairRequests_ConstantIs5()
+    {
+        // Verify the limit was raised from 1 to 5 per the review recommendation.
+        var field = typeof(FiestaService).GetField("MaxPendingPairRequests",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        var value = (int)field.GetValue(null)!;
+        Assert.Equal(5, value);
+    }
+
+    // ---- Test 8: 6th pending request is rejected (exceeds MaxPendingPairRequests) ----
+
+    [Fact]
+    public async Task ApprovePairRequest_SixthRequest_CannotBeApproved()
+    {
+        // Fill 5 slots directly so the 6th would be rejected.
+        var dictField = typeof(FiestaService).GetField("_pendingPairRequests",
+            BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var dict = (Dictionary<string, PendingPairRequest>)dictField.GetValue(_fiesta)!;
+
+        for (int i = 0; i < 5; i++)
+        {
+            var id = $"slot-full-{i}";
+            lock (dict) dict[id] = new PendingPairRequest
+            {
+                RequestId = id,
+                HostName = $"host-{i}",
+                HostInstanceId = $"inst-{i}",
+                RemoteIp = "127.0.0.1",
+                Socket = new CountingSendWebSocket(onSendAsync: (_, _) => Task.CompletedTask),
+                CompletionSource = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously),
+                ExpiresAt = DateTime.UtcNow.AddSeconds(60)
+            };
+        }
+
+        // Verify dict is at capacity
+        int count;
+        lock (dict) count = dict.Count;
+        Assert.Equal(5, count);
+
+        // A 6th approve for a non-existent request returns false (it was never added)
+        var result = await _fiesta.ApprovePairRequestAsync("slot-never-added");
+        Assert.False(result);
+
+        // Original 5 are still intact
+        lock (dict) Assert.Equal(5, dict.Count);
+    }
+
+    // ---- Test 9: DenyPairRequest when TCS already resolved (timeout path) ----
+
+    [Fact]
+    public async Task DenyPairRequestAsync_TcsAlreadyResolved_SkipsSend()
+    {
+        const string requestId = "req-already-resolved";
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Pre-resolve TCS to true (approve already won)
+        tcs.TrySetResult(true);
+
+        var socket = new CountingSendWebSocket(onSendAsync: (_, _) => Task.CompletedTask);
+        var dictField = typeof(FiestaService).GetField("_pendingPairRequests",
+            BindingFlags.NonPublic | BindingFlags.Instance)!;
+        var dict = (Dictionary<string, PendingPairRequest>)dictField.GetValue(_fiesta)!;
+        lock (dict) dict[requestId] = new PendingPairRequest
+        {
+            RequestId = requestId,
+            HostName = "resolved-host",
+            HostInstanceId = "resolved-id",
+            RemoteIp = "127.0.0.1",
+            Socket = socket,
+            CompletionSource = tcs,
+            ExpiresAt = DateTime.UtcNow.AddSeconds(60)
+        };
+
+        await _fiesta.DenyPairRequestAsync(requestId);
+
+        // TCS was already resolved — deny's TrySetResult(false) lost, no send
+        Assert.Equal(0, socket.SendCount);
+    }
+
+    
 
     /// <summary>
     /// A WebSocket that counts calls to SendAsync and optionally delegates to a custom action.
