@@ -77,7 +77,7 @@ public class SessionStabilityTests
     public void ForceCompleteProcessing_ClearsAllInv1Fields()
     {
         var source = File.ReadAllText(TestPaths.OrganizationCs);
-        var method = ExtractMethod(source, "ForceCompleteProcessingAsync");
+        var method = ExtractMethod(source, "Task ForceCompleteProcessingAsync");
 
         // Every INV-1 field must be cleared
         var requiredClears = new[]
@@ -107,7 +107,7 @@ public class SessionStabilityTests
     public void ForceCompleteProcessing_CancelsTimersBeforeUiThreadWork()
     {
         var source = File.ReadAllText(TestPaths.OrganizationCs);
-        var method = ExtractMethod(source, "ForceCompleteProcessingAsync");
+        var method = ExtractMethod(source, "Task ForceCompleteProcessingAsync");
 
         // Timer cancellation must happen BEFORE InvokeOnUI (thread-safe operations first)
         var cancelIdx = method.IndexOf("CancelProcessingWatchdog", StringComparison.Ordinal);
@@ -122,7 +122,7 @@ public class SessionStabilityTests
     public void ForceCompleteProcessing_SkipsIfNotProcessing()
     {
         var source = File.ReadAllText(TestPaths.OrganizationCs);
-        var method = ExtractMethod(source, "ForceCompleteProcessingAsync");
+        var method = ExtractMethod(source, "Task ForceCompleteProcessingAsync");
 
         // Must early-return if already not processing (idempotent)
         Assert.Contains("!state.Info.IsProcessing", method);
