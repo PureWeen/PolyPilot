@@ -205,7 +205,79 @@ gh release create v1.0.17 \
 
 ---
 
-## Step 5: Update the README
+## Step 5: Generate Social / Announcement Post
+
+Generate copy-paste-ready text for LinkedIn, Twitter/X, Bluesky, etc.
+**Print the post to the terminal** so the user can copy it. Don't write it to a file.
+
+### LinkedIn Template (long-form)
+
+```
+🚀 PolyPilot vX.Y.Z is out!
+
+[One sentence that hooks — the single most exciting thing in this release]
+
+What's new:
+🔹 [Highlight 1 — 1 line, benefit-focused]
+🔹 [Highlight 2 — 1 line]
+🔹 [Highlight 3 — 1 line, or a notable fix if only 1-2 features]
+
+[One sentence about what PolyPilot is, for people who haven't seen it before]
+
+Try it: brew install --cask polypilot
+Or grab the release: https://github.com/PureWeen/PolyPilot/releases/tag/vX.Y.Z
+
+#GitHubCopilot #AI #DevTools #OpenSource #DOTNET #MAUI
+```
+
+### Short-form Template (Twitter/X, Bluesky)
+
+```
+🚀 PolyPilot vX.Y.Z — [one-line hook]
+
+• [Highlight 1]
+• [Highlight 2]
+• [Highlight 3]
+
+https://github.com/PureWeen/PolyPilot/releases/tag/vX.Y.Z
+```
+
+### Writing Rules
+
+- **Lead with the hook** — what makes someone stop scrolling? Not "we fixed 12 bugs"
+  but "you can now spread AI agents across every machine on your LAN"
+- **Benefits, not features** — "dispatch work to any machine with @mention" not
+  "added UDP multicast discovery with pairing token exchange"
+- **Include the one-liner** — many readers won't know what PolyPilot is. One sentence:
+  "PolyPilot is a multi-agent control plane for GitHub Copilot — run dozens of
+  AI coding agents from one app, on any platform."
+- **Keep it under 1300 chars** for LinkedIn (longer posts get truncated behind "see more")
+- **Hashtags at the end** — never inline
+- **No version numbers in the hook** — "Fiesta Mode is here" not "v1.0.15 released"
+
+### Example (v1.0.15)
+
+```
+🚀 PolyPilot v1.0.15 is out!
+
+You can now spread your AI coding agents across every machine on your LAN.
+
+What's new:
+🔹 Fiesta Mode — discover other PolyPilot instances, pair in one click, and dispatch tasks to any machine with @worker-name
+🔹 Mixed-Model PR Review — 5 workers each run 3 sub-agents (Opus + Sonnet + Codex) and synthesize consensus code reviews
+🔹 CLI Agent Visibility — see when Copilot invokes specialized agents like code-review or security-review, plus a new /agent command
+
+PolyPilot is a multi-agent control plane for GitHub Copilot — run dozens of AI coding agents from one app on macOS, Windows, Android, iOS, and Linux.
+
+Try it: brew install --cask polypilot
+Release: https://github.com/PureWeen/PolyPilot/releases/tag/v1.0.15
+
+#GitHubCopilot #AI #DevTools #OpenSource #DOTNET #MAUI
+```
+
+---
+
+## Step 6: Update the README
 
 ### Philosophy: The README Sells, It Doesn't Document
 
@@ -274,7 +346,7 @@ rather than three separate entries.
 
 ---
 
-## Step 6: Verify
+## Step 7: Verify
 
 After updating:
 
