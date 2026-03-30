@@ -34,7 +34,11 @@ public partial class App : Application
 		// When the window is brought to the foreground (e.g. via AppleScript from a second
 		// instance that started because macOS resolved a different bundle for a notification
 		// tap), check whether there is a pending deep-link navigation queued in the sidecar.
-		window.Activated += (_, _) => CheckPendingNavigation();
+		window.Activated += (_, _) =>
+		{
+			CheckPendingNavigation();
+			_copilotService.ClearPendingCompletions();
+		};
 
 		if (OperatingSystem.IsLinux())
 		{
@@ -58,6 +62,7 @@ public partial class App : Application
 		base.OnResume();
 		// Belt-and-suspenders for mobile / platforms where Activated may not fire.
 		CheckPendingNavigation();
+		_copilotService.ClearPendingCompletions();
 		// The Mac may have been locked or slept, during which the headless server may have
 		// stopped. Trigger a lightweight ping so sessions reconnect immediately on unlock.
 		_ = _copilotService.CheckConnectionHealthAsync();
