@@ -543,7 +543,9 @@ public partial class CopilotService
                 // TurnStart after IsProcessing was already cleared, re-arm processing
                 // so the UI shows the session as active and content is properly captured
                 // via the normal CompleteResponse path on the next session.idle.
-                if (!state.Info.IsProcessing && isCurrentState && !state.IsOrphaned)
+                // WasUserAborted guard: skip re-arm if the user explicitly clicked Stop —
+                // in-flight TurnStart events from before the abort must not restart processing.
+                if (!state.Info.IsProcessing && isCurrentState && !state.IsOrphaned && !state.WasUserAborted)
                 {
                     Debug($"[EVT-REARM] '{sessionName}' TurnStartEvent arrived after premature session.idle — re-arming IsProcessing");
                     state.PrematureIdleSignal.Set(); // Signal to ExecuteWorkerAsync that TCS result was truncated

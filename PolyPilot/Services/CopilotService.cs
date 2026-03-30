@@ -652,6 +652,14 @@ public partial class CopilotService : IAsyncDisposable
         /// for reconnected sends so a dead event stream (CLI event writer broken after re-resume)
         /// is detected in ~30s rather than waiting the full 120s.</summary>
         public volatile bool IsReconnectedSend;
+
+        /// <summary>Set to true by AbortSessionAsync when the user explicitly clicks Stop.
+        /// Prevents EVT-REARM (AssistantTurnStartEvent re-arming IsProcessing after a premature
+        /// session.idle) from firing on in-flight TurnStart events that arrived AFTER the user
+        /// aborted. Without this guard, clicking Stop while the SDK is mid-turn causes the
+        /// session to restart processing on its own ("continued without me sending a message").
+        /// Cleared by SendPromptAsync at the start of each new turn.</summary>
+        public volatile bool WasUserAborted;
     }
 
     private static void DisposePrematureIdleSignal(SessionState? state)
@@ -3246,6 +3254,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
         state.HasDeferredIdle = false; // Reset deferred idle flag from previous turn
         state.IsReconnectedSend = false; // Clear reconnect flag — new turn starts fresh (see watchdog reconnect timeout)
+        state.WasUserAborted = false; // Clear abort flag — new turn starts fresh (re-enables EVT-REARM)
         state.PrematureIdleSignal.Reset(); // Clear premature idle detection from previous turn
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -3792,6 +3801,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     catch { /* filesystem errors — watchdog will skip dead-send check */ }
                     StartProcessingWatchdog(state, sessionName);
 
+                    // Skip retry if the CLI is already processing our prompt (persistent mode
+                    // kept the headless server running tools while the connection was dead).
+                    // Re-sending would duplicate the prompt. Events from the running session will
+                    // arrive via newSession's handler; the watchdog handles eventual completion.
+                    if (!string.IsNullOrEmpty(state.Info.SessionId) && IsSessionStillProcessing(state.Info.SessionId))
+                    {
+                        Debug($"[RECONNECT-SKIP-RETRY] '{sessionName}' CLI is still processing — skipping prompt retry, waiting for events");
+                        return string.Empty; // IsProcessing=true, watchdog running — events will complete the turn
+                    }
+
                     Debug($"[RECONNECT] '{sessionName}' retrying prompt (len={prompt.Length})...");
                     var retryOptions = new MessageOptions
                     {
@@ -3989,6 +4008,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         Debug($"[ABORT] '{sessionName}' user abort, clearing IsProcessing");
         state.Info.IsProcessing = false;
+        state.WasUserAborted = true; // Suppress EVT-REARM for in-flight TurnStart events after abort
         state.Info.IsResumed = false;
         if (state.Info.ProcessingStartedAt is { } abortStarted)
             state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - abortStarted).TotalSeconds;

@@ -1172,7 +1172,14 @@
                         foreach (var (id, val) in saved)
                         {
                             if (id.StartsWith("__")) continue;
-                            var sessionName = id.Replace("input-", "").Replace("-", " ");
+                            // Match element ID to actual session name — never do string replacement.
+                            // id.Replace("-", " ") is lossy: session names that contain hyphens
+                            // (e.g. "fix-model-1m-slug") would produce a mismatched key, leaving
+                            // a ghost draft that keeps getting restored every render cycle.
+                            var sessionName = sessions
+                                .Select(s => s.Name)
+                                .FirstOrDefault(n => $"input-{n.Replace(" ", "-")}" == id);
+                            if (sessionName == null) continue; // unknown element (group broadcast, etc.)
                             if (!string.IsNullOrEmpty(val))
                                 draftBySession[sessionName] = val;
                             else
@@ -3070,7 +3077,11 @@
                     draftBySession.Clear();
                     foreach (var item in state.Items ?? [])
                     {
-                        var name = item.Id.Replace("input-", "").Replace("-", " ");
+                        // Match by actual session name to avoid lossy hyphen→space conversion.
+                        var name = sessions
+                            .Select(s => s.Name)
+                            .FirstOrDefault(n => $"input-{n.Replace(" ", "-")}" == item.Id);
+                        if (name == null) continue;
                         draftBySession[name] = item.Value;
                     }
                 }
