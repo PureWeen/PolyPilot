@@ -635,6 +635,23 @@
     flex-shrink: 0;
 }
 
+.pr-badge {
+    display: inline-block;
+    background: #0969da;
+    color: #fff;
+    font-size: var(--type-caption2);
+    font-weight: 600;
+    padding: 1px 5px;
+    border: none;
+    border-radius: 10px;
+    text-decoration: none;
+    cursor: pointer;
+    line-height: 16px;
+    margin-left: 4px;
+    flex-shrink: 0;
+}
+.pr-badge:hover { background: #0550ae; }
+
 .card-role-badge {
     font-size: var(--type-caption1, 0.7rem);
     flex-shrink: 0;

@@ -2,6 +2,7 @@
 @using PolyPilot.Models
 @inject CopilotService CopilotService
 @inject IJSRuntime JS
+@inject PrLinkService PrLinkService
 
 @{
     var providerDisplayName = CopilotService.GetProviderSessionDisplayName(Session.Name);
@@ -30,6 +31,10 @@
                 @if (Session.UnreadCount > 0)
                 {
                     <span class="unread-badge">@Session.UnreadCount</span>
+                }
+                @if (_prUrl != null && PlatformHelper.IsDesktop)
+                {
+                    <button class="pr-badge" title="@_prUrl">@_prLabel</button>
                 }
             }
         </div>
@@ -351,6 +356,10 @@
         return name.Substring(0, len - 3) + "...";
     }
 
+    private string? _prUrl;
+    private string _prLabel = "PR";
+    private string? _lastPrCheckedDir;
+
     private List<SkillInfo>? availableSkills;
     private string? _lastWorkDir;
 
@@ -362,5 +371,33 @@
             _lastWorkDir = wd;
             availableSkills = CopilotService.DiscoverAvailableSkills(wd);
         }
+
+        if (PlatformHelper.IsDesktop)
+        {
+            var dir = Session.WorkingDirectory;
+            if (!string.IsNullOrEmpty(dir) && dir != _lastPrCheckedDir)
+            {
+                _lastPrCheckedDir = dir;
+                _ = FetchPrUrlAsync(dir);
+            }
+        }
+    }
+
+    private async Task FetchPrUrlAsync(string dir)
+    {
+        _prUrl = await PrLinkService.GetPrUrlForDirectoryAsync(dir);
+        if (_prUrl != null)
+        {
+            var lastSlash = _prUrl.LastIndexOf('/');
+            if (lastSlash >= 0 && lastSlash < _prUrl.Length - 1)
+                _prLabel = "#" + _prUrl[(lastSlash + 1)..];
+        }
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OpenPrUrl()
+    {
+        if (_prUrl != null)
+            try { await Launcher.Default.OpenAsync(new Uri(_prUrl)); } catch { }
     }
 }
