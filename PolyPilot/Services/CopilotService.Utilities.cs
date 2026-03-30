@@ -1052,6 +1052,8 @@ public partial class CopilotService
             if (!proc.WaitForExit(timeoutMs))
             {
                 try { proc.Kill(); } catch { }
+                // Drain the abandoned read task to avoid unobserved ObjectDisposedException
+                try { readTask.GetAwaiter().GetResult(); } catch { }
                 return null;
             }
             // Process exited within timeout — ReadToEndAsync should complete quickly

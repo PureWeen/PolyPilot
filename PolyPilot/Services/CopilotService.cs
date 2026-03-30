@@ -929,7 +929,7 @@ public partial class CopilotService : IAsyncDisposable
             // Resolve a GitHub token that can be forwarded to the headless server.
             // This handles the case where the Keychain entry created by `copilot login`
             // is inaccessible to a headless process (macOS Keychain ACL restriction).
-            _resolvedGitHubToken ??= ResolveGitHubTokenForServer();
+            _resolvedGitHubToken ??= await Task.Run(() => ResolveGitHubTokenForServer());
 
             if (!_serverManager.CheckServerRunning("127.0.0.1", settings.Port))
             {
