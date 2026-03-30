@@ -1214,6 +1214,9 @@ public partial class CopilotService
         OnSessionComplete?.Invoke(state.Info.Name, summary);
         OnStateChanged?.Invoke();
 
+        // Update dock icon badge: non-worker sessions that finished in the background
+        IncrementPendingCompletions(state.Info.Name);
+
         // Reflection cycle: evaluate response and enqueue follow-up if goal not yet met
         var cycle = state.Info.ReflectionCycle;
         if (cycle != null && cycle.IsActive)
