@@ -73,7 +73,7 @@
                 }
                 @if (_prUrl != null && PlatformHelper.IsDesktop)
                 {
-                    <a class="pr-badge" title="Open PR" @onclick="OpenPrUrl" @onclick:stopPropagation="true">PR</a>
+                    <a class="pr-badge" title="@_prUrl" @onclick="OpenPrUrl" @onclick:stopPropagation="true">@_prLabel</a>
                 }
                 @if (provider != null && Session.IsProcessing)
                 {
@@ -292,6 +292,7 @@
     private ElementReference _moreBtnRef;
     private bool _menuPositioned;
     private string? _prUrl;
+    private string _prLabel = "PR";
     private string? _lastPrCheckedDir;
 
     protected override void OnParametersSet()
@@ -308,6 +309,13 @@
     private async Task FetchPrUrlAsync(string dir)
     {
         _prUrl = await PrLinkService.GetPrUrlForDirectoryAsync(dir);
+        if (_prUrl != null)
+        {
+            // Extract PR number from URL (e.g. "https://github.com/.../pull/457" → "#457")
+            var lastSlash = _prUrl.LastIndexOf('/');
+            if (lastSlash >= 0 && lastSlash < _prUrl.Length - 1)
+                _prLabel = "#" + _prUrl[(lastSlash + 1)..];
+        }
         await InvokeAsync(StateHasChanged);
     }
 

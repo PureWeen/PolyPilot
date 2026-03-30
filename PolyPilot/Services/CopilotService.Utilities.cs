@@ -455,6 +455,7 @@ public partial class CopilotService
     {
         var msg = ex.Message;
         if (ex is System.IO.IOException or System.Net.Sockets.SocketException or ObjectDisposedException
+            or TimeoutException // SendAsync timeout means server isn't responding — connection is dead
             || msg.Contains("connection refused", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("connection reset", StringComparison.OrdinalIgnoreCase)
             || msg.Contains("connection was closed", StringComparison.OrdinalIgnoreCase)

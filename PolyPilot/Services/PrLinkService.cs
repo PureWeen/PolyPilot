@@ -30,10 +30,17 @@ public class PrLinkService
     {
         try
         {
+            // Resolve the current branch explicitly — `gh pr view` without args
+            // mis-resolves branches in git worktrees (reports "main" instead of the
+            // worktree's actual HEAD). Pass the branch name explicitly to fix this.
+            var branch = await RunGitAsync(workingDirectory, "rev-parse", "--abbrev-ref", "HEAD");
+            if (string.IsNullOrEmpty(branch) || branch == "HEAD")
+                return null; // detached HEAD — no PR
+
             var psi = new ProcessStartInfo
             {
                 FileName = "gh",
-                ArgumentList = { "pr", "view", "--json", "url", "--jq", ".url" },
+                ArgumentList = { "pr", "view", branch, "--json", "url", "--jq", ".url" },
                 WorkingDirectory = workingDirectory,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
@@ -60,5 +67,32 @@ public class PrLinkService
             // gh not found, not a git repo, network error, timeout — all treated as "no PR"
             return null;
         }
+    }
+
+    private static async Task<string?> RunGitAsync(string workingDirectory, params string[] args)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "git",
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            foreach (var arg in args) psi.ArgumentList.Add(arg);
+
+            using var process = Process.Start(psi);
+            if (process is null) return null;
+
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+            var output = await process.StandardOutput.ReadToEndAsync(cts.Token);
+            await process.WaitForExitAsync(cts.Token);
+
+            return process.ExitCode == 0 ? output.Trim() : null;
+        }
+        catch { return null; }
     }
 }
