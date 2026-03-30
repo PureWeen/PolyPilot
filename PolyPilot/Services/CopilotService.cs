@@ -1301,15 +1301,17 @@ public partial class CopilotService : IAsyncDisposable
                 await Task.Delay(250);
             }
 
-            // Clear the cached token so the server tries native auth first. If the previous
-            // token expired, reusing it just fails again. Clearing forces CheckAuthStatusAsync
-            // to trigger lazy resolution (fresh Keychain read) if native auth also fails.
+            // Save whatever token was resolved (may be null for watchdog callers, or a
+            // freshly-resolved token from ReauthenticateAsync/CheckAuthStatusAsync).
+            // Then clear the field so future auth failures trigger lazy Keychain resolution.
             // See .claude/skills/auth-token-safety/SKILL.md (INV-A3).
+            var tokenToForward = _resolvedGitHubToken;
             _resolvedGitHubToken = null;
 
-            // Start a fresh server without a forwarded token — let it try native Keychain auth.
-            // If native auth fails, CheckAuthStatusAsync will lazily resolve a fresh token.
-            var started = await _serverManager.StartServerAsync(settings.Port, _resolvedGitHubToken);
+            // Start a fresh server — forwards the saved token (if any) or null to let
+            // the server try native Keychain auth. If native auth fails and tokenToForward
+            // was null, CheckAuthStatusAsync will lazily resolve a fresh token.
+            var started = await _serverManager.StartServerAsync(settings.Port, tokenToForward);
             if (!started)
             {
                 Debug("[SERVER-RECOVERY] Failed to restart persistent server");
