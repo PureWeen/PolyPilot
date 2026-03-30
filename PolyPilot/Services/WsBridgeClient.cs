@@ -41,6 +41,8 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     public string? GitHubAvatarUrl { get; private set; }
     public string? GitHubLogin { get; private set; }
     public string? ServerMachineName { get; private set; }
+    public List<string> AvailableModels { get; private set; } = new();
+    public Dictionary<string, string> ModelDisplayNames { get; private set; } = new();
 
     // --- Events matching CopilotService signatures ---
     public event Action? OnStateChanged;
@@ -676,6 +678,10 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     GitHubAvatarUrl = sessions.GitHubAvatarUrl;
                     GitHubLogin = sessions.GitHubLogin;
                     ServerMachineName = sessions.ServerMachineName;
+                    if (sessions.AvailableModels is { Count: > 0 })
+                        AvailableModels = sessions.AvailableModels;
+                    if (sessions.ModelDisplayNames is { Count: > 0 })
+                        ModelDisplayNames = sessions.ModelDisplayNames;
                     HasReceivedSessionsList = true;
                     Console.WriteLine($"[WsBridgeClient] Got {Sessions.Count} sessions, active={ActiveSessionName}");
                     OnStateChanged?.Invoke();

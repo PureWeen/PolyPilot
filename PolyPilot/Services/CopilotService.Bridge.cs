@@ -484,6 +484,12 @@ public partial class CopilotService
         if (!string.IsNullOrEmpty(_bridgeClient.GitHubLogin))
             GitHubLogin = _bridgeClient.GitHubLogin;
 
+        // Sync available models from server (mobile has no direct SDK access)
+        if (_bridgeClient.AvailableModels.Count > 0)
+            AvailableModels = _bridgeClient.AvailableModels;
+        if (_bridgeClient.ModelDisplayNames.Count > 0)
+            ModelDisplayNames = _bridgeClient.ModelDisplayNames;
+
         Debug($"SyncRemoteSessions: {remoteSessions.Count} remote sessions, active={remoteActive}");
 
         // Add/update sessions from remote

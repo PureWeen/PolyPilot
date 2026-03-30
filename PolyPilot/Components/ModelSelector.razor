@@ -32,6 +32,7 @@
     [Parameter] public string Value { get; set; } = "";
     [Parameter] public EventCallback<string> ValueChanged { get; set; }
     [Parameter] public IReadOnlyList<string> Models { get; set; } = Array.Empty<string>();
+    [Parameter] public IReadOnlyDictionary<string, string>? DisplayNames { get; set; }
     [Parameter] public string CssClass { get; set; } = "";
 
     private bool isOpen;
@@ -68,20 +69,7 @@
         else
             icon = @"<svg xmlns=""http://www.w3.org/2000/svg"" width=""14"" height=""14"" viewBox=""0 0 24 24"" fill=""none""><circle cx=""12"" cy=""12"" r=""10"" stroke=""currentColor"" stroke-width=""2""/></svg>";
 
-        // Prettify display name
-        var display = modelId
-            .Replace("claude-", "Claude ")
-            .Replace("gpt-", "GPT-")
-            .Replace("gemini-", "Gemini ");
-        // Replace remaining hyphens with spaces (e.g. "opus-4.5" → "opus 4.5")
-        display = display.Replace("-", " ");
-        // Re-insert hyphen for GPT prefix
-        display = display.Replace("GPT ", "GPT-");
-
-        // Capitalize segments
-        display = string.Join(' ', display.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(s =>
-            s.Length > 0 ? char.ToUpper(s[0]) + s[1..] : s));
-
+        var display = PolyPilot.Models.ModelHelper.PrettifyModel(modelId, DisplayNames);
         return new ModelDisplayInfo(display, icon);
     }
 }

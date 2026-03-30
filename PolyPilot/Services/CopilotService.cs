@@ -260,6 +260,11 @@ public partial class CopilotService : IAsyncDisposable
     public IChatDatabase ChatDb => _chatDb;
     public ConnectionMode CurrentMode { get; private set; } = ConnectionMode.Embedded;
     public List<string> AvailableModels { get; private set; } = new();
+    /// <summary>
+    /// Maps model slug (Id) → display name from the SDK's ListModelsAsync.
+    /// Used for richer display when the algorithmic prettification isn't sufficient.
+    /// </summary>
+    public Dictionary<string, string> ModelDisplayNames { get; private set; } = new();
 
     private readonly RepoManager _repoManager;
     private readonly CodespaceService _codespaceService;
