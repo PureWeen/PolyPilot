@@ -79,7 +79,7 @@ public class ScheduledTask
 
     /// <summary>Returns true if TimeOfDay is a valid "HH:mm" string.</summary>
     public static bool IsValidTimeOfDay(string? time)
-        => !string.IsNullOrEmpty(time) && TimeSpan.TryParse(time, out var ts) && ts.TotalHours < 24;
+        => !string.IsNullOrEmpty(time) && TimeSpan.TryParse(time, out var ts) && ts.TotalHours >= 0 && ts.TotalHours < 24;
 
     // ── Schedule calculation ──────────────────────────────────────────
 

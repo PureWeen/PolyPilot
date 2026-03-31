@@ -116,13 +116,18 @@ public class ScheduledTaskService : IDisposable
 
     public void SetEnabled(string id, bool enabled)
     {
+        bool found;
         lock (_lock)
         {
             var task = _tasks.FirstOrDefault(t => t.Id == id);
-            if (task != null) task.IsEnabled = enabled;
+            found = task != null;
+            if (found) task!.IsEnabled = enabled;
         }
-        SaveTasks();
-        OnTasksChanged?.Invoke();
+        if (found)
+        {
+            SaveTasks();
+            OnTasksChanged?.Invoke();
+        }
     }
 
     // ── Evaluation ───────────────────────────────────────────────────
