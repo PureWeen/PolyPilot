@@ -66,13 +66,13 @@ public static class ModelHelper
         // Handle parenthetical content that's part of the model name
         if (!string.IsNullOrEmpty(parenContent))
         {
-            var normalizedParen = parenContent.ToLowerInvariant().Replace(' ', '-');
+            var normalizedParen = parenContent.Trim('(', ')').ToLowerInvariant().Replace(' ', '-');
             // Known suffix patterns that are part of the slug
-            if (normalizedParen.Contains("preview"))
+            if (normalizedParen.StartsWith("preview"))
                 slug += "-preview";
-            else if (normalizedParen.Contains("fast-mode") || normalizedParen.Contains("fast"))
+            else if (normalizedParen.StartsWith("fast-mode") || normalizedParen.StartsWith("fast"))
                 slug += "-fast";
-            else if (normalizedParen.Contains("1m"))
+            else if (normalizedParen.StartsWith("1m"))
                 slug += "-1m";
         }
 
