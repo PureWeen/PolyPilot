@@ -89,7 +89,7 @@ public class ScheduledTask
     /// </summary>
     internal (int hours, int minutes) ParseTimeOfDay()
     {
-        if (TimeSpan.TryParse(TimeOfDay, out var ts) && ts.TotalHours < 24)
+        if (TimeSpan.TryParse(TimeOfDay, out var ts) && ts.TotalHours >= 0 && ts.TotalHours < 24)
             return (ts.Hours, ts.Minutes);
         return (9, 0);
     }
