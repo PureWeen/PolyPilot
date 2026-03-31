@@ -1592,6 +1592,7 @@
         // Cross-session routing: check for @SessionName mentions matching other PolyPilot sessions.
         // Build a lookup of normalized-token → session name for all sessions except the current one.
         var crossSessionTargets = RouteToMentionedSessions(sessionName, finalPrompt);
+        Console.WriteLine($"[CROSS-SESSION] source={sessionName} prompt={finalPrompt.Substring(0, Math.Min(50, finalPrompt.Length))} targets={crossSessionTargets.Count}");
         if (crossSessionTargets.Count > 0)
         {
             // Add the user message to the current session's history
@@ -3423,42 +3424,32 @@
             .GroupBy(NormalizeToken, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
+        Console.WriteLine($"[CROSS-SESSION] sessionLookup has {sessionLookup.Count} entries, looking for @mention in: {prompt.Substring(0, Math.Min(60, prompt.Length))}");
         if (sessionLookup.Count == 0) return result;
 
-        // Extract @Token at the start of the message (e.g. "@TestReceive hello" or "@TestReceive\nhello")
-        // Only route if the prompt begins with @SessionName (possibly multiple stacked).
-        var remaining = prompt.TrimStart();
-        var matched = new List<string>();
+        // Scan the entire message for @SessionName mentions (not just at start).
+        // Matches: @word where word is alphanumeric, dot, underscore, or hyphen.
+        var atMentionRegex = new System.Text.RegularExpressions.Regex(@"@([\w.\-]+)");
+        var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-        while (remaining.StartsWith('@'))
+        foreach (System.Text.RegularExpressions.Match m in atMentionRegex.Matches(prompt))
         {
-            // Grab the token (alphanumeric, dot, underscore, hyphen)
-            var tokenEnd = 1;
-            while (tokenEnd < remaining.Length &&
-                   (char.IsLetterOrDigit(remaining[tokenEnd]) || remaining[tokenEnd] == '.' ||
-                    remaining[tokenEnd] == '_' || remaining[tokenEnd] == '-'))
-                tokenEnd++;
-
-            var token = remaining[1..tokenEnd];
-            if (string.IsNullOrEmpty(token)) break;
-
+            var token = m.Groups[1].Value;
             if (sessionLookup.TryGetValue(token, out var targetSession))
-            {
                 matched.Add(targetSession);
-                remaining = remaining[tokenEnd..].TrimStart();
-            }
-            else
-            {
-                // Unknown @mention — not a session, stop parsing
-                break;
-            }
         }
 
-        // Only route if we matched at least one session and there's a message body
-        if (matched.Count == 0 || string.IsNullOrWhiteSpace(remaining)) return result;
+        if (matched.Count == 0) return result;
 
-        foreach (var target in matched.Distinct(StringComparer.OrdinalIgnoreCase))
-            result.Add((target, remaining));
+        // Strip all matched @SessionName tokens from the forwarded message and collapse whitespace.
+        var strippedMessage = atMentionRegex.Replace(prompt, m =>
+            sessionLookup.ContainsKey(m.Groups[1].Value) ? "" : m.Value);
+        strippedMessage = System.Text.RegularExpressions.Regex.Replace(strippedMessage, @"[ \t]{2,}", " ").Trim();
+
+        if (string.IsNullOrWhiteSpace(strippedMessage)) return result;
+
+        foreach (var target in matched)
+            result.Add((target, strippedMessage));
 
         return result;
     }
