@@ -524,53 +524,78 @@ their input.
 
 ## 🚨 PolyPilot relaunch.sh — Safety Rules (NEVER VIOLATE)
 
-`relaunch.sh` is **async by default**: it returns immediately after a successful build, then kills
-the old UI and launches the new one ~10 seconds later in a detached background process.
+`relaunch.sh` is **async by default**: it returns immediately after a successful build, then
+kills the old UI **10 seconds later** (`RELAUNCH_DELAY=10`) in a detached background process,
+launches the new one, and waits 8 seconds (`STABILITY_SECONDS`) to confirm it's stable.
 PolyPilot hosts the active Copilot session via TCP. If any tool call is still in-flight when the
 old process is killed, **the TCP connection drops and the turn is interrupted**.
 
-### ✅ Correct pattern
+### Timeline (from when `./relaunch.sh` is called)
+
+| Time | Event |
+|------|-------|
+| T+0s | Build starts |
+| T+10-15s | Build done, **script returns to caller** |
+| T+10s after return | Old app killed (RELAUNCH_DELAY) |
+| T+10-20s after return | New app launching + stability check |
+| T+20-25s after return | New app ready for MauiDevFlow |
+
+**The danger zone is T+0 to T+10s after relaunch.sh returns.** Any tool call running in
+that window gets killed when the old app dies. Git operations (commit, push) are safe
+because they don't use the app's TCP connection.
+
+### ✅ Correct pattern: Relaunch EARLY, verify LATE (same turn)
+
+**CRITICAL: As a multi-agent worker, you do NOT get automatic "next turns." You must
+relaunch early and verify at the end of the SAME turn. Deferring to "next turn" means
+verification never happens.**
 
 ```bash
-# Turn 1: call relaunch.sh alone — nothing after it in the same bash call
+# Step 1: Relaunch FIRST (alone — nothing chained)
 ./relaunch.sh
 ```
 
-relaunch.sh returns immediately after build. The old app dies ~10s later.
-On your **next turn** (after the kill window), verify and reconnect:
-
 ```bash
-# Turn 2: quick check (each call <8s)
-tail -3 ~/.polypilot/relaunch.log
-maui-devflow cdp status
+# Step 2: Immediately do git work — this is SAFE (doesn't use app TCP)
+# This also burns ~10-15s, getting you past the kill window.
+git add -A && git commit -m "fix: ..." && git push origin HEAD
 ```
 
-### ❌ What got us stuck — and why
-
-**Instance 1** — `initial_wait` too large:
 ```bash
-# WRONG: initial_wait: 70 means this bash call runs for 70s — right through the kill window
-maui-devflow wait --timeout 60   # with initial_wait: 70  ← KILLED MID-CALL
+# Step 3: By now you're ~15-20s past relaunch return — past the kill window.
+# Verify the new app is up. Use initial_wait: 15 (short!).
+maui-devflow wait --timeout 30
+maui-devflow MAUI status
+# ... test with MauiDevFlow CDP ...
 ```
 
-**Instance 2 (happened again!)** — `sleep` chained in the same call:
+### ❌ What got us stuck — 3 real failures
+
+**Instance 1** — `initial_wait` too large, ran through kill window:
 ```bash
-# WRONG: sleep 15 runs through the kill window even though it looks innocent
-sleep 15 && tail -3 ~/.polypilot/relaunch.log   # ← KILLED MID-CALL (initial_wait: 20)
+maui-devflow wait --timeout 60   # initial_wait: 70 → KILLED MID-CALL
 ```
 
-After the interruption in Instance 2, the turn ended with output that *looked* done
-("committed + relaunch succeeded"), so the orchestrator returned control to the user.
-**Verification never happened.**
+**Instance 2** — `sleep` chained in same bash call:
+```bash
+sleep 15 && tail -3 ~/.polypilot/relaunch.log   # initial_wait: 20 → KILLED MID-CALL
+```
+
+**Instance 3** — deferred verification to "next turn" as a worker:
+```
+Agent said "will verify on next turn" → orchestrator collected response → user got result
+→ verification NEVER happened → user had to re-prompt
+```
 
 ### Rules
 
-1. **NEVER chain anything after `./relaunch.sh`** — no `&&`, `;`, `|`, `sleep`, or follow-on commands in the same bash call. **`sleep N &&` is NOT safe either.**
-2. **After relaunch.sh returns, your turn is over.** End the turn immediately. Do all verification on the **next turn**.
-3. **`maui-devflow wait`** is only safe on a *new turn*, and use `initial_wait: 15` (not 60-70).
-4. If a tool call IS interrupted by the kill — that's OK. The CLI keeps the session alive. Resume on the next turn.
-5. Use `--sync` flag only for **human terminal use**. Never from an agent session.
-6. **CRITICAL: After relaunch, always explicitly say "Relaunch in progress — will verify on next turn."** so the orchestrator knows not to consider the task done. Never let relaunch be the last step of a turn without that statement.
+1. **NEVER chain anything after `./relaunch.sh` in the same bash call** — no `&&`, `;`, `|`, `sleep`.
+2. **Relaunch EARLY, verify LATE.** Do git operations during the delay window, then verify with MauiDevFlow after ~15-20s have elapsed since relaunch returned.
+3. **Git operations are safe during the kill window** — they don't use the app's TCP connection.
+4. **`maui-devflow` calls are only safe ~15s+ after relaunch.sh returns.** Use `initial_wait: 15`.
+5. **NEVER defer verification to "next turn"** as a worker agent — you may not get one. Complete relaunch + verify in a single turn.
+6. Use `--sync` flag only for **human terminal use**. Never from an agent session.
+7. If a tool call IS interrupted — that's OK. The CLI keeps the session alive. Resume immediately.
 
 ## Tips
 
