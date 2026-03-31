@@ -522,6 +522,56 @@ something that would require OS-level control (e.g., dismissing a system dialog 
 app), **ask the user** to do it manually rather than attempting automation that would hijack
 their input.
 
+## 🚨 PolyPilot relaunch.sh — Safety Rules (NEVER VIOLATE)
+
+`relaunch.sh` is **async by default**: it returns immediately after a successful build, then kills
+the old UI and launches the new one ~10 seconds later in a detached background process.
+PolyPilot hosts the active Copilot session via TCP. If any tool call is still in-flight when the
+old process is killed, **the TCP connection drops and the turn is interrupted**.
+
+### ✅ Correct pattern
+
+```bash
+# Turn 1: call relaunch.sh alone — nothing after it in the same bash call
+./relaunch.sh
+```
+
+relaunch.sh returns immediately after build. The old app dies ~10s later.
+On your **next turn** (after the kill window), verify and reconnect:
+
+```bash
+# Turn 2: quick check (each call <8s)
+tail -3 ~/.polypilot/relaunch.log
+maui-devflow cdp status
+```
+
+### ❌ What got us stuck — and why
+
+**Instance 1** — `initial_wait` too large:
+```bash
+# WRONG: initial_wait: 70 means this bash call runs for 70s — right through the kill window
+maui-devflow wait --timeout 60   # with initial_wait: 70  ← KILLED MID-CALL
+```
+
+**Instance 2 (happened again!)** — `sleep` chained in the same call:
+```bash
+# WRONG: sleep 15 runs through the kill window even though it looks innocent
+sleep 15 && tail -3 ~/.polypilot/relaunch.log   # ← KILLED MID-CALL (initial_wait: 20)
+```
+
+After the interruption in Instance 2, the turn ended with output that *looked* done
+("committed + relaunch succeeded"), so the orchestrator returned control to the user.
+**Verification never happened.**
+
+### Rules
+
+1. **NEVER chain anything after `./relaunch.sh`** — no `&&`, `;`, `|`, `sleep`, or follow-on commands in the same bash call. **`sleep N &&` is NOT safe either.**
+2. **After relaunch.sh returns, your turn is over.** End the turn immediately. Do all verification on the **next turn**.
+3. **`maui-devflow wait`** is only safe on a *new turn*, and use `initial_wait: 15` (not 60-70).
+4. If a tool call IS interrupted by the kill — that's OK. The CLI keeps the session alive. Resume on the next turn.
+5. Use `--sync` flag only for **human terminal use**. Never from an agent session.
+6. **CRITICAL: After relaunch, always explicitly say "Relaunch in progress — will verify on next turn."** so the orchestrator knows not to consider the task done. Never let relaunch be the last step of a turn without that statement.
+
 ## Tips
 
 - **Use `maui-devflow batch`** for multi-step interactions — resolves port once, adds delays,
