@@ -169,6 +169,7 @@
                                      InputMode="@GetInputMode(session.Name)"
                                      CurrentModel="@GetExpandedModel(session)"
                                      AvailableModels="availableModels"
+                                     ModelDisplayNames="CopilotService.ModelDisplayNames"
                                      PendingImages="@(pendingImagesBySession.TryGetValue(session.Name, out var pi2) ? pi2 : null)"
                                      UserAvatarUrl="@CopilotService.GitHubAvatarUrl"
                                      RepoUrl="@CopilotService.GetRepoUrlForSession(session.Name)"

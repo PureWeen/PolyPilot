@@ -48,6 +48,11 @@ public partial class CopilotService
         // Wire WsBridgeClient events to our events
         _bridgeClient.OnStateChanged += () =>
         {
+            // Sync model list from bridge when in remote mode
+            if (_bridgeClient.AvailableModels.Count > 0)
+                AvailableModels = _bridgeClient.AvailableModels;
+            if (_bridgeClient.ModelDisplayNames.Count > 0)
+                ModelDisplayNames = _bridgeClient.ModelDisplayNames;
             SyncRemoteSessions();
             NotifyStateChangedCoalesced();
         };

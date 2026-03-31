@@ -494,11 +494,10 @@ public class ModelSelectionTests
     }
 
     // --- PrettifyModel tests ---
-    // The prettifier is duplicated in ExpandedSessionView.razor and ModelSelector.razor.
-    // We test the logic inline here to catch regressions like the "Opus-4.5" bug.
+    // Now centralized in ModelHelper.PrettifyModel. Tests use the real method.
 
     /// <summary>
-    /// Mirror of the PrettifyModel logic from ExpandedSessionView.razor / ModelSelector.razor.
+    /// Mirror of the PrettifyModel logic for tests that don't pass a displayNames dictionary.
     /// </summary>
     private static string PrettifyModel(string modelId)
     {
@@ -577,5 +576,77 @@ public class ModelSelectionTests
         var pretty = PrettifyModel(slug);
         var backToSlug = ModelHelper.NormalizeToSlug(pretty);
         Assert.Equal(slug, backToSlug);
+    }
+
+    [Fact]
+    public void PrettifyModel_UsesDisplayNamesWhenAvailable()
+    {
+        var displayNames = new Dictionary<string, string>
+        {
+            ["claude-opus-4.6-1m"] = "Claude Opus 4.6 (1M Context)(Internal Only)",
+            ["claude-opus-4.6"] = "Claude Opus 4.6",
+        };
+        Assert.Equal("Claude Opus 4.6 (1M Context)(Internal Only)",
+            ModelHelper.PrettifyModel("claude-opus-4.6-1m", displayNames));
+        Assert.Equal("Claude Opus 4.6",
+            ModelHelper.PrettifyModel("claude-opus-4.6", displayNames));
+        // Falls back to algorithmic when not in dictionary
+        Assert.Equal("Claude Sonnet 4.5",
+            ModelHelper.PrettifyModel("claude-sonnet-4.5", displayNames));
+    }
+
+    // --- 1M Context model tests (regression for Issue: model doesn't stay selected) ---
+
+    [Fact]
+    public void NormalizeToSlug_1mContext_PreservesSuffix()
+    {
+        // The core bug: "Claude Opus 4.6 (1M Context)(Internal Only)" was
+        // being normalized to "claude-opus-4.6" instead of "claude-opus-4.6-1m"
+        var displayName = "Claude Opus 4.6 (1M Context)(Internal Only)";
+        var slug = ModelHelper.NormalizeToSlug(displayName);
+        Assert.Equal("claude-opus-4.6-1m", slug);
+    }
+
+    [Theory]
+    [InlineData("Claude Opus 4.6 (1M Context)", "claude-opus-4.6-1m")]
+    [InlineData("Claude Opus 4.6 (1M context)(Internal Only)", "claude-opus-4.6-1m")]
+    [InlineData("claude-opus-4.6-1m", "claude-opus-4.6-1m")]
+    public void NormalizeToSlug_1mVariants_AllResolveCorrectly(string input, string expected)
+    {
+        Assert.Equal(expected, ModelHelper.NormalizeToSlug(input));
+    }
+
+    [Fact]
+    public void NormalizeToSlug_MultipleParentheses_ParsedCorrectly()
+    {
+        // Handles multiple parenthetical groups independently
+        var input = "Claude Opus 4.6 (1M Context)(Internal Only)";
+        var slug = ModelHelper.NormalizeToSlug(input);
+        // "1M Context" → "-1m", "Internal Only" → ignored
+        Assert.Equal("claude-opus-4.6-1m", slug);
+        Assert.NotEqual("claude-opus-4.6", slug); // The old broken behavior
+    }
+
+    [Fact]
+    public void FallbackModels_Includes1mModel()
+    {
+        Assert.Contains("claude-opus-4.6-1m", ModelHelper.FallbackModels);
+    }
+
+    [Fact]
+    public void SessionsListPayload_IncludesModelFields()
+    {
+        var payload = new SessionsListPayload
+        {
+            AvailableModels = new List<string> { "claude-opus-4.6", "claude-opus-4.6-1m" },
+            ModelDisplayNames = new Dictionary<string, string>
+            {
+                ["claude-opus-4.6-1m"] = "Claude Opus 4.6 (1M Context)(Internal Only)"
+            }
+        };
+        Assert.NotNull(payload.AvailableModels);
+        Assert.Equal(2, payload.AvailableModels.Count);
+        Assert.Contains("claude-opus-4.6-1m", payload.AvailableModels);
+        Assert.True(payload.ModelDisplayNames!.ContainsKey("claude-opus-4.6-1m"));
     }
 }

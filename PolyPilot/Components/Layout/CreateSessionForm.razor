@@ -164,7 +164,7 @@ else
                   class="ns-prompt" rows="2"></textarea>
 
         <div class="ns-footer">
-            <ModelSelector Value="@SelectedModel" ValueChanged="OnModelSelected" Models="AvailableModels" CssClass="ns-model" />
+            <ModelSelector Value="@SelectedModel" ValueChanged="OnModelSelected" Models="AvailableModels" DisplayNames="ModelDisplayNames" CssClass="ns-model" />
             <div class="ns-footer-actions">
                 <button class="ns-cancel" @onclick="Collapse">Cancel</button>
                 <button class="ns-create" @onclick="TriggerCreate"
@@ -195,6 +195,7 @@ else
     [Parameter] public bool IsCreating { get; set; }
     [Parameter] public string? CreateError { get; set; }
     [Parameter] public List<string> AvailableModels { get; set; } = new();
+    [Parameter] public IReadOnlyDictionary<string, string>? ModelDisplayNames { get; set; }
     [Parameter] public string SelectedModel { get; set; } = "claude-opus-4.6";
     [Parameter] public EventCallback<string> SelectedModelChanged { get; set; }
 

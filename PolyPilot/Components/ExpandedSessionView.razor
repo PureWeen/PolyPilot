@@ -339,6 +339,7 @@
     [Parameter] public string InputMode { get; set; } = "chat";
     [Parameter] public string CurrentModel { get; set; } = "";
     [Parameter] public IReadOnlyList<string> AvailableModels { get; set; } = Array.Empty<string>();
+    [Parameter] public IReadOnlyDictionary<string, string>? ModelDisplayNames { get; set; }
     [Parameter] public List<PendingImage>? PendingImages { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public string? RepoUrl { get; set; }
@@ -545,19 +546,9 @@
     private void LoadMore() => OnLoadMore.InvokeAsync(Session.Name);
     private void LoadFullHistory() => OnLoadFullHistory.InvokeAsync(Session.Name);
 
-    private static string PrettifyModel(string modelId)
+    private string PrettifyModel(string modelId)
     {
-        var display = modelId
-            .Replace("claude-", "Claude ")
-            .Replace("gpt-", "GPT-")
-            .Replace("gemini-", "Gemini ");
-        // Replace remaining hyphens with spaces (e.g. "opus-4.5" → "opus 4.5")
-        // but preserve hyphens within the GPT- prefix (already handled above)
-        display = display.Replace("-", " ");
-        // Re-insert hyphen for GPT prefix
-        display = display.Replace("GPT ", "GPT-");
-        return string.Join(' ', display.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(s =>
-            s.Length > 0 ? char.ToUpper(s[0]) + s[1..] : s));
+        return Models.ModelHelper.PrettifyModel(modelId, ModelDisplayNames);
     }
 
     private void OpenSessionFolder(string sessionId)

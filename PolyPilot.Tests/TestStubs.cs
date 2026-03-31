@@ -73,6 +73,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public string? GitHubLogin { get; set; }
     public string? ServerMachineName { get; set; }
     public List<string> AvailableModels { get; set; } = new();
+    public Dictionary<string, string> ModelDisplayNames { get; set; } = new();
 
     public event Action? OnStateChanged;
     public event Action<string, string>? OnContentReceived;
