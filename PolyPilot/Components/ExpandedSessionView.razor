@@ -772,10 +772,19 @@
         if (PlatformHelper.IsDesktop)
         {
             var dir = Session.WorkingDirectory;
-            if (!string.IsNullOrEmpty(dir) && dir != _lastPrCheckedDir)
+            if (!string.IsNullOrEmpty(dir))
             {
-                _lastPrCheckedDir = dir;
-                _ = FetchPrUrlAsync(dir);
+                if (dir != _lastPrCheckedDir)
+                {
+                    _lastPrCheckedDir = dir;
+                    _ = FetchPrUrlAsync(dir);
+                }
+                else if (_prUrl == null)
+                {
+                    // Session switched back or PR may have been created — re-check
+                    PrLinkService.Invalidate(dir);
+                    _ = FetchPrUrlAsync(dir);
+                }
             }
         }
     }

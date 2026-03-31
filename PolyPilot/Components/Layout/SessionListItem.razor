@@ -352,15 +352,29 @@
     private string _prLabel = "PR";
     private string? _lastPrCheckedDir;
     private string? _renderSignature;
+    private bool _wasActive;
 
     protected override void OnParametersSet()
     {
         if (!PlatformHelper.IsDesktop) return;
         var dir = GetSessionDirectory();
-        if (!string.IsNullOrEmpty(dir) && dir != _lastPrCheckedDir)
+
+        // Re-check PR when session becomes active (user clicks it) and we don't have a PR yet
+        var becameActive = IsActive && !_wasActive;
+        _wasActive = IsActive;
+
+        if (!string.IsNullOrEmpty(dir))
         {
-            _lastPrCheckedDir = dir;
-            _ = FetchPrUrlAsync(dir);
+            if (dir != _lastPrCheckedDir)
+            {
+                _lastPrCheckedDir = dir;
+                _ = FetchPrUrlAsync(dir);
+            }
+            else if (becameActive && _prUrl == null)
+            {
+                PrLinkService.Invalidate(dir);
+                _ = FetchPrUrlAsync(dir);
+            }
         }
     }
 
