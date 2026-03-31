@@ -28,14 +28,12 @@ public class PrLinkService
 
     private static async Task<string?> FetchPrUrlAsync(string workingDirectory)
     {
+        Process? process = null;
         try
         {
-            // Resolve the current branch explicitly — `gh pr view` without args
-            // mis-resolves branches in git worktrees (reports "main" instead of the
-            // worktree's actual HEAD). Pass the branch name explicitly to fix this.
             var branch = await RunGitAsync(workingDirectory, "rev-parse", "--abbrev-ref", "HEAD");
             if (string.IsNullOrEmpty(branch) || branch == "HEAD")
-                return null; // detached HEAD — no PR
+                return null;
 
             var psi = new ProcessStartInfo
             {
@@ -48,7 +46,7 @@ public class PrLinkService
                 CreateNoWindow = true,
             };
 
-            using var process = Process.Start(psi);
+            process = Process.Start(psi);
             if (process is null)
                 return null;
 
@@ -67,10 +65,20 @@ public class PrLinkService
             // gh not found, not a git repo, network error, timeout — all treated as "no PR"
             return null;
         }
+        finally
+        {
+            if (process is not null)
+            {
+                if (!process.HasExited)
+                    try { process.Kill(true); } catch { }
+                process.Dispose();
+            }
+        }
     }
 
     private static async Task<string?> RunGitAsync(string workingDirectory, params string[] args)
     {
+        Process? process = null;
         try
         {
             var psi = new ProcessStartInfo
@@ -84,7 +92,7 @@ public class PrLinkService
             };
             foreach (var arg in args) psi.ArgumentList.Add(arg);
 
-            using var process = Process.Start(psi);
+            process = Process.Start(psi);
             if (process is null) return null;
 
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
@@ -94,5 +102,14 @@ public class PrLinkService
             return process.ExitCode == 0 ? output.Trim() : null;
         }
         catch { return null; }
+        finally
+        {
+            if (process is not null)
+            {
+                if (!process.HasExited)
+                    try { process.Kill(true); } catch { }
+                process.Dispose();
+            }
+        }
     }
 }

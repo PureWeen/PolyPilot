@@ -311,18 +311,11 @@
         _prUrl = await PrLinkService.GetPrUrlForDirectoryAsync(dir);
         if (_prUrl != null)
         {
-            // Extract PR number from URL (e.g. "https://github.com/.../pull/457" → "#457")
             var lastSlash = _prUrl.LastIndexOf('/');
             if (lastSlash >= 0 && lastSlash < _prUrl.Length - 1)
                 _prLabel = "#" + _prUrl[(lastSlash + 1)..];
         }
-        await InvokeAsync(StateHasChanged);
-    }
-
-    private async Task OpenPrUrl()
-    {
-        if (_prUrl != null)
-            try { await Launcher.Default.OpenAsync(new Uri(_prUrl)); } catch { }
+        try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
     }
 
     private async Task HandleItemClick()
