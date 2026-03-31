@@ -1589,6 +1589,50 @@
             return;
         }
 
+        // Cross-session routing: check for @SessionName mentions matching other PolyPilot sessions.
+        // Build a lookup of normalized-token → session name for all sessions except the current one.
+        var crossSessionTargets = RouteToMentionedSessions(sessionName, finalPrompt);
+        if (crossSessionTargets.Count > 0)
+        {
+            // Add the user message to the current session's history
+            var sourceSession = sessions.FirstOrDefault(s => s.Name == sessionName);
+            sourceSession?.History.Add(ChatMessage.UserMessage(finalPrompt));
+
+            foreach (var (targetName, strippedMessage) in crossSessionTargets)
+            {
+                // Send to target session
+                _ = CopilotService.SendPromptAsync(targetName, strippedMessage).ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                    {
+                        var err = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown error";
+                        InvokeAsync(() =>
+                        {
+                            var src = sessions.FirstOrDefault(s => s.Name == sessionName);
+                            if (src != null)
+                            {
+                                src.History.Add(ChatMessage.ErrorMessage($"Failed to forward to @{targetName}: {err}"));
+                                src.MessageCount = src.History.Count;
+                            }
+                            _ = SafeRefreshAsync();
+                        });
+                    }
+                });
+
+                // Add a system message in the source session indicating the forward
+                sourceSession?.History.Add(ChatMessage.SystemMessage(
+                    $"📨 Forwarded to @{targetName}: \"{TruncateForDisplay(strippedMessage, 80)}\""));
+            }
+
+            if (sourceSession != null)
+                sourceSession.MessageCount = sourceSession.History.Count;
+
+            _needsScrollToBottom = true;
+            await InvokeAsync(SafeRefreshAsync);
+            return;
+        }
+
+
         var session = sessions.FirstOrDefault(s => s.Name == sessionName);
         if (session?.IsCreating == true)
         {
@@ -3359,6 +3403,68 @@
 
     private IReadOnlyList<string> allSessionNames =>
         CopilotService.GetAllSessionNames().ToList();
+
+    /// <summary>
+    /// Parses @Mention tokens from the prompt and matches them against active session names.
+    /// Returns a list of (targetSessionName, strippedMessage) for each matched session.
+    /// The strippedMessage has the leading @Token removed so the target session receives clean text.
+    /// </summary>
+    private List<(string TargetName, string StrippedMessage)> RouteToMentionedSessions(string sourceSessionName, string prompt)
+    {
+        var result = new List<(string, string)>();
+        if (string.IsNullOrWhiteSpace(prompt)) return result;
+
+        // Build normalized-token → real session name lookup (excluding source session)
+        static string NormalizeToken(string s) =>
+            new(s.Trim().Where(ch => char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-').ToArray());
+
+        var sessionLookup = CopilotService.GetAllSessionNames()
+            .Where(n => !string.Equals(n, sourceSessionName, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(NormalizeToken, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        if (sessionLookup.Count == 0) return result;
+
+        // Extract @Token at the start of the message (e.g. "@TestReceive hello" or "@TestReceive\nhello")
+        // Only route if the prompt begins with @SessionName (possibly multiple stacked).
+        var remaining = prompt.TrimStart();
+        var matched = new List<string>();
+
+        while (remaining.StartsWith('@'))
+        {
+            // Grab the token (alphanumeric, dot, underscore, hyphen)
+            var tokenEnd = 1;
+            while (tokenEnd < remaining.Length &&
+                   (char.IsLetterOrDigit(remaining[tokenEnd]) || remaining[tokenEnd] == '.' ||
+                    remaining[tokenEnd] == '_' || remaining[tokenEnd] == '-'))
+                tokenEnd++;
+
+            var token = remaining[1..tokenEnd];
+            if (string.IsNullOrEmpty(token)) break;
+
+            if (sessionLookup.TryGetValue(token, out var targetSession))
+            {
+                matched.Add(targetSession);
+                remaining = remaining[tokenEnd..].TrimStart();
+            }
+            else
+            {
+                // Unknown @mention — not a session, stop parsing
+                break;
+            }
+        }
+
+        // Only route if we matched at least one session and there's a message body
+        if (matched.Count == 0 || string.IsNullOrWhiteSpace(remaining)) return result;
+
+        foreach (var target in matched.Distinct(StringComparer.OrdinalIgnoreCase))
+            result.Add((target, remaining));
+
+        return result;
+    }
+
+    private static string TruncateForDisplay(string text, int maxLength) =>
+        text.Length <= maxLength ? text : text[..maxLength] + "…";
 
     private string GetSessionModel(AgentSessionInfo session)
     {
