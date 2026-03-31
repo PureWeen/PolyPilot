@@ -646,16 +646,37 @@ public partial class CopilotService
                             _sessions[entry.DisplayName] = lazyState;
                             _activeSessionName ??= entry.DisplayName;
                             RestoreUsageStats(entry);
-                            // Eagerly resume sessions that are still actively processing on the
-                            // headless server. Check events.jsonl (authoritative) first, then fall
-                            // back to LastPrompt (saved when IsProcessing=true at debounce time).
-                            // Without this, actively-running sessions appear idle after app restart
-                            // because they're only loaded as lazy placeholders with no SDK connection.
+                            // Check if session is still actively processing on the headless server.
                             var isStillActive = IsSessionStillProcessing(entry.SessionId);
-                            if (isStillActive || !string.IsNullOrWhiteSpace(entry.LastPrompt))
+                            if (isStillActive)
                             {
+                                // Session is actively running on the copilot server (tool calls in
+                                // flight). Do NOT eager-resume — calling session.resume on an active
+                                // session disrupts the in-flight work by replacing the event stream.
+                                // Instead, mark as processing locally so the UI shows the right state,
+                                // and let the session remain a lazy placeholder. It will be connected
+                                // lazily when the user interacts with it after it finishes.
+                                Debug($"Skipping eager resume for actively-processing session: {entry.DisplayName} (marking as processing locally)");
+                                var capturedState = lazyState;
+                                var capturedName = entry.DisplayName;
+                                var capturedId = entry.SessionId;
+                                InvokeOnUI(() =>
+                                {
+                                    capturedState.Info.IsProcessing = true;
+                                    capturedState.Info.IsResumed = true;
+                                    capturedState.HasUsedToolsThisTurn = true;
+                                    capturedState.Info.ProcessingPhase = 3; // Working
+                                    capturedState.Info.ProcessingStartedAt = DateTime.UtcNow;
+                                    StartProcessingWatchdog(capturedState, capturedName);
+                                    NotifyStateChanged();
+                                });
+                            }
+                            else if (!string.IsNullOrWhiteSpace(entry.LastPrompt))
+                            {
+                                // Session had a pending prompt but CLI is no longer active —
+                                // safe to eager-resume to retry the prompt.
                                 eagerResumeCandidates.Add((entry.DisplayName, lazyState));
-                                Debug($"Queued eager resume for interrupted session: {entry.DisplayName} (active={isStillActive}, hasLastPrompt={!string.IsNullOrWhiteSpace(entry.LastPrompt)})");
+                                Debug($"Queued eager resume for interrupted session: {entry.DisplayName} (hasLastPrompt=true)");
                             }
                             Debug($"Loaded session placeholder: {entry.DisplayName} ({lazyHistory.Count} messages)");
                         }
