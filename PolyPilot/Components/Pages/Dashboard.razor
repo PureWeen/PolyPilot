@@ -179,6 +179,7 @@
                                      MessageWindowSize="@(expandedMessageCounts.TryGetValue(session.Name, out var emc) ? emc : 25)"
                                      FiestaActive="@FiestaService.IsFiestaActive(session.Name)"
                                      FiestaWorkers="@GetFiestaWorkersForSession(session.Name)"
+                                     AllSessionNames="@allSessionNames"
                                      OnSend="HandleSend"
                                      OnStop="StopSession"
                                      OnCollapse="CollapseExpanded"
@@ -3355,6 +3356,9 @@
 
     private IReadOnlyList<string> availableModels =>
         CopilotService.AvailableModels.Count > 0 ? CopilotService.AvailableModels : ModelHelper.FallbackModels;
+
+    private IReadOnlyList<string> allSessionNames =>
+        CopilotService.GetAllSessionNames().ToList();
 
     private string GetSessionModel(AgentSessionInfo session)
     {

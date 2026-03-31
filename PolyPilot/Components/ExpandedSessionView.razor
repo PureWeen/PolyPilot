@@ -351,6 +351,7 @@
     [Parameter] public int MessageWindowSize { get; set; } = 25;
     [Parameter] public bool FiestaActive { get; set; }
     [Parameter] public IReadOnlyList<FiestaLinkedWorker> FiestaWorkers { get; set; } = Array.Empty<FiestaLinkedWorker>();
+    [Parameter] public IReadOnlyList<string> AllSessionNames { get; set; } = Array.Empty<string>();
 
     [Parameter] public EventCallback<string> OnSend { get; set; }
     [Parameter] public EventCallback<string> OnStop { get; set; }
@@ -732,12 +733,18 @@
     {
         get
         {
-            var tokens = FiestaWorkers
+            var fiestaTokens = FiestaWorkers
                 .SelectMany(w => new[]
                 {
                     NormalizeMentionToken(w.Hostname),
                     NormalizeMentionToken(w.Name)
-                })
+                });
+
+            var sessionTokens = AllSessionNames
+                .Where(n => !string.Equals(n, Session.Name, StringComparison.OrdinalIgnoreCase))
+                .Select(NormalizeMentionToken);
+
+            var tokens = fiestaTokens.Concat(sessionTokens)
                 .Where(t => !string.IsNullOrWhiteSpace(t))
                 .Distinct(StringComparer.OrdinalIgnoreCase)
                 .OrderBy(t => t, StringComparer.OrdinalIgnoreCase);
