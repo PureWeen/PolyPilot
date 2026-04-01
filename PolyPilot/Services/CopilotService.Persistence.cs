@@ -651,34 +651,29 @@ public partial class CopilotService
                             if (isStillActive)
                             {
                                 // Session is actively running on the copilot server (tool calls in
-                                // flight). Mark as processing locally so the UI shows the right state
-                                // immediately, then queue an eager resume to establish the SDK event
-                                // connection. Without the eager resume, the session stays as a lazy
-                                // placeholder — events from the CLI never reach PolyPilot, the watchdog
-                                // eventually times out, and multi-agent orchestrator TCSs are never
-                                // completed. PR #452 removed RESUME-ABORT so ResumeSessionAsync no
-                                // longer disrupts in-flight tool execution.
-                                Debug($"Queuing eager resume for actively-processing session: {entry.DisplayName}");
+                                // flight). Do NOT eager-resume — ResumeSessionAsync kills in-flight
+                                // tool execution on the CLI (the resume replaces the event stream and
+                                // abandons running tools). Instead, mark as processing locally and
+                                // start a file-based poller that watches events.jsonl for completion.
+                                // When the CLI finishes, the poller triggers a lazy-resume to pick up
+                                // the results.
+                                Debug($"Deferring resume for actively-processing session: {entry.DisplayName} (will poll events.jsonl)");
                                 var capturedState = lazyState;
                                 var capturedName = entry.DisplayName;
-                                var capturedGen = Interlocked.Read(ref capturedState.ProcessingGeneration);
+                                var capturedSessionId = entry.SessionId;
                                 InvokeOnUI(() =>
                                 {
-                                    if (Interlocked.Read(ref capturedState.ProcessingGeneration) != capturedGen) return;
                                     capturedState.Info.IsProcessing = true;
                                     capturedState.Info.IsResumed = true;
-                                    // Always use 600s tool timeout — even sessions without interrupted
-                                    // tools may still be actively generating (long text, no tool events).
-                                    // The 120s inactivity timeout is too aggressive and kills active
-                                    // sessions between tool rounds or during long generations.
                                     capturedState.HasUsedToolsThisTurn = true;
                                     capturedState.Info.ProcessingPhase = 3; // Working
                                     capturedState.Info.ProcessingStartedAt = DateTime.UtcNow;
                                     StartProcessingWatchdog(capturedState, capturedName);
                                     NotifyStateChanged();
                                 });
-                                // Eager-resume to establish SDK connection so events flow.
-                                eagerResumeCandidates.Add((entry.DisplayName, lazyState));
+                                // Poll events.jsonl — when the CLI finishes (session.idle/shutdown),
+                                // trigger a lazy resume to connect and pick up the response.
+                                _ = PollEventsAndResumeWhenIdleAsync(capturedName, capturedState, capturedSessionId, cancellationToken);
                             }
                             else if (!string.IsNullOrWhiteSpace(entry.LastPrompt))
                             {
@@ -825,6 +820,127 @@ public partial class CopilotService
             }
         }
 
+    }
+
+    /// <summary>
+    /// Polls events.jsonl for a session that's actively processing on the CLI.
+    /// When the CLI finishes (session.idle or session.shutdown appears, or the file
+    /// goes stale), triggers a lazy-resume to connect and load the response.
+    /// 
+    /// IMPORTANT: We cannot call ResumeSessionAsync while the CLI is running tools —
+    /// the resume command kills in-flight tool execution. This poller bridges the gap
+    /// by waiting for the CLI to finish before connecting.
+    /// </summary>
+    private async Task PollEventsAndResumeWhenIdleAsync(
+        string sessionName, SessionState state, string sessionId, CancellationToken ct)
+    {
+        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        var maxPollTime = TimeSpan.FromMinutes(30);
+        var pollInterval = TimeSpan.FromSeconds(5);
+        var started = DateTime.UtcNow;
+
+        Debug($"[POLL] Starting events.jsonl poll for '{sessionName}' (id={sessionId})");
+
+        try
+        {
+            while (!ct.IsCancellationRequested && (DateTime.UtcNow - started) < maxPollTime)
+            {
+                await Task.Delay(pollInterval, ct);
+
+                // Check if the user already interacted (sent a message) which would have
+                // triggered EnsureSessionConnectedAsync — no need to poll anymore.
+                if (state.Session != null)
+                {
+                    Debug($"[POLL] '{sessionName}' already connected (user interaction) — stopping poll");
+                    return;
+                }
+
+                // Check if the watchdog already cleared IsProcessing — session is done.
+                if (!state.Info.IsProcessing)
+                {
+                    Debug($"[POLL] '{sessionName}' no longer processing (watchdog cleared) — stopping poll");
+                    return;
+                }
+
+                // Read last event type from events.jsonl
+                var lastEventType = GetLastEventType(eventsFile);
+                if (lastEventType == null) continue;
+
+                var isTerminal = lastEventType is "session.idle" or "session.error" or "session.shutdown";
+                if (!isTerminal)
+                {
+                    // Also check staleness — if the file hasn't been modified for a long time,
+                    // the CLI might have died without writing a terminal event.
+                    try
+                    {
+                        var staleness = (DateTime.UtcNow - File.GetLastWriteTimeUtc(eventsFile)).TotalSeconds;
+                        if (staleness > WatchdogToolExecutionTimeoutSeconds)
+                        {
+                            Debug($"[POLL] '{sessionName}' events.jsonl stale ({staleness:F0}s) — treating as complete");
+                            isTerminal = true;
+                        }
+                    }
+                    catch { }
+                }
+
+                if (isTerminal)
+                {
+                    Debug($"[POLL] '{sessionName}' CLI finished (lastEvent={lastEventType}) — resuming session");
+
+                    // Load the full history from events.jsonl (includes response content)
+                    try
+                    {
+                        var (diskHistory, _) = await LoadBestHistoryAsync(sessionId);
+                        if (diskHistory.Count > state.Info.History.Count)
+                        {
+                            // Merge new messages from disk into the in-memory history
+                            var existingCount = state.Info.History.Count;
+                            foreach (var msg in diskHistory.Skip(existingCount))
+                                state.Info.History.Add(msg);
+                            Debug($"[POLL] '{sessionName}' loaded {diskHistory.Count - existingCount} new messages from disk (total={state.Info.History.Count})");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug($"[POLL] '{sessionName}' failed to load disk history: {ex.Message}");
+                    }
+
+                    // Now safe to resume — the CLI is idle, no tools to interrupt.
+                    try
+                    {
+                        await EnsureSessionConnectedAsync(sessionName, state, ct);
+                        Debug($"[POLL] '{sessionName}' lazy-resume complete after poll");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug($"[POLL] '{sessionName}' lazy-resume failed: {ex.Message}");
+                    }
+
+                    // Complete the response — the session is done.
+                    InvokeOnUI(() =>
+                    {
+                        if (!state.Info.IsProcessing) return; // already cleared
+                        FlushCurrentResponse(state);
+                        CompleteResponse(state);
+                        NotifyStateChanged();
+                    });
+                    return;
+                }
+            }
+
+            if ((DateTime.UtcNow - started) >= maxPollTime)
+            {
+                Debug($"[POLL] '{sessionName}' poll timed out after {maxPollTime.TotalMinutes:F0} minutes");
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Debug($"[POLL] '{sessionName}' poll cancelled");
+        }
+        catch (Exception ex)
+        {
+            Debug($"[POLL] '{sessionName}' poll error: {ex.Message}");
+        }
     }
 
     public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = "<<unspecified>>", Dictionary<string, string>? inputModes = null, int? gridColumns = null, int? cardMinHeight = null)
