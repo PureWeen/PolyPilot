@@ -254,6 +254,8 @@ public class ScheduledTask
     /// <summary>
     /// Simple 5-field cron parser: minute hour day-of-month month day-of-week.
     /// Supports: numbers, ranges (1-5), lists (1,3,5), step values (*/5), and wildcards (*).
+    /// Follows POSIX cron semantics: when both day-of-month and day-of-week are non-wildcard,
+    /// they are OR'd (fire if either matches). When only one is specified, the other is ignored.
     /// </summary>
     internal static bool TryParseCron(string? expression, out CronSchedule schedule)
     {
@@ -269,7 +271,11 @@ public class ScheduledTask
         if (!TryParseField(parts[3], 1, 12, out var months)) return false;
         if (!TryParseField(parts[4], 0, 6, out var dows)) return false;
 
-        schedule = new CronSchedule(minutes, hours, doms, months, dows);
+        // Track whether DOM/DOW were wildcards for POSIX OR semantics
+        var domIsWildcard = parts[2].Trim() == "*";
+        var dowIsWildcard = parts[4].Trim() == "*";
+
+        schedule = new CronSchedule(minutes, hours, doms, months, dows, domIsWildcard, dowIsWildcard);
         return true;
     }
 
@@ -328,8 +334,7 @@ public class ScheduledTask
         for (int i = 0; i < 366 * 24 * 60; i++)
         {
             if (cron.Months.Contains(candidate.Month) &&
-                cron.DaysOfMonth.Contains(candidate.Day) &&
-                cron.DaysOfWeek.Contains((int)candidate.DayOfWeek) &&
+                cron.MatchesDay(candidate.Day, (int)candidate.DayOfWeek) &&
                 cron.Hours.Contains(candidate.Hour) &&
                 cron.Minutes.Contains(candidate.Minute))
             {
@@ -350,5 +355,22 @@ public class ScheduledTask
     internal readonly record struct CronSchedule(
         HashSet<int> Minutes, HashSet<int> Hours,
         HashSet<int> DaysOfMonth, HashSet<int> Months,
-        HashSet<int> DaysOfWeek);
+        HashSet<int> DaysOfWeek,
+        bool DomIsWildcard, bool DowIsWildcard)
+    {
+        /// <summary>
+        /// POSIX cron day-matching: when both DOM and DOW are explicit (non-wildcard),
+        /// they are OR'd — fire if EITHER matches. When only one is explicit, match that one only.
+        /// When both are wildcards, any day matches.
+        /// </summary>
+        public bool MatchesDay(int dayOfMonth, int dayOfWeek)
+        {
+            bool domMatch = DaysOfMonth.Contains(dayOfMonth);
+            bool dowMatch = DaysOfWeek.Contains(dayOfWeek);
+
+            if (!DomIsWildcard && !DowIsWildcard)
+                return domMatch || dowMatch; // POSIX OR semantics
+            return domMatch && dowMatch; // one or both are wildcards → AND (wildcard always matches)
+        }
+    }
 }

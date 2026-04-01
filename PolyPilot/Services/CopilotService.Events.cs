@@ -1214,11 +1214,13 @@ public partial class CopilotService
         OnSessionComplete?.Invoke(state.Info.Name, summary);
         OnStateChanged?.Invoke();
 
-        // Update dock icon badge: non-worker sessions that finished in the background
-        IncrementPendingCompletions(state.Info.Name);
+        // Update dock icon badge: non-worker sessions that finished in the background.
+        // Skip badge during active reflection cycles — only badge on terminal completion.
+        var cycle = state.Info.ReflectionCycle;
+        if (cycle == null || !cycle.IsActive)
+            IncrementPendingCompletions(state.Info.Name);
 
         // Reflection cycle: evaluate response and enqueue follow-up if goal not yet met
-        var cycle = state.Info.ReflectionCycle;
         if (cycle != null && cycle.IsActive)
         {
             if (state.SkipReflectionEvaluationOnce)
