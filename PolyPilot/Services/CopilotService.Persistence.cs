@@ -875,28 +875,40 @@ public partial class CopilotService
                 var isTerminal = lastEventType is "session.idle" or "session.error" or "session.shutdown";
                 if (!isTerminal)
                 {
-                    // Track file size stability — if the file hasn't grown across several
-                    // poll cycles, the CLI is done (even without a terminal event).
-                    // This catches the "zero-idle" case in ~20s instead of 600s.
-                    try
+                    // Don't use file-size stability when a tool is actively executing —
+                    // the file is "stable" because the tool is running (not writing events),
+                    // NOT because the CLI is done. Resuming now would kill the tool.
+                    var isToolRunning = lastEventType is "tool.execution_start" or "tool.execution_progress";
+                    if (!isToolRunning)
                     {
-                        var currentSize = new FileInfo(eventsFile).Length;
-                        if (currentSize == lastFileSize)
+                        // Track file size stability — if the file hasn't grown across several
+                        // poll cycles, the CLI is done (even without a terminal event).
+                        // This catches the "zero-idle" case in ~20s instead of 600s.
+                        try
                         {
-                            stableFileSizeCount++;
-                            if (stableFileSizeCount >= stableThreshold)
+                            var currentSize = new FileInfo(eventsFile).Length;
+                            if (currentSize == lastFileSize)
                             {
-                                Debug($"[POLL] '{sessionName}' events.jsonl stable for {stableFileSizeCount * 5}s (size={currentSize}) — treating as complete");
-                                isTerminal = true;
+                                stableFileSizeCount++;
+                                if (stableFileSizeCount >= stableThreshold)
+                                {
+                                    Debug($"[POLL] '{sessionName}' events.jsonl stable for {stableFileSizeCount * 5}s (size={currentSize}, lastEvent={lastEventType}) — treating as complete");
+                                    isTerminal = true;
+                                }
+                            }
+                            else
+                            {
+                                stableFileSizeCount = 0;
+                                lastFileSize = currentSize;
                             }
                         }
-                        else
-                        {
-                            stableFileSizeCount = 0;
-                            lastFileSize = currentSize;
-                        }
+                        catch { }
                     }
-                    catch { }
+                    else
+                    {
+                        // Tool is running — reset stability counter (tool may write more events when done)
+                        stableFileSizeCount = 0;
+                    }
                 }
 
                 if (isTerminal)
