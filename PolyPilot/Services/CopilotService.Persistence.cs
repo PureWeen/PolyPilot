@@ -666,6 +666,9 @@ public partial class CopilotService
                                     capturedState.Info.IsProcessing = true;
                                     capturedState.Info.IsResumed = true;
                                     capturedState.HasUsedToolsThisTurn = true;
+                                    // INV-9: Set IsMultiAgentSession so the watchdog uses the correct
+                                    // timeout tier (600s for multi-agent workers, not 120s).
+                                    capturedState.IsMultiAgentSession = IsSessionInMultiAgentGroup(capturedName);
                                     capturedState.Info.ProcessingPhase = 3; // Working
                                     capturedState.Info.ProcessingStartedAt = DateTime.UtcNow;
                                     StartProcessingWatchdog(capturedState, capturedName);
@@ -887,6 +890,10 @@ public partial class CopilotService
                 {
                     Debug($"[POLL] '{sessionName}' CLI finished (lastEvent={lastEventType}) — resuming session");
 
+                    // INV-3/INV-12: Capture generation BEFORE async operations to prevent
+                    // stale poller from corrupting a new turn started by user interaction.
+                    var pollerGen = Interlocked.Read(ref state.ProcessingGeneration);
+
                     // Load the full history from events.jsonl (includes response content)
                     try
                     {
@@ -919,9 +926,12 @@ public partial class CopilotService
                     // Complete the response — the session is done.
                     InvokeOnUI(() =>
                     {
-                        if (!state.Info.IsProcessing) return; // already cleared
+                        // INV-3: Generation guard — if user sent a new message during
+                        // the poll→resume window, this completion belongs to the old turn.
+                        if (Interlocked.Read(ref state.ProcessingGeneration) != pollerGen) return;
+                        if (!state.Info.IsProcessing) return; // watchdog already cleared
                         FlushCurrentResponse(state);
-                        CompleteResponse(state);
+                        CompleteResponse(state, pollerGen);
                         NotifyStateChanged();
                     });
                     return;
