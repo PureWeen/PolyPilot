@@ -841,6 +841,9 @@ public partial class CopilotService
         var maxPollTime = TimeSpan.FromMinutes(30);
         var pollInterval = TimeSpan.FromSeconds(5);
         var started = DateTime.UtcNow;
+        long lastFileSize = -1;
+        int stableFileSizeCount = 0;
+        const int stableThreshold = 4; // 4 polls × 5s = 20s of no growth → CLI is done
 
         Debug($"[POLL] Starting events.jsonl poll for '{sessionName}' (id={sessionId})");
 
@@ -872,15 +875,25 @@ public partial class CopilotService
                 var isTerminal = lastEventType is "session.idle" or "session.error" or "session.shutdown";
                 if (!isTerminal)
                 {
-                    // Also check staleness — if the file hasn't been modified for a long time,
-                    // the CLI might have died without writing a terminal event.
+                    // Track file size stability — if the file hasn't grown across several
+                    // poll cycles, the CLI is done (even without a terminal event).
+                    // This catches the "zero-idle" case in ~20s instead of 600s.
                     try
                     {
-                        var staleness = (DateTime.UtcNow - File.GetLastWriteTimeUtc(eventsFile)).TotalSeconds;
-                        if (staleness > WatchdogToolExecutionTimeoutSeconds)
+                        var currentSize = new FileInfo(eventsFile).Length;
+                        if (currentSize == lastFileSize)
                         {
-                            Debug($"[POLL] '{sessionName}' events.jsonl stale ({staleness:F0}s) — treating as complete");
-                            isTerminal = true;
+                            stableFileSizeCount++;
+                            if (stableFileSizeCount >= stableThreshold)
+                            {
+                                Debug($"[POLL] '{sessionName}' events.jsonl stable for {stableFileSizeCount * 5}s (size={currentSize}) — treating as complete");
+                                isTerminal = true;
+                            }
+                        }
+                        else
+                        {
+                            stableFileSizeCount = 0;
+                            lastFileSize = currentSize;
                         }
                     }
                     catch { }
