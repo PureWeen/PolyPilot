@@ -19,6 +19,7 @@ public class ScheduledTaskService : IDisposable
     private readonly CopilotService _copilotService;
     private readonly List<ScheduledTask> _tasks = new();
     private readonly object _lock = new();
+    private readonly HashSet<string> _inFlight = new(); // Per-task in-flight guard
     private Timer? _evaluationTimer;
     private int _evaluating; // Guard against overlapping evaluations
     private bool _disposed;
@@ -183,79 +184,97 @@ public class ScheduledTaskService : IDisposable
     /// <summary>
     /// Execute a scheduled task by ID. Takes a snapshot of task data under lock so
     /// async execution does not race with UI mutations or timer evaluations.
+    /// Uses a per-task in-flight guard to prevent RunNow + timer double-execution.
     /// </summary>
     internal async Task ExecuteTaskAsync(string taskId, DateTime utcNow)
     {
-        // Snapshot the task data under lock so we don't race with UpdateTask/SetEnabled
-        ScheduledTask snapshot;
+        // Per-task in-flight guard: prevent RunNow and timer from double-executing the same task
         lock (_lock)
         {
-            var canonical = _tasks.FirstOrDefault(t => t.Id == taskId);
-            if (canonical == null) return; // task was deleted between evaluation and execution
-            snapshot = canonical.Clone();
+            if (!_inFlight.Add(taskId))
+            {
+                Console.WriteLine($"[ScheduledTask] Skipped — task {taskId} is already in-flight");
+                return;
+            }
         }
-
-        Console.WriteLine($"[ScheduledTask] Executing: {snapshot.Name}");
-        var run = new ScheduledTaskRun { StartedAt = utcNow };
 
         try
         {
-            if (!_copilotService.IsInitialized)
+            // Snapshot the task data under lock so we don't race with UpdateTask/SetEnabled
+            ScheduledTask snapshot;
+            lock (_lock)
             {
-                run.Error = "CopilotService not initialized";
+                var canonical = _tasks.FirstOrDefault(t => t.Id == taskId);
+                if (canonical == null) return; // task was deleted between evaluation and execution
+                snapshot = canonical.Clone();
+            }
+
+            Console.WriteLine($"[ScheduledTask] Executing: {snapshot.Name}");
+            var run = new ScheduledTaskRun { StartedAt = utcNow };
+
+            try
+            {
+                if (!_copilotService.IsInitialized)
+                {
+                    run.Error = "CopilotService not initialized";
+                    run.Success = false;
+                    RecordRunAndSave(taskId, run);
+                    return;
+                }
+
+                string sessionName;
+
+                if (!string.IsNullOrEmpty(snapshot.SessionName))
+                {
+                    // Use existing session
+                    sessionName = snapshot.SessionName;
+                    var sessions = _copilotService.GetAllSessions();
+                    if (!sessions.Any(s => s.Name == sessionName))
+                    {
+                        run.Error = $"Session '{sessionName}' not found";
+                        run.Success = false;
+                        RecordRunAndSave(taskId, run);
+                        return;
+                    }
+                }
+                else
+                {
+                    // Create a new session for this run
+                    var timestamp = utcNow.ToLocalTime().ToString("MMM dd HH:mm");
+                    sessionName = $"⏰ {snapshot.Name} ({timestamp})";
+                    try
+                    {
+                        await _copilotService.CreateSessionAsync(sessionName, snapshot.Model, snapshot.WorkingDirectory);
+                    }
+                    catch (Exception ex)
+                    {
+                        run.Error = $"Failed to create session: {ex.Message}";
+                        run.Success = false;
+                        RecordRunAndSave(taskId, run);
+                        return;
+                    }
+                }
+
+                run.SessionName = sessionName;
+                await _copilotService.SendPromptAsync(sessionName, snapshot.Prompt);
+
+                run.CompletedAt = DateTime.UtcNow;
+                run.Success = true;
+            }
+            catch (Exception ex)
+            {
+                run.CompletedAt = DateTime.UtcNow;
+                run.Error = ex.Message;
                 run.Success = false;
-                RecordRunAndSave(taskId, run);
-                return;
+                Console.WriteLine($"[ScheduledTask] Execution failed for '{snapshot.Name}': {ex.Message}");
             }
 
-            string sessionName;
-
-            if (!string.IsNullOrEmpty(snapshot.SessionName))
-            {
-                // Use existing session
-                sessionName = snapshot.SessionName;
-                var sessions = _copilotService.GetAllSessions();
-                if (!sessions.Any(s => s.Name == sessionName))
-                {
-                    run.Error = $"Session '{sessionName}' not found";
-                    run.Success = false;
-                    RecordRunAndSave(taskId, run);
-                    return;
-                }
-            }
-            else
-            {
-                // Create a new session for this run
-                var timestamp = utcNow.ToLocalTime().ToString("MMM dd HH:mm");
-                sessionName = $"⏰ {snapshot.Name} ({timestamp})";
-                try
-                {
-                    await _copilotService.CreateSessionAsync(sessionName, snapshot.Model, snapshot.WorkingDirectory);
-                }
-                catch (Exception ex)
-                {
-                    run.Error = $"Failed to create session: {ex.Message}";
-                    run.Success = false;
-                    RecordRunAndSave(taskId, run);
-                    return;
-                }
-            }
-
-            run.SessionName = sessionName;
-            await _copilotService.SendPromptAsync(sessionName, snapshot.Prompt);
-
-            run.CompletedAt = DateTime.UtcNow;
-            run.Success = true;
+            RecordRunAndSave(taskId, run);
         }
-        catch (Exception ex)
+        finally
         {
-            run.CompletedAt = DateTime.UtcNow;
-            run.Error = ex.Message;
-            run.Success = false;
-            Console.WriteLine($"[ScheduledTask] Execution failed for '{snapshot.Name}': {ex.Message}");
+            lock (_lock) { _inFlight.Remove(taskId); }
         }
-
-        RecordRunAndSave(taskId, run);
     }
 
     /// <summary>
@@ -323,7 +342,7 @@ public class ScheduledTaskService : IDisposable
             var dir = Path.GetDirectoryName(TasksFilePath)!;
             Directory.CreateDirectory(dir);
             var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
-            var tempPath = TasksFilePath + ".tmp";
+            var tempPath = TasksFilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
             File.WriteAllText(tempPath, json);
             File.Move(tempPath, TasksFilePath, overwrite: true);
         }
