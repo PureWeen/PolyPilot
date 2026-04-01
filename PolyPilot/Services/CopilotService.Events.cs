@@ -710,8 +710,18 @@ public partial class CopilotService
                 if (!string.IsNullOrEmpty(startModel))
                 {
                     var normalizedStartModel = Models.ModelHelper.NormalizeToSlug(startModel);
-                    state.Info.Model = normalizedStartModel;
-                    Debug($"Session model from start event: {startModel} → {normalizedStartModel}");
+                    // Only update if the user hasn't already set a model — the CLI may
+                    // report a default model (e.g. haiku) after abort/resume that overrides
+                    // the user's explicit choice.
+                    if (string.IsNullOrEmpty(state.Info.Model) || state.Info.Model == "resumed")
+                    {
+                        state.Info.Model = normalizedStartModel;
+                        Debug($"Session model from start event: {startModel} → {normalizedStartModel}");
+                    }
+                    else if (normalizedStartModel != state.Info.Model)
+                    {
+                        Debug($"Session model from start event ignored: {startModel} → {normalizedStartModel} (keeping user choice: {state.Info.Model})");
+                    }
                 }
                 Invoke(() => { if (!IsRestoring) SaveActiveSessionsToDisk(); });
                 break;
