@@ -849,12 +849,6 @@ public partial class CopilotService
     /// Checks the CLI server's authentication status via the SDK and surfaces a
     /// dismissible banner if the server is not authenticated.
     /// Returns true if authenticated, false otherwise.
-    ///
-    /// On first auth failure (when no token has been resolved yet), performs a lazy
-    /// full token resolution (including Keychain) and auto-restarts the server.
-    /// This avoids preemptive Keychain reads at startup while still fixing auth
-    /// for users whose headless server can't access the Keychain.
-    /// See .claude/skills/auth-token-safety/SKILL.md (INV-A1, INV-A2).
     /// </summary>
     private async Task<bool> CheckAuthStatusAsync()
     {
@@ -920,10 +914,7 @@ public partial class CopilotService
                         if (status.IsAuthenticated)
                         {
                             Debug($"[AUTH-POLL] Auth detected ({status.Login}) — triggering server restart");
-                            // Use cached token only — do NOT call ResolveGitHubTokenForServer()
-                            // here. The polling loop runs every 10s; re-reading Keychain would
-                            // trigger a macOS password dialog on every cycle.
-                            // See .claude/skills/auth-token-safety/SKILL.md (INV-A2).
+                            // Use cached env-var token only — the server self-authenticates.
                             StopAuthPolling();
                             var recovered = await TryRecoverPersistentServerAsync();
                             if (recovered)
