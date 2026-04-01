@@ -155,19 +155,20 @@ public static class SettingsRegistry
             },
             GetValue = ctx => ctx.Settings.Theme switch
             {
-                UiTheme.System or UiTheme.SystemSolarized => "System",
-                UiTheme.PolyPilotDark or UiTheme.SolarizedDark => "Dark",
-                UiTheme.PolyPilotLight or UiTheme.SolarizedLight => "Light",
+                UiTheme.System or UiTheme.SystemSolarized or UiTheme.SystemAmber => "System",
+                UiTheme.PolyPilotDark or UiTheme.SolarizedDark or UiTheme.AmberDark => "Dark",
+                UiTheme.PolyPilotLight or UiTheme.SolarizedLight or UiTheme.AmberLight => "Light",
                 _ => "System"
             },
             SetValue = (ctx, v) =>
             {
                 var isSolarized = ctx.Settings.Theme is UiTheme.SolarizedDark or UiTheme.SolarizedLight or UiTheme.SystemSolarized;
+                var isAmber = ctx.Settings.Theme is UiTheme.AmberDark or UiTheme.AmberLight or UiTheme.SystemAmber;
                 ctx.Settings.Theme = (v as string) switch
                 {
-                    "Dark" => isSolarized ? UiTheme.SolarizedDark : UiTheme.PolyPilotDark,
-                    "Light" => isSolarized ? UiTheme.SolarizedLight : UiTheme.PolyPilotLight,
-                    _ => isSolarized ? UiTheme.SystemSolarized : UiTheme.System
+                    "Dark" => isSolarized ? UiTheme.SolarizedDark : isAmber ? UiTheme.AmberDark : UiTheme.PolyPilotDark,
+                    "Light" => isSolarized ? UiTheme.SolarizedLight : isAmber ? UiTheme.AmberLight : UiTheme.PolyPilotLight,
+                    _ => isSolarized ? UiTheme.SystemSolarized : isAmber ? UiTheme.SystemAmber : UiTheme.System
                 };
             }
         });
@@ -181,21 +182,27 @@ public static class SettingsRegistry
             Section = "Theme",
             Type = SettingType.CardEnum,
             Order = 20,
-            SearchKeywords = "theme style polypilot solarized palette",
+            SearchKeywords = "theme style polypilot solarized amber palette",
             Options = new[]
             {
                 new SettingOption("PolyPilot", "PolyPilot", "tp-pp-dark"),
                 new SettingOption("Solarized", "Solarized", "tp-sol-dark"),
+                new SettingOption("Amber", "Amber", "tp-amb-dark"),
             },
-            GetValue = ctx => ctx.Settings.Theme is UiTheme.SolarizedDark or UiTheme.SolarizedLight or UiTheme.SystemSolarized
-                ? "Solarized" : "PolyPilot",
+            GetValue = ctx => ctx.Settings.Theme switch
+            {
+                UiTheme.SolarizedDark or UiTheme.SolarizedLight or UiTheme.SystemSolarized => "Solarized",
+                UiTheme.AmberDark or UiTheme.AmberLight or UiTheme.SystemAmber => "Amber",
+                _ => "PolyPilot"
+            },
             SetValue = (ctx, v) =>
             {
-                var isSystem = ctx.Settings.Theme is UiTheme.System or UiTheme.SystemSolarized;
-                var isDark = ctx.Settings.Theme is UiTheme.PolyPilotDark or UiTheme.SolarizedDark or UiTheme.System or UiTheme.SystemSolarized;
+                var isSystem = ctx.Settings.Theme is UiTheme.System or UiTheme.SystemSolarized or UiTheme.SystemAmber;
+                var isDark = ctx.Settings.Theme is UiTheme.PolyPilotDark or UiTheme.SolarizedDark or UiTheme.AmberDark or UiTheme.System or UiTheme.SystemSolarized or UiTheme.SystemAmber;
                 ctx.Settings.Theme = (v as string) switch
                 {
                     "Solarized" => isSystem ? UiTheme.SystemSolarized : (isDark ? UiTheme.SolarizedDark : UiTheme.SolarizedLight),
+                    "Amber" => isSystem ? UiTheme.SystemAmber : (isDark ? UiTheme.AmberDark : UiTheme.AmberLight),
                     _ => isSystem ? UiTheme.System : (isDark ? UiTheme.PolyPilotDark : UiTheme.PolyPilotLight)
                 };
             },

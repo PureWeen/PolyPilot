@@ -1304,6 +1304,16 @@
 .theme-preview.tp-sol-light .tp-line-1 { background: #93a1a1; }
 .theme-preview.tp-sol-light .tp-line-2 { background: #268bd2; width: 60%; }
 
+.theme-preview.tp-amb-dark .tp-bar { background: #1c1912; }
+.theme-preview.tp-amb-dark .tp-content { background: #0a0906; }
+.theme-preview.tp-amb-dark .tp-line-1 { background: #7a6a4a; }
+.theme-preview.tp-amb-dark .tp-line-2 { background: #d4890a; width: 60%; }
+
+.theme-preview.tp-amb-light .tp-bar { background: #f0ece4; }
+.theme-preview.tp-amb-light .tp-content { background: #fefdfb; }
+.theme-preview.tp-amb-light .tp-line-1 { background: #9a8868; }
+.theme-preview.tp-amb-light .tp-line-2 { background: #b87308; width: 60%; }
+
 .layout-preview {
     display: flex;
     flex-direction: column;

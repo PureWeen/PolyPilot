@@ -32,7 +32,10 @@ public enum UiTheme
     SolarizedDark,   // Solarized dark
     SolarizedLight,  // Solarized light
     SystemSolarized, // Follow OS light/dark preference (Solarized palette)
-    InternationalWomensDay  // Purple/violet theme for March 8
+    InternationalWomensDay,  // Purple/violet theme for March 8
+    AmberDark,       // Warm amber dark theme
+    AmberLight,      // Warm amber light theme
+    SystemAmber      // Follow OS light/dark preference (Amber palette)
 }
 
 public enum CliSourceMode

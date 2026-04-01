@@ -31,10 +31,13 @@ public static class HolidayThemeHelper
     {
         UiTheme.System => "system",
         UiTheme.SystemSolarized => "system-solarized",
+        UiTheme.SystemAmber => "system-amber",
         UiTheme.PolyPilotDark => "",
         UiTheme.PolyPilotLight => "polypilot-light",
         UiTheme.SolarizedDark => "solarized-dark",
         UiTheme.SolarizedLight => "solarized-light",
+        UiTheme.AmberDark => "amber-dark",
+        UiTheme.AmberLight => "amber-light",
         UiTheme.InternationalWomensDay => "iwd",
         _ => ""
     };
