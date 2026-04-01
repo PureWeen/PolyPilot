@@ -213,6 +213,7 @@ public partial class DevTunnelService : IDisposable
             // Hook bridge to CopilotService for state sync
             _bridge.SetCopilotService(_copilot);
             _bridge.SetRepoManager(_repoManager);
+            _bridge.ServerPassword = settings.ServerPassword;
 
             // Set a temporary random token before starting the bridge so connections
             // are rejected during the tunnel setup window (before the real token is issued).

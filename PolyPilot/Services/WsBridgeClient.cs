@@ -89,6 +89,18 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         await ConnectCoreAsync(url, token, ct);
     }
 
+    internal static string AddTokenQuery(string url, string? authToken)
+    {
+        if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(authToken))
+            return url;
+
+        var builder = new UriBuilder(url);
+        var query = System.Web.HttpUtility.ParseQueryString(builder.Query);
+        query["token"] = authToken;
+        builder.Query = query.ToString() ?? string.Empty;
+        return builder.Uri.ToString();
+    }
+
     private async Task ConnectCoreAsync(string wsUrl, string? authToken, CancellationToken ct)
     {
         Stop();
@@ -107,7 +119,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             _ws.Options.SetRequestHeader("X-Bridge-Authorization", authToken);
         }
 
-        var uri = new Uri(wsUrl);
+        var uri = new Uri(AddTokenQuery(wsUrl, authToken));
         Console.WriteLine($"[WsBridgeClient] Connecting to {wsUrl}...");
 
         // Use Task.WhenAny as hard timeout — CancellationToken may not be honored on all platforms
@@ -240,7 +252,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
             cts.CancelAfter(TimeSpan.FromSeconds(2));
 
-            var request = new HttpRequestMessage(HttpMethod.Get, httpUrl);
+            var request = new HttpRequestMessage(HttpMethod.Get, AddTokenQuery(httpUrl, lanToken));
             if (!string.IsNullOrEmpty(lanToken))
             {
                 request.Headers.Add("X-Tunnel-Authorization", $"tunnel {lanToken}");
@@ -391,13 +403,15 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     public async Task<DirectoriesListPayload> ListDirectoriesAsync(string? path = null, CancellationToken ct = default)
     {
         var requestId = Guid.NewGuid().ToString("N");
-        var tcs = new TaskCompletionSource<DirectoriesListPayload>();
+        var tcs = new TaskCompletionSource<DirectoriesListPayload>(TaskCreationOptions.RunContinuationsAsynchronously);
         _dirListRequests[requestId] = tcs;
         try
         {
             await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ListDirectories,
                 new ListDirectoriesPayload { Path = path, RequestId = requestId }), ct);
-            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            // Directory enumeration can be slow on large home/temp folders, especially under
+            // heavy test-suite load or when multiple requests are in flight concurrently.
+            using var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
             linked.Token.Register(() => tcs.TrySetCanceled());
             return await tcs.Task;
@@ -606,7 +620,7 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
                     _ws.Options.SetRequestHeader("X-Bridge-Authorization", authToken);
                 }
 
-                var uri = new Uri(wsUrl);
+                var uri = new Uri(AddTokenQuery(wsUrl, authToken));
 
                 HttpMessageInvoker? invoker = null;
                 try

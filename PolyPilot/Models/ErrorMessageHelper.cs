@@ -70,6 +70,10 @@ public static class ErrorMessageHelper
         if (message.Contains("not created with authentication info", StringComparison.OrdinalIgnoreCase))
             return "Not authenticated — run `copilot login` (or `gh auth login`) in your terminal, then click Re-authenticate.";
 
+        if (message.Contains("status code '401' when status code '101' was expected", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("net_WebSockets_ConnectionStatusExpected,401,101", StringComparison.OrdinalIgnoreCase))
+            return "Remote access authentication failed. Re-scan the QR code or verify the tunnel token/server password.";
+
         // Catch-all for any other net_webstatus_ codes we haven't mapped
         if (message.Contains("net_webstatus_", StringComparison.OrdinalIgnoreCase))
             return "A network error occurred. Check your connection and try again.";

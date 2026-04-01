@@ -778,7 +778,7 @@ public class WsBridgeIntegrationTests : IDisposable
     {
         await InitDemoMode();
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
         var client = await ConnectClientAsync(cts.Token);
 
         // Fire two concurrent directory listing requests

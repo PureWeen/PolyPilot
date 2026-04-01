@@ -1,10 +1,12 @@
 using System.Net;
+using System.Net.WebSockets;
 using System.Text.Json;
 using PolyPilot.Models;
 using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
+[Collection("SocketIsolated")]
 public class WsBridgeServerAuthTests
 {
     [Fact]
@@ -188,6 +190,30 @@ public class WsBridgeServerAuthTests
     }
 
     [Fact]
+    public async Task ProbeLanAsync_SendsTokenInQueryString()
+    {
+        var port = GetFreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        listener.Start();
+
+        var seenToken = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx = await listener.GetContextAsync();
+            seenToken.TrySetResult(ctx.Request.QueryString["token"]);
+            ctx.Response.StatusCode = 200;
+            ctx.Response.Close();
+        });
+
+        var result = await WsBridgeClient.ProbeLanAsync($"ws://localhost:{port}", "query-token", CancellationToken.None);
+
+        Assert.True(result);
+        Assert.Equal("query-token", await seenToken.Task);
+        await serverTask;
+    }
+
+    [Fact]
     public async Task ProbeLanAsync_ReturnsFalse_WhenServerUnreachable()
     {
         // Port 19998 should not have anything listening
@@ -289,6 +315,88 @@ public class WsBridgeServerAuthTests
         {
             server.Stop();
         }
+    }
+
+    [Fact]
+    public async Task WsBridgeServer_AcceptsTunnelHostHeader_WhenTokenConfigured()
+    {
+        var port = GetFreePort();
+        using var server = new WsBridgeServer();
+        server.AccessToken = "some-secret-token";
+        server.Start(port, 0);
+        await Task.Delay(100);
+
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(3) };
+            var request = new HttpRequestMessage(HttpMethod.Get, $"http://localhost:{port}/");
+            request.Headers.Host = "example.devtunnels.ms";
+            request.Headers.Add("X-Bridge-Authorization", "some-secret-token");
+
+            var response = await client.SendAsync(request);
+
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            Assert.Equal("WsBridge OK", await response.Content.ReadAsStringAsync());
+        }
+        finally
+        {
+            server.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task WsBridgeClient_ConnectAsync_SendsTokenInQueryString()
+    {
+        var port = GetFreePort();
+        using var listener = new HttpListener();
+        listener.Prefixes.Add($"http://localhost:{port}/");
+        listener.Start();
+
+        var seenToken = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var serverTask = Task.Run(async () =>
+        {
+            var ctx = await listener.GetContextAsync();
+            seenToken.TrySetResult(ctx.Request.QueryString["token"]);
+            Assert.True(ctx.Request.IsWebSocketRequest);
+
+            var wsContext = await ctx.AcceptWebSocketAsync(null);
+            var ws = wsContext.WebSocket;
+            try
+            {
+                var buffer = new byte[16];
+                while (ws.State == WebSocketState.Open)
+                {
+                    WebSocketReceiveResult result;
+                    try
+                    {
+                        result = await ws.ReceiveAsync(buffer, CancellationToken.None);
+                    }
+                    catch (WebSocketException)
+                    {
+                        break;
+                    }
+
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None);
+                        break;
+                    }
+                }
+            }
+            finally
+            {
+                ws.Dispose();
+            }
+        });
+
+        using var client = new WsBridgeClient();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await client.ConnectAsync($"ws://localhost:{port}/", "query-token", cts.Token);
+
+        Assert.Equal("query-token", await seenToken.Task);
+
+        client.Stop();
+        await serverTask;
     }
 
     [Fact]

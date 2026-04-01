@@ -91,6 +91,16 @@ public class ErrorMessageHelperTests
         Assert.Contains("internet", result, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("The server returned status code '401' when status code '101' was expected.")]
+    [InlineData("net_WebSockets_ConnectionStatusExpected,401,101")]
+    public void WebSocket401_ReturnsAuthenticationGuidance(string message)
+    {
+        var result = ErrorMessageHelper.HumanizeMessage(message);
+        Assert.Contains("authentication", result, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("QR code", result, StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void NormalMessage_PassesThrough()
     {

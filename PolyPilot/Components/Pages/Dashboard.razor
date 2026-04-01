@@ -863,7 +863,7 @@
         }
         catch (Exception ex)
         {
-            mobileConnectError = ex.Message;
+            mobileConnectError = Models.ErrorMessageHelper.Humanize(ex);
         }
 
         mobileConnecting = false;

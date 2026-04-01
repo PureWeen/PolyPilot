@@ -833,7 +833,7 @@ public class FiestaService : IDisposable
             using var connectTimeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             connectTimeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
 
-            await ws.ConnectAsync(new Uri(wsUri), connectTimeoutCts.Token);
+            await ws.ConnectAsync(new Uri(WsBridgeClient.AddTokenQuery(wsUri, worker.Token)), connectTimeoutCts.Token);
             await SendAsync(ws, BridgeMessage.Create(BridgeMessageTypes.FiestaAssign, new FiestaAssignPayload
             {
                 TaskId = taskId,
