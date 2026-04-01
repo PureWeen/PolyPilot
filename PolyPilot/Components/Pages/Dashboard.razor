@@ -1248,6 +1248,7 @@
                 return;
 
             sessions = CopilotService.GetAllSessions().ToList();
+            _cachedAllSessionNames = null;
 
             if (!_initialGridSet && sessions.Count > 1)
             {
@@ -1592,9 +1593,12 @@
         // Cross-session routing: check for @SessionName mentions matching other PolyPilot sessions.
         // Build a lookup of normalized-token → session name for all sessions except the current one.
         var crossSessionTargets = RouteToMentionedSessions(sessionName, finalPrompt);
-        Console.WriteLine($"[CROSS-SESSION] source={sessionName} prompt={finalPrompt.Substring(0, Math.Min(50, finalPrompt.Length))} targets={crossSessionTargets.Count}");
+        Console.WriteLine($"[CROSS-SESSION] source={sessionName} targets={crossSessionTargets.Count}");
         if (crossSessionTargets.Count > 0)
         {
+            // Clear pending images — they cannot be forwarded cross-session.
+            if (hasImages) pendingImagesBySession.Remove(sessionName);
+
             // Add the user message to the current session's history
             var sourceSession = sessions.FirstOrDefault(s => s.Name == sessionName);
             sourceSession?.History.Add(ChatMessage.UserMessage(finalPrompt));
@@ -3402,8 +3406,9 @@
     private IReadOnlyList<string> availableModels =>
         CopilotService.AvailableModels.Count > 0 ? CopilotService.AvailableModels : ModelHelper.FallbackModels;
 
+    private IReadOnlyList<string>? _cachedAllSessionNames;
     private IReadOnlyList<string> allSessionNames =>
-        CopilotService.GetAllSessionNames().ToList();
+        _cachedAllSessionNames ??= CopilotService.GetAllSessionNames().ToList();
 
     /// <summary>
     /// Parses @Mention tokens from the prompt and matches them against active session names.
@@ -3424,12 +3429,13 @@
             .GroupBy(NormalizeToken, StringComparer.OrdinalIgnoreCase)
             .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
 
-        Console.WriteLine($"[CROSS-SESSION] sessionLookup has {sessionLookup.Count} entries, looking for @mention in: {prompt.Substring(0, Math.Min(60, prompt.Length))}");
+        Console.WriteLine($"[CROSS-SESSION] sessionLookup has {sessionLookup.Count} entries");
         if (sessionLookup.Count == 0) return result;
 
         // Scan the entire message for @SessionName mentions (not just at start).
-        // Matches: @word where word is alphanumeric, dot, underscore, or hyphen.
-        var atMentionRegex = new System.Text.RegularExpressions.Regex(@"@([\w.\-]+)");
+        // Requires @ to be at start-of-string or preceded by whitespace to avoid
+        // matching email addresses (user@host), code annotations (@override), etc.
+        var atMentionRegex = new System.Text.RegularExpressions.Regex(@"(?<!\S)@([\w.\-]+)");
         var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (System.Text.RegularExpressions.Match m in atMentionRegex.Matches(prompt))

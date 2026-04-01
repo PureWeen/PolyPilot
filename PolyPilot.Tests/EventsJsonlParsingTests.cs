@@ -106,10 +106,10 @@ public class EventsJsonlParsingTests
             Assert.DoesNotContain(eventType, terminalEvents);
         }
 
-        // These SHOULD indicate processing is complete (terminal)
+        // These SHOULD indicate processing is complete (terminal) — must not appear in activeEvents
         foreach (var eventType in terminalEvents)
         {
-            Assert.Contains(eventType, terminalEvents);
+            Assert.DoesNotContain(eventType, activeEvents);
         }
     }
 

@@ -134,7 +134,8 @@ public partial class CopilotService
 
             using var doc = JsonDocument.Parse(lastLine);
             var type = doc.RootElement.GetProperty("type").GetString();
-            
+            if (type == null) return false; // Corrupt/partial event — treat as terminal
+
             // Use a blacklist of terminal events rather than a whitelist of active ones.
             // Any event that is NOT terminal means the session is still processing.
             // The old whitelist missed intermediate states like assistant.turn_end (between

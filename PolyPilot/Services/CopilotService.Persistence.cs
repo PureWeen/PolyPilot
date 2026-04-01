@@ -658,20 +658,20 @@ public partial class CopilotService
                                 // eventually times out, and multi-agent orchestrator TCSs are never
                                 // completed. PR #452 removed RESUME-ABORT so ResumeSessionAsync no
                                 // longer disrupts in-flight tool execution.
-                                var hasInterruptedTools = HasInterruptedToolExecution(entry.SessionId);
-                                Debug($"Queuing eager resume for actively-processing session: {entry.DisplayName} (interruptedTools={hasInterruptedTools})");
+                                Debug($"Queuing eager resume for actively-processing session: {entry.DisplayName}");
                                 var capturedState = lazyState;
                                 var capturedName = entry.DisplayName;
-                                var capturedHasTools = hasInterruptedTools;
+                                var capturedGen = Interlocked.Read(ref capturedState.ProcessingGeneration);
                                 InvokeOnUI(() =>
                                 {
+                                    if (Interlocked.Read(ref capturedState.ProcessingGeneration) != capturedGen) return;
                                     capturedState.Info.IsProcessing = true;
                                     capturedState.Info.IsResumed = true;
-                                    // Only set HasUsedToolsThisTurn if there are actually interrupted
-                                    // tool calls (unmatched starts). This controls the watchdog timeout:
-                                    // - true → 600s (tools actively running, wait for them)
-                                    // - false → 30s quiescence (session likely finished, fast cleanup)
-                                    capturedState.HasUsedToolsThisTurn = capturedHasTools;
+                                    // Always use 600s tool timeout — even sessions without interrupted
+                                    // tools may still be actively generating (long text, no tool events).
+                                    // The 120s inactivity timeout is too aggressive and kills active
+                                    // sessions between tool rounds or during long generations.
+                                    capturedState.HasUsedToolsThisTurn = true;
                                     capturedState.Info.ProcessingPhase = 3; // Working
                                     capturedState.Info.ProcessingStartedAt = DateTime.UtcNow;
                                     StartProcessingWatchdog(capturedState, capturedName);
