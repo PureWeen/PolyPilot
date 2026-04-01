@@ -865,11 +865,6 @@ public partial class CopilotService
             if (status.IsAuthenticated)
             {
                 StopAuthPolling();
-                // Mark that the server can self-authenticate — no Keychain read needed.
-                // Without this, _resolvedGitHubToken stays null after startup (no env var),
-                // and any later transient auth failure triggers the lazy Keychain path
-                // (3 service names × 3s timeout each = 3 macOS password dialogs).
-                _resolvedGitHubToken ??= string.Empty;
                 InvokeOnUI(() =>
                 {
                     AuthNotice = null;
@@ -882,60 +877,9 @@ public partial class CopilotService
             {
                 Debug($"[AUTH] Not authenticated: {status.StatusMessage}");
 
-                // Lazy token resolution: if we haven't tried the full chain yet (Keychain + gh),
-                // do it now and auto-restart the server. This handles the case where the headless
-                // server can't access the Keychain on its own (macOS ACL restriction).
-                // SemaphoreSlim(1,1) prevents concurrent callers from both triggering Keychain
-                // dialogs. Loser falls through to StartAuthPolling (correct — next poll retries).
-                // See .claude/skills/auth-token-safety/SKILL.md (INV-A2).
-                if (_resolvedGitHubToken == null && await _tokenResolutionLock.WaitAsync(0))
-                {
-                    try
-                    {
-                        // Double-check after acquiring lock — winner may have set it
-                        if (_resolvedGitHubToken == null)
-                        {
-                            var fullToken = await Task.Run(() => ResolveGitHubTokenForServer());
-                            if (fullToken != null)
-                            {
-                                Debug("[AUTH] Lazy token resolution found a token — restarting server with it");
-                                _resolvedGitHubToken = fullToken;
-                                var recovered = await TryRecoverPersistentServerAsync();
-                                if (recovered)
-                                {
-                                    // Re-check auth after restart
-                                    try
-                                    {
-                                        var recheck = await _client!.GetAuthStatusAsync();
-                                        if (recheck.IsAuthenticated)
-                                        {
-                                            InvokeOnUI(() =>
-                                            {
-                                                AuthNotice = null;
-                                                OnStateChanged?.Invoke();
-                                            });
-                                            Debug($"[AUTH] Authenticated after lazy restart as {recheck.Login}");
-                                            _ = FetchGitHubUserInfoAsync();
-                                            return true;
-                                        }
-                                    }
-                                    catch (Exception recheckEx)
-                                    {
-                                        Debug($"[AUTH] Re-check after lazy restart failed: {recheckEx.Message}");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        _tokenResolutionLock.Release();
-                    }
-                }
-
                 InvokeOnUI(() =>
                 {
-                    AuthNotice = "Not authenticated — run the login command below, then click Re-authenticate.";
+                    AuthNotice = "Not authenticated — run `copilot login` in a terminal, then click Re-authenticate.";
                     OnStateChanged?.Invoke();
                 });
                 StartAuthPolling();
@@ -1044,110 +988,5 @@ public partial class CopilotService
             }
         }
         return null;
-    }
-
-    /// <summary>
-    /// Full token resolution chain including macOS Keychain and gh CLI.
-    /// ⚠️ DANGEROUS: Keychain read triggers a macOS password dialog. Only call on
-    /// explicit user action (ReauthenticateAsync) or after confirmed auth failure.
-    /// Never call preemptively at startup or in automatic polling loops.
-    /// See .claude/skills/auth-token-safety/SKILL.md (INV-A1, INV-A2).
-    ///
-    /// Resolution order:
-    ///   1. COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN env vars (no prompt)
-    ///   2. macOS Keychain entry written by `copilot login` (⚠️ may prompt)
-    ///   3. `gh auth token` if the gh CLI is installed (no prompt)
-    /// </summary>
-    internal static string? ResolveGitHubTokenForServer()
-    {
-        // 1. Environment variables (same precedence as copilot CLI) — no prompt
-        var envToken = ResolveGitHubTokenFromEnv();
-        if (envToken != null) return envToken;
-
-        // 2. macOS Keychain — `copilot login` stores the OAuth token here via keytar.node.
-        //    The headless server process may not inherit the ACL for this entry, so we read
-        //    it from the UI process (which has full login-keychain access) and forward it.
-        //    ⚠️ This triggers a macOS password dialog if PolyPilot isn't in the ACL.
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
-        {
-            var keychainToken = TryReadCopilotKeychainToken();
-            if (keychainToken != null)
-            {
-                Console.WriteLine("[AUTH] Resolved token from macOS Keychain (copilot login)");
-                return keychainToken;
-            }
-        }
-
-        // 3. gh CLI fallback — works when the user authenticated via `gh auth login`
-        var ghToken = RunProcessWithTimeout("gh", new[] { "auth", "token" }, 5000);
-        if (ghToken != null)
-        {
-            Console.WriteLine("[AUTH] Resolved token from `gh auth token`");
-            return ghToken;
-        }
-
-        Console.WriteLine("[AUTH] No GitHub token could be resolved for server forwarding");
-        return null;
-    }
-
-    /// <summary>
-    /// Reads the GitHub OAuth token stored by <c>copilot login</c> from the macOS login Keychain.
-    /// Uses the <c>security</c> CLI (built into macOS) so no extra entitlements are needed.
-    /// Returns null silently on any failure (missing entry, no access, etc.).
-    /// </summary>
-    internal static string? TryReadCopilotKeychainToken()
-    {
-        // `copilot login` stores the token via keytar.node under a service name that
-        // has changed across CLI versions. We try all known names (most common first).
-        foreach (var serviceName in new[] { "copilot-cli", "github-copilot", "GitHub Copilot" })
-        {
-            var token = RunProcessWithTimeout("security",
-                new[] { "find-generic-password", "-s", serviceName, "-w" }, 3000);
-            if (token != null)
-                return token;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Runs a process with a timeout, returning trimmed stdout on success or null on failure/timeout.
-    /// Kills the process if it exceeds the timeout to prevent zombies.
-    /// </summary>
-    internal static string? RunProcessWithTimeout(string fileName, string[] args, int timeoutMs)
-    {
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = fileName,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = false, // Don't redirect — unused output fills pipe buffer and blocks
-                CreateNoWindow = true
-            };
-            foreach (var arg in args)
-                psi.ArgumentList.Add(arg);
-
-            using var proc = System.Diagnostics.Process.Start(psi);
-            if (proc == null) return null;
-
-            // Read output asynchronously with timeout to prevent blocking on
-            // ACL dialogs (security) or network hangs (gh)
-            var readTask = proc.StandardOutput.ReadToEndAsync();
-            if (!proc.WaitForExit(timeoutMs))
-            {
-                try { proc.Kill(); } catch { }
-                // Drain the abandoned read task to avoid unobserved ObjectDisposedException
-                try { readTask.GetAwaiter().GetResult(); } catch { }
-                return null;
-            }
-            // Process exited within timeout — ReadToEndAsync should complete quickly
-            var output = readTask.GetAwaiter().GetResult().Trim();
-            return proc.ExitCode == 0 && !string.IsNullOrEmpty(output) ? output : null;
-        }
-        catch
-        {
-            return null;
-        }
     }
 }

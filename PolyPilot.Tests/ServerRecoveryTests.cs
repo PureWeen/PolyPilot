@@ -148,18 +148,7 @@ public class ServerRecoveryTests
         Assert.Contains("restart failed", svc.AuthNotice!, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ===== ResolveGitHubTokenForServer =====
-
-    [Fact]
-    public void ResolveGitHubTokenForServer_ReturnsNull_WhenNoTokenAvailable()
-    {
-        // In test environment, no env vars should be set and gh CLI may not be available.
-        // The method should return null gracefully without throwing.
-        var token = CopilotService.ResolveGitHubTokenForServer();
-        // We can't assert null because the test runner might have GH_TOKEN set.
-        // Just verify it doesn't throw and returns a string or null.
-        Assert.True(token == null || token.Length > 0);
-    }
+    // ===== ResolveGitHubTokenFromEnv =====
 
     private static readonly string[] TokenEnvVars = { "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN" };
 
@@ -216,31 +205,6 @@ public class ServerRecoveryTests
         }
     }
 
-    // ===== TryReadCopilotKeychainToken =====
-
-    [Fact]
-    public void TryReadCopilotKeychainToken_DoesNotThrow()
-    {
-        // Should silently return null (or a token) — never throw — even if the entry
-        // is absent, the `security` binary is missing, or it times out.
-        var result = CopilotService.TryReadCopilotKeychainToken();
-        Assert.True(result == null || result.Length > 0);
-    }
-
-    [Fact]
-    public void TryReadCopilotKeychainToken_ReturnsNonEmptyToken_WhenCopilotLoginDone()
-    {
-        // Only meaningful on macOS where `copilot login` writes to the login Keychain.
-        // On non-macOS the method always returns null — that's fine, verified by the
-        // DoesNotThrow test above.
-        if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsMacCatalyst())
-            return;
-
-        var result = CopilotService.TryReadCopilotKeychainToken();
-        // May be null if the user hasn't run `copilot login`, but must never be empty string.
-        Assert.True(result == null || result.Length > 0);
-    }
-
     [Fact]
     public void ServerManager_AcceptsGitHubToken_InStartServerAsync()
     {
@@ -258,40 +222,6 @@ public class ServerRecoveryTests
         mgr.StartServerResult = true;
         mgr.StartServerAsync(4321).GetAwaiter().GetResult();
         Assert.Null(mgr.LastGitHubToken);
-    }
-
-    // ===== RunProcessWithTimeout =====
-
-    [Fact]
-    public void RunProcessWithTimeout_ReturnsOutput_OnSuccess()
-    {
-        // `echo` is universally available — should return the text
-        var result = CopilotService.RunProcessWithTimeout("echo", new[] { "hello" }, 3000);
-        Assert.Equal("hello", result);
-    }
-
-    [Fact]
-    public void RunProcessWithTimeout_ReturnsNull_OnNonZeroExit()
-    {
-        // `false` exits with code 1
-        var result = CopilotService.RunProcessWithTimeout("false", Array.Empty<string>(), 3000);
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void RunProcessWithTimeout_ReturnsNull_OnMissingBinary()
-    {
-        var result = CopilotService.RunProcessWithTimeout("nonexistent-binary-12345",
-            Array.Empty<string>(), 3000);
-        Assert.Null(result);
-    }
-
-    [Fact]
-    public void RunProcessWithTimeout_ReturnsNull_WhenTimeoutExceeded()
-    {
-        // `sleep 30` with a 100ms timeout should be killed
-        var result = CopilotService.RunProcessWithTimeout("sleep", new[] { "30" }, 100);
-        Assert.Null(result);
     }
 
     // ===== IsConnectionError now catches auth errors =====

@@ -82,7 +82,6 @@ public partial class CopilotService : IAsyncDisposable
     private CancellationTokenSource? _codespaceHealthCts;
     private CancellationTokenSource? _authPollCts;
     private readonly object _authPollLock = new();
-    private readonly SemaphoreSlim _tokenResolutionLock = new(1, 1);
     private string? _resolvedGitHubToken;
     private Task? _codespaceHealthTask;
     // Cached dotfiles status — checked once when first SetupRequired state is encountered
@@ -322,14 +321,13 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Force-restarts the headless server to pick up fresh credentials, then re-checks auth.
     /// Called from the Dashboard "Re-authenticate" button after the user runs `copilot login`.
+    /// The server re-authenticates on its own at startup via its native credential store —
+    /// PolyPilot does NOT read the macOS Keychain (see PR #465 for why).
     /// </summary>
     public async Task ReauthenticateAsync()
     {
         StopAuthPolling();
         Debug("[AUTH] Re-authenticate requested — forcing server restart to pick up new credentials");
-        // Re-resolve the token off the UI thread — spawns up to 4 child processes
-        // (3× security + 1× gh) which can block for their timeout durations.
-        _resolvedGitHubToken = await Task.Run(() => ResolveGitHubTokenForServer());
         var recovered = await TryRecoverPersistentServerAsync();
         if (recovered)
         {
@@ -943,11 +941,9 @@ public partial class CopilotService : IAsyncDisposable
         // In Persistent mode, auto-start the server if not already running
         if (settings.Mode == ConnectionMode.Persistent)
         {
-            // Only forward tokens from env vars at startup — no Keychain read (would
-            // trigger a macOS password dialog for every user). If the server can't
-            // self-authenticate, CheckAuthStatusAsync below will detect it and lazily
-            // resolve the full token chain (including Keychain) on first auth failure.
-            // See .claude/skills/auth-token-safety/SKILL.md (INV-A1).
+            // Forward tokens from env vars only — the server authenticates on its own
+            // at startup via its native credential store. PolyPilot does NOT read the
+            // macOS Keychain (triggers password dialogs and corrupts ACLs — see PR #465).
             _resolvedGitHubToken ??= ResolveGitHubTokenFromEnv();
 
             if (!_serverManager.CheckServerRunning("127.0.0.1", settings.Port))
@@ -1331,17 +1327,10 @@ public partial class CopilotService : IAsyncDisposable
                 await Task.Delay(250);
             }
 
-            // Forward whatever token was resolved (may be null for watchdog callers, or a
-            // freshly-resolved token from ReauthenticateAsync/CheckAuthStatusAsync).
-            // Do NOT clear _resolvedGitHubToken — re-reading Keychain produces the same
-            // (possibly expired) token, so clearing the cache only triggers redundant macOS
-            // password prompts on the next CheckAuthStatusAsync lazy-resolution cycle.
-            // Only ReauthenticateAsync (explicit user action) and ReconnectAsync (settings
-            // change) should clear the cache. See .claude/skills/auth-token-safety/SKILL.md.
+            // Forward env-var token if available; otherwise null lets the server
+            // authenticate on its own via its native credential store.
             var tokenToForward = _resolvedGitHubToken;
 
-            // Start a fresh server — forwards the cached token (if any) or null to let
-            // the server try native Keychain auth.
             var started = await _serverManager.StartServerAsync(settings.Port, tokenToForward);
             if (!started)
             {
@@ -4826,7 +4815,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             try { await _client.DisposeAsync(); } catch { }
         }
         _recoveryLock.Dispose();
-        _tokenResolutionLock.Dispose();
     }
 
     private void StartExternalSessionScannerIfNeeded()
