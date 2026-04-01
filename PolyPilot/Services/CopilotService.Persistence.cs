@@ -671,6 +671,11 @@ public partial class CopilotService
                                     capturedState.IsMultiAgentSession = IsSessionInMultiAgentGroup(capturedName);
                                     capturedState.Info.ProcessingPhase = 3; // Working
                                     capturedState.Info.ProcessingStartedAt = DateTime.UtcNow;
+                                    // Reset LastUpdatedAt so the UI doesn't show stale "Xm ago" from
+                                    // a previous app instance. Without this, sessions show "494m ago"
+                                    // because LastUpdatedAt is only updated by SDK events (which don't
+                                    // arrive during the poll-then-resume window).
+                                    capturedState.Info.LastUpdatedAt = DateTime.Now;
                                     StartProcessingWatchdog(capturedState, capturedName);
                                     NotifyStateChanged();
                                 });
