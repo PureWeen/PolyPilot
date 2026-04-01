@@ -925,6 +925,108 @@
                                 window.__dashRef.invokeMethodAsync('JsSelectSession', card.dataset.session);
                             }
                         }
+                        // Emacs-style Ctrl keybindings for text navigation (macOS)
+                        if (isInput && e.ctrlKey && !e.metaKey && !e.altKey && /^Mac/.test(navigator.platform)) {
+                            var ta = e.target;
+                            var text = ta.value;
+                            var pos = ta.selectionStart;
+                            // Ctrl-A / Ctrl-Shift-A: beginning of line (+ select)
+                            if (e.key === 'a' || e.key === 'A') {
+                                e.preventDefault();
+                                var lineStart = text.lastIndexOf('\n', pos - 1) + 1;
+                                ta.setSelectionRange(lineStart, e.shiftKey ? ta.selectionEnd : lineStart);
+                                return;
+                            }
+                            // Ctrl-E / Ctrl-Shift-E: end of line (+ select)
+                            if (e.key === 'e' || e.key === 'E') {
+                                e.preventDefault();
+                                var lineEnd = text.indexOf('\n', pos);
+                                if (lineEnd === -1) lineEnd = text.length;
+                                ta.setSelectionRange(e.shiftKey ? ta.selectionStart : lineEnd, lineEnd);
+                                return;
+                            }
+                            // Ctrl-F / Ctrl-Shift-F: forward one character (+ select)
+                            if (e.key === 'f' || e.key === 'F') {
+                                e.preventDefault();
+                                var np = Math.min(pos + 1, text.length);
+                                ta.setSelectionRange(e.shiftKey ? ta.selectionStart : np, np);
+                                return;
+                            }
+                            // Ctrl-B / Ctrl-Shift-B: backward one character (+ select)
+                            if (e.key === 'b' || e.key === 'B') {
+                                e.preventDefault();
+                                var np = Math.max(pos - 1, 0);
+                                ta.setSelectionRange(np, e.shiftKey ? ta.selectionEnd : np);
+                                return;
+                            }
+                            // Ctrl-D: delete forward
+                            if (e.key === 'd' && !e.shiftKey) {
+                                e.preventDefault();
+                                if (pos < text.length) {
+                                    ta.value = text.slice(0, pos) + text.slice(pos + 1);
+                                    ta.setSelectionRange(pos, pos);
+                                    ta.dispatchEvent(new Event('input', {bubbles: true}));
+                                }
+                                return;
+                            }
+                            // Ctrl-H: delete backward
+                            if (e.key === 'h' && !e.shiftKey) {
+                                e.preventDefault();
+                                if (pos > 0) {
+                                    ta.value = text.slice(0, pos - 1) + text.slice(pos);
+                                    ta.setSelectionRange(pos - 1, pos - 1);
+                                    ta.dispatchEvent(new Event('input', {bubbles: true}));
+                                }
+                                return;
+                            }
+                            // Ctrl-K: kill to end of line
+                            if (e.key === 'k' && !e.shiftKey) {
+                                e.preventDefault();
+                                var lineEnd = text.indexOf('\n', pos);
+                                if (lineEnd === -1) lineEnd = text.length;
+                                if (lineEnd === pos && pos < text.length) lineEnd = pos + 1;
+                                ta.value = text.slice(0, pos) + text.slice(lineEnd);
+                                ta.setSelectionRange(pos, pos);
+                                ta.dispatchEvent(new Event('input', {bubbles: true}));
+                                return;
+                            }
+                            // Ctrl-N: next line
+                            if (e.key === 'n' && !e.shiftKey) {
+                                e.preventDefault();
+                                var lineEnd = text.indexOf('\n', pos);
+                                if (lineEnd !== -1) {
+                                    var colStart = text.lastIndexOf('\n', pos - 1) + 1;
+                                    var col = pos - colStart;
+                                    var nextLineStart = lineEnd + 1;
+                                    var nextLineEnd = text.indexOf('\n', nextLineStart);
+                                    if (nextLineEnd === -1) nextLineEnd = text.length;
+                                    ta.setSelectionRange(Math.min(nextLineStart + col, nextLineEnd), Math.min(nextLineStart + col, nextLineEnd));
+                                }
+                                return;
+                            }
+                            // Ctrl-P: previous line
+                            if (e.key === 'p' && !e.shiftKey) {
+                                e.preventDefault();
+                                var colStart = text.lastIndexOf('\n', pos - 1) + 1;
+                                if (colStart > 0) {
+                                    var col = pos - colStart;
+                                    var prevLineEnd = colStart - 1;
+                                    var prevLineStart = text.lastIndexOf('\n', prevLineEnd - 1) + 1;
+                                    ta.setSelectionRange(Math.min(prevLineStart + col, prevLineEnd), Math.min(prevLineStart + col, prevLineEnd));
+                                }
+                                return;
+                            }
+                            // Ctrl-T: transpose characters
+                            if (e.key === 't' && !e.shiftKey) {
+                                e.preventDefault();
+                                if (pos > 0 && pos < text.length) {
+                                    ta.value = text.slice(0, pos - 1) + text[pos] + text[pos - 1] + text.slice(pos + 1);
+                                    ta.setSelectionRange(pos + 1, pos + 1);
+                                    ta.dispatchEvent(new Event('input', {bubbles: true}));
+                                }
+                                return;
+                            }
+                        }
                         if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
                             e.preventDefault();
                             var collapseBtn = document.querySelector('.collapse-card-btn');
