@@ -3412,8 +3412,11 @@
 
     /// <summary>
     /// Parses @Mention tokens from the prompt and matches them against active session names.
-    /// Returns a list of (targetSessionName, strippedMessage) for each matched session.
-    /// The strippedMessage has the leading @Token removed so the target session receives clean text.
+    /// Returns a list of (targetSessionName, forwardedMessage) for each matched session.
+    /// The forwardedMessage has routing-instruction wrappers removed so the target session
+    /// receives clean, natural content (e.g. "please tell @Bob that X" → forwards "X" to Bob).
+    /// Falls back to the full original prompt (minus @tokens) when no explicit content is found,
+    /// so the target always gets something useful.
     /// </summary>
     private List<(string TargetName, string StrippedMessage)> RouteToMentionedSessions(string sourceSessionName, string prompt)
     {
@@ -3447,19 +3450,36 @@
 
         if (matched.Count == 0) return result;
 
-        // Strip all matched @SessionName tokens from the forwarded message and collapse whitespace.
+        // Strip all matched @SessionName tokens from the message and collapse whitespace.
         var strippedMessage = atMentionRegex.Replace(prompt, m =>
             sessionLookup.ContainsKey(m.Groups[1].Value) ? "" : m.Value);
         strippedMessage = System.Text.RegularExpressions.Regex.Replace(strippedMessage, @"[ \t]{2,}", " ").Trim();
 
-        if (string.IsNullOrWhiteSpace(strippedMessage)) return result;
+        // Extract the actual content from natural-language routing instructions.
+        // e.g. "please tell @Bob that X" → "X"
+        //      "can you forward to @Bob: X" → "X"
+        //      "hey @Bob please do X" → "please do X"  (already correct after @-strip)
+        // Falls back to the full stripped message if no routing wrapper is found,
+        // and to the original prompt (without @tokens) if the message becomes empty.
+        var forwardedContent = RoutingHelper.ExtractForwardedContent(strippedMessage, prompt);
 
         foreach (var target in matched)
-            result.Add((target, strippedMessage));
+            result.Add((target, forwardedContent));
 
         return result;
     }
 
+    /// <summary>
+    /// Cleans routing-instruction wrappers from a message that has already had @mention tokens
+    /// stripped, extracting the actual content the user wants forwarded.
+    ///
+    /// Handles patterns like:
+    ///   "please tell that X"        → "X"
+    ///   "can you send this to: X"   → "X"
+    ///   "please pass this info to"  → (fallback to rawPromptNoMentions)
+    ///   "forward the following to"  → (fallback to rawPromptNoMentions)
+    ///   "X" (no routing wrapper)    → "X"  (unchanged)
+    /// </summary>
     private static string TruncateForDisplay(string text, int maxLength) =>
         text.Length <= maxLength ? text : text[..maxLength] + "…";
 
