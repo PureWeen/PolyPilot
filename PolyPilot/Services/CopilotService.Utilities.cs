@@ -135,13 +135,13 @@ public partial class CopilotService
             using var doc = JsonDocument.Parse(lastLine);
             var type = doc.RootElement.GetProperty("type").GetString();
             
-            var activeEvents = new[] { 
-                "assistant.turn_start", "tool.execution_start", 
-                "tool.execution_progress", "assistant.message_delta",
-                "assistant.reasoning", "assistant.reasoning_delta",
-                "assistant.intent"
-            };
-            return activeEvents.Contains(type);
+            // Use a blacklist of terminal events rather than a whitelist of active ones.
+            // Any event that is NOT terminal means the session is still processing.
+            // The old whitelist missed intermediate states like assistant.turn_end (between
+            // tool rounds), assistant.message, and tool.execution_complete, causing
+            // actively-processing sessions to be incorrectly detected as idle on restore.
+            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown" };
+            return !terminalEvents.Contains(type);
         }
         catch { return false; }
     }

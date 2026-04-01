@@ -651,25 +651,34 @@ public partial class CopilotService
                             if (isStillActive)
                             {
                                 // Session is actively running on the copilot server (tool calls in
-                                // flight). Do NOT eager-resume — calling session.resume on an active
-                                // session disrupts the in-flight work by replacing the event stream.
-                                // Instead, mark as processing locally so the UI shows the right state,
-                                // and let the session remain a lazy placeholder. It will be connected
-                                // lazily when the user interacts with it after it finishes.
-                                Debug($"Skipping eager resume for actively-processing session: {entry.DisplayName} (marking as processing locally)");
+                                // flight). Mark as processing locally so the UI shows the right state
+                                // immediately, then queue an eager resume to establish the SDK event
+                                // connection. Without the eager resume, the session stays as a lazy
+                                // placeholder — events from the CLI never reach PolyPilot, the watchdog
+                                // eventually times out, and multi-agent orchestrator TCSs are never
+                                // completed. PR #452 removed RESUME-ABORT so ResumeSessionAsync no
+                                // longer disrupts in-flight tool execution.
+                                var hasInterruptedTools = HasInterruptedToolExecution(entry.SessionId);
+                                Debug($"Queuing eager resume for actively-processing session: {entry.DisplayName} (interruptedTools={hasInterruptedTools})");
                                 var capturedState = lazyState;
                                 var capturedName = entry.DisplayName;
-                                var capturedId = entry.SessionId;
+                                var capturedHasTools = hasInterruptedTools;
                                 InvokeOnUI(() =>
                                 {
                                     capturedState.Info.IsProcessing = true;
                                     capturedState.Info.IsResumed = true;
-                                    capturedState.HasUsedToolsThisTurn = true;
+                                    // Only set HasUsedToolsThisTurn if there are actually interrupted
+                                    // tool calls (unmatched starts). This controls the watchdog timeout:
+                                    // - true → 600s (tools actively running, wait for them)
+                                    // - false → 30s quiescence (session likely finished, fast cleanup)
+                                    capturedState.HasUsedToolsThisTurn = capturedHasTools;
                                     capturedState.Info.ProcessingPhase = 3; // Working
                                     capturedState.Info.ProcessingStartedAt = DateTime.UtcNow;
                                     StartProcessingWatchdog(capturedState, capturedName);
                                     NotifyStateChanged();
                                 });
+                                // Eager-resume to establish SDK connection so events flow.
+                                eagerResumeCandidates.Add((entry.DisplayName, lazyState));
                             }
                             else if (!string.IsNullOrWhiteSpace(entry.LastPrompt))
                             {
