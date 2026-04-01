@@ -882,18 +882,13 @@ public partial class CopilotService
                     // stale poller from corrupting a new turn started by user interaction.
                     var pollerGen = Interlocked.Read(ref state.ProcessingGeneration);
 
-                    // Load the full history from events.jsonl (includes response content)
+                    // Load the full history from events.jsonl (includes response content).
+                    // Merge happens inside InvokeOnUI because History is an ObservableCollection
+                    // and all other mutations run on the UI thread.
+                    List<ChatMessage>? diskHistory = null;
                     try
                     {
-                        var (diskHistory, _) = await LoadBestHistoryAsync(sessionId);
-                        if (diskHistory.Count > state.Info.History.Count)
-                        {
-                            // Merge new messages from disk into the in-memory history
-                            var existingCount = state.Info.History.Count;
-                            foreach (var msg in diskHistory.Skip(existingCount))
-                                state.Info.History.Add(msg);
-                            Debug($"[POLL] '{sessionName}' loaded {diskHistory.Count - existingCount} new messages from disk (total={state.Info.History.Count})");
-                        }
+                        (diskHistory, _) = await LoadBestHistoryAsync(sessionId);
                     }
                     catch (Exception ex)
                     {
@@ -918,6 +913,15 @@ public partial class CopilotService
                         // the poll→resume window, this completion belongs to the old turn.
                         if (Interlocked.Read(ref state.ProcessingGeneration) != pollerGen) return;
                         if (!state.Info.IsProcessing) return; // watchdog already cleared
+
+                        // Merge disk history on UI thread (History is ObservableCollection)
+                        if (diskHistory != null && diskHistory.Count > state.Info.History.Count)
+                        {
+                            var existingCount = state.Info.History.Count;
+                            foreach (var msg in diskHistory.Skip(existingCount))
+                                state.Info.History.Add(msg);
+                            Debug($"[POLL] '{sessionName}' loaded {diskHistory.Count - existingCount} new messages from disk (total={state.Info.History.Count})");
+                        }
                         FlushCurrentResponse(state);
                         CompleteResponse(state, pollerGen);
                         NotifyStateChanged();
