@@ -559,7 +559,7 @@
 
                 var q = context.query.toLowerCase();
                 var filtered = workers.filter(function(w) {
-                    return w.toLowerCase().indexOf(q) === 0;
+                    return w.toLowerCase().indexOf(q) >= 0;
                 }).slice(0, 12);
 
                 if (filtered.length === 0) {

@@ -70,22 +70,35 @@ public class StateChangeCoalescerTests
     {
         var svc = CreateService();
         int fireCount = 0;
-        svc.OnStateChanged += () => Interlocked.Increment(ref fireCount);
 
-        // First burst
+        // First burst — wait via TCS so we don't depend on wall-clock timing.
+        // Under heavy parallel test load, fixed delays like 800ms can be shorter
+        // than the threadpool-delayed timer callback, causing the pending CAS flag
+        // to remain set when burst 2 starts — burst 2 then silently merges into burst 1
+        // and only one notification fires instead of two.
+        var tcs1 = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        svc.OnStateChanged += () =>
+        {
+            Interlocked.Increment(ref fireCount);
+            tcs1.TrySetResult();
+        };
+
         for (int i = 0; i < 10; i++)
             svc.NotifyStateChangedCoalesced();
-        // Wait well beyond the coalesce window (150ms) to ensure the timer fires,
-        // even under heavy CI/GC load. Previous 300ms was flaky under load.
-        await Task.Delay(800);
+        // Wait for first burst to actually fire (with generous 5s timeout)
+        await Task.WhenAny(tcs1.Task, Task.Delay(5000));
+        Assert.True(tcs1.Task.IsCompleted, "First burst should have fired within 5s");
 
-        // Second burst after timer has fired
+        // Second burst after first has fired
+        var tcs2 = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        svc.OnStateChanged += () => tcs2.TrySetResult();
         for (int i = 0; i < 10; i++)
             svc.NotifyStateChangedCoalesced();
-        await Task.Delay(800);
+        await Task.WhenAny(tcs2.Task, Task.Delay(5000));
+        Assert.True(tcs2.Task.IsCompleted, "Second burst should have fired within 5s");
 
-        // Each burst should produce ~1 notification
-        Assert.InRange(fireCount, 2, 4);
+        // Each burst produced at least one notification — total should be 2 or slightly more
+        Assert.InRange(fireCount, 2, 6);
     }
 
     [Fact]

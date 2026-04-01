@@ -194,7 +194,8 @@
                             @foreach (var model in CopilotService.AvailableModels)
                             {
                                 var strengths = ModelCapabilities.GetStrengths(model);
-                                <option value="@model" title="@strengths">@model</option>
+                                var displayName = PolyPilot.Models.ModelHelper.PrettifyModel(model, CopilotService.ModelDisplayNames);
+                                <option value="@model" title="@strengths">@displayName</option>
                             }
                         </select>
                         @{

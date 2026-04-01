@@ -169,6 +169,7 @@
                                      InputMode="@GetInputMode(session.Name)"
                                      CurrentModel="@GetExpandedModel(session)"
                                      AvailableModels="availableModels"
+                                     ModelDisplayNames="CopilotService.ModelDisplayNames"
                                      PendingImages="@(pendingImagesBySession.TryGetValue(session.Name, out var pi2) ? pi2 : null)"
                                      UserAvatarUrl="@CopilotService.GitHubAvatarUrl"
                                      RepoUrl="@CopilotService.GetRepoUrlForSession(session.Name)"
@@ -178,6 +179,7 @@
                                      MessageWindowSize="@(expandedMessageCounts.TryGetValue(session.Name, out var emc) ? emc : 25)"
                                      FiestaActive="@FiestaService.IsFiestaActive(session.Name)"
                                      FiestaWorkers="@GetFiestaWorkersForSession(session.Name)"
+                                     AllSessionNames="@allSessionNames"
                                      OnSend="HandleSend"
                                      OnStop="StopSession"
                                      OnCollapse="CollapseExpanded"
@@ -1246,6 +1248,7 @@
                 return;
 
             sessions = CopilotService.GetAllSessions().ToList();
+            _cachedAllSessionNames = null;
 
             if (!_initialGridSet && sessions.Count > 1)
             {
@@ -1586,6 +1589,54 @@
             await InvokeAsync(SafeRefreshAsync);
             return;
         }
+
+        // Cross-session routing: check for @SessionName mentions matching other PolyPilot sessions.
+        // Build a lookup of normalized-token → session name for all sessions except the current one.
+        var crossSessionTargets = RouteToMentionedSessions(sessionName, finalPrompt);
+        Console.WriteLine($"[CROSS-SESSION] source={sessionName} targets={crossSessionTargets.Count}");
+        if (crossSessionTargets.Count > 0)
+        {
+            // Clear pending images — they cannot be forwarded cross-session.
+            if (hasImages) pendingImagesBySession.Remove(sessionName);
+
+            // Add the user message to the current session's history
+            var sourceSession = sessions.FirstOrDefault(s => s.Name == sessionName);
+            sourceSession?.History.Add(ChatMessage.UserMessage(finalPrompt));
+
+            foreach (var (targetName, strippedMessage) in crossSessionTargets)
+            {
+                // Send to target session
+                _ = CopilotService.SendPromptAsync(targetName, strippedMessage).ContinueWith(t =>
+                {
+                    if (t.IsFaulted)
+                    {
+                        var err = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown error";
+                        InvokeAsync(() =>
+                        {
+                            var src = sessions.FirstOrDefault(s => s.Name == sessionName);
+                            if (src != null)
+                            {
+                                src.History.Add(ChatMessage.ErrorMessage($"Failed to forward to @{targetName}: {err}"));
+                                src.MessageCount = src.History.Count;
+                            }
+                            _ = SafeRefreshAsync();
+                        });
+                    }
+                });
+
+                // Add a system message in the source session indicating the forward
+                sourceSession?.History.Add(ChatMessage.SystemMessage(
+                    $"📨 Forwarded to @{targetName}: \"{TruncateForDisplay(strippedMessage, 80)}\""));
+            }
+
+            if (sourceSession != null)
+                sourceSession.MessageCount = sourceSession.History.Count;
+
+            _needsScrollToBottom = true;
+            await InvokeAsync(SafeRefreshAsync);
+            return;
+        }
+
 
         var session = sessions.FirstOrDefault(s => s.Name == sessionName);
         if (session?.IsCreating == true)
@@ -3355,17 +3406,95 @@
     private IReadOnlyList<string> availableModels =>
         CopilotService.AvailableModels.Count > 0 ? CopilotService.AvailableModels : ModelHelper.FallbackModels;
 
+    private IReadOnlyList<string>? _cachedAllSessionNames;
+    private IReadOnlyList<string> allSessionNames =>
+        _cachedAllSessionNames ??= CopilotService.GetAllSessionNames().ToList();
+
+    /// <summary>
+    /// Parses @Mention tokens from the prompt and matches them against active session names.
+    /// Returns a list of (targetSessionName, forwardedMessage) for each matched session.
+    /// The forwardedMessage has routing-instruction wrappers removed so the target session
+    /// receives clean, natural content (e.g. "please tell @Bob that X" → forwards "X" to Bob).
+    /// Falls back to the full original prompt (minus @tokens) when no explicit content is found,
+    /// so the target always gets something useful.
+    /// </summary>
+    private List<(string TargetName, string StrippedMessage)> RouteToMentionedSessions(string sourceSessionName, string prompt)
+    {
+        var result = new List<(string, string)>();
+        if (string.IsNullOrWhiteSpace(prompt)) return result;
+
+        // Build normalized-token → real session name lookup (excluding source session)
+        static string NormalizeToken(string s) =>
+            new(s.Trim().Where(ch => char.IsLetterOrDigit(ch) || ch == '.' || ch == '_' || ch == '-').ToArray());
+
+        var sessionLookup = CopilotService.GetAllSessionNames()
+            .Where(n => !string.Equals(n, sourceSessionName, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(NormalizeToken, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+
+        Console.WriteLine($"[CROSS-SESSION] sessionLookup has {sessionLookup.Count} entries");
+        if (sessionLookup.Count == 0) return result;
+
+        // Scan the entire message for @SessionName mentions (not just at start).
+        // Requires @ to be at start-of-string or preceded by whitespace to avoid
+        // matching email addresses (user@host), code annotations (@override), etc.
+        var atMentionRegex = new System.Text.RegularExpressions.Regex(@"(?<!\S)@([\w.\-]+)");
+        var matched = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (System.Text.RegularExpressions.Match m in atMentionRegex.Matches(prompt))
+        {
+            var token = m.Groups[1].Value;
+            if (sessionLookup.TryGetValue(token, out var targetSession))
+                matched.Add(targetSession);
+        }
+
+        if (matched.Count == 0) return result;
+
+        // Strip all matched @SessionName tokens from the message and collapse whitespace.
+        var strippedMessage = atMentionRegex.Replace(prompt, m =>
+            sessionLookup.ContainsKey(m.Groups[1].Value) ? "" : m.Value);
+        strippedMessage = System.Text.RegularExpressions.Regex.Replace(strippedMessage, @"[ \t]{2,}", " ").Trim();
+
+        // Extract the actual content from natural-language routing instructions.
+        // e.g. "please tell @Bob that X" → "X"
+        //      "can you forward to @Bob: X" → "X"
+        //      "hey @Bob please do X" → "please do X"  (already correct after @-strip)
+        // Falls back to the full stripped message if no routing wrapper is found,
+        // and to the original prompt (without @tokens) if the message becomes empty.
+        var forwardedContent = RoutingHelper.ExtractForwardedContent(strippedMessage, prompt);
+
+        foreach (var target in matched)
+            result.Add((target, forwardedContent));
+
+        return result;
+    }
+
+    /// <summary>
+    /// Cleans routing-instruction wrappers from a message that has already had @mention tokens
+    /// stripped, extracting the actual content the user wants forwarded.
+    ///
+    /// Handles patterns like:
+    ///   "please tell that X"        → "X"
+    ///   "can you send this to: X"   → "X"
+    ///   "please pass this info to"  → (fallback to rawPromptNoMentions)
+    ///   "forward the following to"  → (fallback to rawPromptNoMentions)
+    ///   "X" (no routing wrapper)    → "X"  (unchanged)
+    /// </summary>
+    private static string TruncateForDisplay(string text, int maxLength) =>
+        text.Length <= maxLength ? text : text[..maxLength] + "…";
+
     private string GetSessionModel(AgentSessionInfo session)
     {
-        // Priority: 1) Usage info (TRUTH) - what the backend is actually using
-        if (usageBySession.TryGetValue(session.Name, out var u) && !string.IsNullOrEmpty(u.Model))
-            return u.Model;
-
-        // Priority: 2) Session model property (initial configuration)
+        // Priority: 1) Session model property (user's explicit choice, persisted across restarts)
         if (!string.IsNullOrEmpty(session.Model) && session.Model != "resumed")
             return session.Model;
 
-        return availableModels[0];
+        // Priority: 2) Usage info - what the backend reported
+        if (usageBySession.TryGetValue(session.Name, out var u) && !string.IsNullOrEmpty(u.Model))
+            return u.Model;
+
+        // Fallback: default model (never alphabetical first which may be haiku)
+        return CopilotService.DefaultModel;
     }
 
     private string GetExpandedModel(AgentSessionInfo session)

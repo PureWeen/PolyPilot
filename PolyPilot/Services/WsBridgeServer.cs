@@ -1193,6 +1193,7 @@ public class WsBridgeServer : IDisposable
             GitHubLogin = _copilot.GitHubLogin,
             ServerMachineName = Environment.MachineName,
             AvailableModels = _copilot.AvailableModels.Count > 0 ? _copilot.AvailableModels : null,
+            ModelDisplayNames = _copilot.ModelDisplayNames.Count > 0 ? _copilot.ModelDisplayNames : null,
         };
     }
 

@@ -428,8 +428,14 @@ public partial class CopilotService
         InvalidateOrganizedSessionsCache();
         // Debounce: restart the timer. The callback marshals to the UI thread for
         // serialization since Organization contains non-thread-safe List<T> collections.
+        // Capture paths at schedule time so stale timer callbacks from old service instances
+        // (created when SetBaseDirForTesting redirects the static) always write to the
+        // directory that was current when SaveOrganization was called, not wherever the
+        // static points at fire time. Fixes cross-test timer contamination in tests.
+        var capturedOrgFile = OrganizationFile;
+        var capturedBaseDir = PolyPilotBaseDir;
         _saveOrgDebounce?.Dispose();
-        _saveOrgDebounce = new Timer(_ => InvokeOnUI(() => SaveOrganizationCore()), null, 2000, Timeout.Infinite);
+        _saveOrgDebounce = new Timer(_ => InvokeOnUI(() => SaveOrganizationCore(capturedOrgFile, capturedBaseDir)), null, 2000, Timeout.Infinite);
     }
 
     internal void FlushSaveOrganization()
@@ -439,7 +445,9 @@ public partial class CopilotService
         SaveOrganizationCore();
     }
 
-    private void SaveOrganizationCore()
+    private void SaveOrganizationCore() => SaveOrganizationCore(OrganizationFile, PolyPilotBaseDir);
+
+    private void SaveOrganizationCore(string orgFile, string baseDir)
     {
         try
         {
@@ -457,7 +465,7 @@ public partial class CopilotService
                 };
             }
             var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
-            WriteOrgFile(json);
+            WriteOrgFile(json, orgFile, baseDir);
         }
         catch (Exception ex)
         {
@@ -467,18 +475,18 @@ public partial class CopilotService
         }
     }
 
-    private void WriteOrgFile(string json)
+    private void WriteOrgFile(string json, string orgFile, string baseDir)
     {
         try
         {
-            Directory.CreateDirectory(PolyPilotBaseDir);
+            Directory.CreateDirectory(baseDir);
             // Atomic write: write to temp file then rename to prevent corruption on crash
-            var tempFile = OrganizationFile + ".tmp";
+            var tempFile = orgFile + ".tmp";
             File.WriteAllText(tempFile, json);
-            File.Move(tempFile, OrganizationFile, overwrite: true);
+            File.Move(tempFile, orgFile, overwrite: true);
 
             // Verify the write actually persisted (guards against silent filesystem failures)
-            var fi = new FileInfo(OrganizationFile);
+            var fi = new FileInfo(orgFile);
             if (!fi.Exists || fi.Length == 0)
             {
                 Debug($"[SAVE-ERROR] organization file verification failed — file missing or empty after write");
