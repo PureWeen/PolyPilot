@@ -1331,16 +1331,17 @@ public partial class CopilotService : IAsyncDisposable
                 await Task.Delay(250);
             }
 
-            // Save whatever token was resolved (may be null for watchdog callers, or a
+            // Forward whatever token was resolved (may be null for watchdog callers, or a
             // freshly-resolved token from ReauthenticateAsync/CheckAuthStatusAsync).
-            // Then clear the field so future auth failures trigger lazy Keychain resolution.
-            // See .claude/skills/auth-token-safety/SKILL.md (INV-A3).
+            // Do NOT clear _resolvedGitHubToken — re-reading Keychain produces the same
+            // (possibly expired) token, so clearing the cache only triggers redundant macOS
+            // password prompts on the next CheckAuthStatusAsync lazy-resolution cycle.
+            // Only ReauthenticateAsync (explicit user action) and ReconnectAsync (settings
+            // change) should clear the cache. See .claude/skills/auth-token-safety/SKILL.md.
             var tokenToForward = _resolvedGitHubToken;
-            _resolvedGitHubToken = null;
 
-            // Start a fresh server — forwards the saved token (if any) or null to let
-            // the server try native Keychain auth. If native auth fails and tokenToForward
-            // was null, CheckAuthStatusAsync will lazily resolve a fresh token.
+            // Start a fresh server — forwards the cached token (if any) or null to let
+            // the server try native Keychain auth.
             var started = await _serverManager.StartServerAsync(settings.Port, tokenToForward);
             if (!started)
             {

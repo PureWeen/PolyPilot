@@ -74,17 +74,21 @@ Do NOT re-read from Keychain on every recovery cycle.
 **Why:** Each Keychain read = another password dialog. The polling loop runs every 10s.
 If it re-reads Keychain, users get prompted every 10 seconds.
 
-### INV-A3: Token expiration causes cascading failures
+### INV-A3: Never clear `_resolvedGitHubToken` on automatic recovery
 
-A static `COPILOT_GITHUB_TOKEN` will expire. When it does:
-1. All sessions fail simultaneously (server-wide auth loss)
-2. Watchdog fires after `WatchdogServerRecoveryThreshold` (2) consecutive timeouts
-3. `TryRecoverPersistentServerAsync` restarts server with same stale token
-4. New server also fails → more timeouts → recovery loop
+`TryRecoverPersistentServerAsync` must NOT clear `_resolvedGitHubToken`. Re-reading the
+Keychain returns the same (possibly expired) token — the Keychain is a static store that
+only changes when `copilot login` is run. Clearing the cache causes the lazy path in
+`CheckAuthStatusAsync` to re-read Keychain, triggering another macOS password dialog.
 
-**The fix:** On recovery, try starting the server WITHOUT a token first (clear
-`_resolvedGitHubToken = null`). Let the server attempt its own Keychain access via
-keytar.node. Only if that also fails, fall back to the cached token or show the banner.
+- ❌ `_resolvedGitHubToken = null` in `TryRecoverPersistentServerAsync`
+- ✅ Preserve the cached token through recovery — forward it to the new server
+- ✅ Only `ReconnectAsync` (settings change) and `ReauthenticateAsync` (user action) clear it
+
+**Token expiration scenario:** When the forwarded token expires, the server reports
+unauthenticated. `CheckAuthStatusAsync` sees `_resolvedGitHubToken != null` → skips
+lazy path → shows the auth banner. User runs `copilot login` + clicks Re-authenticate
+→ `ReauthenticateAsync` does a fresh Keychain read (correct — explicit user action).
 
 ### INV-A4: All AuthNotice writes must be inside InvokeOnUI
 
