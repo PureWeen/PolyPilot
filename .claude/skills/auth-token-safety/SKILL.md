@@ -70,9 +70,14 @@ Do NOT re-read from Keychain on every recovery cycle.
 - ❌ Auth polling loop calling `ResolveGitHubTokenForServer()` on every auth detection
 - ✅ Only `ReauthenticateAsync` (explicit user action) re-reads Keychain
 - ✅ `TryRecoverPersistentServerAsync` and polling use the cached `_resolvedGitHubToken`
+- ✅ `CheckAuthStatusAsync` sets `_resolvedGitHubToken ??= string.Empty` on auth success
+  so later transient failures don't trigger the lazy Keychain path
 
 **Why:** Each Keychain read = another password dialog. The polling loop runs every 10s.
-If it re-reads Keychain, users get prompted every 10 seconds.
+If it re-reads Keychain, users get prompted every 10 seconds. The sentinel (`""`) on
+auth success prevents the lazy path from firing when the server can self-authenticate —
+without it, `_resolvedGitHubToken` stays null after startup (no env var set), and any
+transient auth failure triggers 3 Keychain reads (3 service names × 3s timeout = 3 dialogs).
 
 ### INV-A3: Never clear `_resolvedGitHubToken` on automatic recovery
 

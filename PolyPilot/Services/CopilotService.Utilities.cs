@@ -865,6 +865,11 @@ public partial class CopilotService
             if (status.IsAuthenticated)
             {
                 StopAuthPolling();
+                // Mark that the server can self-authenticate — no Keychain read needed.
+                // Without this, _resolvedGitHubToken stays null after startup (no env var),
+                // and any later transient auth failure triggers the lazy Keychain path
+                // (3 service names × 3s timeout each = 3 macOS password dialogs).
+                _resolvedGitHubToken ??= string.Empty;
                 InvokeOnUI(() =>
                 {
                     AuthNotice = null;
