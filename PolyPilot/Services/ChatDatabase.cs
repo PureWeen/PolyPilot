@@ -125,7 +125,7 @@ public class ChatDatabase : IChatDatabase
         _dbPath = path;
         var old = _db;
         _db = null;
-        ObserveClose(old);
+        CloseSynchronouslyForTesting(old);
     }
 
     /// <summary>
@@ -135,7 +135,7 @@ public class ChatDatabase : IChatDatabase
     {
         var old = _db;
         _db = null;
-        ObserveClose(old);
+        CloseSynchronouslyForTesting(old);
     }
 
     private async Task<SQLiteAsyncConnection> GetConnectionAsync()
@@ -397,5 +397,18 @@ public class ChatDatabase : IChatDatabase
                 TaskContinuationOptions.OnlyOnFaulted);
         }
         catch { /* sync throw from CloseAsync itself */ }
+    }
+
+    private static void CloseSynchronouslyForTesting(SQLiteAsyncConnection? conn)
+    {
+        if (conn == null) return;
+        try
+        {
+            conn.CloseAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[ChatDatabase] Test close failed: {ex.Message}");
+        }
     }
 }

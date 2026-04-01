@@ -196,7 +196,7 @@ public partial class CopilotService : IAsyncDisposable
     private static string OrganizationFile { get { lock (_pathLock) return _organizationFile ??= Path.Combine(PolyPilotBaseDir, "organization.json"); } }
 
     /// <summary>
-    /// Override base directory for tests to prevent writing to real ~/.polypilot/.
+    /// Override base directories for tests to prevent writing to real ~/.polypilot/ or ~/.copilot/.
     /// Clears all derived path caches so they re-resolve from the new base.
     /// </summary>
     internal static void SetBaseDirForTesting(string path)
@@ -204,11 +204,11 @@ public partial class CopilotService : IAsyncDisposable
         lock (_pathLock)
         {
             _polyPilotBaseDir = path;
+            _copilotBaseDir = path;
             _activeSessionsFile = null;
             _sessionAliasesFile = null;
             _uiStateFile = null;
             _organizationFile = null;
-            _copilotBaseDir = null;
             _sessionStatePath = null;
             _pendingOrchestrationFile = null;
             _zeroIdleCaptureDir = null;

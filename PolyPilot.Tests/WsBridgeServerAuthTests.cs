@@ -208,19 +208,13 @@ public class WsBridgeServerAuthTests
             RemoteToken = "jwt-token"
         };
 
-        // Replicate the fixed QR payload construction logic from GenerateQrCode
-        var payload = new Dictionary<string, string> { ["url"] = settings.RemoteUrl! };
-        if (!string.IsNullOrEmpty(settings.RemoteToken))
-            payload["token"] = settings.RemoteToken;
-
-        bool bridgeRunning = true;
-        bool hasLocalIps = true;
-        // The fix: only include lanUrl when ServerPassword is configured
-        if (bridgeRunning && hasLocalIps && !string.IsNullOrEmpty(settings.ServerPassword))
-        {
-            payload["lanUrl"] = "http://192.168.1.5:4322";
-            payload["lanToken"] = settings.ServerPassword;
-        }
+        var payload = ConnectionSettings.BuildTunnelQrPayload(
+            settings.RemoteUrl!,
+            settings.RemoteToken,
+            "192.168.1.5",
+            4322,
+            settings.ServerPassword,
+            allowLan: true);
 
         Assert.False(payload.ContainsKey("lanUrl"), "lanUrl should not be in QR when no ServerPassword");
         Assert.False(payload.ContainsKey("lanToken"), "lanToken should not be in QR when no ServerPassword");
@@ -237,20 +231,33 @@ public class WsBridgeServerAuthTests
             RemoteToken = "jwt-token"
         };
 
-        var payload = new Dictionary<string, string> { ["url"] = settings.RemoteUrl! };
-        if (!string.IsNullOrEmpty(settings.RemoteToken))
-            payload["token"] = settings.RemoteToken;
-
-        bool bridgeRunning = true;
-        bool hasLocalIps = true;
-        if (bridgeRunning && hasLocalIps && !string.IsNullOrEmpty(settings.ServerPassword))
-        {
-            payload["lanUrl"] = "http://192.168.1.5:4322";
-            payload["lanToken"] = settings.ServerPassword;
-        }
+        var payload = ConnectionSettings.BuildTunnelQrPayload(
+            settings.RemoteUrl!,
+            settings.RemoteToken,
+            "192.168.1.5",
+            4322,
+            settings.ServerPassword,
+            allowLan: true);
 
         Assert.True(payload.ContainsKey("lanUrl"));
         Assert.Equal("my-password", payload["lanToken"]);
+    }
+
+    [Fact]
+    public void QrPayload_ExcludesLanUrl_WhenBridgeIsLoopbackOnly()
+    {
+        var payload = ConnectionSettings.BuildTunnelQrPayload(
+            "https://tunnel.devtunnels.ms",
+            "jwt-token",
+            "192.168.1.5",
+            4322,
+            "my-password",
+            allowLan: false);
+
+        Assert.Equal("https://tunnel.devtunnels.ms", payload["url"]);
+        Assert.Equal("jwt-token", payload["token"]);
+        Assert.False(payload.ContainsKey("lanUrl"));
+        Assert.False(payload.ContainsKey("lanToken"));
     }
 
     [Fact]

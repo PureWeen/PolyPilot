@@ -32,6 +32,7 @@ public class WsBridgeServer : IDisposable
 
     public int BridgePort => _bridgePort;
     public bool IsRunning => _listener?.IsListening == true;
+    public bool SupportsRemoteConnections { get; private set; }
 
     /// <summary>
     /// Access token that clients must provide via X-Tunnel-Authorization header or query param.
@@ -54,6 +55,7 @@ public class WsBridgeServer : IDisposable
         if (IsRunning) return;
 
         _bridgePort = bridgePort;
+        SupportsRemoteConnections = false;
         _cts = new CancellationTokenSource();
 
         if (TryBindListener(bridgePort))
@@ -85,7 +87,8 @@ public class WsBridgeServer : IDisposable
                 listener.Prefixes.Add(prefix);
                 listener.Start();
                 _listener = listener;
-                Console.WriteLine($"[WsBridge] Listening on port {port} (state-sync mode)");
+                SupportsRemoteConnections = !prefix.Contains("localhost", StringComparison.OrdinalIgnoreCase);
+                Console.WriteLine($"[WsBridge] Listening on port {port} (state-sync mode, {(SupportsRemoteConnections ? "network" : "localhost-only")})");
                 return true;
             }
             catch (Exception ex)
@@ -204,6 +207,7 @@ public class WsBridgeServer : IDisposable
         _clientSendLocks.Clear();
         try { _listener?.Stop(); } catch { }
         _listener = null;
+        SupportsRemoteConnections = false;
         Console.WriteLine("[WsBridge] Stopped");
         OnStateChanged?.Invoke();
     }
@@ -305,6 +309,7 @@ public class WsBridgeServer : IDisposable
                 Console.WriteLine($"[WsBridge] Listener error ({ex.ErrorCode}): {ex.Message} — will restart");
                 try { _listener?.Stop(); } catch { }
                 _listener = null;
+                SupportsRemoteConnections = false;
             }
             catch (Exception ex)
             {
@@ -322,6 +327,7 @@ public class WsBridgeServer : IDisposable
     {
         try { _listener?.Stop(); } catch { }
         _listener = null;
+        SupportsRemoteConnections = false;
 
         // Wait for the OS to release the port after the old process died.
         // macOS TIME_WAIT can hold the port for several seconds after kill.
@@ -701,46 +707,7 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.ListDirectories:
                     var dirReq = msg.GetPayload<ListDirectoriesPayload>();
-                    var dirPath = dirReq?.Path;
-                    if (string.IsNullOrWhiteSpace(dirPath))
-                        dirPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-
-                    var dirResult = new DirectoriesListPayload { Path = dirPath!, RequestId = dirReq?.RequestId };
-                    try
-                    {
-                        if (!Path.IsPathRooted(dirPath!) || dirPath!.Contains(".."))
-                        {
-                            dirResult.Error = "Invalid path";
-                        }
-                        else if (!Directory.Exists(dirPath))
-                        {
-                            dirResult.Error = "Directory not found";
-                        }
-                        else
-                        {
-                            dirResult.IsGitRepo = Directory.Exists(Path.Combine(dirPath, ".git"));
-                            dirResult.Directories = Directory.GetDirectories(dirPath)
-                                .Select(d => new DirectoryInfo(d))
-                                .Where(d => !d.Name.StartsWith('.'))
-                                .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
-                                .Select(d => new DirectoryEntry
-                                {
-                                    Name = d.Name,
-                                    IsGitRepo = Directory.Exists(Path.Combine(d.FullName, ".git"))
-                                })
-                                .ToList();
-                        }
-                    }
-                    catch (UnauthorizedAccessException)
-                    {
-                        dirResult.Error = "Access denied";
-                    }
-                    catch (Exception ex)
-                    {
-                        dirResult.Error = ex.Message;
-                    }
-                    await SendToClientAsync(clientId, ws,
-                        BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, dirResult), ct);
+                    _ = Task.Run(() => HandleListDirectoriesRequestAsync(clientId, ws, dirReq, ct), CancellationToken.None);
                     break;
 
                 case BridgeMessageTypes.MultiAgentBroadcast:
@@ -1054,6 +1021,57 @@ public class WsBridgeServer : IDisposable
 
     public Task SendBridgeMessageAsync(string clientId, WebSocket ws, BridgeMessage msg, CancellationToken ct) =>
         SendToClientAsync(clientId, ws, msg, ct);
+
+    private async Task HandleListDirectoriesRequestAsync(string clientId, WebSocket ws, ListDirectoriesPayload? dirReq, CancellationToken ct)
+    {
+        var dirPath = dirReq?.Path;
+        if (string.IsNullOrWhiteSpace(dirPath))
+            dirPath = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+        var dirResult = new DirectoriesListPayload { Path = dirPath!, RequestId = dirReq?.RequestId };
+        try
+        {
+            if (!Path.IsPathRooted(dirPath!) || dirPath!.Contains(".."))
+            {
+                dirResult.Error = "Invalid path";
+            }
+            else if (!Directory.Exists(dirPath))
+            {
+                dirResult.Error = "Directory not found";
+            }
+            else
+            {
+                dirResult.IsGitRepo = Directory.Exists(Path.Combine(dirPath, ".git"));
+                dirResult.Directories = Directory.GetDirectories(dirPath)
+                    .Select(d => new DirectoryInfo(d))
+                    .Where(d => !d.Name.StartsWith('.'))
+                    .OrderBy(d => d.Name, StringComparer.OrdinalIgnoreCase)
+                    .Select(d => new DirectoryEntry
+                    {
+                        Name = d.Name,
+                        IsGitRepo = Directory.Exists(Path.Combine(d.FullName, ".git"))
+                    })
+                    .ToList();
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            dirResult.Error = "Access denied";
+        }
+        catch (Exception ex)
+        {
+            dirResult.Error = ex.Message;
+        }
+
+        try
+        {
+            await SendToClientAsync(clientId, ws,
+                BridgeMessage.Create(BridgeMessageTypes.DirectoriesList, dirResult), ct);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+    }
 
     private async Task SendToClientAsync(string clientId, WebSocket ws, BridgeMessage msg, CancellationToken ct)
     {

@@ -453,61 +453,20 @@ public class ExternalSessionScannerTests : IDisposable
     // ── FindActiveLockPid tests ─────────────────────────────────────────────────
 
     [Fact]
-    public void FindActiveLockPid_DetectsCurrentProcess()
+    public void FindActiveLockPid_DetectsQualifyingLiveProcess()
     {
         var sessionId = Guid.NewGuid().ToString();
         var dir = Path.Combine(_sessionStateDir, sessionId);
         Directory.CreateDirectory(dir);
 
-        // Use a command guaranteed to run for much longer than the test:
-        // `dotnet repl` / `dotnet watch` aren't available everywhere, but
-        // reading stdin on a `dotnet` REPL-like loop works cross-platform.
-        // Simplest portable option: run `sleep` on Unix, `timeout` on Windows.
-        System.Diagnostics.Process child;
-        if (OperatingSystem.IsWindows())
-        {
-            child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("cmd", "/c timeout /t 60 /nobreak")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardInput = true,
-                UseShellExecute = false,
-            })!;
-        }
-        else
-        {
-            child = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("sleep", "60")
-            {
-                UseShellExecute = false,
-            })!;
-        }
+        var livePid = FindEligibleLockProcessPid();
+        Assert.NotNull(livePid);
+        File.WriteAllText(Path.Combine(dir, $"inuse.{livePid}.lock"), "");
 
-        Assert.NotNull(child);
+        var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
+        var detectedPid = scanner.FindActiveLockPid(dir);
 
-        try
-        {
-            File.WriteAllText(Path.Combine(dir, $"inuse.{child.Id}.lock"), "");
-
-            // `sleep 60` / `timeout /t 60` will not exit in the test window — no race guard needed.
-            Assert.False(child.HasExited, "Long-running child process should still be alive");
-
-            // FindActiveLockPid requires a dotnet/copilot/node/github process name.
-            // `sleep`/`cmd` won't pass that filter. We need to use the current test process instead.
-            // Verify the behaviour using the test process itself (definitely alive, name = "dotnet").
-            var testSessionId = Guid.NewGuid().ToString();
-            var testDir = Path.Combine(_sessionStateDir, testSessionId);
-            Directory.CreateDirectory(testDir);
-            var myPid = Environment.ProcessId;
-            File.WriteAllText(Path.Combine(testDir, $"inuse.{myPid}.lock"), "");
-
-            var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
-            var detectedPid = scanner.FindActiveLockPid(testDir);
-            Assert.Equal(myPid, detectedPid);
-        }
-        finally
-        {
-            if (!child.HasExited) child.Kill();
-            child.Dispose();
-        }
+        Assert.Equal(livePid, detectedPid);
     }
 
     [Fact]
@@ -524,5 +483,37 @@ public class ExternalSessionScannerTests : IDisposable
         var detectedPid = scanner.FindActiveLockPid(dir);
 
         Assert.Null(detectedPid);
+    }
+
+    private static int? FindEligibleLockProcessPid()
+    {
+        using var current = System.Diagnostics.Process.GetCurrentProcess();
+        if (IsEligibleLockProcess(current))
+            return current.Id;
+
+        foreach (var process in System.Diagnostics.Process.GetProcesses())
+        {
+            try
+            {
+                if (!process.HasExited && IsEligibleLockProcess(process))
+                    return process.Id;
+            }
+            catch
+            {
+                // Ignore processes that exit mid-enumeration or deny inspection.
+            }
+            finally
+            {
+                process.Dispose();
+            }
+        }
+
+        return null;
+    }
+
+    private static bool IsEligibleLockProcess(System.Diagnostics.Process process)
+    {
+        var name = process.ProcessName?.ToLowerInvariant() ?? "";
+        return name.Contains("copilot") || name.Contains("node") || name.Contains("dotnet") || name.Contains("github");
     }
 }

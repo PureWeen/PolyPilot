@@ -139,6 +139,28 @@ public class SmartUrlResolutionTests
         Assert.Equal("jwt", token);
     }
 
+    [Fact]
+    public void Stop_ClearsReconnectTargets()
+    {
+        var client = new WsBridgeClient();
+        SetField(client, "_remoteWsUrl", "wss://tunnel.devtunnels.ms");
+        SetField(client, "_authToken", "jwt");
+        SetField(client, "_tunnelWsUrl", "wss://tunnel.devtunnels.ms");
+        SetField(client, "_tunnelToken", "jwt");
+        SetField(client, "_lanWsUrl", "ws://192.168.1.5:4322");
+        SetField(client, "_lanToken", "pass");
+
+        client.Stop();
+
+        Assert.Null(GetField<string>(client, "_remoteWsUrl"));
+        Assert.Null(GetField<string>(client, "_authToken"));
+        Assert.Null(GetField<string>(client, "_tunnelWsUrl"));
+        Assert.Null(GetField<string>(client, "_tunnelToken"));
+        Assert.Null(GetField<string>(client, "_lanWsUrl"));
+        Assert.Null(GetField<string>(client, "_lanToken"));
+        Assert.Null(client.ActiveUrl);
+    }
+
     // --- ToWebSocketUrl (via CopilotService.Bridge internal static) ---
 
     [Theory]
@@ -283,6 +305,13 @@ public class SmartUrlResolutionTests
         var field = obj.GetType().GetField(name,
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
         field?.SetValue(obj, value);
+    }
+
+    private static T? GetField<T>(object obj, string name)
+    {
+        var field = obj.GetType().GetField(name,
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        return (T?)field?.GetValue(obj);
     }
 }
 

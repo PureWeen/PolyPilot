@@ -706,6 +706,22 @@ public class DevTunnelServiceTests
         Assert.Equal("jwt.token.value", token);
     }
 
+    [Fact]
+    public void ParsesAccessTokenOutput_JsonTokenProperty()
+    {
+        var output = """{"token":"eyJhbGciOiJSUzI1NiJ9.jwt.token.value"}""";
+        var token = ParseTokenFromOutput(output);
+        Assert.Equal("eyJhbGciOiJSUzI1NiJ9.jwt.token.value", token);
+    }
+
+    [Fact]
+    public void ParsesAccessTokenOutput_NestedJsonAccessToken()
+    {
+        var output = """{"result":{"accessToken":"abcdefghijklmnopqrstuvwx123456"}}""";
+        var token = ParseTokenFromOutput(output);
+        Assert.Equal("abcdefghijklmnopqrstuvwx123456", token);
+    }
+
     // ===== IsLoggedInAsync output parsing logic =====
 
     [Theory]
@@ -871,30 +887,10 @@ public class DevTunnelServiceTests
     }
 
     /// <summary>
-    /// Mirrors the token parsing logic from DevTunnelService.IssueAccessTokenAsync
+    /// Uses the production parsing logic from DevTunnelService.ParseAccessTokenOutput.
     /// </summary>
     private static string? ParseTokenFromOutput(string output)
-    {
-        if (string.IsNullOrEmpty(output))
-            return null;
-
-        var token = "";
-        foreach (var line in output.Split('\n'))
-        {
-            if (line.StartsWith("Token:", StringComparison.OrdinalIgnoreCase)
-                && !line.StartsWith("Token ", StringComparison.OrdinalIgnoreCase))
-            {
-                token = line["Token:".Length..].Trim();
-                break;
-            }
-        }
-        if (string.IsNullOrEmpty(token))
-        {
-            var lines = output.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            token = lines.Length > 0 ? lines[^1].Trim() : "";
-        }
-        return string.IsNullOrEmpty(token) ? null : token;
-    }
+        => DevTunnelService.ParseAccessTokenOutput(output);
 
     /// <summary>
     /// Tests ValidateClientToken logic by mirroring its implementation,

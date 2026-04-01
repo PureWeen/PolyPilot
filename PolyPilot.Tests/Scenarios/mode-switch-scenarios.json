@@ -1583,6 +1583,28 @@
           "note": "After recovery, a notice should inform the user the server was restarted"
         }
       ]
+    },
+    {
+      "id": "direct-sharing-localhost-only-warning",
+      "name": "Direct sharing warns instead of advertising dead LAN endpoints when the bridge is localhost-only",
+      "steps": [
+        {
+          "action": "click",
+          "selector": "a[href='/settings']"
+        },
+        {
+          "action": "wait",
+          "ms": 1000
+        },
+        {
+          "action": "note",
+          "text": "On Windows without a URL reservation, enable Direct Sharing and verify Settings shows 'Listening on localhost only' plus the direct-sharing warning instead of LAN URLs, pairing strings, or a direct-share QR code."
+        },
+        {
+          "action": "note",
+          "text": "If Tunnel is also running, its QR should still be present but should not advertise a LAN fallback in this localhost-only state."
+        }
+      ]
     }
   ]
 }

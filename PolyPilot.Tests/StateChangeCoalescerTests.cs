@@ -28,7 +28,7 @@ public class StateChangeCoalescerTests
     [Fact]
     public async Task RapidCalls_CoalesceIntoSingleNotification()
     {
-        var svc = CreateService();
+        await using var svc = CreateService();
         var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         int fireCount = 0;
         svc.OnStateChanged += () =>
@@ -53,14 +53,19 @@ public class StateChangeCoalescerTests
     [Fact]
     public async Task SingleCall_FiresExactlyOnce()
     {
-        var svc = CreateService();
+        await using var svc = CreateService();
         int fireCount = 0;
-        svc.OnStateChanged += () => Interlocked.Increment(ref fireCount);
+        var fired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        svc.OnStateChanged += () =>
+        {
+            Interlocked.Increment(ref fireCount);
+            fired.TrySetResult();
+        };
 
         svc.NotifyStateChangedCoalesced();
-        // Wait well beyond the coalesce window (150ms) to ensure the timer has fired,
-        // even under heavy CI load. Single call can only ever produce exactly 1 fire.
-        await Task.Delay(600);
+        var completedTask = await Task.WhenAny(fired.Task, Task.Delay(5000));
+        Assert.True(completedTask == fired.Task, "Coalesced notification should fire within 5s");
+        await Task.Delay(200);
 
         Assert.Equal(1, fireCount);
     }
@@ -68,21 +73,30 @@ public class StateChangeCoalescerTests
     [Fact]
     public async Task SeparateBursts_FireSeparately()
     {
-        var svc = CreateService();
+        await using var svc = CreateService();
         int fireCount = 0;
-        svc.OnStateChanged += () => Interlocked.Increment(ref fireCount);
+        var firstBurst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondBurst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        svc.OnStateChanged += () =>
+        {
+            var count = Interlocked.Increment(ref fireCount);
+            if (count >= 1) firstBurst.TrySetResult();
+            if (count >= 2) secondBurst.TrySetResult();
+        };
 
         // First burst
         for (int i = 0; i < 10; i++)
             svc.NotifyStateChangedCoalesced();
-        // Wait well beyond the coalesce window (150ms) to ensure the timer fires,
-        // even under heavy CI/GC load. Previous 300ms was flaky under load.
-        await Task.Delay(800);
+        var firstCompleted = await Task.WhenAny(firstBurst.Task, Task.Delay(5000));
+        Assert.True(firstCompleted == firstBurst.Task, "First coalesced burst should fire within 5s");
+        await Task.Delay(200);
 
         // Second burst after timer has fired
         for (int i = 0; i < 10; i++)
             svc.NotifyStateChangedCoalesced();
-        await Task.Delay(800);
+        var secondCompleted = await Task.WhenAny(secondBurst.Task, Task.Delay(5000));
+        Assert.True(secondCompleted == secondBurst.Task, "Second coalesced burst should fire within 5s");
+        await Task.Delay(200);
 
         // Each burst should produce ~1 notification
         Assert.InRange(fireCount, 2, 4);
@@ -92,14 +106,21 @@ public class StateChangeCoalescerTests
     public void ImmediateNotify_StillWorks()
     {
         var svc = CreateService();
-        int fireCount = 0;
-        svc.OnStateChanged += () => Interlocked.Increment(ref fireCount);
+        try
+        {
+            int fireCount = 0;
+            svc.OnStateChanged += () => Interlocked.Increment(ref fireCount);
 
-        // Direct OnStateChanged (not coalesced) should fire immediately
-        svc.NotifyStateChanged();
-        Assert.Equal(1, fireCount);
+            // Direct OnStateChanged (not coalesced) should fire immediately
+            svc.NotifyStateChanged();
+            Assert.Equal(1, fireCount);
 
-        svc.NotifyStateChanged();
-        Assert.Equal(2, fireCount);
+            svc.NotifyStateChanged();
+            Assert.Equal(2, fireCount);
+        }
+        finally
+        {
+            svc.DisposeAsync().AsTask().GetAwaiter().GetResult();
+        }
     }
 }

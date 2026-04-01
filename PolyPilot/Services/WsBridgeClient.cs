@@ -285,6 +285,13 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         _cts = null;
         oldCts?.Cancel();
         try { oldCts?.Dispose(); } catch { }
+        _remoteWsUrl = null;
+        _authToken = null;
+        _tunnelWsUrl = null;
+        _tunnelToken = null;
+        _lanWsUrl = null;
+        _lanToken = null;
+        ActiveUrl = null;
         HasReceivedSessionsList = false;
         ServerMachineName = null;
         if (_ws?.State == WebSocketState.Open)

@@ -730,6 +730,11 @@
             WsBridgeServer.ServerPassword = connSettings.ServerPassword;
             WsBridgeServer.SetCopilotService(CopilotService);
             WsBridgeServer.Start(DevTunnelService.BridgePort, connSettings.Port);
+            if (WsBridgeServer.IsRunning && !WsBridgeServer.SupportsRemoteConnections)
+            {
+                Console.WriteLine("[AutoStart] Direct sharing bound to localhost only; stopping so the app doesn't advertise an unusable LAN endpoint.");
+                WsBridgeServer.Stop();
+            }
         }
     }
 

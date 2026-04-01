@@ -535,6 +535,35 @@ public class ConnectionSettingsTests
     }
 
     [Fact]
+    public void BuildDirectQrPayload_WhenLoopbackOnly_ReturnsNoLanPayload()
+    {
+        var payload = ConnectionSettings.BuildDirectQrPayload(
+            "192.168.1.5",
+            4322,
+            "server-pass",
+            allowLan: false);
+
+        Assert.Empty(payload);
+    }
+
+    [Fact]
+    public void BuildDirectQrPayload_WhenLoopbackOnly_PreservesTunnelFallback()
+    {
+        var payload = ConnectionSettings.BuildDirectQrPayload(
+            "192.168.1.5",
+            4322,
+            "server-pass",
+            allowLan: false,
+            tunnelUrl: "https://tunnel.devtunnels.ms",
+            tunnelToken: "jwt-token");
+
+        Assert.Equal("https://tunnel.devtunnels.ms", payload["url"]);
+        Assert.Equal("jwt-token", payload["token"]);
+        Assert.False(payload.ContainsKey("lanUrl"));
+        Assert.False(payload.ContainsKey("lanToken"));
+    }
+
+    [Fact]
     public void AllSecretFields_PresentInJson_OnDesktop()
     {
         // Ensures RemoteToken, LanToken, and ServerPassword all serialize on desktop.

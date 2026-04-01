@@ -200,7 +200,7 @@ public class TurnEndFallbackTests
         // Simulates: TurnEnd (tools used) + no TurnStart + no SessionIdle -> fallback fires
         var cts = new CancellationTokenSource();
         var token = cts.Token;
-        bool completeResponseFired = false;
+        var completeResponseFired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
 
         _ = Task.Run(async () =>
         {
@@ -210,12 +210,12 @@ public class TurnEndFallbackTests
                 if (token.IsCancellationRequested) return;
                 await Task.Delay(100, token); // accelerated extended delay
                 if (token.IsCancellationRequested) return;
-                completeResponseFired = true;
+                completeResponseFired.TrySetResult();
             }
             catch (OperationCanceledException) { }
         });
 
-        await Task.Delay(800);
-        Assert.True(completeResponseFired, "Fallback must fire when no TurnStart or SessionIdle arrives");
+        var completedTask = await Task.WhenAny(completeResponseFired.Task, Task.Delay(5000));
+        Assert.True(completedTask == completeResponseFired.Task, "Fallback must fire when no TurnStart or SessionIdle arrives");
     }
 }

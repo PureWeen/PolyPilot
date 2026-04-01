@@ -259,11 +259,17 @@
                 {
                     <div class="server-status">
                         <span class="status-dot alive"></span>
-                        <span>Listening on port @DevTunnelService.BridgePort</span>
+                        <span>@(WsBridgeServer.SupportsRemoteConnections
+                            ? $"Listening on port {DevTunnelService.BridgePort}"
+                            : "Listening on localhost only")</span>
                     </div>
 
                     <div class="tunnel-url-section">
-                        @if (TailscaleService.IsRunning)
+                        @if (!WsBridgeServer.SupportsRemoteConnections)
+                        {
+                            <p class="tunnel-error">Direct sharing could only bind to localhost, so phones and other PCs cannot connect directly. Use Tunnel instead.</p>
+                        }
+                        else if (TailscaleService.IsRunning)
                         {
                             <div class="tunnel-url">
                                 <label>✅ Tailscale:</label>
@@ -284,15 +290,18 @@
                                 <p class="hint">Tailscale creates a secure private network between your devices, so Fiesta pairing strings work across the internet.</p>
                             </div>
                         }
-                        @foreach (var ip in localIps)
+                        @if (WsBridgeServer.SupportsRemoteConnections)
                         {
-                            <div class="tunnel-url">
-                                <label>LAN:</label>
-                                <code>http://@ip:@DevTunnelService.BridgePort</code>
-                            </div>
+                            @foreach (var ip in localIps)
+                            {
+                                <div class="tunnel-url">
+                                    <label>LAN:</label>
+                                    <code>http://@ip:@DevTunnelService.BridgePort</code>
+                                </div>
+                            }
                         }
 
-                        @if (fiestaPairingString != null)
+                        @if (WsBridgeServer.SupportsRemoteConnections && fiestaPairingString != null)
                         {
                             <div class="tunnel-url">
                                 <label>Pairing string:</label>
@@ -361,7 +370,7 @@
                 }
 
                 @* Worker side — show pairing string when bridge is running *@
-                @if (WsBridgeServer.IsRunning && fiestaPairingString != null)
+                @if (WsBridgeServer.IsRunning && WsBridgeServer.SupportsRemoteConnections && fiestaPairingString != null)
                 {
                     <div class="tunnel-url-section">
                         <label>Your pairing string:</label>
@@ -1033,21 +1042,14 @@
     {
         try
         {
-            // Build JSON payload with tunnel URL and optionally LAN URL
-            var payload = new Dictionary<string, string> { ["url"] = url };
-            if (!string.IsNullOrEmpty(token))
-                payload["token"] = token;
-
-            // Include LAN URL only if a server password is configured (required for LAN auth).
-            // Without a password, non-loopback LAN connections can't authenticate and would get 401.
-            // Note: GenerateQrCode is only called when DevTunnel is running, so AccessToken is always
-            // set here — open-mode (no AccessToken AND no ServerPassword) is not reachable from this path.
-            if (WsBridgeServer.IsRunning && localIps.Count > 0 && !string.IsNullOrEmpty(settings.ServerPassword))
-            {
-                var lanHost = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp ?? localIps.First();
-                payload["lanUrl"] = $"http://{lanHost}:{DevTunnelService.BridgePort}";
-                payload["lanToken"] = settings.ServerPassword;
-            }
+            var lanHost = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp ?? localIps.FirstOrDefault();
+            var payload = ConnectionSettings.BuildTunnelQrPayload(
+                url,
+                token,
+                lanHost,
+                DevTunnelService.BridgePort,
+                settings.ServerPassword,
+                allowLan: WsBridgeServer.SupportsRemoteConnections);
 
             var json = System.Text.Json.JsonSerializer.Serialize(payload);
             Console.WriteLine($"[QR] Generating QR code: url={url}, hasLan={payload.ContainsKey("lanUrl")}, payloadLen={json.Length}");
@@ -1447,6 +1449,12 @@
 
     private void TryGenerateFiestaPairingString()
     {
+        if (!WsBridgeServer.SupportsRemoteConnections)
+        {
+            fiestaPairingString = null;
+            return;
+        }
+
         try
         {
             var preferredHost = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp;
@@ -1683,6 +1691,16 @@
             ShowStatus($"Failed to start bridge server on port {DevTunnelService.BridgePort} — the port may already be in use.", "error", 10000);
             return;
         }
+
+        if (!WsBridgeServer.SupportsRemoteConnections)
+        {
+            WsBridgeServer.Stop();
+            directQrCodeDataUri = null;
+            fiestaPairingString = null;
+            ShowStatus("Direct sharing could only bind to localhost, so phones and other PCs cannot connect directly. Use Tunnel instead.", "error", 10000);
+            return;
+        }
+
         settings.DirectSharingEnabled = true;
         settings.Save();
         GenerateDirectQrCode();
@@ -1729,32 +1747,21 @@
 
     private void GenerateDirectQrCode()
     {
+        directQrCodeDataUri = null;
+        if (!WsBridgeServer.SupportsRemoteConnections)
+            return;
+
         var host = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp ?? localIps.FirstOrDefault();
         if (host == null) return;
 
-        var payload = new Dictionary<string, string>
-        {
-            ["lanUrl"] = $"http://{host}:{DevTunnelService.BridgePort}"
-        };
-        if (!string.IsNullOrEmpty(settings.ServerPassword))
-            payload["lanToken"] = settings.ServerPassword;
-
-        // Include tunnel URL if tunnel is also running
-        if (DevTunnelService.State == TunnelState.Running && !string.IsNullOrEmpty(DevTunnelService.TunnelUrl))
-        {
-            payload["url"] = DevTunnelService.TunnelUrl;
-            if (!string.IsNullOrEmpty(DevTunnelService.AccessToken))
-                payload["token"] = DevTunnelService.AccessToken;
-        }
-
-        // Backward compat: old apps only read "url" + "token". If no tunnel, alias LAN URL to "url"
-        // so older clients can still connect (they'll use LAN directly, no smart switching).
-        if (!payload.ContainsKey("url") && !string.IsNullOrEmpty(host))
-        {
-            payload["url"] = $"http://{host}:{DevTunnelService.BridgePort}";
-            if (!string.IsNullOrEmpty(settings.ServerPassword))
-                payload["token"] = settings.ServerPassword;
-        }
+        var payload = ConnectionSettings.BuildDirectQrPayload(
+            host,
+            DevTunnelService.BridgePort,
+            settings.ServerPassword,
+            allowLan: WsBridgeServer.SupportsRemoteConnections,
+            tunnelUrl: DevTunnelService.State == TunnelState.Running ? DevTunnelService.TunnelUrl : null,
+            tunnelToken: DevTunnelService.State == TunnelState.Running ? DevTunnelService.AccessToken : null);
+        if (payload.Count == 0) return;
 
         var json = System.Text.Json.JsonSerializer.Serialize(payload);
         try
