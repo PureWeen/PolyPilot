@@ -35,6 +35,16 @@
 
 ---
 
+## 🆕 What's New (v1.0.17)
+
+- **No more macOS Keychain prompts** — Eliminated the recurring "allow copilot-cli" password dialogs that interrupted every 1-2 hours
+- **1M Context model selection** — Picking "Claude Opus 4.6 (1M Context)" from the dropdown now works correctly
+- **Release-notes skill** — Agents can generate polished changelogs and social posts for new releases
+
+See all releases → [Changelog](https://github.com/PureWeen/PolyPilot/releases)
+
+---
+
 ## ✨ Key Features
 
 ### 🎛️ Fleet Dashboard
