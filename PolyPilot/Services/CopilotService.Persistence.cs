@@ -841,9 +841,6 @@ public partial class CopilotService
         var maxPollTime = TimeSpan.FromMinutes(30);
         var pollInterval = TimeSpan.FromSeconds(5);
         var started = DateTime.UtcNow;
-        long lastFileSize = -1;
-        int stableFileSizeCount = 0;
-        const int stableThreshold = 4; // 4 polls × 5s = 20s of no growth → CLI is done
 
         Debug($"[POLL] Starting events.jsonl poll for '{sessionName}' (id={sessionId})");
 
@@ -868,48 +865,14 @@ public partial class CopilotService
                     return;
                 }
 
-                // Read last event type from events.jsonl
+                // Read last event type from events.jsonl — only terminal events are reliable.
+                // File-size stability is NOT reliable because the CLI has many states where
+                // it's working but not writing (model thinking, tool executing, etc).
+                // The watchdog handles the "zero-idle" case via timeout.
                 var lastEventType = GetLastEventType(eventsFile);
                 if (lastEventType == null) continue;
 
                 var isTerminal = lastEventType is "session.idle" or "session.error" or "session.shutdown";
-                if (!isTerminal)
-                {
-                    // Don't use file-size stability when a tool is actively executing —
-                    // the file is "stable" because the tool is running (not writing events),
-                    // NOT because the CLI is done. Resuming now would kill the tool.
-                    var isToolRunning = lastEventType is "tool.execution_start" or "tool.execution_progress";
-                    if (!isToolRunning)
-                    {
-                        // Track file size stability — if the file hasn't grown across several
-                        // poll cycles, the CLI is done (even without a terminal event).
-                        // This catches the "zero-idle" case in ~20s instead of 600s.
-                        try
-                        {
-                            var currentSize = new FileInfo(eventsFile).Length;
-                            if (currentSize == lastFileSize)
-                            {
-                                stableFileSizeCount++;
-                                if (stableFileSizeCount >= stableThreshold)
-                                {
-                                    Debug($"[POLL] '{sessionName}' events.jsonl stable for {stableFileSizeCount * 5}s (size={currentSize}, lastEvent={lastEventType}) — treating as complete");
-                                    isTerminal = true;
-                                }
-                            }
-                            else
-                            {
-                                stableFileSizeCount = 0;
-                                lastFileSize = currentSize;
-                            }
-                        }
-                        catch { }
-                    }
-                    else
-                    {
-                        // Tool is running — reset stability counter (tool may write more events when done)
-                        stableFileSizeCount = 0;
-                    }
-                }
 
                 if (isTerminal)
                 {
