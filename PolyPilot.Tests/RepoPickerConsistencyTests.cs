@@ -105,4 +105,37 @@ public class RepoPickerConsistencyTests
         // The handler should look up the repo by ID and call SelectRepoForGroup
         Assert.Matches(new Regex(@"void\s+OnMultiAgentRepoChanged\s*\("), content);
     }
+
+    // ── CreateSessionForm subscribes to RepoManager.OnStateChanged ──────────
+    // Regression: adding a repo didn't update the picker because the form
+    // never listened for repo state changes.
+
+    [Fact]
+    public void CreateSessionForm_ImplementsIDisposable()
+    {
+        var content = File.ReadAllText(CreateSessionFormPath);
+        Assert.Contains("@implements IDisposable", content);
+    }
+
+    [Fact]
+    public void CreateSessionForm_SubscribesToRepoManagerOnStateChanged()
+    {
+        var content = File.ReadAllText(CreateSessionFormPath);
+        Assert.Contains("RepoManager.OnStateChanged += OnRepoStateChanged", content);
+    }
+
+    [Fact]
+    public void CreateSessionForm_UnsubscribesFromRepoManagerOnStateChanged()
+    {
+        var content = File.ReadAllText(CreateSessionFormPath);
+        Assert.Contains("RepoManager.OnStateChanged -= OnRepoStateChanged", content);
+    }
+
+    [Fact]
+    public void CreateSessionForm_OnRepoStateChanged_CallsStateHasChanged()
+    {
+        var content = File.ReadAllText(CreateSessionFormPath);
+        // The handler must invoke StateHasChanged on the UI thread
+        Assert.Matches(new Regex(@"OnRepoStateChanged\(\).*InvokeAsync\(StateHasChanged\)"), content);
+    }
 }

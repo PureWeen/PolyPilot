@@ -4,6 +4,7 @@
 @inject RepoManager RepoManager
 @inject CopilotService CopilotService
 @inject CodespaceService CodespaceService
+@implements IDisposable
 
 @if (!isExpanded)
 {
@@ -218,6 +219,18 @@ else
     private string? worktreeError;
     private bool isCreatingWorktree;
     private bool nameManuallyEdited;
+
+    protected override void OnInitialized()
+    {
+        RepoManager.OnStateChanged += OnRepoStateChanged;
+    }
+
+    private void OnRepoStateChanged() => InvokeAsync(StateHasChanged);
+
+    public void Dispose()
+    {
+        RepoManager.OnStateChanged -= OnRepoStateChanged;
+    }
 
     private void Expand()
     {

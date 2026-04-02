@@ -103,7 +103,7 @@ public partial class CopilotService
 
         if (!string.IsNullOrEmpty(sessionId))
         {
-            var eventsPath = Path.Combine("~/.copilot/session-state", sessionId, "events.jsonl");
+            var eventsPath = $"~/.copilot/session-state/{sessionId}/events.jsonl";
             sb.AppendLine($"`{eventsPath}`");
         }
         else
