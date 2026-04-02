@@ -329,7 +329,8 @@ public class StuckSessionRecoveryTests
     [InlineData("session.idle")]
     [InlineData("session.error")]
     [InlineData("session.shutdown")]
-    [InlineData("session.start")]     // created but never used — not actively processing
+    [InlineData("session.start")]         // created but never used — not actively processing
+    [InlineData("assistant.turn_end")]    // turn finished — clean completion
     public void IsSessionStillProcessing_TerminalEventTypes_ReturnFalse(string eventType)
     {
         var svc = CreateService();
@@ -427,6 +428,31 @@ public class StuckSessionRecoveryTests
                 """{"type":"assistant.message","data":{"content":"Here is your answer."}}""");
             var result = svc.IsSessionStillProcessing(sessionId, tmpDir);
             Assert.False(result, "assistant.message without pending tools should not report still processing");
+        }
+        finally { Directory.Delete(tmpDir, true); }
+    }
+
+    [Fact]
+    public void IsSessionStillProcessing_MessageWithPendingToolInSameTurn_ReturnsTrue()
+    {
+        // assistant.message as last event, but tool.execution_start earlier in same turn
+        // → smart scan should detect the pending tool and report still processing.
+        var svc = CreateService();
+        var tmpDir = Path.Combine(Path.GetTempPath(), "polypilot-test-" + Guid.NewGuid().ToString("N"));
+        var sessionId = Guid.NewGuid().ToString();
+        var sessionDir = Path.Combine(tmpDir, sessionId);
+        Directory.CreateDirectory(sessionDir);
+        var eventsFile = Path.Combine(sessionDir, "events.jsonl");
+
+        try
+        {
+            File.WriteAllText(eventsFile,
+                """{"type":"assistant.turn_start","data":{}}""" + "\n" +
+                """{"type":"assistant.message","data":{}}""" + "\n" +
+                """{"type":"tool.execution_start","data":{}}""" + "\n" +
+                """{"type":"assistant.message","data":{"content":"Running the tool now..."}}""");
+            var result = svc.IsSessionStillProcessing(sessionId, tmpDir);
+            Assert.True(result, "assistant.message with pending tool.execution_start should report still processing");
         }
         finally { Directory.Delete(tmpDir, true); }
     }

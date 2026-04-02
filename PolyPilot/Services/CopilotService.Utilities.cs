@@ -136,28 +136,28 @@ public partial class CopilotService
             var type = doc.RootElement.GetProperty("type").GetString();
             if (type == null) return false; // Corrupt/partial event — treat as terminal
 
-            // Definitive non-processing states (session.idle is ephemeral — never on disk,
-            // but included for correctness if the CLI ever changes).
-            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown", "session.start" };
+            // session.idle is ephemeral (never on disk). assistant.turn_end means the
+            // sub-turn finished — if it's the last event, the session completed cleanly.
+            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown", "session.start", "assistant.turn_end" };
             if (terminalEvents.Contains(type)) return false;
 
-            // Smart completion: if the last event is assistant.turn_end or assistant.message,
-            // check whether any tool.execution_start is pending (unmatched by a subsequent
-            // turn_end). If no tools are pending, the turn completed cleanly — the session
-            // is idle even without session.idle on disk.
+            // Smart completion for assistant.message: check whether any tool.execution_start
+            // is pending in the recent event history. If the model wrote a message and no
+            // tool was started after it, the turn completed cleanly.
             // This eliminates the 600s watchdog delay for clean turn completions (no tools).
-            if (type is "assistant.turn_end" or "assistant.message")
+            if (type is "assistant.message")
             {
-                var tailTypes = GetTailEventTypes(eventsFile, 10);
-                if (tailTypes != null)
+                var tailTypes = GetTailEventTypes(eventsFile, 30);
+                if (tailTypes != null && tailTypes.Count > 1)
                 {
-                    // Walk backwards: if we find tool.execution_start before hitting
-                    // assistant.turn_end or session.resume, tools are still pending.
+                    // Skip tailTypes[0] (the assistant.message we already know about).
+                    // Walk backwards through earlier events: if we find tool.execution_start
+                    // before hitting assistant.turn_end or session.resume, tools are pending.
                     bool hasPendingTools = false;
-                    foreach (var evt in tailTypes)
+                    for (int i = 1; i < tailTypes.Count; i++)
                     {
-                        if (evt == "tool.execution_start") { hasPendingTools = true; break; }
-                        if (evt is "assistant.turn_end" or "session.resume") break;
+                        if (tailTypes[i] == "tool.execution_start") { hasPendingTools = true; break; }
+                        if (tailTypes[i] is "assistant.turn_end" or "session.resume") break;
                     }
                     if (!hasPendingTools)
                     {
