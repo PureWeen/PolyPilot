@@ -406,7 +406,9 @@
     }
 
     private IReadOnlyList<string> GetSelectableModels() =>
-        ModelHelper.BuildSelectionList(CopilotService.AvailableModels, Meta?.PreferredModel, Session.Model, CopilotService.DefaultModel);
+        CopilotService.AvailableModels.Count > 0
+            ? ModelHelper.BuildSelectionList(CopilotService.AvailableModels, Meta?.PreferredModel, Session.Model, CopilotService.DefaultModel)
+            : ModelHelper.BuildSelectionList(ModelHelper.FallbackModels, Meta?.PreferredModel, Session.Model, CopilotService.DefaultModel);
 
     private static string GetShortPath(string path)
     {

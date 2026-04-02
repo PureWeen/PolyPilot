@@ -1439,8 +1439,8 @@ else
     }
 
     private IReadOnlyList<string> availableModels =>
-        ModelHelper.BuildSelectionList(CopilotService.AvailableModels, selectedModel, CopilotService.DefaultModel)
-            is { Count: > 1 } list ? list
+        CopilotService.AvailableModels.Count > 0
+            ? ModelHelper.BuildSelectionList(CopilotService.AvailableModels, selectedModel, CopilotService.DefaultModel)
             : ModelHelper.BuildSelectionList(ModelHelper.FallbackModels, selectedModel, CopilotService.DefaultModel);
 
     private IEnumerable<PersistedSessionInfo> filteredPersistedSessions => 
