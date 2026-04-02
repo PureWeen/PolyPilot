@@ -136,15 +136,38 @@ public partial class CopilotService
             var type = doc.RootElement.GetProperty("type").GetString();
             if (type == null) return false; // Corrupt/partial event — treat as terminal
 
-            // Use a blacklist of terminal events rather than a whitelist of active ones.
-            // Any event that is NOT terminal means the session is still processing.
-            // The old whitelist missed intermediate states like assistant.turn_end (between
-            // tool rounds), assistant.message, and tool.execution_complete, causing
-            // actively-processing sessions to be incorrectly detected as idle on restore.
-            // session.idle is ephemeral (never on disk). session.start means session was
-            // created but never used — not actively processing. All are non-active states.
+            // Definitive non-processing states (session.idle is ephemeral — never on disk,
+            // but included for correctness if the CLI ever changes).
             var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown", "session.start" };
-            return !terminalEvents.Contains(type);
+            if (terminalEvents.Contains(type)) return false;
+
+            // Smart completion: if the last event is assistant.turn_end or assistant.message,
+            // check whether any tool.execution_start is pending (unmatched by a subsequent
+            // turn_end). If no tools are pending, the turn completed cleanly — the session
+            // is idle even without session.idle on disk.
+            // This eliminates the 600s watchdog delay for clean turn completions (no tools).
+            if (type is "assistant.turn_end" or "assistant.message")
+            {
+                var tailTypes = GetTailEventTypes(eventsFile, 10);
+                if (tailTypes != null)
+                {
+                    // Walk backwards: if we find tool.execution_start before hitting
+                    // assistant.turn_end or session.resume, tools are still pending.
+                    bool hasPendingTools = false;
+                    foreach (var evt in tailTypes)
+                    {
+                        if (evt == "tool.execution_start") { hasPendingTools = true; break; }
+                        if (evt is "assistant.turn_end" or "session.resume") break;
+                    }
+                    if (!hasPendingTools)
+                    {
+                        Debug($"[RESTORE] events.jsonl for '{sessionId}' ends with {type} and no pending tools — treating as idle");
+                        return false;
+                    }
+                }
+            }
+
+            return true;
         }
         catch { return false; }
     }
@@ -184,6 +207,48 @@ public partial class CopilotService
         {
             return null;
         }
+    }
+
+    /// <summary>
+    /// Reads the last N event types from events.jsonl in reverse order (most recent first).
+    /// Uses a tail-read (last 8KB) to avoid full-file scan on large sessions.
+    /// Returns null on error.
+    /// </summary>
+    internal static List<string>? GetTailEventTypes(string eventsFilePath, int count)
+    {
+        try
+        {
+            if (!File.Exists(eventsFilePath)) return null;
+
+            const int tailBytes = 8192;
+            using var fs = new FileStream(eventsFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            if (fs.Length == 0) return null;
+
+            var offset = Math.Max(0, fs.Length - tailBytes);
+            fs.Seek(offset, SeekOrigin.Begin);
+            using var reader = new StreamReader(fs);
+            var lines = new List<string>();
+            while (reader.ReadLine() is { } line)
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                    lines.Add(line);
+            }
+
+            // Parse types in reverse order (most recent first)
+            var result = new List<string>();
+            for (int i = lines.Count - 1; i >= 0 && result.Count < count; i--)
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(lines[i]);
+                    var t = doc.RootElement.GetProperty("type").GetString();
+                    if (t != null) result.Add(t);
+                }
+                catch { }
+            }
+            return result;
+        }
+        catch { return null; }
     }
 
     /// <summary>
