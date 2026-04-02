@@ -2,15 +2,18 @@
 name: performance-optimization
 description: >
   Performance invariants and optimization knowledge for PolyPilot's render pipeline,
-  session switching, persistence, and caching layers. Use when: (1) Modifying
-  RefreshSessions, GetOrganizedSessions, or SafeRefreshAsync, (2) Touching
-  SaveActiveSessionsToDisk, SaveOrganization, or SaveUiState, (3) Working with
-  LoadPersistedSessions or session directory scanning, (4) Modifying markdown
-  rendering or the message cache, (5) Optimizing render cycle performance or
-  adding Blazor component rendering, (6) Working with debounce timers or
-  DisposeAsync cleanup. Covers: session-switch bottleneck fix, debounce flush
-  requirements, expensive operation guards, cache invalidation strategy, and
-  render cycle analysis.
+  session switching, persistence, caching layers, and startup performance. Use when:
+  (1) Modifying RefreshSessions, GetOrganizedSessions, or SafeRefreshAsync,
+  (2) Touching SaveActiveSessionsToDisk, SaveOrganization, or SaveUiState,
+  (3) Working with LoadPersistedSessions or session directory scanning,
+  (4) Modifying markdown rendering or the message cache,
+  (5) Optimizing render cycle performance or adding Blazor component rendering,
+  (6) Working with debounce timers or DisposeAsync cleanup,
+  (7) Debugging startup slowness or blue screen on launch,
+  (8) Modifying InitializeAsync or RestoreSessionsInBackgroundAsync.
+  Covers: session-switch bottleneck fix, debounce flush requirements, expensive
+  operation guards, cache invalidation strategy, render cycle analysis, and
+  startup performance debugging.
 ---
 
 # Performance Optimization
@@ -99,3 +102,60 @@ item heights — chat messages have variable height from markdown rendering.
 ### ChatMessageItem has no ShouldRender()
 Always re-renders when parent calls `StateHasChanged()`. Adding a content
 hash comparison would skip re-renders for unchanged messages.
+
+## Startup Performance Debugging
+
+### Architecture
+Startup has two phases:
+1. **UI thread (blocking):** MAUI bootstrap → BlazorWebView creation → Blazor framework init → Dashboard `OnInitialized` → `InitializeAsync` → fires `RestoreSessionsInBackgroundAsync` on ThreadPool
+2. **Background thread (non-blocking):** Read `active-sessions.json` → create lazy placeholders → eager-resume candidates → `ReconcileOrganization`
+
+The UI renders as soon as `InitializeAsync` returns. Session restore NEVER blocks the UI thread (runs via `Task.Run`). If you see a blue screen, the problem is in phase 1 (UI thread), not phase 2.
+
+### Instrumentation
+`[STARTUP-TIMING]` log tags in `~/.polypilot/console.log`:
+```
+[STARTUP-TIMING] LoadOrganization: 63ms         ← reads organization.json
+[STARTUP-TIMING] Pre-restore: 64ms              ← time before Task.Run
+[STARTUP-TIMING] Session loop complete: 35056ms  ← background thread, NOT blocking UI
+[STARTUP-TIMING] RestoreSessionsInBackground: 35095ms  ← total background time
+```
+
+### How to debug startup slowness
+
+**Step 1: Measure the UI-visible delay**
+```
+BlazorDevFlow ConfigureHandler → Dashboard Restoring UI state
+```
+Find both timestamps in console.log for the current PID. The gap is the user-visible startup time. Normal: 5-8 seconds.
+
+**Step 2: Identify which phase is slow**
+- If `[STARTUP-TIMING] Pre-restore` is high (>500ms): `LoadOrganization` or `InitializeAsync` is slow on the UI thread
+- If `[STARTUP-TIMING] Session loop` is high but UI rendered fast: background restore is slow but not blocking the user — acceptable
+- If neither timing tag appears: the slowdown is in Blazor framework init (before our code runs) — check system load, WebView issues
+
+**Step 3: A/B test against main**
+```bash
+# Save current branch
+git stash && git checkout main
+cd PolyPilot && ./relaunch.sh
+# Measure: BlazorDevFlow Config → Dashboard Restore gap
+
+# Switch back
+git checkout <branch> && git stash pop
+cd PolyPilot && ./relaunch.sh
+# Compare gaps
+```
+
+⚠️ **Use `git stash` + `git checkout` — do NOT `git checkout origin/main -- .`** (checks out files but keeps wrong branch name, confuses the app's branch display).
+
+**Step 4: Common false alarms**
+- CPU load from concurrent test runs or builds causes 2-3x slowdown in Blazor init
+- DLL file locks from running app cause build failures (retry after a few seconds)
+- The first launch after a `dotnet clean` is always slower (JIT compilation)
+- Run the comparison 2-3 times each to account for variance
+
+### Critical rules
+- **NEVER block the UI thread during restore.** All session loading uses `Task.Run` + `ConfigureAwait(false)`. Violations cause blue screen.
+- **`LoadPersistedSessions()` is O(N) on ALL session directories** (750+). Never call from `InitializeAsync` or any UI-triggered path. See PERF-2.
+- **InvokeOnUI callbacks during restore compete with Blazor rendering.** Minimize them. The restore path should batch state changes and call `NotifyStateChanged` once at the end, not per-session.
