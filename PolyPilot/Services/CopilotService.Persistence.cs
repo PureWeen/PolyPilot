@@ -870,14 +870,14 @@ public partial class CopilotService
                     return;
                 }
 
-                // Read last event type from events.jsonl — only terminal events are reliable.
-                // File-size stability is NOT reliable because the CLI has many states where
-                // it's working but not writing (model thinking, tool executing, etc).
-                // The watchdog handles the "zero-idle" case via timeout.
+                // Read last event type from events.jsonl for terminal events.
+                // NOTE: session.idle is ephemeral (never written to events.jsonl by design).
+                // session.error is also not persisted. Only session.shutdown is reliably on disk.
+                // The watchdog is the primary completion detection for disconnected sessions.
                 var lastEventType = GetLastEventType(eventsFile);
                 if (lastEventType == null) continue;
 
-                var isTerminal = lastEventType is "session.idle" or "session.error" or "session.shutdown";
+                var isTerminal = lastEventType is "session.shutdown";
 
                 if (isTerminal)
                 {

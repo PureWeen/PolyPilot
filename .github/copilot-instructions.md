@@ -239,7 +239,7 @@ The UI shows: "Sending…" → "Server connected…" → "Thinking…" → "Work
 **CRITICAL**: Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (13 PRs of fix/regression cycles). **Read `.claude/skills/processing-state-safety/SKILL.md` before modifying ANY processing path.** There are 15+ such paths across CopilotService.cs, Events.cs, Bridge.cs, Organization.cs, and Providers.cs.
 
 ### Content Persistence
-`FlushCurrentResponse` is also called on `AssistantTurnEndEvent` to persist accumulated response text at each sub-turn boundary. This prevents content loss if the app restarts between `turn_end` and `session.idle` (e.g., "zero-idle sessions" where the SDK never emits `session.idle`). The flush includes a dedup guard to prevent duplicate messages from event replay on resume.
+`FlushCurrentResponse` is also called on `AssistantTurnEndEvent` to persist accumulated response text at each sub-turn boundary. This prevents content loss if the app restarts between `turn_end` and `session.idle`. When the IDLE-DEFER logic defers `session.idle` (active background tasks), the flush ensures content from the foreground turn is saved. The flush includes a dedup guard to prevent duplicate messages from event replay on resume.
 
 ### Processing Watchdog
 The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.cs`) detects stuck sessions by checking how long since the last SDK event. It checks every 15 seconds and has three timeout tiers:
@@ -252,7 +252,7 @@ The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.
 
 For multi-agent sessions, Case B also checks **file-size-growth**: if events.jsonl hasn't grown for `WatchdogCaseBMaxStaleChecks` (2) consecutive deferrals, the session is force-completed — the connection is dead. This catches `ConnectionLostException` scenarios where mtime stays fresh but no new data arrives, reducing detection from 30+ min to ~360s (3 cycles: 1 baseline + 2 stale checks). The 1800s freshness window is preserved.
 
-Note: Some sessions never receive `session.idle` events (SDK/CLI bug). In these "zero-idle" cases, `IsProcessing` is only cleared by the watchdog or user abort. The turn_end flush (see Content Persistence above) ensures response content is not lost.
+Note: `session.idle` is an ephemeral event (`ephemeral: true` in the SDK schema) — it is delivered over the live event stream but intentionally NOT written to `events.jsonl`. When `session.idle` includes active `backgroundTasks` (sub-agents, shells), the IDLE-DEFER logic defers completion until a subsequent idle arrives with empty/null backgroundTasks. In rare cases where `IsProcessing` was already cleared (by watchdog timeout or reconnect) before the deferred idle arrives, the session may appear stuck until the watchdog fires again — see issue #403.
 
 When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message.
 
