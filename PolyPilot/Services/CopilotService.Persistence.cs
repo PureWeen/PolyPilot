@@ -530,6 +530,7 @@ public partial class CopilotService
                 if (entries != null && entries.Count > 0)
                 {
                     Debug($"Restoring {entries.Count} previous sessions...");
+                    var restoreSw = System.Diagnostics.Stopwatch.StartNew();
                     IsRestoring = true;
 
                     // Snapshot groups once for thread safety — bridge/SDK events can
@@ -819,6 +820,7 @@ public partial class CopilotService
                         }, cancellationToken);
                     }
                     
+                    Debug($"[STARTUP-TIMING] Session loop complete: {restoreSw.ElapsedMilliseconds}ms ({entries.Count} sessions)");
                     IsRestoring = false;
                 }
             }
