@@ -130,6 +130,23 @@ public static class ModelHelper
     }
 
     /// <summary>
+    /// Decide whether an observed SDK/CLI event model should replace the current session model.
+    /// Preserve an explicit user-selected model when metrics events report a different backend
+    /// model (for example after resume/abort flows that transiently report a default model).
+    /// </summary>
+    public static bool ShouldAcceptObservedModel(string? currentModel, string? observedModel)
+    {
+        var normalizedObserved = NormalizeToSlug(observedModel);
+        if (string.IsNullOrEmpty(normalizedObserved))
+            return false;
+
+        var normalizedCurrent = NormalizeToSlug(currentModel);
+        return string.IsNullOrEmpty(normalizedCurrent) ||
+               normalizedCurrent == "resumed" ||
+               normalizedCurrent == normalizedObserved;
+    }
+
+    /// <summary>
     /// Converts a model slug to a human-friendly display name.
     /// If displayNames dictionary is provided and contains the slug, uses the SDK's display name.
     /// Otherwise falls back to algorithmic prettification.

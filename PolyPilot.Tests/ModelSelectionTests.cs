@@ -136,6 +136,26 @@ public class ModelSelectionTests
     }
 
     [Fact]
+    public void ShouldAcceptObservedModel_EmptyCurrentModel_AcceptsObserved()
+    {
+        Assert.True(ModelHelper.ShouldAcceptObservedModel("", "claude-opus-4.6"));
+        Assert.True(ModelHelper.ShouldAcceptObservedModel("resumed", "claude-opus-4.6"));
+    }
+
+    [Fact]
+    public void ShouldAcceptObservedModel_SameModel_AcceptsObserved()
+    {
+        Assert.True(ModelHelper.ShouldAcceptObservedModel("Claude Opus 4.6", "claude-opus-4.6"));
+    }
+
+    [Fact]
+    public void ShouldAcceptObservedModel_DifferentObservedModel_PreservesExplicitChoice()
+    {
+        Assert.False(ModelHelper.ShouldAcceptObservedModel("gpt-5.4", "claude-opus-4.6"));
+        Assert.False(ModelHelper.ShouldAcceptObservedModel("claude-haiku-4.5", "claude-opus-4.6"));
+    }
+
+    [Fact]
     public void NormalizeToSlug_DisplayNamesFromCliEvents_MatchSlugs()
     {
         // These are actual display names observed in session.start events from the CLI

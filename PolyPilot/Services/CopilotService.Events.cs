@@ -772,8 +772,15 @@ public partial class CopilotService
                 if (!string.IsNullOrEmpty(uModel))
                 {
                     var normalizedUModel = Models.ModelHelper.NormalizeToSlug(uModel);
-                    Debug($"[UsageInfo] Updating model from event: {state.Info.Model} -> {normalizedUModel}");
-                    state.Info.Model = normalizedUModel;
+                    if (Models.ModelHelper.ShouldAcceptObservedModel(state.Info.Model, normalizedUModel))
+                    {
+                        Debug($"[UsageInfo] Updating model from event: {state.Info.Model} -> {normalizedUModel}");
+                        state.Info.Model = normalizedUModel;
+                    }
+                    else
+                    {
+                        Debug($"[UsageInfo] Ignoring backend-reported model: {normalizedUModel} (keeping explicit session model: {state.Info.Model})");
+                    }
                 }
                 if (uCurrentTokens.HasValue) state.Info.ContextCurrentTokens = uCurrentTokens;
                 if (uTokenLimit.HasValue) state.Info.ContextTokenLimit = uTokenLimit;
@@ -807,7 +814,17 @@ public partial class CopilotService
                 }
                 catch { }
                 if (!string.IsNullOrEmpty(aModel))
-                    state.Info.Model = Models.ModelHelper.NormalizeToSlug(aModel);
+                {
+                    var normalizedAModel = Models.ModelHelper.NormalizeToSlug(aModel);
+                    if (Models.ModelHelper.ShouldAcceptObservedModel(state.Info.Model, normalizedAModel))
+                    {
+                        state.Info.Model = normalizedAModel;
+                    }
+                    else
+                    {
+                        Debug($"[AssistantUsage] Ignoring backend-reported model: {normalizedAModel} (keeping explicit session model: {state.Info.Model})");
+                    }
+                }
                 if (aInput.HasValue) state.Info.TotalInputTokens += aInput.Value;
                 if (aOutput.HasValue) state.Info.TotalOutputTokens += aOutput.Value;
                 if (aInput.HasValue || aOutput.HasValue || aPremiumQuota != null)
