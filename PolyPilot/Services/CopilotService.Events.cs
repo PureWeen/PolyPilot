@@ -678,6 +678,7 @@ public partial class CopilotService
                             state.Info.IsProcessing = true;
                             state.Info.ProcessingPhase = 3; // Working (background tasks)
                             state.Info.ProcessingStartedAt ??= DateTime.UtcNow;
+                            state.HasUsedToolsThisTurn = true; // 600s timeout (background tasks can run long)
                             state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName);
                             StartProcessingWatchdog(state, sessionName);
                         }
