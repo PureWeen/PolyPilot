@@ -87,23 +87,27 @@ public class EventsJsonlParsingTests
     [Fact]
     public void IsSessionStillProcessing_ActiveEventTypes()
     {
+        // Terminal events are the only ones that indicate processing is complete.
+        // Everything else (including intermediate events like assistant.turn_end,
+        // assistant.message, tool.execution_end) means the session is still active.
+        var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown" };
+
+        // These should indicate the session is still processing (not terminal)
         var activeEvents = new[]
         {
             "assistant.turn_start", "tool.execution_start",
             "tool.execution_progress", "assistant.message_delta",
             "assistant.reasoning", "assistant.reasoning_delta",
-            "assistant.intent"
+            "assistant.intent", "assistant.turn_end",
+            "assistant.message", "session.start"
         };
-
-        // These should indicate the session is still processing
         foreach (var eventType in activeEvents)
         {
-            Assert.Contains(eventType, activeEvents);
+            Assert.DoesNotContain(eventType, terminalEvents);
         }
 
-        // These should NOT indicate processing
-        var inactiveEvents = new[] { "session.idle", "assistant.message", "session.start" };
-        foreach (var eventType in inactiveEvents)
+        // These SHOULD indicate processing is complete (terminal) — must not appear in activeEvents
+        foreach (var eventType in terminalEvents)
         {
             Assert.DoesNotContain(eventType, activeEvents);
         }

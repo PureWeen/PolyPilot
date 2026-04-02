@@ -134,14 +134,15 @@ public partial class CopilotService
 
             using var doc = JsonDocument.Parse(lastLine);
             var type = doc.RootElement.GetProperty("type").GetString();
-            
-            var activeEvents = new[] { 
-                "assistant.turn_start", "tool.execution_start", 
-                "tool.execution_progress", "assistant.message_delta",
-                "assistant.reasoning", "assistant.reasoning_delta",
-                "assistant.intent"
-            };
-            return activeEvents.Contains(type);
+            if (type == null) return false; // Corrupt/partial event — treat as terminal
+
+            // Use a blacklist of terminal events rather than a whitelist of active ones.
+            // Any event that is NOT terminal means the session is still processing.
+            // The old whitelist missed intermediate states like assistant.turn_end (between
+            // tool rounds), assistant.message, and tool.execution_complete, causing
+            // actively-processing sessions to be incorrectly detected as idle on restore.
+            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown" };
+            return !terminalEvents.Contains(type);
         }
         catch { return false; }
     }
@@ -794,15 +795,29 @@ public partial class CopilotService
             var modelList = await _client.ListModelsAsync();
             if (modelList != null && modelList.Count > 0)
             {
-                var models = modelList
-                    .Where(m => !string.IsNullOrEmpty(m.Id))
-                    .Select(m => m.Id!)
-                    .OrderBy(m => m)
-                    .ToList();
+                // Use Id (slug) as the canonical model identifier, not Name (display name).
+                // Name is a display string like "Claude Opus 4.6 (1M Context)(Internal Only)"
+                // which NormalizeToSlug can't reliably round-trip. Id is the SDK slug.
+                var displayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                var models = new List<string>();
+                foreach (var m in modelList)
+                {
+                    var id = m.Id;
+                    var name = m.Name;
+                    // Prefer Id (slug); fall back to Name if Id is missing
+                    var key = !string.IsNullOrEmpty(id) ? id : name;
+                    if (string.IsNullOrEmpty(key)) continue;
+                    if (!models.Contains(key))
+                        models.Add(key);
+                    if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(id))
+                        displayNames[id] = name;
+                }
+                models.Sort(StringComparer.OrdinalIgnoreCase);
                 if (models.Count > 0)
                 {
-                    _localAvailableModels = models;
-                    Debug($"Loaded {models.Count} models from SDK");
+                    AvailableModels = models;
+                    ModelDisplayNames = displayNames;
+                    Debug($"Loaded {models.Count} models from SDK (ids)");
                     OnStateChanged?.Invoke();
                 }
             }
