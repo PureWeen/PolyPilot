@@ -666,6 +666,22 @@ public partial class CopilotService
                     {
                         if (state.IsOrphaned) return;
                         FlushCurrentResponse(state);
+
+                        // FIX #403: If IsProcessing was already cleared (by watchdog timeout,
+                        // reconnect, or prior EVT-REARM cycle), re-arm it. Without this, the
+                        // session appears done but background tasks are still running — the
+                        // orchestrator collects a truncated/empty response.
+                        // Guards mirror EVT-REARM: skip if orphaned or user-aborted.
+                        if (!state.Info.IsProcessing && !state.WasUserAborted)
+                        {
+                            Debug($"[IDLE-DEFER-REARM] '{sessionName}' re-arming IsProcessing — background tasks active but processing was cleared");
+                            state.Info.IsProcessing = true;
+                            state.Info.ProcessingPhase = 3; // Working (background tasks)
+                            state.Info.ProcessingStartedAt ??= DateTime.UtcNow;
+                            state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName);
+                            StartProcessingWatchdog(state, sessionName);
+                        }
+
                         NotifyStateChangedCoalesced();
                     });
                     break; // Don't complete — wait for next idle without background tasks
