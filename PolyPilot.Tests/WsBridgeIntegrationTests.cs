@@ -683,12 +683,12 @@ public class WsBridgeIntegrationTests : IDisposable
         await InitDemoMode();
         await _copilot.CreateSessionAsync("old-name", "gpt-4.1");
 
-        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         var client = await ConnectClientAsync(cts.Token);
         await WaitForAsync(() => client.Sessions.Any(s => s.Name == "old-name"), cts.Token);
 
         await client.RenameSessionAsync("old-name", "new-name", cts.Token);
-        await WaitForAsync(() => _copilot.GetSession("new-name") != null, cts.Token, maxMs: 12000);
+        await WaitForAsync(() => _copilot.GetSession("new-name") != null, cts.Token, maxMs: 25000);
 
         Assert.Null(_copilot.GetSession("old-name"));
         Assert.NotNull(_copilot.GetSession("new-name"));

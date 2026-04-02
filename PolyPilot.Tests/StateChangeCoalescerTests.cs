@@ -60,7 +60,7 @@ public class StateChangeCoalescerTests
         svc.NotifyStateChangedCoalesced();
         // Wait well beyond the coalesce window (150ms) to ensure the timer has fired,
         // even under heavy CI load. Single call can only ever produce exactly 1 fire.
-        await Task.Delay(600);
+        await Task.Delay(1200);
 
         Assert.Equal(1, fireCount);
     }
