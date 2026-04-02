@@ -644,6 +644,14 @@ public partial class CopilotService
                 // Cancel the TurnEnd→Idle fallback — normal SessionIdleEvent arrived
                 CancelTurnEndFallback(state);
 
+                // Diagnostic: dump raw backgroundTasks payload to prove whether CLI populates it consistently
+                {
+                    var bt = idle.Data?.BackgroundTasks;
+                    var agentCount = bt?.Agents?.Length ?? -1;
+                    var shellCount = bt?.Shells?.Length ?? -1;
+                    Debug($"[IDLE-DIAG] '{sessionName}' session.idle payload: backgroundTasks={{agents={agentCount}, shells={shellCount}, null={bt == null}}}");
+                }
+
                 // KEY FIX: Check if the server reports active background tasks (sub-agents, shells).
                 // session.idle with background tasks means "foreground quiesced, background still running."
                 // Do NOT treat this as terminal — flush text and wait for the real idle.
