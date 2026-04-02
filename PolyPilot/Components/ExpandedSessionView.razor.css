@@ -777,6 +777,7 @@
 .expanded-card ::deep .task-complete-text,
 .expanded-card ::deep .error-text,
 .expanded-card ::deep .shell-output-text,
+.expanded-card ::deep .action-input pre,
 .expanded-card ::deep .action-full-input pre,
 .expanded-card ::deep .action-output pre,
 .expanded-card ::deep .markdown-body,
