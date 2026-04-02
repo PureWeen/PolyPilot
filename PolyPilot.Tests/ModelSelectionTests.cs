@@ -117,11 +117,22 @@ public class ModelSelectionTests
     }
 
     [Fact]
-    public void FallbackModels_IncludeCurrentGptVariants()
+    public void BuildSelectionList_AppendsSelectionAndDefault_WhenDiscoveryIsEmpty()
     {
-        Assert.Contains("gpt-5.4", ModelHelper.FallbackModels);
-        Assert.Contains("gpt-5.4-mini", ModelHelper.FallbackModels);
-        Assert.Contains("gpt-5.3-codex", ModelHelper.FallbackModels);
+        var models = ModelHelper.BuildSelectionList(Array.Empty<string>(), "Custom Preview", "claude-opus-4.6");
+
+        Assert.Equal(new[] { "custom-preview", "claude-opus-4.6" }, models);
+    }
+
+    [Fact]
+    public void BuildSelectionList_NormalizesDiscoveredModels_AndAvoidsDuplicates()
+    {
+        var models = ModelHelper.BuildSelectionList(
+            new[] { "Claude Opus 4.6", "claude-opus-4.6", "Custom Preview" },
+            "custom-preview",
+            "claude-opus-4.6");
+
+        Assert.Equal(new[] { "claude-opus-4.6", "custom-preview" }, models);
     }
 
     [Fact]
@@ -491,6 +502,19 @@ public class ModelSelectionTests
             Assert.Equal(expectedSlug, normalized);
             Assert.False(ModelHelper.IsDisplayName(normalized));
         }
+    }
+
+    [Fact]
+    public void BuildSelectionList_PreservesDiscoveryOrder_AndAppendsMissingRequiredModels()
+    {
+        var models = ModelHelper.BuildSelectionList(
+            new[] { "claude-sonnet-4.6", "Claude Opus 4.6", "gpt-5.4" },
+            "claude-opus-4.6",
+            "gpt-5-mini");
+
+        Assert.Equal(
+            new[] { "claude-sonnet-4.6", "claude-opus-4.6", "gpt-5.4", "gpt-5-mini" },
+            models);
     }
 
     // --- PrettifyModel tests ---

@@ -105,6 +105,10 @@ public partial class CopilotService : IAsyncDisposable
     internal const int WatchdogServerRecoveryThreshold = 2;
     // Prevents concurrent TryRecoverPersistentServerAsync invocations from racing on _client.
     private readonly SemaphoreSlim _recoveryLock = new(1, 1);
+    // Coalesces model refresh requests so reconnect/recovery bursts share one fetch pipeline.
+    private readonly object _availableModelsFetchSync = new();
+    private Task _availableModelsFetchTask = Task.CompletedTask;
+    private bool _availableModelsFetchQueued;
     // Tracks when recovery last succeeded so concurrent callers that lose the lock can return true
     // if recovery just completed (within 30s), rather than showing a false-permanent error.
     private DateTime _lastRecoveryCompletedAt = DateTime.MinValue;
@@ -1272,6 +1276,8 @@ public partial class CopilotService : IAsyncDisposable
             return;
         }
 
+        _ = FetchAvailableModelsAsync();
+
         // Restore previous sessions
         LoadOrganization();
         await RestorePreviousSessionsAsync(cancellationToken);
@@ -1363,6 +1369,7 @@ public partial class CopilotService : IAsyncDisposable
             _client = CreateClient(settings);
             await _client.StartAsync(CancellationToken.None);
             IsInitialized = true;
+            _ = FetchAvailableModelsAsync();
 
             Debug("[SERVER-RECOVERY] Server recovery successful — new server started and client reconnected");
             FallbackNotice = "Persistent server was automatically restarted due to repeated failures. Your sessions should work again.";
@@ -1461,6 +1468,7 @@ public partial class CopilotService : IAsyncDisposable
                 await _client.StartAsync(cancellationToken);
                 IsInitialized = true;
                 NeedsConfiguration = false;
+                _ = FetchAvailableModelsAsync();
                 Debug("[SERVER-RESTART] Server restarted and client connected");
             }
             catch (Exception ex)

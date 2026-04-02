@@ -70,19 +70,31 @@ public class StateChangeCoalescerTests
     {
         var svc = CreateService();
         int fireCount = 0;
-        svc.OnStateChanged += () => Interlocked.Increment(ref fireCount);
+        var firstBurstFired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondBurstFired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        svc.OnStateChanged += () =>
+        {
+            var count = Interlocked.Increment(ref fireCount);
+            if (count >= 1)
+                firstBurstFired.TrySetResult();
+            if (count >= 2)
+                secondBurstFired.TrySetResult();
+        };
 
         // First burst
         for (int i = 0; i < 10; i++)
             svc.NotifyStateChangedCoalesced();
-        // Wait well beyond the coalesce window (150ms) to ensure the timer fires,
-        // even under heavy CI/GC load. Previous 300ms was flaky under load.
-        await Task.Delay(800);
+        var firstBurstCompleted = await Task.WhenAny(firstBurstFired.Task, Task.Delay(5000));
+        Assert.Same(firstBurstFired.Task, firstBurstCompleted);
 
-        // Second burst after timer has fired
+        // Second burst after the first coalesced notification has actually fired
         for (int i = 0; i < 10; i++)
             svc.NotifyStateChangedCoalesced();
-        await Task.Delay(800);
+        var secondBurstCompleted = await Task.WhenAny(secondBurstFired.Task, Task.Delay(5000));
+        Assert.Same(secondBurstFired.Task, secondBurstCompleted);
+
+        // Small settle window for any extra coalesced fires.
+        await Task.Delay(100);
 
         // Each burst should produce ~1 notification
         Assert.InRange(fireCount, 2, 4);

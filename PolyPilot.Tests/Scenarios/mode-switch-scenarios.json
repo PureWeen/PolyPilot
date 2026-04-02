@@ -530,9 +530,10 @@
     {
       "id": "create-session-model-picker-includes-gpt-5-4",
       "name": "Create session model picker exposes GPT-5.4",
-      "description": "The create-session model selector should list GPT-5.4 so users can match the CLI even when the app falls back to its built-in model catalog.",
+      "description": "The create-session model selector should list GPT-5.4 from the Copilot CLI's discovered model list, without requiring PolyPilot to hardcode every supported model.",
       "unitTestCoverage": [
-        "ModelSelectionTests.FallbackModels_IncludeCurrentGptVariants"
+        "ModelSelectionTests.BuildSelectionList_AppendsSelectionAndDefault_WhenDiscoveryIsEmpty",
+        "ModelSelectionTests.BuildSelectionList_NormalizesDiscoveredModels_AndAvoidsDuplicates"
       ],
       "steps": [
         {

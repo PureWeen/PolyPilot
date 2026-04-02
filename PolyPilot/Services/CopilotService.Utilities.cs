@@ -791,42 +791,253 @@ public partial class CopilotService
 
     private async Task FetchAvailableModelsAsync()
     {
+        Task fetchTask;
+        lock (_availableModelsFetchSync)
+        {
+            if (_availableModelsFetchTask.IsCompleted)
+            {
+                _availableModelsFetchQueued = false;
+                _availableModelsFetchTask = RunAvailableModelsFetchLoopAsync();
+            }
+            else
+            {
+                _availableModelsFetchQueued = true;
+            }
+
+            fetchTask = _availableModelsFetchTask;
+        }
+
+        await fetchTask;
+    }
+
+    private async Task<IReadOnlyList<string>> GetSdkAvailableModelsAsync()
+    {
+        if (_client == null)
+            return Array.Empty<string>();
+
+        // ListModelsAsync is backed by the connected Copilot CLI/server, so this
+        // picks up released models without hardcoding them here.
+        var modelList = await _client.ListModelsAsync();
+        if (modelList == null || modelList.Count == 0)
+            return Array.Empty<string>();
+
+        return Models.ModelHelper.BuildSelectionList(
+            modelList
+                .Where(m => !string.IsNullOrEmpty(m.Id))
+                .Select(m => m.Id));
+    }
+
+    private async Task<IReadOnlyList<string>> GetDirectCliAvailableModelsAsync()
+    {
+        var cliPath = ResolveCopilotCliPath(_currentSettings?.CliSource ?? CliSourceMode.BuiltIn);
+        if (string.IsNullOrWhiteSpace(cliPath) || !File.Exists(cliPath))
+            return Array.Empty<string>();
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "polypilot-model-probe");
+        Directory.CreateDirectory(tempDir);
+
+        using var process = new System.Diagnostics.Process();
+        process.StartInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = cliPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = tempDir
+        };
+        process.StartInfo.ArgumentList.Add("-p");
+        process.StartInfo.ArgumentList.Add("Return exactly the list of model IDs shown in the /model Available tab as a JSON array. Use the current CLI runtime model availability. Do not inspect files or use tools. Return only JSON.");
+        process.StartInfo.ArgumentList.Add("--add-dir");
+        process.StartInfo.ArgumentList.Add(tempDir);
+        process.StartInfo.ArgumentList.Add("--no-custom-instructions");
+        process.StartInfo.ArgumentList.Add("--effort");
+        process.StartInfo.ArgumentList.Add("low");
+        process.StartInfo.ArgumentList.Add("--output-format");
+        process.StartInfo.ArgumentList.Add("text");
+        process.StartInfo.ArgumentList.Add("--silent");
+
+        process.Start();
+        process.StandardInput.Close();
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        var outputTask = process.StandardOutput.ReadToEndAsync(cts.Token);
+        var errorTask = process.StandardError.ReadToEndAsync(cts.Token);
+
         try
         {
-            if (_client == null) return;
-            var modelList = await _client.ListModelsAsync();
-            if (modelList != null && modelList.Count > 0)
+            await process.WaitForExitAsync(cts.Token);
+        }
+        catch (OperationCanceledException ex)
+        {
+            TryTerminateProcess(process);
+            throw new TimeoutException("Timed out while probing models from the Copilot CLI.", ex);
+        }
+
+        var output = await outputTask;
+        var error = await errorTask;
+
+        if (process.ExitCode != 0)
+        {
+            var detail = FirstNonEmptyLine(error) ?? FirstNonEmptyLine(output) ?? $"exit code {process.ExitCode}";
+            throw new InvalidOperationException($"Copilot CLI model probe failed: {detail}");
+        }
+
+        var models = ParseDirectCliModelProbeOutput(output);
+        if (models.Count == 0)
+        {
+            var snippet = FirstNonEmptyLine(output) ?? "(no output)";
+            throw new InvalidOperationException($"Copilot CLI model probe returned no parseable models: {snippet}");
+        }
+
+        return models;
+    }
+
+    private async Task RunAvailableModelsFetchLoopAsync()
+    {
+        do
+        {
+            IReadOnlyList<string> sdkModels = Array.Empty<string>();
+            IReadOnlyList<string> directCliModels = Array.Empty<string>();
+
+            try
             {
-                // Use Id (slug) as the canonical model identifier, not Name (display name).
-                // Name is a display string like "Claude Opus 4.6 (1M Context)(Internal Only)"
-                // which NormalizeToSlug can't reliably round-trip. Id is the SDK slug.
-                var displayNames = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                var models = new List<string>();
-                foreach (var m in modelList)
-                {
-                    var id = m.Id;
-                    var name = m.Name;
-                    // Prefer Id (slug); fall back to Name if Id is missing
-                    var key = !string.IsNullOrEmpty(id) ? id : name;
-                    if (string.IsNullOrEmpty(key)) continue;
-                    if (!models.Contains(key))
-                        models.Add(key);
-                    if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(id))
-                        displayNames[id] = name;
-                }
-                models.Sort(StringComparer.OrdinalIgnoreCase);
-                if (models.Count > 0)
+                sdkModels = await GetSdkAvailableModelsAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to fetch models from SDK: {ex.Message}");
+            }
+
+            try
+            {
+                directCliModels = await GetDirectCliAvailableModelsAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to fetch models from direct CLI probe: {ex.Message}");
+            }
+
+            var primaryModels = directCliModels.Count > 0 ? directCliModels : sdkModels;
+            var supplementalModels = directCliModels.Count > 0 ? sdkModels : Array.Empty<string>();
+            if (primaryModels.Count > 0)
+            {
+                var models = Models.ModelHelper.BuildSelectionList(primaryModels, supplementalModels.ToArray()).ToList();
+                if (!_localAvailableModels.SequenceEqual(models, StringComparer.OrdinalIgnoreCase))
                 {
                     _localAvailableModels = models;
-                    ModelDisplayNames = displayNames;
-                    Debug($"Loaded {models.Count} models from SDK (ids)");
-                    OnStateChanged?.Invoke();
+                    Debug($"Loaded {models.Count} models from Copilot CLI (sdk={sdkModels.Count}, direct={directCliModels.Count})");
+                    InvokeOnUI(() => OnStateChanged?.Invoke());
                 }
             }
-        }
-        catch (Exception ex)
+
+            lock (_availableModelsFetchSync)
+            {
+                if (!_availableModelsFetchQueued)
+                    break;
+
+                _availableModelsFetchQueued = false;
+            }
+        } while (true);
+    }
+
+    internal static IReadOnlyList<string> ParseDirectCliModelProbeOutput(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return Array.Empty<string>();
+
+        foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
         {
-            Debug($"Failed to fetch models: {ex.Message}");
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                if (doc.RootElement.TryGetProperty("data", out var data) &&
+                    data.ValueKind == JsonValueKind.Object &&
+                    data.TryGetProperty("content", out var content) &&
+                    content.ValueKind == JsonValueKind.String)
+                {
+                    var nested = ParseDirectCliModelProbeOutput(content.GetString());
+                    if (nested.Count > 0)
+                        return nested;
+                }
+            }
+            catch (JsonException)
+            {
+                // Fall back to raw array extraction below.
+            }
+        }
+
+        foreach (var candidate in GetJsonArrayCandidates(output))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(candidate);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                    continue;
+
+                return Models.ModelHelper.BuildSelectionList(
+                    doc.RootElement
+                        .EnumerateArray()
+                        .Where(e => e.ValueKind == JsonValueKind.String)
+                        .Select(e => e.GetString())
+                        .Where(s => !string.IsNullOrWhiteSpace(s)));
+            }
+            catch (JsonException)
+            {
+                // Keep trying more permissive candidate extraction below.
+            }
+        }
+
+        return Array.Empty<string>();
+    }
+
+    private static IEnumerable<string> GetJsonArrayCandidates(string output)
+    {
+        var trimmed = output.Trim();
+        if (trimmed.Length == 0)
+            yield break;
+
+        yield return trimmed;
+
+        if (trimmed.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstNewline = trimmed.IndexOf('\n');
+            var lastFence = trimmed.LastIndexOf("```", StringComparison.Ordinal);
+            if (firstNewline >= 0 && lastFence > firstNewline)
+                yield return trimmed[(firstNewline + 1)..lastFence].Trim();
+        }
+
+        var start = trimmed.IndexOf('[');
+        var end = trimmed.LastIndexOf(']');
+        if (start >= 0 && end > start)
+            yield return trimmed[start..(end + 1)];
+    }
+
+    private static string? FirstNonEmptyLine(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        return text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Trim())
+            .FirstOrDefault(line => line.Length > 0);
+    }
+
+    private static void TryTerminateProcess(System.Diagnostics.Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            // Best-effort cleanup after a timeout.
         }
     }
 

@@ -35,6 +35,35 @@ public static class ModelHelper
     };
 
     /// <summary>
+    /// Builds a model picker list from CLI-discovered models plus any required
+    /// fallback choices (current selection, current session model, default model).
+    /// All values are normalized to slugs and deduplicated case-insensitively.
+    /// </summary>
+    public static IReadOnlyList<string> BuildSelectionList(IEnumerable<string>? discoveredModels, params string?[] requiredModels)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? model)
+        {
+            var normalized = NormalizeToSlug(model);
+            if (!string.IsNullOrEmpty(normalized) && seen.Add(normalized))
+                result.Add(normalized);
+        }
+
+        if (discoveredModels != null)
+        {
+            foreach (var model in discoveredModels)
+                Add(model);
+        }
+
+        foreach (var model in requiredModels)
+            Add(model);
+
+        return result;
+    }
+
+    /// <summary>
     /// Normalize any model string to its canonical slug form.
     /// Handles display names like "Claude Opus 4.5", "GPT-5.1-Codex", 
     /// "Gemini 3 Pro (Preview)", and already-correct slugs.
