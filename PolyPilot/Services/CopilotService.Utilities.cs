@@ -141,7 +141,9 @@ public partial class CopilotService
             // The old whitelist missed intermediate states like assistant.turn_end (between
             // tool rounds), assistant.message, and tool.execution_complete, causing
             // actively-processing sessions to be incorrectly detected as idle on restore.
-            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown" };
+            // session.idle is ephemeral (never on disk). session.start means session was
+            // created but never used — not actively processing. All are non-active states.
+            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown", "session.start" };
             return !terminalEvents.Contains(type);
         }
         catch { return false; }
@@ -815,7 +817,7 @@ public partial class CopilotService
                 models.Sort(StringComparer.OrdinalIgnoreCase);
                 if (models.Count > 0)
                 {
-                    AvailableModels = models;
+                    _localAvailableModels = models;
                     ModelDisplayNames = displayNames;
                     Debug($"Loaded {models.Count} models from SDK (ids)");
                     OnStateChanged?.Invoke();

@@ -903,14 +903,18 @@ public partial class CopilotService
                     }
 
                     // Now safe to resume — the CLI is idle, no tools to interrupt.
-                    try
+                    // Only connect if user hasn't already connected via SendPromptAsync
+                    if (state.Session == null)
                     {
-                        await EnsureSessionConnectedAsync(sessionName, state, ct);
-                        Debug($"[POLL] '{sessionName}' lazy-resume complete after poll");
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug($"[POLL] '{sessionName}' lazy-resume failed: {ex.Message}");
+                        try
+                        {
+                            await EnsureSessionConnectedAsync(sessionName, state, ct);
+                            Debug($"[POLL] '{sessionName}' lazy-resume complete after poll");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug($"[POLL] '{sessionName}' lazy-resume failed: {ex.Message}");
+                        }
                     }
 
                     // Complete the response — the session is done.
@@ -939,7 +943,7 @@ public partial class CopilotService
 
             if ((DateTime.UtcNow - started) >= maxPollTime)
             {
-                Debug($"[POLL] '{sessionName}' poll timed out after {maxPollTime.TotalMinutes:F0} minutes");
+                Debug($"[POLL-TIMEOUT] '{sessionName}' poll timed out after {maxPollTime.TotalMinutes:F0} minutes — cleaning up");
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -949,6 +953,24 @@ public partial class CopilotService
         catch (Exception ex)
         {
             Debug($"[POLL] '{sessionName}' poll error: {ex.Message}");
+        }
+        finally
+        {
+            // Safety net: if IsProcessing is still true and generation hasn't changed,
+            // clear it so the session doesn't appear stuck indefinitely.
+            var finalGen = Interlocked.Read(ref state.ProcessingGeneration);
+            if (state.Info.IsProcessing && state.Session == null)
+            {
+                InvokeOnUI(() =>
+                {
+                    if (Interlocked.Read(ref state.ProcessingGeneration) != finalGen) return;
+                    if (!state.Info.IsProcessing) return;
+                    Debug($"[POLL-CLEANUP] '{sessionName}' clearing stuck IsProcessing after poll exit");
+                    FlushCurrentResponse(state);
+                    CompleteResponse(state, finalGen);
+                    NotifyStateChanged();
+                });
+            }
         }
     }
 

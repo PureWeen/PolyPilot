@@ -306,7 +306,6 @@ public class StuckSessionRecoveryTests
     [InlineData("assistant.turn_end")]       // between tool rounds — still processing
     [InlineData("assistant.message")]        // mid-turn text — still processing
     [InlineData("tool.execution_end")]       // tool just completed — still processing
-    [InlineData("session.start")]            // session just started — still processing
     public void IsSessionStillProcessing_AllActiveEventTypes_ReturnTrue(string eventType)
     {
         var svc = CreateService();
@@ -332,6 +331,7 @@ public class StuckSessionRecoveryTests
     [InlineData("session.idle")]
     [InlineData("session.error")]
     [InlineData("session.shutdown")]
+    [InlineData("session.start")]     // created but never used — not actively processing
     public void IsSessionStillProcessing_TerminalEventTypes_ReturnFalse(string eventType)
     {
         var svc = CreateService();
