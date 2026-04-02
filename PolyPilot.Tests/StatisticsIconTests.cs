@@ -85,8 +85,12 @@ public class StatisticsIconTests
     {
         // The SVG icon must use stroke="currentColor" so it inherits the CSS color
         var content = File.ReadAllText(SidebarRazorPath);
-        var buttonMatch = Regex.Match(content, @"title=""Statistics""[^>]*>(<svg[^<]*(?:<[^/]*/>)*</svg>)");
-        Assert.True(buttonMatch.Success, "Statistics button SVG not found");
+        var buttonMatch = Regex.Match(
+            content,
+            @"<button\s[^>]*title=""Statistics""[^>]*>(.*?)</button>",
+            RegexOptions.Singleline);
+        Assert.True(buttonMatch.Success, "Statistics button markup not found");
+        Assert.Contains("<svg", buttonMatch.Groups[1].Value);
         Assert.Contains("stroke=\"currentColor\"", buttonMatch.Groups[1].Value);
     }
 

@@ -6,6 +6,8 @@
 @switch (Message.MessageType)
 {
     case ChatMessageType.User:
+        var _primaryUserCopyText = ChatCopyPayloads.GetPrimaryCopyText(Message);
+        var _fullPromptCopyText = ChatCopyPayloads.GetOrchestrationPromptCopyText(Message);
         <div class="chat-msg user">
             @if (!Compact)
             {
@@ -20,7 +22,14 @@
                     }
                 </div>
             }
-            <div class="chat-msg-content">
+            <div class="chat-msg-content copyable-bubble">
+                @if (!Compact && !string.IsNullOrEmpty(_primaryUserCopyText))
+                {
+                    <CopyToClipboardButton Text="@_primaryUserCopyText"
+                                           Title="Copy message"
+                                           CopiedTitle="Copied message"
+                                           CssClass="message-copy-btn bubble-copy-btn" />
+                }
                 @if (Compact)
                 {
                     <span class="chat-msg-role">You</span>
@@ -30,6 +39,15 @@
                     <div class="chat-msg-text">@((MarkupString)ChatMessageList.FormatUserMessage(Message.OriginalContent))</div>
                     <details class="orchestration-prompt-details">
                         <summary>Full orchestration prompt</summary>
+                        @if (!string.IsNullOrEmpty(_fullPromptCopyText))
+                        {
+                            <div class="orchestration-prompt-toolbar">
+                                <CopyToClipboardButton Text="@_fullPromptCopyText"
+                                                       Title="Copy full prompt"
+                                                       CopiedTitle="Copied full prompt"
+                                                       CssClass="message-copy-btn inline-copy-btn" />
+                            </div>
+                        }
                         <div class="orchestration-prompt-content">@((MarkupString)ChatMessageList.FormatUserMessage(Message.Content))</div>
                     </details>
                 }
@@ -46,12 +64,20 @@
         break;
 
     case ChatMessageType.Assistant:
+        var _assistantCopyText = ChatCopyPayloads.GetPrimaryCopyText(Message);
         <div class="chat-msg assistant @(IsStreaming ? "streaming" : "")">
             @if (!Compact)
             {
                 <div class="chat-msg-avatar"><img src="PolyPilot_logo.png" width="36" height="36" alt="PolyPilot" /></div>
             }
-            <div class="chat-msg-content">
+            <div class="chat-msg-content copyable-bubble">
+                @if (!Compact && !string.IsNullOrEmpty(_assistantCopyText))
+                {
+                    <CopyToClipboardButton Text="@_assistantCopyText"
+                                           Title="Copy message"
+                                           CopiedTitle="Copied message"
+                                           CssClass="message-copy-btn bubble-copy-btn" />
+                }
                 @if (Compact)
                 {
                     <span class="chat-msg-role">AI</span>
@@ -75,14 +101,24 @@
         }
         else
         {
+            var _reasoningCopyText = ChatCopyPayloads.GetPrimaryCopyText(Message);
             <div class="reasoning-block @(Message.IsCollapsed && ChatMessageList.LineCount(Message.Content) > 5 ? "collapsed" : "")">
-                <button class="reasoning-header" @onclick="() => Message.IsCollapsed = !Message.IsCollapsed">
-                    <span class="reasoning-title">💡 @(Message.IsComplete ? "Thought" : "Thinking...")</span>
-                    @if (ChatMessageList.LineCount(Message.Content) > 5)
+                <div class="reasoning-header">
+                    <button type="button" class="reasoning-toggle" @onclick="() => Message.IsCollapsed = !Message.IsCollapsed">
+                        <span class="reasoning-title">💡 @(Message.IsComplete ? "Thought" : "Thinking...")</span>
+                        @if (ChatMessageList.LineCount(Message.Content) > 5)
+                        {
+                            <span class="collapse-icon">@(Message.IsCollapsed ? "▶" : "▼")</span>
+                        }
+                    </button>
+                    @if (!string.IsNullOrEmpty(_reasoningCopyText))
                     {
-                        <span class="collapse-icon">@(Message.IsCollapsed ? "▶" : "▼")</span>
+                        <CopyToClipboardButton Text="@_reasoningCopyText"
+                                               Title="Copy reasoning"
+                                               CopiedTitle="Copied reasoning"
+                                               CssClass="message-copy-btn inline-copy-btn" />
                     }
-                </button>
+                </div>
                 @if (!Message.IsCollapsed || ChatMessageList.LineCount(Message.Content) <= 5)
                 {
                     <div class="reasoning-content">@Message.Content</div>
@@ -105,7 +141,15 @@
         }
         else if (Message.ToolName == "task_complete")
         {
-            <div class="task-complete-card">
+            var _taskCompleteCopyText = ChatCopyPayloads.GetPrimaryCopyText(Message);
+            <div class="task-complete-card copyable-status-card">
+                @if (!string.IsNullOrEmpty(_taskCompleteCopyText))
+                {
+                    <CopyToClipboardButton Text="@_taskCompleteCopyText"
+                                           Title="Copy completion message"
+                                           CopiedTitle="Copied completion message"
+                                           CssClass="message-copy-btn status-copy-btn" />
+                }
                 ✅
                 <span class="task-complete-text">@(string.IsNullOrEmpty(Message.Content) || ChatMessageList.IsUnusableResult(Message.Content) ? "Task complete" : Message.Content)</span>
             </div>
@@ -115,6 +159,8 @@
             var _hasOutput = Message.IsComplete && !string.IsNullOrEmpty(Message.Content) && !ChatMessageList.IsUnusableResult(Message.Content);
             var _hasExpandableInput = Message.ToolName == "bash" && !string.IsNullOrEmpty(Message.ToolInput);
             var _canExpand = _hasOutput || _hasExpandableInput;
+            var _inputCopyText = ChatCopyPayloads.GetToolInputCopyText(Message);
+            var _outputCopyText = ChatCopyPayloads.GetToolOutputCopyText(Message);
             @* Unified command box: header + input always visible, output collapsible *@
             <div class="action-box @(ChatMessageList.GetActionLabel(Message.ToolName ?? "").CssClass) @(Message.IsComplete ? (Message.IsSuccess ? "done" : "failed") : "running")">
                 <div class="action-header @(_canExpand ? "expandable" : "")"
@@ -123,6 +169,13 @@
                     <span class="action-dot"></span>
                     <span class="action-label">@(ChatMessageList.GetActionLabel(Message.ToolName ?? "").Label)</span>
                     <span class="action-desc @(ChatMessageList.IsPathTool(Message.ToolName ?? "") ? "truncate-head" : "")">@ChatMessageList.FormatActionDescriptionCompact(Message.ToolName ?? "", Message.ToolInput, Message.Content, Message.IsComplete)</span>
+                    @if (!string.IsNullOrEmpty(_inputCopyText))
+                    {
+                        <CopyToClipboardButton Text="@_inputCopyText"
+                                               Title="Copy tool input"
+                                               CopiedTitle="Copied tool input"
+                                               CssClass="message-copy-btn action-copy-btn" />
+                    }
                     @if (_canExpand)
                     {
                         <span class="action-chevron">@(Message.IsCollapsed ? "▶" : "▼")</span>
@@ -139,6 +192,14 @@
                     <div class="action-output-toggle" @onclick="() => { if (_hasOutput) Message.IsCollapsed = !Message.IsCollapsed; }" @onclick:stopPropagation="true">
                         <span class="toggle-icon">@(Message.IsCollapsed ? "▶" : "▼")</span>
                         <span class="toggle-label">Output</span>
+                        <span class="action-output-spacer"></span>
+                        @if (!string.IsNullOrEmpty(_outputCopyText))
+                        {
+                            <CopyToClipboardButton Text="@_outputCopyText"
+                                                   Title="Copy tool output"
+                                                   CopiedTitle="Copied tool output"
+                                                   CssClass="message-copy-btn action-copy-btn" />
+                        }
                         @if (!string.IsNullOrEmpty(Message.ImageDataUri) || ChatMessageList.GetImagePath(Message.Content) is string _)
                         {
                             <span class="output-hint">🖼 image</span>
@@ -181,7 +242,8 @@
         break;
 
     case ChatMessageType.Error:
-        <div class="@(Compact ? "chat-msg error" : "error-card")">
+        var _errorCopyText = ChatCopyPayloads.GetPrimaryCopyText(Message);
+        <div class="@(Compact ? "chat-msg error" : "error-card copyable-status-card")">
             @if (Compact)
             {
                 <span class="chat-msg-role">⚠️</span>
@@ -189,6 +251,13 @@
             }
             else
             {
+                @if (!string.IsNullOrEmpty(_errorCopyText))
+                {
+                    <CopyToClipboardButton Text="@_errorCopyText"
+                                           Title="Copy error"
+                                           CopiedTitle="Copied error"
+                                           CssClass="message-copy-btn status-copy-btn" />
+                }
                 <span class="error-icon">⚠️</span>
                 <span class="error-text">@Message.Content</span>
             }
@@ -197,13 +266,31 @@
 
     case ChatMessageType.System:
         <div class="chat-msg system @(Message.Content.Contains("\n-") ? "system-multiline" : "")">
-            <div class="system-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content, RepoUrl))</div>
+            <div class="system-copy-panel">
+                @if (!Compact && !string.IsNullOrEmpty(ChatCopyPayloads.GetPrimaryCopyText(Message)))
+                {
+                    <CopyToClipboardButton Text="@ChatCopyPayloads.GetPrimaryCopyText(Message)"
+                                           Title="Copy system message"
+                                           CopiedTitle="Copied system message"
+                                           CssClass="message-copy-btn panel-copy-btn" />
+                }
+                <div class="system-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content, RepoUrl))</div>
+            </div>
         </div>
         break;
 
     case ChatMessageType.ShellOutput:
         <div class="chat-msg shell-output">
-            <pre class="shell-output-text">@Message.Content</pre>
+            <div class="shell-output-panel">
+                @if (!Compact && !string.IsNullOrEmpty(ChatCopyPayloads.GetPrimaryCopyText(Message)))
+                {
+                    <CopyToClipboardButton Text="@ChatCopyPayloads.GetPrimaryCopyText(Message)"
+                                           Title="Copy shell output"
+                                           CopiedTitle="Copied shell output"
+                                           CssClass="message-copy-btn panel-copy-btn" />
+                }
+                <pre class="shell-output-text copyable-shell-output">@Message.Content</pre>
+            </div>
         </div>
         break;
 
@@ -220,6 +307,13 @@
                 <div class="reflection-header">
                     <span class="reflection-pill-small">Reflection Cycle</span>
                     <span>Iteration @rData.Iteration / @rData.Max</span>
+                    @if (!Compact && !string.IsNullOrEmpty(ChatCopyPayloads.GetPrimaryCopyText(Message)))
+                    {
+                        <CopyToClipboardButton Text="@ChatCopyPayloads.GetPrimaryCopyText(Message)"
+                                               Title="Copy reflection"
+                                               CopiedTitle="Copied reflection"
+                                               CssClass="message-copy-btn inline-copy-btn" />
+                    }
                 </div>
                 <div class="reflection-body">
                     <div class="reflection-goal">Target: @rData.Goal</div>
@@ -235,7 +329,16 @@
         else
         {
             <div class="chat-msg reflection">
-                <div class="reflection-text">@Message.Content</div>
+                <div class="reflection-text-panel">
+                    @if (!Compact && !string.IsNullOrEmpty(ChatCopyPayloads.GetPrimaryCopyText(Message)))
+                    {
+                        <CopyToClipboardButton Text="@ChatCopyPayloads.GetPrimaryCopyText(Message)"
+                                               Title="Copy reflection"
+                                               CopiedTitle="Copied reflection"
+                                               CssClass="message-copy-btn panel-copy-btn" />
+                    }
+                    <div class="reflection-text">@Message.Content</div>
+                </div>
             </div>
         }
         break;

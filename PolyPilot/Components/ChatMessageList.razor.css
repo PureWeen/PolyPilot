@@ -1005,3 +1005,164 @@
 .reconnect-btn:hover {
     background: rgba(255, 170, 0, 0.3);
 }
+
+/* === Copy-first interaction overrides === */
+::deep .copy-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.8rem;
+    height: 1.8rem;
+    min-width: 1.8rem;
+    padding: 0;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.15s ease, color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+    flex-shrink: 0;
+}
+
+::deep .copy-icon-btn:hover {
+    opacity: 1;
+    color: var(--text-primary);
+    border-color: var(--control-border);
+    background: rgba(255, 255, 255, 0.04);
+}
+
+::deep .copy-icon-btn:focus-visible {
+    opacity: 1;
+    color: var(--text-primary);
+    border-color: rgba(var(--accent-rgb, 78,168,209), 0.45);
+    background: rgba(var(--accent-rgb, 78,168,209), 0.08);
+    outline: none;
+}
+
+::deep .copy-icon-btn.copied {
+    opacity: 1;
+    color: #22c55e;
+    border-color: rgba(34, 197, 94, 0.35);
+    background: rgba(34, 197, 94, 0.08);
+}
+
+::deep .copyable-bubble {
+    position: relative;
+}
+
+.chat-message-list.full ::deep .chat-msg.user .chat-msg-content.copyable-bubble,
+.chat-message-list.full ::deep .chat-msg.assistant .chat-msg-content.copyable-bubble {
+    padding-right: 2.9rem;
+}
+
+::deep .bubble-copy-btn,
+::deep .panel-copy-btn,
+::deep .status-copy-btn {
+    position: absolute;
+    top: 0.45rem;
+    right: 0.45rem;
+}
+
+::deep .inline-copy-btn,
+::deep .action-copy-btn {
+    margin-left: 0.2rem;
+}
+
+::deep .reasoning-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: default;
+}
+
+::deep .reasoning-toggle {
+    background: none;
+    border: none;
+    color: rgba(168, 85, 247, 0.7);
+    font-size: var(--type-body);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.25rem 0;
+    width: 100%;
+    flex: 1;
+    text-align: left;
+}
+
+::deep .reasoning-toggle:hover {
+    color: rgba(196, 129, 255, 0.85);
+}
+
+::deep .orchestration-prompt-toolbar {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: 0.4rem;
+}
+
+::deep .system-copy-panel,
+::deep .reflection-text-panel,
+::deep .shell-output-panel,
+::deep .copyable-status-card {
+    position: relative;
+}
+
+::deep .system-copy-panel,
+::deep .reflection-text-panel {
+    display: inline-block;
+    max-width: min(100%, 960px);
+    padding-right: 2.35rem;
+}
+
+::deep .shell-output-panel {
+    width: 100%;
+}
+
+::deep .copyable-shell-output {
+    padding-top: 1.1rem;
+    padding-right: 2.8rem;
+}
+
+::deep .task-complete-card.copyable-status-card,
+::deep .error-card.copyable-status-card {
+    padding-right: 2.9rem;
+}
+
+.chat-message-list.full ::deep .action-desc,
+.chat-message-list.full ::deep .action-item .action-desc {
+    flex: 1;
+}
+
+::deep .action-output-spacer {
+    flex: 1;
+    min-width: 0;
+}
+
+::deep .action-output-toggle .output-hint {
+    margin-left: 0;
+}
+
+.chat-message-list.full ::deep .chat-msg-content:hover .copy-icon-btn,
+.chat-message-list.full ::deep .reasoning-block:hover .copy-icon-btn,
+.chat-message-list.full ::deep .action-box:hover .copy-icon-btn,
+.chat-message-list.full ::deep .action-item:hover .copy-icon-btn,
+.chat-message-list.full ::deep .system-copy-panel:hover .copy-icon-btn,
+.chat-message-list.full ::deep .reflection-text-panel:hover .copy-icon-btn,
+.chat-message-list.full ::deep .shell-output-panel:hover .copy-icon-btn,
+.chat-message-list.full ::deep .copyable-status-card:hover .copy-icon-btn,
+.chat-message-list.full ::deep .reflection-header:hover .copy-icon-btn,
+.chat-message-list.full ::deep .orchestration-prompt-toolbar:hover .copy-icon-btn {
+    opacity: 0.78;
+}
+
+.chat-message-list.full ::deep .copy-icon-btn.copied,
+.chat-message-list.full ::deep .copy-icon-btn:focus-visible {
+    opacity: 1;
+}
+
+@media (max-width: 640px) {
+    ::deep .copy-icon-btn {
+        opacity: 0.78;
+    }
+}

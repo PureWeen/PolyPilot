@@ -1,5 +1,6 @@
 @using PolyPilot.Services
 @using PolyPilot.Models
+@using PolyPilot.Provider
 @using System.Diagnostics
 @inject CopilotService CopilotService
 @inject CodespaceService CodespaceService
@@ -18,127 +19,174 @@
                    Session.IsProcessing ? "busy" : "";
     if (IsDisabled) cssClass += " cs-disconnected";
     if (IsWorkerChild) cssClass += " worker-child";
-    // Prefer SDK-reported context window; fall back to accumulated totals
-    var hasContextWindow = Session.ContextCurrentTokens > 0 && Session.ContextTokenLimit > 0;
-    var totalTokens = Session.TotalInputTokens + Session.TotalOutputTokens;
-    var hasTokens = hasContextWindow || totalTokens > 0;
+    var currentTokens = UsageInfo?.CurrentTokens ?? Session.ContextCurrentTokens;
+    var tokenLimit = UsageInfo?.TokenLimit ?? Session.ContextTokenLimit;
+    var hasContextWindow = currentTokens.HasValue && tokenLimit.HasValue && tokenLimit.Value > 0;
     var contextPct = hasContextWindow 
-        ? Math.Min(100.0, (double)Session.ContextCurrentTokens!.Value / Session.ContextTokenLimit!.Value * 100) 
+        ? Math.Min(100.0, Math.Max(0.0, (double)currentTokens!.Value / tokenLimit!.Value * 100))
         : 0;
     var contextColor = contextPct > 85 ? "var(--accent-primary)" : contextPct > 60 ? "#fbbf24" : "var(--accent-success)";
+    var previewText = GetSidebarPreview();
+    var truncatedPreview = !string.IsNullOrWhiteSpace(previewText)
+        ? TruncatePreview(previewText, Session.IsProcessing ? 58 : 72)
+        : null;
+    var ageText = GetRelativeAge(Session.LastUpdatedAt);
 }
-<div class="session-item @cssClass @(isPinned ? "pinned" : "") @(provider != null ? "provider-session" : "")"
+<div class="session-item @cssClass @(isPinned ? "pinned" : "") @(provider != null ? "provider-session" : "") @(CompactMode ? "compact" : "")"
      data-session-name="@Session.Name"
      style="@(provider != null ? $"border-left: 3px solid {provider.AccentColor};" : "")"
      @onclick="async () => { if (!IsDisabled) await OnSelect.InvokeAsync(); }"
      @oncontextmenu="OpenContextMenu"
      @oncontextmenu:preventDefault="true">
     <div class="session-info">
-        <span class="session-name">
-            @if (ShortcutIndex is > 0 and <= 9)
-            {
-                <span class="shortcut-badge" title="⌘@ShortcutIndex">@ShortcutIndex</span>
-            }
-            @if (isPinned)
-            {
-                <span class="pin-badge" title="Pinned" @onclick="() => OnPin.InvokeAsync(false)" @onclick:stopPropagation="true">📌</span>
-            }
-            @if (IsCompleted)
-            {
-                <span class="done-badge">✅</span>
-            }
-            @if (IsRenaming)
-            {
-                <input type="text" class="rename-input" id="renameInput"
-                       value="@Session.Name"
-                       @onclick:stopPropagation="true"
-                       @oncontextmenu:stopPropagation="true"
-                       @onblur="() => OnCommitRename.InvokeAsync()"
-                       @onkeyup="HandleRenameKeyUp" />
-            }
-            else
-            {
-                @if (provider != null)
-                {
-                    <span class="provider-icon" title="@provider.DisplayName">@provider.Icon</span>
-                }
-                <span class="session-name-text" @ondblclick="() => OnStartRename.InvokeAsync()" @ondblclick:stopPropagation="true">@(providerDisplayName ?? Session.Name)</span>
-                @if (Meta?.Role == MultiAgentRole.Orchestrator)
-                {
-                    <span class="role-badge orchestrator" title="Orchestrator">🎯</span>
-                }
-                @if (Session.UnreadCount > 0)
-                {
-                    <span class="unread-badge">@Session.UnreadCount</span>
-                }
-                @if (_prUrl != null && PlatformHelper.IsDesktop)
-                {
-                    <button class="pr-badge" title="@_prUrl">@_prLabel</button>
-                }
-                @if (provider != null && Session.IsProcessing)
-                {
-                    <span class="processing-indicator" style="color: @provider.AccentColor;">●</span>
-                }
-            }
-        </span>
-        <div class="session-meta-row">
-            <span class="session-meta">
-                @Session.MessageCount msgs@(Session.Model != "resumed" ? $" • {CopilotService.GetEffectiveModel(Session.Name)}" : "")
-                @if (Meta?.PreferredModel != null && Meta.PreferredModel != Session.Model)
-                {
-                    <span class="model-override" title="Model override: @Meta.PreferredModel">⚡</span>
-                }
-                @if (Session.HasPermissionIssue)
-                {
-                    <span class="permission-warn-icon" title="Permission errors — reconnect needed">⚠️</span>
-                }
-                @if (Session.IsProcessing)
-                {
-                    <span class="processing"> • @GetShortProcessingStatus()</span>
-                }
-                @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
-                {
-                    <text> • @GetShortPath(Session.WorkingDirectory)</text>
-                }
-            </span>
-        </div>
-        @if (hasContextWindow)
+        @if (CompactMode && !IsRenaming)
         {
-            <div class="context-bar-row">
-                <div class="context-bar-track">
-                    <div class="context-bar-fill" style="width: @($"{contextPct:F0}")%; background: @contextColor;"></div>
+            <div class="session-compact-shell" title="@GetCompactTitle(providerDisplayName ?? Session.Name)">
+                <div class="session-compact-avatar">
+                    <span class="session-compact-glyph">@GetCompactGlyph(provider, providerDisplayName)</span>
+                    @if (Session.UnreadCount > 0)
+                    {
+                        <span class="session-compact-unread">@Session.UnreadCount</span>
+                    }
                 </div>
-                <span class="context-bar-label">@FormatTokenCount(Session.ContextCurrentTokens!.Value)/@FormatTokenCount(Session.ContextTokenLimit!.Value)</span>
-            </div>
-        }
-        else if (hasTokens)
-        {
-            <div class="context-bar-row">
-                <span class="context-bar-label">↑@FormatTokenCount(Session.TotalInputTokens) ↓@FormatTokenCount(Session.TotalOutputTokens)</span>
-            </div>
-        }
-        @{
-            var lastPrompt = Session.LastUserPrompt;
-            var ageText = GetRelativeAge(Session.LastUpdatedAt);
-        }
-        @if (!string.IsNullOrEmpty(lastPrompt))
-        {
-            var truncated = lastPrompt.Length > 60 ? lastPrompt.Substring(0, 57) + "…" : lastPrompt;
-            <div class="session-last-prompt" title="@lastPrompt">
-                @if (Session.NeedsAttention)
+                <span class="session-compact-label">@(providerDisplayName ?? Session.Name)</span>
+                @if (ShortcutIndex is > 0 and <= 9)
                 {
-                    <span class="attention-icon">💬</span>
+                    <span class="shortcut-badge compact-shortcut" title="⌘@ShortcutIndex">@ShortcutIndex</span>
                 }
-                <span>@truncated</span>
-                <span class="session-age">@ageText</span>
             </div>
         }
-        else if (!string.IsNullOrEmpty(ageText))
+        else
         {
-            <div class="session-age-only">@ageText</div>
+            <div class="session-top-row">
+                <span class="session-name">
+                    @if (ShortcutIndex is > 0 and <= 9)
+                    {
+                        <span class="shortcut-badge" title="⌘@ShortcutIndex">@ShortcutIndex</span>
+                    }
+                    @if (isPinned)
+                    {
+                        <span class="pin-badge" title="Pinned" aria-label="Pinned" @onclick="() => OnPin.InvokeAsync(false)" @onclick:stopPropagation="true"></span>
+                    }
+                    @if (IsCompleted)
+                    {
+                        <span class="done-badge" title="Completed" aria-label="Completed"></span>
+                    }
+                    @if (IsRenaming)
+                    {
+                        <input type="text" class="rename-input" id="renameInput"
+                               value="@Session.Name"
+                               @onclick:stopPropagation="true"
+                               @oncontextmenu:stopPropagation="true"
+                               @onblur="() => OnCommitRename.InvokeAsync()"
+                               @onkeyup="HandleRenameKeyUp" />
+                    }
+                     else
+                     {
+                         @if (provider != null)
+                         {
+                             <span class="provider-icon" title="@provider.DisplayName">@provider.Icon</span>
+                         }
+                         <span class="session-name-text" @ondblclick="() => OnStartRename.InvokeAsync()" @ondblclick:stopPropagation="true">@(providerDisplayName ?? Session.Name)</span>
+                         @if (Meta?.Role == MultiAgentRole.Orchestrator && !HideRoleBadge)
+                         {
+                             <span class="role-badge orchestrator" title="Orchestrator" aria-label="Orchestrator"></span>
+                         }
+                        @if (Session.UnreadCount > 0)
+                        {
+                            <span class="unread-badge">@Session.UnreadCount</span>
+                        }
+                        @if (_prUrl != null && PlatformHelper.IsDesktop)
+                        {
+                            <button class="pr-badge" title="@_prUrl">@_prLabel</button>
+                        }
+                        @if (Meta?.PreferredModel != null && Meta.PreferredModel != Session.Model)
+                        {
+                            <span class="model-override" title="Model override: @Meta.PreferredModel" aria-label="Model override"></span>
+                        }
+                        @if (Session.HasPermissionIssue)
+                        {
+                            <span class="permission-warn-icon" title="Permission errors — reconnect needed">⚠️</span>
+                        }
+                        @if (provider != null && Session.IsProcessing)
+                        {
+                            <span class="processing-indicator" style="color: @provider.AccentColor;">●</span>
+                        }
+                    }
+                </span>
+            </div>
+            @if (!string.IsNullOrEmpty(truncatedPreview) || !string.IsNullOrEmpty(ageText) || Session.IsProcessing || !string.IsNullOrEmpty(Session.WorkingDirectory))
+            {
+                <div class="session-last-prompt" title="@BuildPreviewTitle(previewText, ageText)">
+                    @if (Session.IsProcessing)
+                    {
+                        <span class="session-status-pill">@GetShortProcessingStatus()</span>
+                    }
+                    else if (Session.NeedsAttention)
+                    {
+                        <span class="attention-icon" title="Needs attention" aria-label="Needs attention"></span>
+                    }
+                    @if (!string.IsNullOrEmpty(truncatedPreview))
+                    {
+                        <span class="session-preview-text">@truncatedPreview</span>
+                    }
+                    else if (!string.IsNullOrEmpty(Session.WorkingDirectory))
+                    {
+                        <span class="session-preview-text session-preview-fallback">@GetShortPath(Session.WorkingDirectory)</span>
+                    }
+                    @if (!string.IsNullOrEmpty(ageText))
+                    {
+                        <span class="session-age">@ageText</span>
+                    }
+                </div>
+            }
+            @if (ShowInlineModeControl && InlineMode is { } inlineMode)
+            {
+                <div class="session-inline-mode-row" @onclick:stopPropagation="true">
+                    <div class="session-inline-mode-picker">
+                        <span class="session-inline-mode-icon @GetInlineModeIconClass(inlineMode)" aria-hidden="true"></span>
+                        <select class="session-inline-mode-select"
+                                aria-label="Orchestration mode"
+                                value="@inlineMode.ToString()"
+                                @onclick:stopPropagation="true"
+                                @onchange="HandleInlineModeChanged">
+                            <option value="@MultiAgentMode.Broadcast">Broadcast</option>
+                            <option value="@MultiAgentMode.Sequential">Sequential</option>
+                            <option value="@MultiAgentMode.Orchestrator">Orchestrate</option>
+                            <option value="@MultiAgentMode.OrchestratorReflect">Reflect</option>
+                        </select>
+                    </div>
+                    @if (ShowChildrenToggle && ChildCount > 0)
+                    {
+                        <button class="session-children-toggle session-children-toggle-inline @(AreChildrenCollapsed ? "collapsed" : "expanded")"
+                                @onclick:stopPropagation="true"
+                                @onclick="() => OnToggleChildren.InvokeAsync()"
+                                title="@(AreChildrenCollapsed ? $"Show {ChildCount} nested session{(ChildCount == 1 ? "" : "s")}" : $"Hide {ChildCount} nested session{(ChildCount == 1 ? "" : "s")}")">
+                            <span class="session-children-count">@ChildCount</span>
+                            <span class="session-children-chevron @(AreChildrenCollapsed ? "collapsed" : "expanded")" aria-hidden="true"></span>
+                        </button>
+                    }
+                </div>
+            }
         }
     </div>
     <div class="session-actions">
+        @if (ShowChildrenToggle && ChildCount > 0 && !ShowInlineModeControl)
+        {
+            <button class="session-children-toggle @(AreChildrenCollapsed ? "collapsed" : "expanded")"
+                    @onclick:stopPropagation="true"
+                    @onclick="() => OnToggleChildren.InvokeAsync()"
+                    title="@(AreChildrenCollapsed ? $"Show {ChildCount} nested session{(ChildCount == 1 ? "" : "s")}" : $"Hide {ChildCount} nested session{(ChildCount == 1 ? "" : "s")}")">
+                <span class="session-children-count">@ChildCount</span>
+                <span class="session-children-chevron @(AreChildrenCollapsed ? "collapsed" : "expanded")" aria-hidden="true"></span>
+            </button>
+        }
+        @if (hasContextWindow)
+        {
+            <span class="session-context-ring"
+                  style="@($"--ring-progress:{contextPct:F0}%; --ring-color:{contextColor};")"
+                  title="Context window: @FormatTokenCount(currentTokens!.Value)/@FormatTokenCount(tokenLimit!.Value)"></span>
+        }
         <button class="more-btn" @ref="_moreBtnRef" @onclick:stopPropagation="true"
                 @onclick="() => OnToggleMenu.InvokeAsync()" title="More actions">⋯</button>
         @if (IsMenuOpen)
@@ -274,6 +322,13 @@
     [Parameter] public SessionUsageInfo? UsageInfo { get; set; }
     [Parameter] public bool IsWorkerChild { get; set; }
     [Parameter] public bool IsMultiAgentMember { get; set; }
+    [Parameter] public bool CompactMode { get; set; }
+    [Parameter] public bool ShowChildrenToggle { get; set; }
+    [Parameter] public bool AreChildrenCollapsed { get; set; }
+    [Parameter] public int ChildCount { get; set; }
+    [Parameter] public bool ShowInlineModeControl { get; set; }
+    [Parameter] public bool HideRoleBadge { get; set; }
+    [Parameter] public MultiAgentMode? InlineMode { get; set; }
 
     [Parameter] public EventCallback OnSelect { get; set; }
     [Parameter] public EventCallback OnClose { get; set; }
@@ -288,6 +343,8 @@
     [Parameter] public EventCallback OnFixWithCopilot { get; set; }
     [Parameter] public EventCallback OnAnalyze { get; set; }
     [Parameter] public EventCallback OnContinueInNewSession { get; set; }
+    [Parameter] public EventCallback OnToggleChildren { get; set; }
+    [Parameter] public EventCallback<MultiAgentMode> OnInlineModeChanged { get; set; }
 
     private ElementReference _moreBtnRef;
     private bool _menuPositioned;
@@ -397,6 +454,88 @@
     {
         if (e.Key == "Enter") await OnCommitRename.InvokeAsync();
         else if (e.Key == "Escape") await OnCloseMenu.InvokeAsync();
+    }
+
+    private string GetCompactGlyph(ISessionProvider? provider, string? providerDisplayName)
+    {
+        if (provider != null)
+            return provider.Icon.ToString();
+        if (Meta?.Role == MultiAgentRole.Orchestrator)
+            return "O";
+        if (IsWorkerChild)
+            return "W";
+
+        var source = providerDisplayName ?? Session.Name;
+        var ch = source.FirstOrDefault(char.IsLetterOrDigit);
+        return ch == default ? "•" : char.ToUpperInvariant(ch).ToString();
+    }
+
+    private static string GetInlineModeIconClass(MultiAgentMode mode) => mode switch
+    {
+        MultiAgentMode.Broadcast => "broadcast",
+        MultiAgentMode.Sequential => "sequential",
+        MultiAgentMode.Orchestrator => "orchestrator",
+        MultiAgentMode.OrchestratorReflect => "reflect",
+        _ => "orchestrator"
+    };
+
+    private async Task HandleInlineModeChanged(ChangeEventArgs e)
+    {
+        if (e.Value is string value && Enum.TryParse<MultiAgentMode>(value, out var mode))
+            await OnInlineModeChanged.InvokeAsync(mode);
+    }
+
+    private string GetCompactTitle(string name)
+    {
+        var parts = new List<string> { name };
+        if (Session.IsProcessing)
+            parts.Add(GetShortProcessingStatus());
+        else
+        {
+            var age = GetRelativeAge(Session.LastUpdatedAt);
+            if (!string.IsNullOrEmpty(age))
+                parts.Add(age);
+        }
+
+        if (Session.UnreadCount > 0)
+            parts.Add($"{Session.UnreadCount} unread");
+
+        return string.Join(" • ", parts);
+    }
+
+    private string? GetSidebarPreview()
+    {
+        var lastUserPrompt = Session.LastUserPrompt;
+        if (!string.IsNullOrWhiteSpace(lastUserPrompt))
+            return lastUserPrompt;
+
+        try
+        {
+            ChatMessage[] snapshot;
+            lock (Session.HistoryLock) { snapshot = Session.History.ToArray(); }
+            return snapshot.LastOrDefault(m =>
+                !string.IsNullOrWhiteSpace(m.Content) &&
+                m.MessageType is ChatMessageType.User or ChatMessageType.Assistant)?.Content;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static string TruncatePreview(string preview, int maxLength)
+    {
+        var normalized = string.Join(" ", preview.Split(['\r', '\n', '\t'], StringSplitOptions.RemoveEmptyEntries));
+        return normalized.Length <= maxLength ? normalized : normalized[..(maxLength - 1)] + "…";
+    }
+
+    private static string BuildPreviewTitle(string? preview, string? ageText)
+    {
+        if (string.IsNullOrWhiteSpace(preview))
+            return ageText ?? string.Empty;
+        if (string.IsNullOrWhiteSpace(ageText))
+            return preview;
+        return $"{preview}\n{ageText}";
     }
 
     private void OnPreferredModelChanged(ChangeEventArgs e)

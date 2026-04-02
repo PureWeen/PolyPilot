@@ -161,6 +161,7 @@ public class PerformanceOptimizationTests
         svc.SaveUiState("/dashboard", expandedGrid: true);
         svc.SaveUiState("/dashboard", expandedSession: "s1");
         svc.SaveUiState("/dashboard", inputModes: new Dictionary<string, string> { ["s1"] = "chat" });
+        svc.SaveUiState("/dashboard", sidebarRailMode: true);
     }
 
     // --- Organization operations don't corrupt state ---
@@ -227,13 +228,14 @@ public class PerformanceOptimizationTests
         var svc = CreateService();
 
         // Save with debounce (1s timer, won't fire yet)
-        svc.SaveUiState("/dashboard", activeSession: "my-session", fontSize: 22);
+        svc.SaveUiState("/dashboard", activeSession: "my-session", fontSize: 22, sidebarRailMode: true);
 
         // Immediately load — should get the pending state, not stale disk
         var loaded = svc.LoadUiState();
         Assert.NotNull(loaded);
         Assert.Equal("my-session", loaded!.ActiveSession);
         Assert.Equal(22, loaded.FontSize);
+        Assert.True(loaded.SidebarRailMode);
     }
 
     [Fact]

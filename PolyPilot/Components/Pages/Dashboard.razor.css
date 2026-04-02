@@ -95,6 +95,21 @@
     position: relative;
 }
 
+/* Prevent accidental blue text-selection sweeps while dragging around the grid/board.
+   Keep expanded chat copyable by scoping this to non-expanded dashboard mode only. */
+.dashboard:not(.expanded-mode) {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+.dashboard:not(.expanded-mode) input,
+.dashboard:not(.expanded-mode) textarea,
+.dashboard:not(.expanded-mode) select,
+.dashboard:not(.expanded-mode) .auth-command {
+    -webkit-user-select: text;
+    user-select: text;
+}
+
 .dashboard-header {
     display: flex;
     align-items: center;

@@ -27,6 +27,7 @@
   <!-- Include source files from main project that are testable without MAUI -->
   <ItemGroup>
     <Compile Include="../PolyPilot/Models/ChatMessage.cs" Link="Shared/ChatMessage.cs" />
+    <Compile Include="../PolyPilot/Models/ChatCopyPayloads.cs" Link="Shared/ChatCopyPayloads.cs" />
     <Compile Include="../PolyPilot/Models/AgentSessionInfo.cs" Link="Shared/AgentSessionInfo.cs" />
     <Compile Include="../PolyPilot/Models/SynchronizedMessageQueue.cs" Link="Shared/SynchronizedMessageQueue.cs" />
     <Compile Include="../PolyPilot/Models/AuditLogEntry.cs" Link="Shared/AuditLogEntry.cs" />

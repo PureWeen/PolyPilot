@@ -170,39 +170,51 @@ public class TurnEndFallbackTests
     public async Task ToolFallback_CancelledByTurnStart_DoesNotFire()
     {
         // Simulates: TurnEnd (tools used) starts timer -> TurnStart arrives -> cancels -> no fire
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         var token = cts.Token;
-        bool completeResponseFired = false;
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
         var fallbackTask = Task.Run(async () =>
         {
             try
             {
                 await Task.Delay(50, token); // accelerated base delay (mirrors other tests in this file)
-                if (token.IsCancellationRequested) return;
+                if (token.IsCancellationRequested)
+                {
+                    completion.TrySetResult(false);
+                    return;
+                }
                 await Task.Delay(100, token); // accelerated extended delay
-                if (token.IsCancellationRequested) return;
-                completeResponseFired = true;
+                if (token.IsCancellationRequested)
+                {
+                    completion.TrySetResult(false);
+                    return;
+                }
+                completion.TrySetResult(true);
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                completion.TrySetResult(false);
+            }
         });
 
         await Task.Delay(50);
         cts.Cancel();
-        cts.Dispose();
         await fallbackTask;
-        Assert.False(completeResponseFired, "Fallback must not fire when cancelled by TurnStart");
+        var completedTask = await Task.WhenAny(completion.Task, Task.Delay(5000));
+        Assert.True(completedTask == completion.Task, "Cancelled fallback task should complete within 5s");
+        Assert.False(await completion.Task, "Fallback must not fire when cancelled by TurnStart");
     }
 
     [Fact]
     public async Task ToolFallback_NoTurnStart_EventuallyFires()
     {
         // Simulates: TurnEnd (tools used) + no TurnStart + no SessionIdle -> fallback fires
-        var cts = new CancellationTokenSource();
+        using var cts = new CancellationTokenSource();
         var token = cts.Token;
-        bool completeResponseFired = false;
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-        _ = Task.Run(async () =>
+        var fallbackTask = Task.Run(async () =>
         {
             try
             {
@@ -210,12 +222,17 @@ public class TurnEndFallbackTests
                 if (token.IsCancellationRequested) return;
                 await Task.Delay(100, token); // accelerated extended delay
                 if (token.IsCancellationRequested) return;
-                completeResponseFired = true;
+                completion.TrySetResult(true);
             }
-            catch (OperationCanceledException) { }
+            catch (OperationCanceledException)
+            {
+                completion.TrySetResult(false);
+            }
         });
 
-        await Task.Delay(800);
-        Assert.True(completeResponseFired, "Fallback must fire when no TurnStart or SessionIdle arrives");
+        var completedTask = await Task.WhenAny(completion.Task, Task.Delay(5000));
+        Assert.True(completedTask == completion.Task, "Fallback must complete within 5s when not cancelled");
+        await fallbackTask;
+        Assert.True(await completion.Task, "Fallback must fire when no TurnStart or SessionIdle arrives");
     }
 }

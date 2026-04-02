@@ -22,6 +22,7 @@ main {
 .sidebar {
     background: var(--bg-secondary);
     position: relative;
+    transition: width 0.24s ease, min-width 0.24s ease, background 0.24s ease;
 }
 
 /* Mobile: hide desktop sidebar, show top bar + flyout */
@@ -98,14 +99,22 @@ main {
     }
 
     .sidebar {
-        width: 17.5rem;
-        min-width: 240px;
+        width: 19rem;
+        min-width: 260px;
         max-width: 600px;
         height: 100vh;
-        position: sticky;        top: 0;
+        position: sticky;
+        top: 0;
         flex-shrink: 0;
         overflow: visible;
         z-index: 1;
+    }
+
+    .sidebar.rail-mode {
+        width: 5.5rem;
+        min-width: 5.5rem;
+        max-width: 5.5rem;
+        overflow: hidden;
     }
 
     .sidebar-resize-handle {
@@ -123,5 +132,9 @@ main {
     .sidebar-resize-handle:hover,
     .sidebar-resize-handle:active {
         background: rgba(100, 140, 255, 0.4);
+    }
+
+    .sidebar.rail-mode .sidebar-resize-handle {
+        display: none;
     }
 }

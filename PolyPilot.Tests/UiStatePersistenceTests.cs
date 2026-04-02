@@ -17,6 +17,7 @@ public class UiStatePersistenceTests
         Assert.Null(state.ActiveSession);
         Assert.Equal(20, state.FontSize);
         Assert.Empty(state.InputModes);
+        Assert.False(state.SidebarRailMode);
     }
 
     [Fact]
@@ -27,6 +28,7 @@ public class UiStatePersistenceTests
             CurrentPage = "/dashboard",
             ActiveSession = "my-session",
             FontSize = 16,
+            SidebarRailMode = true,
             InputModes = new Dictionary<string, string>
             {
                 ["my-session"] = "autopilot",
@@ -41,6 +43,7 @@ public class UiStatePersistenceTests
         Assert.Equal("/dashboard", restored!.CurrentPage);
         Assert.Equal("my-session", restored.ActiveSession);
         Assert.Equal(16, restored.FontSize);
+        Assert.True(restored.SidebarRailMode);
         Assert.Equal("autopilot", restored.InputModes["my-session"]);
         Assert.Equal("plan", restored.InputModes["another-session"]);
     }
@@ -65,6 +68,7 @@ public class UiStatePersistenceTests
         Assert.NotNull(restored);
         Assert.NotNull(restored!.InputModes);
         Assert.Empty(restored.InputModes);
+        Assert.False(restored.SidebarRailMode);
     }
 
     [Fact]

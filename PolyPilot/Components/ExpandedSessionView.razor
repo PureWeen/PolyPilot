@@ -14,6 +14,10 @@
     var cardClass = Session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
     var providerDisplayName = CopilotService.GetProviderSessionDisplayName(Session.Name);
     var displayName = providerDisplayName ?? Session.Name;
+    var headerInputTokens = UsageInfo?.InputTokens ?? (Session.TotalInputTokens > 0 ? Session.TotalInputTokens : null);
+    var headerOutputTokens = UsageInfo?.OutputTokens ?? (Session.TotalOutputTokens > 0 ? Session.TotalOutputTokens : null);
+    var headerCurrentTokens = UsageInfo?.CurrentTokens ?? Session.ContextCurrentTokens;
+    var headerTokenLimit = UsageInfo?.TokenLimit ?? Session.ContextTokenLimit;
 }
 <div class="expanded-card @cardClass" data-session="@Session.Name">
     <div class="chat-header">
@@ -57,6 +61,14 @@
                     @if (!string.IsNullOrEmpty(Session.GitBranch))
                     {
                         <div class="info-row"><span class="info-label">Branch</span><span class="info-value">@Session.GitBranch</span></div>
+                    }
+                    @if (headerInputTokens.HasValue || headerOutputTokens.HasValue)
+                    {
+                        <div class="info-row"><span class="info-label">Tokens</span><span class="info-value">↑@FormatTokenCount(headerInputTokens ?? 0) ↓@FormatTokenCount(headerOutputTokens ?? 0)</span></div>
+                    }
+                    @if (headerCurrentTokens.HasValue && headerTokenLimit.HasValue && headerTokenLimit.Value > 0)
+                    {
+                        <div class="info-row"><span class="info-label">Context</span><span class="info-value">@FormatTokenCount(headerCurrentTokens.Value)/@FormatTokenCount(headerTokenLimit.Value)</span></div>
                     }
                     @if (UsageInfo?.PremiumQuota != null)
                     {
@@ -306,19 +318,16 @@
             </select>
             <div class="status-spacer"></div>
             <span class="status-extra">
-                @if (UsageInfo != null)
+                @if (headerInputTokens.HasValue || headerOutputTokens.HasValue)
                 {
-                    @if (UsageInfo.InputTokens.HasValue || UsageInfo.OutputTokens.HasValue)
-                    {
-                        <span class="status-tokens" title="Token usage: ↑ input tokens sent, ↓ output tokens received">↑@FormatTokenCount(UsageInfo.InputTokens ?? 0) ↓@FormatTokenCount(UsageInfo.OutputTokens ?? 0)</span>
-                    }
-                    @if (UsageInfo.CurrentTokens.HasValue && UsageInfo.TokenLimit.HasValue)
-                    {
-                        var pct = (double)UsageInfo.CurrentTokens.Value / UsageInfo.TokenLimit.Value;
-                        var ctxColor = pct > 0.9 ? "#ef4444" : pct > 0.75 ? "#fbbf24" : "inherit";
-                        <span class="status-sep">·</span>
-                        <span class="status-ctx" style="color:@ctxColor" title="Context window usage — current tokens / maximum tokens">@FormatTokenCount(UsageInfo.CurrentTokens.Value)/@FormatTokenCount(UsageInfo.TokenLimit.Value) ctx</span>
-                    }
+                    <span class="status-tokens" title="Token usage: ↑ input tokens sent, ↓ output tokens received">↑@FormatTokenCount(headerInputTokens ?? 0) ↓@FormatTokenCount(headerOutputTokens ?? 0)</span>
+                }
+                @if (headerCurrentTokens.HasValue && headerTokenLimit.HasValue && headerTokenLimit.Value > 0)
+                {
+                    var pct = (double)headerCurrentTokens.Value / headerTokenLimit.Value;
+                    var ctxColor = pct > 0.9 ? "#ef4444" : pct > 0.75 ? "#fbbf24" : "inherit";
+                    <span class="status-sep">·</span>
+                    <span class="status-ctx" style="color:@ctxColor" title="Context window usage — current tokens / maximum tokens">@FormatTokenCount(headerCurrentTokens.Value)/@FormatTokenCount(headerTokenLimit.Value) ctx</span>
                 }
             </span>
         </div>

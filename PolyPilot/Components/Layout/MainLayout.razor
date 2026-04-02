@@ -3,9 +3,11 @@
 @using PolyPilot.Models
 @implements IDisposable
 
-<div class="page @(flyoutOpen ? "flyout-open" : "")">
-    <div class="sidebar desktop-only">
-        <SessionSidebar OnToggleStatistics="ToggleStatistics" />
+<div class="page @(flyoutOpen ? "flyout-open" : "") @(sidebarRailMode ? "rail-mode" : "")">
+    <div class="sidebar desktop-only @(sidebarRailMode ? "rail-mode" : "")">
+        <SessionSidebar OnToggleStatistics="ToggleStatistics"
+                        IsDesktopRailMode="sidebarRailMode"
+                        OnDesktopRailModeChanged="HandleDesktopRailModeChanged" />
         <div class="sidebar-resize-handle" @onmousedown="StartResize"></div>
     </div>
 
@@ -31,6 +33,7 @@
 @code {
     private bool flyoutOpen;
     private bool showStatistics;
+    private bool sidebarRailMode;
     private int fontSize = 20;
     private Timer? _holidayTimer;
     private bool _lastHolidayCheck;
@@ -46,7 +49,7 @@
     [JSInvokable]
     public void NavigateToSettings()
     {
-        CopilotService.SaveUiState("/settings");
+        CopilotService.SaveUiState("/settings", sidebarRailMode: sidebarRailMode);
         NavManager.NavigateTo("/settings");
     }
 
@@ -85,6 +88,8 @@
                     fontSize = uiState.FontSize;
                     await ApplyFontSize();
                 }
+
+                sidebarRailMode = uiState.SidebarRailMode;
 
                 TutorialService.LoadCompleted(uiState.CompletedTutorials);
                 
@@ -157,7 +162,7 @@
     {
         fontSize = Math.Clamp(fontSize + delta, 12, 24);
         await ApplyFontSize();
-        CopilotService.SaveUiState("/", fontSize: fontSize);
+        CopilotService.SaveUiState(GetCurrentPage(), fontSize: fontSize, sidebarRailMode: sidebarRailMode);
     }
 
     private async Task ApplyFontSize()
@@ -167,6 +172,9 @@
 
     private async Task StartResize(MouseEventArgs e)
     {
+        if (sidebarRailMode)
+            return;
+
         await JS.InvokeVoidAsync("eval", $@"
             (function() {{
                 var sidebar = document.querySelector('.sidebar.desktop-only');
@@ -191,6 +199,14 @@
         ");
     }
 
+    private Task HandleDesktopRailModeChanged(bool enabled)
+    {
+        sidebarRailMode = enabled;
+        CopilotService.SaveUiState(GetCurrentPage(), fontSize: fontSize, sidebarRailMode: sidebarRailMode);
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
     private void ToggleFlyout()
     {
         flyoutOpen = !flyoutOpen;
@@ -210,6 +226,9 @@
     {
         showStatistics = false;
     }
+
+    private string GetCurrentPage()
+        => new Uri(NavManager.Uri).AbsolutePath;
 
     public void Dispose()
     {

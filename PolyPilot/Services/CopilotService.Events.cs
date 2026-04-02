@@ -611,17 +611,28 @@ public partial class CopilotService
                                 Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools still active");
                                 return;
                             }
-                            // Guard: if tools were used this turn, more agent rounds may follow
-                            // (TurnEnd → thinking → TurnStart → more tools). Firing CompleteResponse
-                            // here would prematurely end the turn. Skip the fallback entirely and
-                            // let the watchdog handle any genuinely stuck sessions.
-                            if (state.HasUsedToolsThisTurn)
+                            var toolsUsedThisTurn = state.HasUsedToolsThisTurn;
+                            if (toolsUsedThisTurn)
                             {
-                                Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — tools were used this turn (watchdog will handle if stuck)");
-                                return;
+                                // Tools finished, but the model may still be thinking between rounds
+                                // (TurnEnd → TurnStart gap). Wait an additional window so TurnStart
+                                // can cancel this fallback before we complete the turn prematurely.
+                                Debug($"[IDLE-FALLBACK] '{sessionName}' tools were used this turn — waiting additional " +
+                                      $"{TurnEndIdleToolFallbackAdditionalMs}ms for another round before completing");
+                                await Task.Delay(TurnEndIdleToolFallbackAdditionalMs, fallbackToken);
+                                if (fallbackToken.IsCancellationRequested) return;
+                                if (state.IsOrphaned) return;
+                                if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
+                                {
+                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped after extended wait — tools became active");
+                                    return;
+                                }
                             }
-                            Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {TurnEndIdleFallbackMs}ms after TurnEnd — firing CompleteResponse");
-                            CaptureZeroIdleDiagnostics(state, sessionName, toolsUsed: false);
+                            var totalFallbackDelayMs = toolsUsedThisTurn
+                                ? TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs
+                                : TurnEndIdleFallbackMs;
+                            Debug($"[IDLE-FALLBACK] '{sessionName}' SessionIdleEvent not received {totalFallbackDelayMs}ms after TurnEnd — firing CompleteResponse");
+                            CaptureZeroIdleDiagnostics(state, sessionName, toolsUsed: toolsUsedThisTurn);
                             InvokeOnUI(() => CompleteResponse(state, turnEndGen));
                         }
                         catch (OperationCanceledException) { /* expected on cancellation */ }
