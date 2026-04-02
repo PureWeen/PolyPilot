@@ -862,8 +862,11 @@ public partial class CopilotService
         process.StandardInput.Close();
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-        var outputTask = process.StandardOutput.ReadToEndAsync(cts.Token);
-        var errorTask = process.StandardError.ReadToEndAsync(cts.Token);
+        // Start reading streams without CTS — they'll complete when the process exits
+        // or is killed. Using CTS here causes a race: if the token fires between
+        // WaitForExitAsync returning and the await below, a successful result is lost.
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
 
         try
         {
@@ -942,9 +945,9 @@ public partial class CopilotService
         } while (true);
     }
 
-    internal static IReadOnlyList<string> ParseDirectCliModelProbeOutput(string? output)
+    internal static IReadOnlyList<string> ParseDirectCliModelProbeOutput(string? output, int maxDepth = 5)
     {
-        if (string.IsNullOrWhiteSpace(output))
+        if (string.IsNullOrWhiteSpace(output) || maxDepth <= 0)
             return Array.Empty<string>();
 
         foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
@@ -960,7 +963,7 @@ public partial class CopilotService
                     data.TryGetProperty("content", out var content) &&
                     content.ValueKind == JsonValueKind.String)
                 {
-                    var nested = ParseDirectCliModelProbeOutput(content.GetString());
+                    var nested = ParseDirectCliModelProbeOutput(content.GetString(), maxDepth - 1);
                     if (nested.Count > 0)
                         return nested;
                 }
@@ -984,7 +987,8 @@ public partial class CopilotService
                         .EnumerateArray()
                         .Where(e => e.ValueKind == JsonValueKind.String)
                         .Select(e => e.GetString())
-                        .Where(s => !string.IsNullOrWhiteSpace(s)));
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .Where(s => Models.ModelHelper.IsValidModelSlug(Models.ModelHelper.NormalizeToSlug(s))));
             }
             catch (JsonException)
             {

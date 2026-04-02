@@ -3353,7 +3353,9 @@
     // === Model, plan mode, font, token helpers ===
 
     private IReadOnlyList<string> availableModels =>
-        ModelHelper.BuildSelectionList(CopilotService.AvailableModels, CopilotService.DefaultModel);
+        ModelHelper.BuildSelectionList(CopilotService.AvailableModels, CopilotService.DefaultModel)
+            is { Count: > 1 } list ? list
+            : ModelHelper.BuildSelectionList(ModelHelper.FallbackModels, CopilotService.DefaultModel);
 
     private string GetSessionModel(AgentSessionInfo session)
     {

@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace PolyPilot.Models;
 
@@ -10,6 +11,15 @@ namespace PolyPilot.Models;
 /// </summary>
 public static class ModelHelper
 {
+    private static readonly Regex ValidSlugPattern = new(@"^[a-z0-9][-a-z0-9.]*$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Returns true if the string looks like a valid model slug
+    /// (lowercase alphanumeric with hyphens and dots, e.g. "claude-opus-4.6").
+    /// </summary>
+    public static bool IsValidModelSlug(string? slug) =>
+        !string.IsNullOrEmpty(slug) && ValidSlugPattern.IsMatch(slug);
+
     public static IReadOnlyList<string> FallbackModels { get; } = new[]
     {
         "claude-opus-4.6",
