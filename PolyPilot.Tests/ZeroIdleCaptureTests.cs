@@ -7,7 +7,7 @@ namespace PolyPilot.Tests;
 /// Tests for the zero-idle capture diagnostics feature (#359).
 /// Validates capture file format, field population, and retention purge.
 /// </summary>
-[Collection("ZeroIdleCapture")]
+[Collection("BaseDir")]
 public class ZeroIdleCaptureTests : IDisposable
 {
     private readonly string _testDir;

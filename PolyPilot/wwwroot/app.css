@@ -259,6 +259,104 @@
     --diff-stat-del: #f43f5e;
 }
 
+/* Amber Dark */
+[data-theme="amber-dark"] {
+    --bg-primary: #0a0906;
+    --bg-secondary: #14120c;
+    --bg-tertiary: #1c1912;
+    --bg-input: rgba(255,200,100,0.05);
+    --text-primary: #d5ccc0;
+    --text-secondary: #b0a698;
+    --text-muted: #6e6458;
+    --text-bright: #f0ece6;
+    --border-subtle: rgba(255,255,255,0.08);
+    --border-default: rgba(255,255,255,0.12);
+    --accent-primary: #d4890a;
+    --accent-rgb: 212,137,10;
+    --accent-link: #e09820;
+    --accent-success: #7ab648;
+    --accent-warning: #f0c040;
+    --accent-error: #e05040;
+    --accent-purple: #c0885a;
+    --hover-bg: rgba(255,255,255,0.07);
+    --control-bg: rgba(255,255,255,0.08);
+    --control-border: rgba(255,255,255,0.16);
+    --border-accent: rgba(212,137,10,0.3);
+    --text-on-surface: rgba(255,255,255,0.72);
+    --text-dim: rgba(255,255,255,0.35);
+    --chat-user-bg: rgba(212, 137, 10, 0.18);
+    --chat-user-border: rgba(212, 137, 10, 0.3);
+    --chat-user-text: #e0a830;
+    --chat-assistant-bg: rgba(122, 182, 72, 0.1);
+    --chat-assistant-border: rgba(122, 182, 72, 0.2);
+    --chat-assistant-text: #7ab648;
+    --toast-bg: linear-gradient(135deg, #1c1912, #0a0906);
+    --safe-area-bg: #14120c;
+    --diff-add-bg: rgba(122,182,72,0.12);
+    --diff-add-text: #b8e088;
+    --diff-del-bg: rgba(224,80,64,0.15);
+    --diff-del-text: #f0a898;
+    --diff-ln-add: rgba(122,182,72,0.7);
+    --diff-ln-del: rgba(224,80,64,0.7);
+    --diff-badge-new-bg: rgba(122,182,72,0.2);
+    --diff-badge-new-text: #7ab648;
+    --diff-badge-del-bg: rgba(224,80,64,0.2);
+    --diff-badge-del-text: #e05040;
+    --diff-badge-mod-bg: rgba(212,137,10,0.2);
+    --diff-badge-mod-text: #d4890a;
+    --diff-stat-add: #7ab648;
+    --diff-stat-del: #e05040;
+}
+
+/* Amber Light */
+[data-theme="amber-light"] {
+    --bg-primary: #fefdfb;
+    --bg-secondary: #f8f5ef;
+    --bg-tertiary: #f0ece4;
+    --bg-input: rgba(0,0,0,0.03);
+    --text-primary: #302820;
+    --text-secondary: #5a5048;
+    --text-muted: #908478;
+    --text-bright: #1a1410;
+    --border-subtle: rgba(0,0,0,0.08);
+    --border-default: rgba(0,0,0,0.12);
+    --accent-primary: #b87308;
+    --accent-rgb: 184,115,8;
+    --accent-link: #9a6108;
+    --accent-success: #548a28;
+    --accent-warning: #c89a10;
+    --accent-error: #c03020;
+    --accent-purple: #8a6040;
+    --chat-user-bg: rgba(184, 115, 8, 0.12);
+    --chat-user-border: rgba(184, 115, 8, 0.25);
+    --chat-user-text: #9a6108;
+    --chat-assistant-bg: rgba(84, 138, 40, 0.08);
+    --chat-assistant-border: rgba(84, 138, 40, 0.2);
+    --chat-assistant-text: #3a7018;
+    --hover-bg: rgba(0,0,0,0.05);
+    --control-bg: rgba(0,0,0,0.05);
+    --control-border: rgba(0,0,0,0.12);
+    --border-accent: rgba(184,115,8,0.3);
+    --text-on-surface: rgba(0,0,0,0.65);
+    --text-dim: rgba(0,0,0,0.35);
+    --toast-bg: linear-gradient(135deg, #f8f5ef, #f0ece4);
+    --safe-area-bg: #f8f5ef;
+    --diff-add-bg: rgba(84,138,40,0.15);
+    --diff-add-text: #2a5a08;
+    --diff-del-bg: rgba(192,48,32,0.15);
+    --diff-del-text: #7a1810;
+    --diff-ln-add: #3a7018;
+    --diff-ln-del: #b02820;
+    --diff-badge-new-bg: rgba(84,138,40,0.15);
+    --diff-badge-new-text: #3a7018;
+    --diff-badge-del-bg: rgba(192,48,32,0.15);
+    --diff-badge-del-text: #b02820;
+    --diff-badge-mod-bg: rgba(184,115,8,0.15);
+    --diff-badge-mod-text: #7a5800;
+    --diff-stat-add: #3a7018;
+    --diff-stat-del: #b02820;
+}
+
 /* System theme: follow OS preference */
 @media (prefers-color-scheme: light) {
     [data-theme="system"] {
@@ -405,6 +503,104 @@
         --diff-badge-mod-text: #7a5b00;
         --diff-stat-add: #4a5700;
         --diff-stat-del: #b5201e;
+    }
+}
+
+/* System theme (Amber): follow OS preference with Amber palette */
+[data-theme="system-amber"] {
+    --bg-primary: #0a0906;
+    --bg-secondary: #14120c;
+    --bg-tertiary: #1c1912;
+    --bg-input: rgba(255,200,100,0.05);
+    --text-primary: #d5ccc0;
+    --text-secondary: #b0a698;
+    --text-muted: #6e6458;
+    --text-bright: #f0ece6;
+    --border-subtle: rgba(255,255,255,0.08);
+    --border-default: rgba(255,255,255,0.12);
+    --accent-primary: #d4890a;
+    --accent-rgb: 212,137,10;
+    --accent-link: #e09820;
+    --accent-success: #7ab648;
+    --accent-warning: #f0c040;
+    --accent-error: #e05040;
+    --accent-purple: #c0885a;
+    --chat-user-bg: rgba(212, 137, 10, 0.18);
+    --chat-user-border: rgba(212, 137, 10, 0.3);
+    --chat-user-text: #e0a830;
+    --chat-assistant-bg: rgba(122, 182, 72, 0.1);
+    --chat-assistant-border: rgba(122, 182, 72, 0.2);
+    --chat-assistant-text: #7ab648;
+    --hover-bg: rgba(255,255,255,0.07);
+    --control-bg: rgba(255,255,255,0.08);
+    --control-border: rgba(255,255,255,0.16);
+    --border-accent: rgba(212,137,10,0.3);
+    --text-on-surface: rgba(255,255,255,0.72);
+    --text-dim: rgba(255,255,255,0.35);
+    --toast-bg: linear-gradient(135deg, #1c1912, #0a0906);
+    --safe-area-bg: #14120c;
+    --diff-add-bg: rgba(122,182,72,0.12);
+    --diff-add-text: #b8e088;
+    --diff-del-bg: rgba(224,80,64,0.15);
+    --diff-del-text: #f0a898;
+    --diff-ln-add: rgba(122,182,72,0.7);
+    --diff-ln-del: rgba(224,80,64,0.7);
+    --diff-badge-new-bg: rgba(122,182,72,0.2);
+    --diff-badge-new-text: #7ab648;
+    --diff-badge-del-bg: rgba(224,80,64,0.2);
+    --diff-badge-del-text: #e05040;
+    --diff-badge-mod-bg: rgba(212,137,10,0.2);
+    --diff-badge-mod-text: #d4890a;
+    --diff-stat-add: #7ab648;
+    --diff-stat-del: #e05040;
+}
+@media (prefers-color-scheme: light) {
+    [data-theme="system-amber"] {
+        --bg-primary: #fefdfb;
+        --bg-secondary: #f8f5ef;
+        --bg-tertiary: #f0ece4;
+        --bg-input: rgba(0,0,0,0.03);
+        --text-primary: #302820;
+        --text-secondary: #5a5048;
+        --text-muted: #908478;
+        --text-bright: #1a1410;
+        --border-subtle: rgba(0,0,0,0.08);
+        --border-default: rgba(0,0,0,0.12);
+        --accent-primary: #b87308;
+        --accent-rgb: 184,115,8;
+        --accent-link: #9a6108;
+        --accent-success: #548a28;
+        --accent-warning: #c89a10;
+        --accent-error: #c03020;
+        --accent-purple: #8a6040;
+        --chat-user-bg: rgba(184, 115, 8, 0.12);
+        --chat-user-border: rgba(184, 115, 8, 0.25);
+        --chat-user-text: #9a6108;
+        --chat-assistant-bg: rgba(84, 138, 40, 0.08);
+        --chat-assistant-border: rgba(84, 138, 40, 0.2);
+        --chat-assistant-text: #3a7018;
+        --hover-bg: rgba(0,0,0,0.05);
+        --control-bg: rgba(0,0,0,0.05);
+        --control-border: rgba(0,0,0,0.12);
+        --border-accent: rgba(184,115,8,0.3);
+        --text-on-surface: rgba(0,0,0,0.65);
+        --text-dim: rgba(0,0,0,0.35);
+        --toast-bg: linear-gradient(135deg, #f8f5ef, #f0ece4);
+        --safe-area-bg: #f8f5ef;
+        --diff-add-bg: rgba(84,138,40,0.15);
+        --diff-add-text: #2a5a08;
+        --diff-del-bg: rgba(192,48,32,0.15);
+        --diff-del-text: #7a1810;
+        --diff-ln-add: #3a7018;
+        --diff-ln-del: #b02820;
+        --diff-badge-new-bg: rgba(84,138,40,0.15);
+        --diff-badge-new-text: #3a7018;
+        --diff-badge-del-bg: rgba(192,48,32,0.15);
+        --diff-badge-del-text: #b02820;
+        --diff-badge-mod-bg: rgba(184,115,8,0.15);
+        --diff-badge-mod-text: #7a5800;
+        --diff-stat-add: #3a7018;
+        --diff-stat-del: #b02820;
     }
 }
 

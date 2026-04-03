@@ -1,75 +1,184 @@
 /* === New Session Button (collapsed state) === */
 .new-session-btn {
     width: 100%;
-    padding: 0.5rem 1rem;
-    border: none;
-    border-radius: 8px;
-    background: none;
-    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.015));
+    color: var(--text-primary);
     cursor: pointer;
     font-size: var(--type-body);
     font-weight: 500;
-    transition: all 0.15s;
+    text-align: left;
+    transition: background 0.15s, border-color 0.15s, transform 0.15s;
 }
 
 .new-session-btn:hover {
+    background: linear-gradient(180deg, rgba(255,255,255,0.07), rgba(255,255,255,0.03));
+    border-color: rgba(124, 92, 252, 0.32);
+    transform: translateY(-1px);
+}
+
+.new-session-btn.compact {
+    justify-content: center;
+    padding: 0.8rem 0.5rem;
+    min-height: 4.5rem;
+}
+
+.new-session-btn.compact .new-session-btn-copy {
+    display: none;
+}
+
+.new-session-btn-icon {
+    width: 2rem;
+    height: 2rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 10px;
+    background: rgba(124, 92, 252, 0.18);
+    color: #d9d0ff;
+    font-size: var(--type-title3);
+    font-weight: 700;
+    flex-shrink: 0;
+}
+
+.new-session-btn-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+}
+
+.new-session-btn-title {
+    font-size: var(--type-callout);
+    font-weight: 650;
     color: var(--text-primary);
-    background: var(--hover-bg);
+}
+
+.new-session-btn-subtitle {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    line-height: 1.25;
 }
 
 /* === Expanded Form === */
 .new-session-form {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    padding: 0.75rem;
+    gap: 0.75rem;
+    padding: 0.9rem;
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 16px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.045), rgba(255,255,255,0.02));
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.03);
+}
+
+.new-session-form-embedded {
+    padding: 0;
     border: none;
-    border-radius: 10px;
-    background: var(--surface-secondary);
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+}
+
+.new-session-form-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.new-session-form-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    min-width: 0;
+}
+
+.new-session-form-eyebrow {
+    font-size: var(--type-caption2);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+}
+
+.new-session-form-title {
+    font-size: var(--type-callout);
+    font-weight: 650;
+    color: var(--text-primary);
+}
+
+.new-session-form-subtitle {
+    font-size: var(--type-footnote);
+    color: var(--text-dim);
+    line-height: 1.35;
+}
+
+.new-session-form-close {
+    all: unset;
+    width: 1.9rem;
+    height: 1.9rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: var(--text-dim);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.new-session-form-close:hover {
+    color: var(--text-primary);
+    background: var(--hover-bg);
 }
 
 /* === Mode Chips === */
 .ns-mode-chips {
     display: flex;
     flex-wrap: wrap;
-    gap: 0.25rem;
-    padding-bottom: 0.15rem;
+    gap: 0.4rem;
+    padding-bottom: 0.1rem;
 }
 
 .ns-chip {
     flex: 1 1 calc(50% - 0.15rem);
     min-width: 0;
-    padding: 0.3rem 0.4rem;
-    border: 1px solid var(--control-border);
-    border-radius: 6px;
-    background: none;
+    padding: 0.42rem 0.5rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.02);
     color: var(--text-dim);
     cursor: pointer;
     font-size: var(--type-callout);
-    font-weight: 500;
+    font-weight: 600;
     text-align: center;
-    transition: all 0.15s;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
     white-space: nowrap;
 }
 
 .ns-chip:hover {
     color: var(--text-primary);
-    background: var(--hover-bg);
+    background: rgba(255,255,255,0.06);
 }
 
 .ns-chip.active {
-    background: var(--accent-primary);
+    background: rgba(124, 92, 252, 0.2);
     color: #fff;
-    border-color: var(--accent-primary);
+    border-color: rgba(124, 92, 252, 0.55);
 }
 
 /* === Repo selector === */
 .ns-repo-select {
     width: 100%;
-    padding: 0.35rem 0.5rem;
-    border: 1px solid var(--control-border);
-    border-radius: 6px;
-    background: var(--control-bg);
+    padding: 0.52rem 0.7rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
     color: var(--text-primary);
     font-size: var(--type-body);
     cursor: pointer;
@@ -81,29 +190,30 @@
 }
 
 .ns-repo-label {
-    font-size: var(--type-callout);
+    font-size: var(--type-footnote);
     color: var(--text-secondary);
-    padding: 0.15rem 0;
+    padding: 0.15rem 0.1rem;
 }
 
 /* === Worktree Segment Control === */
 .ns-wt-segment {
     display: flex;
-    border: 1px solid var(--control-border);
-    border-radius: 6px;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
     overflow: hidden;
+    background: rgba(255,255,255,0.02);
 }
 
 .ns-seg {
     flex: 1;
-    padding: 0.3rem 0.2rem;
+    padding: 0.42rem 0.25rem;
     border: none;
-    border-right: 1px solid var(--control-border);
+    border-right: 1px solid rgba(255,255,255,0.06);
     background: none;
     color: var(--text-dim);
     cursor: pointer;
-    font-size: var(--type-callout);
-    font-weight: 500;
+    font-size: var(--type-footnote);
+    font-weight: 600;
     text-align: center;
     transition: all 0.15s;
     white-space: nowrap;
@@ -119,17 +229,17 @@
 }
 
 .ns-seg.active {
-    background: var(--accent-primary);
+    background: rgba(124, 92, 252, 0.22);
     color: #fff;
 }
 
 /* === Shared input style === */
 .ns-input {
     width: 100%;
-    padding: 0.4rem 0.55rem;
-    border: 1px solid var(--control-border);
-    border-radius: 6px;
-    background: var(--control-bg);
+    padding: 0.52rem 0.7rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
     color: var(--text-primary);
     font-size: var(--type-body);
     box-sizing: border-box;
@@ -154,10 +264,10 @@
 
 .ns-name {
     width: 100%;
-    padding: 0.5rem 0.65rem;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: var(--control-bg);
+    padding: 0.58rem 0.72rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
     color: var(--text-primary);
     font-size: var(--type-body);
     box-sizing: border-box;
@@ -175,10 +285,10 @@
 
 .ns-prompt {
     width: 100%;
-    padding: 0.45rem 0.65rem;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    background: var(--control-bg);
+    padding: 0.55rem 0.72rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    background: rgba(255,255,255,0.04);
     color: var(--text-primary);
     font-size: var(--type-body);
     font-family: inherit;
@@ -201,14 +311,14 @@
 /* === Directory row === */
 .ns-dir-row {
     display: flex;
-    gap: 0.3rem;
+    gap: 0.45rem;
 }
 
 .ns-dir-browse {
-    padding: 0.35rem 0.5rem;
-    background: var(--control-bg);
-    border: 1px solid var(--control-border);
-    border-radius: 6px;
+    padding: 0.45rem 0.7rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
     color: var(--text-primary);
     cursor: pointer;
     font-size: var(--type-body);
@@ -222,8 +332,8 @@
 .ns-footer {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding-top: 0.15rem;
+    gap: 0.6rem;
+    padding-top: 0.2rem;
     flex-wrap: wrap;
 }
 
@@ -239,9 +349,9 @@
 }
 
 .ns-cancel {
-    padding: 0.35rem 0.6rem;
+    padding: 0.45rem 0.7rem;
     border: none;
-    border-radius: 6px;
+    border-radius: 10px;
     background: none;
     color: var(--text-dim);
     cursor: pointer;
@@ -255,10 +365,10 @@
 }
 
 .ns-create {
-    padding: 0.35rem 0.75rem;
+    padding: 0.48rem 0.9rem;
     border: none;
-    border-radius: 6px;
-    background: var(--accent-primary);
+    border-radius: 10px;
+    background: linear-gradient(180deg, rgba(124, 92, 252, 1), rgba(108, 77, 230, 1));
     color: #fff;
     cursor: pointer;
     font-size: var(--type-body);
@@ -315,9 +425,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 0.35rem 0.5rem;
-    background: var(--surface-secondary, rgba(255,255,255,0.04));
-    border-radius: 6px;
+    padding: 0.45rem 0.6rem;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
     gap: 0.5rem;
 }
 .ns-codespace-row-stopped {
@@ -355,9 +466,9 @@
     white-space: nowrap;
 }
 .ns-cs-action {
-    padding: 0.25rem 0.5rem;
-    border: 1px solid var(--control-border);
-    border-radius: 6px;
+    padding: 0.35rem 0.6rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
     background: none;
     color: var(--text-dim);
     cursor: pointer;
@@ -375,9 +486,9 @@
     cursor: default;
 }
 .ns-cs-play {
-    padding: 0.25rem 0.5rem;
+    padding: 0.35rem 0.6rem;
     border: 1px solid var(--success, #4ade80);
-    border-radius: 6px;
+    border-radius: 10px;
     background: none;
     color: var(--success, #4ade80);
     cursor: pointer;
@@ -396,12 +507,12 @@
 
 @media (max-width: 640px) {
     .new-session-btn {
-        padding: 0.5rem 0.75rem;
+        padding: 0.65rem 0.75rem;
         font-size: var(--type-callout);
     }
 
     .new-session-form {
-        padding: 0.6rem;
+        padding: 0.7rem;
         gap: 0.4rem;
     }
 
@@ -413,4 +524,191 @@
         font-size: var(--type-caption2);
         padding: 0.25rem 0.3rem;
     }
+}
+
+/* --- Dense compose refresh --- */
+.new-session-btn {
+    gap: 0.55rem;
+    padding: 0.46rem 0.55rem;
+    border: 1px solid rgba(255,255,255,0.09);
+    border-radius: 12px;
+    background: rgba(255,255,255,0.04);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+.new-session-btn:hover {
+    background: rgba(255,255,255,0.12);
+    border-color: rgba(255,255,255,0.18);
+    transform: none;
+}
+
+.new-session-btn.compact {
+    padding: 0.4rem 0.35rem;
+    min-height: auto;
+}
+
+.new-session-btn-icon {
+    width: 1.55rem;
+    height: 1.55rem;
+    border-radius: 8px;
+    background: rgba(124, 92, 252, 0.18);
+    font-size: var(--type-callout);
+}
+
+.new-session-btn-copy {
+    gap: 0;
+    justify-content: center;
+}
+
+.new-session-btn-title {
+    font-size: var(--type-footnote);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.new-session-btn-subtitle {
+    display: none;
+}
+
+.new-session-form {
+    gap: 0.65rem;
+    padding: 0.78rem;
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 14px;
+    background: rgba(255,255,255,0.035);
+}
+
+.new-session-form-header {
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.new-session-form-copy {
+    gap: 0.05rem;
+}
+
+.new-session-form-eyebrow {
+    letter-spacing: 0.12em;
+}
+
+.new-session-form-title {
+    font-size: var(--type-body);
+    font-weight: 650;
+}
+
+.new-session-form-subtitle {
+    font-size: var(--type-caption1);
+    line-height: 1.3;
+}
+
+.new-session-form-close {
+    width: 1.65rem;
+    height: 1.65rem;
+    border-radius: 9px;
+}
+
+.ns-mode-chips {
+    gap: 0.3rem;
+}
+
+.ns-chip {
+    padding: 0.34rem 0.44rem;
+    border-radius: 9px;
+    background: rgba(255,255,255,0.03);
+    border-color: rgba(255,255,255,0.09);
+    font-size: var(--type-footnote);
+}
+
+.ns-chip:hover {
+    background: rgba(255,255,255,0.1);
+    border-color: rgba(255,255,255,0.16);
+}
+
+.ns-chip.active {
+    background: rgba(124, 92, 252, 0.24);
+    border-color: rgba(124, 92, 252, 0.42);
+}
+
+.ns-repo-select,
+.ns-input,
+.ns-name,
+.ns-prompt {
+    background: rgba(255,255,255,0.055);
+    border-color: rgba(255,255,255,0.1);
+}
+
+.ns-repo-select:focus,
+.ns-input:focus,
+.ns-name:focus,
+.ns-prompt:focus {
+    border-color: rgba(124, 92, 252, 0.55);
+}
+
+.ns-dir-browse {
+    background: rgba(255,255,255,0.055);
+    border-color: rgba(255,255,255,0.1);
+}
+
+.ns-dir-browse:hover {
+    background: rgba(255,255,255,0.12);
+}
+
+.ns-footer {
+    gap: 0.45rem;
+}
+
+.ns-footer-actions {
+    gap: 0.28rem;
+}
+
+.ns-cancel {
+    padding: 0.38rem 0.62rem;
+    border-radius: 999px;
+}
+
+.ns-cancel:hover {
+    background: rgba(255,255,255,0.12);
+}
+
+.ns-create {
+    padding: 0.4rem 0.8rem;
+    border-radius: 999px;
+}
+
+/* --- Compose refinement pass 2 --- */
+.new-session-btn {
+    padding: 0.4rem 0.48rem;
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+    border-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+}
+
+.new-session-btn:hover {
+    background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+    border-color: color-mix(in srgb, var(--text-primary) 20%, transparent);
+}
+
+.new-session-btn-title {
+    color: color-mix(in srgb, var(--text-primary) 82%, var(--text-dim));
+}
+
+.new-session-form {
+    background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+    border-color: color-mix(in srgb, var(--text-primary) 11%, transparent);
+}
+
+.ns-chip,
+.ns-repo-select,
+.ns-input,
+.ns-name,
+.ns-prompt,
+.ns-dir-browse {
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+    border-color: color-mix(in srgb, var(--text-primary) 11%, transparent);
+}
+
+.ns-chip:hover,
+.ns-dir-browse:hover {
+    background: color-mix(in srgb, var(--text-primary) 11%, transparent);
+    border-color: color-mix(in srgb, var(--text-primary) 18%, transparent);
 }

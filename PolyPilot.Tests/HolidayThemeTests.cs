@@ -74,6 +74,9 @@ public class HolidayThemeTests
     [InlineData(UiTheme.SolarizedDark, "solarized-dark")]
     [InlineData(UiTheme.SolarizedLight, "solarized-light")]
     [InlineData(UiTheme.InternationalWomensDay, "iwd")]
+    [InlineData(UiTheme.AmberDark, "amber-dark")]
+    [InlineData(UiTheme.AmberLight, "amber-light")]
+    [InlineData(UiTheme.SystemAmber, "system-amber")]
     public void GetDataThemeString_ReturnsCorrectValue(UiTheme theme, string expected)
     {
         Assert.Equal(expected, HolidayThemeHelper.GetDataThemeString(theme));
@@ -97,7 +100,8 @@ public class HolidayThemeTests
     public void ConnectionSettings_Load_PreservesNormalThemes()
     {
         foreach (var theme in new[] { UiTheme.System, UiTheme.PolyPilotDark, UiTheme.PolyPilotLight,
-                                       UiTheme.SolarizedDark, UiTheme.SolarizedLight, UiTheme.SystemSolarized })
+                                       UiTheme.SolarizedDark, UiTheme.SolarizedLight, UiTheme.SystemSolarized,
+                                       UiTheme.AmberDark, UiTheme.AmberLight, UiTheme.SystemAmber })
         {
             var settings = new ConnectionSettings { Theme = theme };
             // The guard should not change non-IWD themes

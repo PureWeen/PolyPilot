@@ -32,24 +32,30 @@ else
                     </span>
                 </div>
                 @if (!file.IsDeleted || file.Hunks.Count > 0)
-                {
-                    <div class="diff-panes">
-                        <table class="diff-table">
-                            @foreach (var hunk in file.Hunks)
-                            {
-                                @if (!string.IsNullOrEmpty(hunk.Header))
-                                {
-                                    <tr class="diff-hunk-header">
+                 {
+                     <div class="diff-panes">
+                         <table class="diff-table">
+                            <colgroup>
+                                <col class="diff-col-ln" />
+                                <col class="diff-col-code" />
+                                <col class="diff-col-ln" />
+                                <col class="diff-col-code" />
+                            </colgroup>
+                             @foreach (var hunk in file.Hunks)
+                             {
+                                 @if (!string.IsNullOrEmpty(hunk.Header))
+                                 {
+                                     <tr class="diff-hunk-header">
                                         <td colspan="4" class="hunk-label">@hunk.Header</td>
                                     </tr>
-                                }
-                                @foreach (var row in DiffParser.PairLines(hunk))
-                                {
-                                    <tr>
-                                        <td class="diff-ln @(row.Left?.Type == DiffLineType.Removed ? "ln-del" : "")">@(row.Left?.OldLineNo?.ToString() ?? "")</td>
-                                        <td class="diff-code @(row.Left == null ? "diff-blank" : row.Left.Type == DiffLineType.Removed ? "diff-del" : "diff-ctx")"><pre>@(row.Left?.Content ?? "")</pre></td>
-                                        <td class="diff-ln @(row.Right?.Type == DiffLineType.Added ? "ln-add" : "")">@(row.Right?.NewLineNo?.ToString() ?? "")</td>
-                                        <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right?.Content ?? "")</pre></td>
+                                 }
+                                 @foreach (var row in DiffParser.PairLines(hunk))
+                                 {
+                                    <tr class="diff-row">
+                                         <td class="diff-ln @(row.Left?.Type == DiffLineType.Removed ? "ln-del" : "")">@(row.Left?.OldLineNo?.ToString() ?? "")</td>
+                                         <td class="diff-code @(row.Left == null ? "diff-blank" : row.Left.Type == DiffLineType.Removed ? "diff-del" : "diff-ctx")"><pre>@(row.Left?.Content ?? "")</pre></td>
+                                         <td class="diff-ln @(row.Right?.Type == DiffLineType.Added ? "ln-add" : "")">@(row.Right?.NewLineNo?.ToString() ?? "")</td>
+                                         <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right?.Content ?? "")</pre></td>
                                     </tr>
                                 }
                             }
@@ -64,10 +70,15 @@ else
 @code {
     [Parameter] public string RawDiff { get; set; } = "";
     private List<DiffFile> Files { get; set; } = new();
+    private string? _lastRawDiff;
 
     protected override void OnParametersSet()
     {
-        Files = DiffParser.Parse(RawDiff);
+        if (RawDiff != _lastRawDiff)
+        {
+            _lastRawDiff = RawDiff;
+            Files = DiffParser.Parse(RawDiff);
+        }
     }
 
 }

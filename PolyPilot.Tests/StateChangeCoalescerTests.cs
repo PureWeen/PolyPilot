@@ -69,31 +69,34 @@ public class StateChangeCoalescerTests
     public async Task SeparateBursts_FireSeparately()
     {
         var svc = CreateService();
-        int fireCount = 0;
         var firstBurstFired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var secondBurstFired = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        int fireCount = 0;
+        int secondBurstThreshold = int.MaxValue;
         svc.OnStateChanged += () =>
         {
             var count = Interlocked.Increment(ref fireCount);
-            if (count >= 1)
-                firstBurstFired.TrySetResult();
-            if (count >= 2)
+            firstBurstFired.TrySetResult();
+            if (count >= Volatile.Read(ref secondBurstThreshold))
                 secondBurstFired.TrySetResult();
         };
 
         // First burst
         for (int i = 0; i < 10; i++)
             svc.NotifyStateChangedCoalesced();
-        var firstBurstCompleted = await Task.WhenAny(firstBurstFired.Task, Task.Delay(5000));
-        Assert.Same(firstBurstFired.Task, firstBurstCompleted);
+        await Task.WhenAny(firstBurstFired.Task, Task.Delay(3000));
+        Assert.True(firstBurstFired.Task.IsCompleted, "Expected first burst notification to fire");
+
+        // Give any straggling callbacks from the first burst a brief chance to drain
+        // before we define the threshold for the second burst.
+        await Task.Delay(250);
+        Volatile.Write(ref secondBurstThreshold, Volatile.Read(ref fireCount) + 1);
 
         // Second burst after the first coalesced notification has actually fired
         for (int i = 0; i < 10; i++)
             svc.NotifyStateChangedCoalesced();
-        var secondBurstCompleted = await Task.WhenAny(secondBurstFired.Task, Task.Delay(5000));
-        Assert.Same(secondBurstFired.Task, secondBurstCompleted);
-
-        // Small settle window for any extra coalesced fires.
+        await Task.WhenAny(secondBurstFired.Task, Task.Delay(3000));
+        Assert.True(secondBurstFired.Task.IsCompleted, "Expected second burst notification to fire");
         await Task.Delay(100);
 
         // Each burst should produce ~1 notification

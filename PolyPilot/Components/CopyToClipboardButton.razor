@@ -1,0 +1,93 @@
+@using Microsoft.JSInterop
+@implements IDisposable
+@inject IJSRuntime JS
+
+@if (!string.IsNullOrWhiteSpace(Text))
+{
+    <button type="button"
+            class="@ButtonClass"
+            title="@(_copied ? CopiedTitle : Title)"
+            aria-label="@(_copied ? CopiedTitle : Title)"
+            @onclick="CopyAsync"
+            @onclick:stopPropagation="true">
+        @if (_copied)
+        {
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <polyline points="20 6 9 17 4 12" />
+            </svg>
+        }
+        else
+        {
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+            </svg>
+        }
+    </button>
+}
+
+@code {
+    [Parameter] public string? Text { get; set; }
+    [Parameter] public string Title { get; set; } = "Copy to clipboard";
+    [Parameter] public string CopiedTitle { get; set; } = "Copied";
+    [Parameter] public string CssClass { get; set; } = "";
+
+    private bool _copied;
+    private bool _disposed;
+    private CancellationTokenSource? _copiedCts;
+
+    private string ButtonClass
+        => $"{(string.IsNullOrWhiteSpace(CssClass) ? "copy-icon-btn" : $"copy-icon-btn {CssClass}")}{(_copied ? " copied" : "")}";
+
+    private async Task CopyAsync()
+    {
+        if (string.IsNullOrWhiteSpace(Text))
+        {
+            return;
+        }
+
+        try
+        {
+            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Text);
+            _copied = true;
+            await InvokeAsync(StateHasChanged);
+            QueueReset();
+        }
+        catch
+        {
+        }
+    }
+
+    private void QueueReset()
+    {
+        _copiedCts?.Cancel();
+        _copiedCts?.Dispose();
+        _copiedCts = new CancellationTokenSource();
+        _ = ResetCopiedStateAsync(_copiedCts.Token);
+    }
+
+    private async Task ResetCopiedStateAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            await Task.Delay(1200, cancellationToken);
+            if (_disposed || cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+
+            _copied = false;
+            await InvokeAsync(StateHasChanged);
+        }
+        catch (TaskCanceledException)
+        {
+        }
+    }
+
+    public void Dispose()
+    {
+        _disposed = true;
+        _copiedCts?.Cancel();
+        _copiedCts?.Dispose();
+    }
+}

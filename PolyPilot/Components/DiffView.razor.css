@@ -63,26 +63,40 @@
 
 .diff-panes {
     overflow-x: auto;
+    max-width: 100%;
 }
 
 .diff-table {
     width: 100%;
+    min-width: 0;
     border-collapse: collapse;
     table-layout: fixed;
 }
 
+.diff-col-ln {
+    width: 3.25rem;
+}
+
+.diff-col-code {
+    width: calc((100% - 6.5rem) / 2);
+}
+
 .diff-table pre {
     margin: 0;
-    white-space: pre;
-    overflow: visible;
+    display: block;
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    overflow: hidden;
     font: inherit;
     line-height: 1.45;
 }
 
 .diff-ln {
-    width: 40px;
-    min-width: 40px;
-    max-width: 40px;
+    width: 3.25rem;
+    min-width: 3.25rem;
+    max-width: 3.25rem;
     text-align: right;
     padding: 0 6px;
     color: var(--text-dim, rgba(200,216,240,0.3));
@@ -92,9 +106,22 @@
 }
 
 .diff-code {
-    padding: 0 8px;
+    padding: 0.08rem 0.72rem;
     vertical-align: top;
-    width: calc(50% - 40px);
+    overflow: hidden;
+}
+
+.diff-row > .diff-code:nth-child(2) {
+    border-right: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
+}
+
+.diff-row > .diff-ln:nth-child(3) {
+    border-left: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.diff-row > .diff-ln,
+.diff-row > .diff-code {
+    border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
 
 .diff-ctx {

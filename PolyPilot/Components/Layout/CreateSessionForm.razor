@@ -6,13 +6,34 @@
 @inject CodespaceService CodespaceService
 @implements IDisposable
 
-@if (!isExpanded)
+@if (!EmbeddedMode && (CompactMode || !isExpanded))
 {
-    <button class="new-session-btn" @onclick="Expand">+ New Session</button>
+    <button class="new-session-btn @(CompactMode ? "compact" : "")" @onclick="HandleExpandClick" title="Create a new session">
+        <span class="new-session-btn-icon">+</span>
+        <span class="new-session-btn-copy">
+            <span class="new-session-btn-title">New session</span>
+            @if (!CompactMode)
+            {
+                <span class="new-session-btn-subtitle">Repo, folder, empty chat, or codespace</span>
+            }
+        </span>
+    </button>
 }
 else
 {
-    <div class="new-session-form">
+    <div class="new-session-form @(EmbeddedMode ? "new-session-form-embedded" : "")">
+        @if (!EmbeddedMode)
+        {
+            <div class="new-session-form-header">
+                <div class="new-session-form-copy">
+                    <span class="new-session-form-eyebrow">Compose</span>
+                    <span class="new-session-form-title">Start a focused session</span>
+                    <span class="new-session-form-subtitle">@GetFormSubtitle()</span>
+                </div>
+                <button class="new-session-form-close" @onclick="Collapse" title="Collapse new session form">✕</button>
+            </div>
+        }
+
         @* Mode chips — shown only when repos exist *@
         @if (RepoManager.Repositories.Count > 0 || PlatformHelper.IsDesktop)
         {
@@ -167,7 +188,7 @@ else
         <div class="ns-footer">
             <ModelSelector Value="@SelectedModel" ValueChanged="OnModelSelected" Models="AvailableModels" CssClass="ns-model" />
             <div class="ns-footer-actions">
-                <button class="ns-cancel" @onclick="Collapse">Cancel</button>
+                <button class="ns-cancel" @onclick="Collapse">@(EmbeddedMode ? "Close" : "Cancel")</button>
                 <button class="ns-create" @onclick="TriggerCreate"
                         disabled="@(IsCreating || isCreatingWorktree || string.IsNullOrWhiteSpace(SessionName))">
                     @if (IsCreating || isCreatingWorktree) { <span>…</span> } else { <span>Create</span> }
@@ -198,6 +219,10 @@ else
     [Parameter] public List<string> AvailableModels { get; set; } = new();
     [Parameter] public string SelectedModel { get; set; } = "claude-opus-4.6";
     [Parameter] public EventCallback<string> SelectedModelChanged { get; set; }
+    [Parameter] public bool CompactMode { get; set; }
+    [Parameter] public bool EmbeddedMode { get; set; }
+    [Parameter] public EventCallback OnRequestExpandSidebar { get; set; }
+    [Parameter] public EventCallback OnCloseRequested { get; set; }
 
     [Parameter] public EventCallback<(string Name, string Model, string? Directory, string? WorktreeId, string? InitialPrompt, string? RepoId, string? BranchName, int? PrNumber)> OnCreate { get; set; }
     [Parameter] public EventCallback OnBrowseDirectory { get; set; }
@@ -219,6 +244,34 @@ else
     private string? worktreeError;
     private bool isCreatingWorktree;
     private bool nameManuallyEdited;
+    private bool _embeddedModeActive;
+
+    private async Task HandleExpandClick()
+    {
+        if (CompactMode && OnRequestExpandSidebar.HasDelegate)
+            await OnRequestExpandSidebar.InvokeAsync();
+
+        Expand();
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (EmbeddedMode)
+        {
+            if (!_embeddedModeActive)
+            {
+                Expand();
+                _embeddedModeActive = true;
+            }
+
+            return;
+        }
+
+        _embeddedModeActive = false;
+
+        if (CompactMode)
+            isExpanded = false;
+    }
 
     protected override void OnInitialized()
     {
@@ -253,7 +306,7 @@ else
         StateHasChanged();
     }
 
-    private void Collapse()
+    private void ResetFormFields()
     {
         isExpanded = false;
         worktreeError = null;
@@ -265,12 +318,33 @@ else
         nameManuallyEdited = false;
     }
 
-    /// <summary>Called by the parent on successful session creation to close the form.</summary>
-    public void CollapseOnSuccess()
+    private async Task Collapse()
     {
-        Collapse();
+        ResetFormFields();
+
+        if (EmbeddedMode && OnCloseRequested.HasDelegate)
+            await OnCloseRequested.InvokeAsync();
+    }
+
+    /// <summary>Called by the parent on successful session creation to close the form.</summary>
+    public async Task CollapseOnSuccess()
+    {
+        ResetFormFields();
+
+        if (EmbeddedMode && OnCloseRequested.HasDelegate)
+            await OnCloseRequested.InvokeAsync();
+
         StateHasChanged();
     }
+
+    private string GetFormSubtitle() => mode switch
+    {
+        FormMode.Repo => "Branch from a repo, attach to an existing worktree, or pick a PR.",
+        FormMode.Directory => "Open a session inside any local working directory.",
+        FormMode.Empty => "Start a blank chat when you just need a quick thought partner.",
+        FormMode.Codespace => "Connect to a cloud workspace and drop straight into the task.",
+        _ => "Choose the right workspace and model for the next task."
+    };
 
     private void SetMode(FormMode newMode)
     {
@@ -352,12 +426,12 @@ else
     {
         if (!nameManuallyEdited) UpdateAutoName();
         if (e.Key == "Enter") await TriggerCreate();
-        else if (e.Key == "Escape") Collapse();
+        else if (e.Key == "Escape") await Collapse();
     }
 
     private async Task HandleKeyUp(KeyboardEventArgs e)
     {
-        if (e.Key == "Escape") Collapse();
+        if (e.Key == "Escape") await Collapse();
         else if (e.Key == "Enter") await TriggerCreate();
     }
 

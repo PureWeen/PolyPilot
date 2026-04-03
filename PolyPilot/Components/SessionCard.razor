@@ -7,113 +7,166 @@
 @{
     var providerDisplayName = CopilotService.GetProviderSessionDisplayName(Session.Name);
     var displayName = providerDisplayName ?? Session.Name;
+    var hasQueuedMessages = Session.MessageQueue.Any();
+    var showStuckFlag = Session.ConsecutiveStuckCount >= 1 && !Session.IsProcessing;
+    var activeReflectionCycle = Session.ReflectionCycle is { IsActive: true, IsPaused: false } activeRc ? activeRc : null;
+    var pausedReflectionCycle = Session.ReflectionCycle is { IsPaused: true } pausedRc ? pausedRc : null;
+    var showCardFlags =
+        Session.NeedsAttention ||
+        ActiveWorkerCount > 0 ||
+        hasQueuedMessages ||
+        !string.IsNullOrEmpty(Intent) ||
+        activeReflectionCycle != null ||
+        pausedReflectionCycle != null ||
+        showStuckFlag;
 }
 
 <div class="session-card @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : Session.NeedsAttention ? "needs-attention" : "idle") @(Meta?.IsPinned == true ? "pinned" : "") @(IsInFocusStrip ? "in-focus-strip" : "")" data-session="@Session.Name" style="@(MinHeight > 0 ? $"min-height:{MinHeight}px" : "")">
     <div class="card-header">
-        <div class="card-title" @onclick="GoToSession" style="cursor:pointer">
-            @if (Meta?.IsPinned == true)
-            {
-                <span class="card-pin-indicator">📌</span>
-            }
-            <span class="card-status-dot @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : Session.NeedsAttention ? "needs-attention" : "idle")"></span>
-            @if (IsRenaming)
-            {
-                <input type="text" class="card-rename-input" id="cardRenameInput"
-                       value="@Session.Name"
-                       @onclick:stopPropagation="true"
-                       @onblur="CommitRename"
-                       @onkeyup="HandleRenameKeyUp" />
-            }
-            else
-            {
-                <h3>@displayName</h3>
-                @if (Session.UnreadCount > 0)
-                {
-                    <span class="unread-badge">@Session.UnreadCount</span>
-                }
-                @if (_prUrl != null && PlatformHelper.IsDesktop)
-                {
-                    <button class="pr-badge" title="@_prUrl">@_prLabel</button>
-                }
-            }
-        </div>
-        <div class="card-more-wrapper">
-            <button class="card-more-btn" @onclick="ToggleMenu" @onclick:stopPropagation="true" title="More actions">⋯</button>
-            @if (IsMenuOpen)
-            {
-                <div class="menu-overlay" @onclick="() => OnCloseMenu.InvokeAsync()" @onclick:stopPropagation="true"></div>
-                <div class="card-menu" @onclick:stopPropagation="true">
-                <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
-                    ✏️ Rename
-                </button>
+        <div class="card-header-main" @onclick="GoToSession" style="cursor:pointer">
+            <div class="card-title-row">
                 @if (Meta?.IsPinned == true)
                 {
-                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.PinSession(Session.Name, false); }">
-                        📌 Unpin
-                    </button>
+                    <span class="card-pin-indicator" aria-hidden="true"></span>
+                }
+                <span class="card-status-dot @(Session.IsProcessing ? "processing" : IsCompleted ? "completed" : Session.NeedsAttention ? "needs-attention" : "idle")"></span>
+                @if (IsRenaming)
+                {
+                    <input type="text" class="card-rename-input" id="cardRenameInput"
+                           value="@Session.Name"
+                           @onclick:stopPropagation="true"
+                           @onblur="CommitRename"
+                           @onkeyup="HandleRenameKeyUp" />
                 }
                 else
                 {
-                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.PinSession(Session.Name, true); }">
-                        📌 Pin
-                    </button>
+                    <h3>@displayName</h3>
+                    @if (Session.UnreadCount > 0)
+                    {
+                        <span class="unread-badge">@Session.UnreadCount</span>
+                    }
+                    @if (_prUrl != null && PlatformHelper.IsDesktop)
+                    {
+                        <button class="pr-badge" title="@_prUrl">@_prLabel</button>
+                    }
                 }
-                <div class="card-menu-separator"></div>
-                @if (IsInFocusStrip)
-                {
-                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.RemoveFromFocus(Session.Name); }">
-                        🎯 Remove from Focus
-                    </button>
-                }
-                else
-                {
-                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.AddToFocus(Session.Name); }">
-                        🎯 Add to Focus
-                    </button>
-                }
-                <div class="card-menu-separator"></div>
-                <button class="card-menu-item destructive" @onclick="async () => { await OnCloseMenu.InvokeAsync(); _ = CopilotService.CloseSessionAsync(Session.Name); }">
-                    ✕ Close Session
-                </button>
             </div>
+        </div>
+        <div class="card-actions-bar">
+            <div class="card-more-wrapper">
+                <button class="card-more-btn card-action-segment" @onclick="ToggleMenu" @onclick:stopPropagation="true" title="More actions">⋯</button>
+                @if (IsMenuOpen)
+                {
+                    <div class="menu-overlay" @onclick="() => OnCloseMenu.InvokeAsync()" @onclick:stopPropagation="true"></div>
+                    <div class="card-menu" @onclick:stopPropagation="true">
+                    <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
+                        ✏️ Rename
+                    </button>
+                    @if (Meta?.IsPinned == true)
+                    {
+                        <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.PinSession(Session.Name, false); }">
+                            📌 Unpin
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.PinSession(Session.Name, true); }">
+                            📌 Pin
+                        </button>
+                    }
+                    <div class="card-menu-separator"></div>
+                    @if (IsInFocusStrip)
+                    {
+                        <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.RemoveFromFocus(Session.Name); }">
+                            🎯 Remove from Focus
+                        </button>
+                    }
+                    else
+                    {
+                        <button class="card-menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); CopilotService.AddToFocus(Session.Name); }">
+                            🎯 Add to Focus
+                        </button>
+                    }
+                    <div class="card-menu-separator"></div>
+                    <button class="card-menu-item destructive" @onclick="async () => { await OnCloseMenu.InvokeAsync(); _ = CopilotService.CloseSessionAsync(Session.Name); }">
+                        ✕ Close Session
+                    </button>
+                </div>
+                }
+            </div>
+            @if (Session.IsProcessing)
+            {
+                <button class="card-stop card-action-segment" @onclick="() => CopilotService.AbortSessionAsync(Session.Name)" title="Stop">■</button>
+            }
+            @if (IsInFocusStrip)
+            {
+                <button class="card-focus-up card-action-segment" @onclick="() => OnPromote.InvokeAsync()" title="Move up in Focus">⬆</button>
+                <button class="card-focus-down card-action-segment" @onclick="() => OnDemote.InvokeAsync()" title="Move down in Focus">⬇</button>
+                <button class="card-focus-remove card-action-segment" @onclick="() => OnRemoveFromFocus.InvokeAsync()" title="Remove from Focus">✕</button>
+            }
+            <button class="card-expand card-action-segment" @onclick="ExpandSession" title="Expand">⤢</button>
+        </div>
+        @if (!string.IsNullOrEmpty(Session.WorkingDirectory) || !string.IsNullOrEmpty(Session.GitBranch))
+        {
+            <div class="card-context" @onclick="GoToSession" style="cursor:pointer">
+                @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
+                {
+                    <span class="card-meta-chip card-dir" title="@Session.WorkingDirectory">@ShortenPath(Session.WorkingDirectory)</span>
+                }
+                @if (!string.IsNullOrEmpty(Session.GitBranch))
+                {
+                    <span class="card-meta-chip card-branch-sub">@Session.GitBranch</span>
+                }
+            </div>
+        }
+    </div>
+    @if (showCardFlags)
+    {
+        <div class="card-flags">
+            @if (Session.NeedsAttention)
+            {
+                <span class="card-flag attention">Awaiting response</span>
+            }
+            @if (ActiveWorkerCount > 0)
+            {
+                <span class="card-flag workers">@ActiveWorkerCount worker@(ActiveWorkerCount != 1 ? "s" : "") active</span>
+            }
+            @if (hasQueuedMessages)
+            {
+                <span class="card-flag queue">
+                    Queued @Session.MessageQueue.Count
+                    <button class="card-flag-action" @onclick="ClearQueue">Clear</button>
+                </span>
+            }
+            @if (!string.IsNullOrEmpty(Intent))
+            {
+                <span class="card-flag intent">@Intent</span>
+            }
+            @if (activeReflectionCycle != null)
+            {
+                var progress = activeReflectionCycle.MaxIterations > 0 ? (double)activeReflectionCycle.CurrentIteration / activeReflectionCycle.MaxIterations * 100 : 0;
+                var truncGoal = activeReflectionCycle.Goal.Length > 30 ? activeReflectionCycle.Goal[..27] + "…" : activeReflectionCycle.Goal;
+                <div class="card-reflection-pill">
+                    <span class="card-reflection-progress" style="width: @progress.ToString("F0")%"></span>
+                    <span class="card-reflection-label">Loop</span>
+                    <span class="card-reflection-text">@activeReflectionCycle.CurrentIteration/@activeReflectionCycle.MaxIterations · @truncGoal</span>
+                    <button class="card-reflection-stop" @onclick="() => CopilotService.StopReflectionCycle(Session.Name)" @onclick:stopPropagation="true" title="Stop reflection cycle">■</button>
+                </div>
+            }
+            @if (pausedReflectionCycle != null)
+            {
+                var truncGoal = pausedReflectionCycle.Goal.Length > 30 ? pausedReflectionCycle.Goal[..27] + "…" : pausedReflectionCycle.Goal;
+                <div class="card-reflection-pill paused">
+                    <span class="card-reflection-label">Paused</span>
+                    <span class="card-reflection-text">@pausedReflectionCycle.CurrentIteration/@pausedReflectionCycle.MaxIterations · @truncGoal</span>
+                </div>
+            }
+            @if (showStuckFlag)
+            {
+                <span class="card-flag stuck">Stuck · @Session.ConsecutiveStuckCount failures</span>
             }
         </div>
-        @if (Session.IsProcessing)
-        {
-            <button class="card-stop" @onclick="() => CopilotService.AbortSessionAsync(Session.Name)" title="Stop">■</button>
-        }
-        @if (IsInFocusStrip)
-        {
-            <button class="card-focus-up" @onclick="() => OnPromote.InvokeAsync()" title="Move up in Focus">⬆</button>
-            <button class="card-focus-down" @onclick="() => OnDemote.InvokeAsync()" title="Move down in Focus">⬇</button>
-            <button class="card-focus-remove" @onclick="() => OnRemoveFromFocus.InvokeAsync()" title="Remove from Focus">✕</button>
-        }
-        <button class="card-expand" @onclick="ExpandSession" title="Expand">⤢</button>
-    </div>
-    @if (Session.NeedsAttention)
-    {
-        <div class="attention-banner">💬 Awaiting your response</div>
     }
-    @if (ActiveWorkerCount > 0)
-    {
-        <div class="worker-active-banner">⚙️ @ActiveWorkerCount worker@(ActiveWorkerCount != 1 ? "s" : "") active</div>
-    }
-    <div class="card-context">
-        <span class="card-model">@GetSessionModel(Session)</span>
-        @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
-        {
-            <span class="card-dir" title="@Session.WorkingDirectory">📁 @ShortenPath(Session.WorkingDirectory)</span>
-        }
-        @if (!string.IsNullOrEmpty(Session.GitBranch))
-        {
-            <span class="card-branch-sub"> @Session.GitBranch</span>
-        }
-        @if (availableSkills?.Count > 0)
-        {
-            <span class="card-skills" title="@string.Join(", ", availableSkills.Select(s => s.Name))">@availableSkills.Count skill@(availableSkills.Count != 1 ? "s" : "")</span>
-        }
-    </div>
 
     <div class="card-messages">
         @{
@@ -142,7 +195,7 @@
                          RepoUrl="@RepoUrl" />
         @if (!Session.IsProcessing && string.IsNullOrEmpty(Intent) && cardMsgs.Count == 0 && !string.IsNullOrEmpty(Session.LastUserPrompt))
         {
-            <div class="card-last-prompt" title="Last prompt sent to this session">💬 @(Session.LastUserPrompt.Length > 80 ? Session.LastUserPrompt[..77] + "…" : Session.LastUserPrompt)</div>
+            <div class="card-last-prompt" title="Last prompt sent to this session">Last prompt · @(Session.LastUserPrompt.Length > 80 ? Session.LastUserPrompt[..77] + "…" : Session.LastUserPrompt)</div>
         }
     </div>
 
@@ -152,42 +205,6 @@
             <span>⚠️ @Error</span>
             <button @onclick="DismissError">✕</button>
         </div>
-    }
-
-    @if (Session.MessageQueue.Any())
-    {
-        <div class="card-queue">
-            <span class="queue-label">📋 Queued (@Session.MessageQueue.Count)</span>
-            <button class="queue-clear-btn" @onclick="ClearQueue">Clear</button>
-        </div>
-    }
-
-    @if (!string.IsNullOrEmpty(Intent))
-    {
-        <div class="intent-pill compact">💭 @Intent</div>
-    }
-
-    @if (Session.ReflectionCycle is { IsActive: true, IsPaused: false } rc)
-    {
-        var progress = rc.MaxIterations > 0 ? (double)rc.CurrentIteration / rc.MaxIterations * 100 : 0;
-        var truncGoal = rc.Goal.Length > 30 ? rc.Goal[..27] + "…" : rc.Goal;
-        <div class="card-reflection-pill">
-            <span class="card-reflection-progress" style="width: @progress.ToString("F0")%"></span>
-            <span class="card-reflection-text">🔄 @rc.CurrentIteration/@rc.MaxIterations · @truncGoal</span>
-            <button class="card-reflection-stop" @onclick="() => CopilotService.StopReflectionCycle(Session.Name)" @onclick:stopPropagation="true" title="Stop reflection cycle">■</button>
-        </div>
-    }
-    else if (Session.ReflectionCycle is { IsPaused: true } rp)
-    {
-        var truncGoal = rp.Goal.Length > 30 ? rp.Goal[..27] + "…" : rp.Goal;
-        <div class="card-reflection-pill paused">
-            <span class="card-reflection-text">⏸️ @rp.CurrentIteration/@rp.MaxIterations · @truncGoal</span>
-        </div>
-    }
-
-    @if (Session.ConsecutiveStuckCount >= 1 && !Session.IsProcessing)
-    {
-        <div class="card-stuck-banner">⚠ Stuck · @Session.ConsecutiveStuckCount consecutive failures</div>
     }
 
     @if (PendingImages.Any())
@@ -330,19 +347,6 @@
         return history.Skip(history.Count - MessageCount).ToList();
     }
 
-    private string GetSessionModel(AgentSessionInfo s)
-    {
-        var model = s.Model; 
-        // Dashboard logic: if override exists, show it.
-        // We don't pass override here. Let's assume s.Model is accurate or Meta has it.
-        // Dashboard line 193: @GetSessionModel(session)
-        // Dashboard GetSessionModel checks modelOverrideBySession.
-        // I'll skip override logic for now or rely on s.Model.
-        return model.Contains("claude-3-opus") || model.Contains("claude-opus") ? "Opus" :
-               model.Contains("claude-3-sonnet") || model.Contains("claude-sonnet") ? "Sonnet" :
-               model.Contains("gpt-4") ? "GPT-4" : model;
-    }
-
     private string ShortenPath(string path)
     {
         if (string.IsNullOrEmpty(path)) return "";
@@ -360,18 +364,8 @@
     private string _prLabel = "PR";
     private string? _lastPrCheckedDir;
 
-    private List<SkillInfo>? availableSkills;
-    private string? _lastWorkDir;
-
     protected override void OnParametersSet()
     {
-        var wd = Session.WorkingDirectory;
-        if (wd != _lastWorkDir)
-        {
-            _lastWorkDir = wd;
-            availableSkills = CopilotService.DiscoverAvailableSkills(wd);
-        }
-
         if (PlatformHelper.IsDesktop)
         {
             var dir = Session.WorkingDirectory;

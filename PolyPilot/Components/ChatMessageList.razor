@@ -33,10 +33,18 @@
             {
                 @foreach (var activity in newActivities)
                 {
+                    var activityInputCopyText = ChatCopyPayloads.GetToolInputCopyText(activity.Name, activity.Input);
                     <div class="action-item @(GetActionLabel(activity.Name).CssClass) @(activity.IsComplete ? (activity.IsSuccess ? "done" : "failed") : "running")">
                         <span class="action-dot"></span>
                         <span class="action-label">@(GetActionLabel(activity.Name).Label)</span>
                         <span class="action-desc">@FormatActionDescriptionCompact(activity.Name, activity.Input, activity.Result, activity.IsComplete)</span>
+                        @if (!string.IsNullOrEmpty(activityInputCopyText))
+                        {
+                            <CopyToClipboardButton Text="@activityInputCopyText"
+                                                   Title="Copy tool input"
+                                                   CopiedTitle="Copied tool input"
+                                                   CssClass="message-copy-btn action-copy-btn" />
+                        }
                     </div>
                 }
             }

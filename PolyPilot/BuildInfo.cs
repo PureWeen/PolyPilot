@@ -27,7 +27,11 @@ public static class BuildInfo
         if (ts.Contains('+'))
         {
             var plusIndex = ts.IndexOf('+');
-            return ts.Length > plusIndex + 1 ? ts[(plusIndex + 1)..] : "unknown";
+            if (ts.Length <= plusIndex + 1)
+                return "unknown";
+
+            var commit = ts[(plusIndex + 1)..];
+            return commit.Length > 12 ? commit[..12] : commit;
         }
         
         // If standard timestamp format (yyyy-MM-dd HH:mm:ss)

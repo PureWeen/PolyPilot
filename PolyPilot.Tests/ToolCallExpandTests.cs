@@ -15,15 +15,14 @@ public class ToolCallExpandTests
            && !string.IsNullOrEmpty(msg.Content)
            && !IsUnusableResult(msg.Content);
 
-    // Mirrors ChatMessageItem.razor line 116-117
-    // Only bash tools get input-based expansion (non-bash already show input inline)
+    // Mirrors ChatMessageItem.razor: any tool with usable output or tool input can expand.
     private static bool CanExpand(ChatMessage msg)
-        => HasOutput(msg) || (msg.ToolName == "bash" && !string.IsNullOrEmpty(msg.ToolInput));
+        => HasOutput(msg) || !string.IsNullOrEmpty(msg.ToolInput);
 
-    // Mirrors the else-if rendering condition: show full input only for bash when there is no output
-    // (non-bash tools already show input in the always-visible action-input section)
+    // Mirrors the rendering condition: show the expanded input block whenever there is tool input,
+    // the bubble is expanded, and output is not taking over the body section.
     private static bool ShowsFullInputWhenNoOutput(ChatMessage msg)
-        => !HasOutput(msg) && !msg.IsCollapsed && msg.ToolName == "bash" && !string.IsNullOrEmpty(msg.ToolInput);
+        => !HasOutput(msg) && !msg.IsCollapsed && !string.IsNullOrEmpty(msg.ToolInput);
 
     // Mirrors ChatMessageList.IsUnusableResult
     private static bool IsUnusableResult(string? content)
@@ -99,21 +98,19 @@ public class ToolCallExpandTests
     }
 
     [Fact]
-    public void RunningEditCommand_WithToolInput_NotExpandable()
+    public void RunningEditCommand_WithToolInput_CanExpand()
     {
-        // Non-bash tools show input inline, so no expand needed
         var msg = ChatMessage.ToolCallMessage("edit", "call-2", "{\"path\":\"/src/file.cs\",\"old_str\":\"foo\",\"new_str\":\"bar\"}");
         Assert.False(msg.IsComplete);
-        Assert.False(CanExpand(msg));
+        Assert.True(CanExpand(msg));
     }
 
     [Fact]
-    public void RunningGrepCommand_WithToolInput_NotExpandable()
+    public void RunningGrepCommand_WithToolInput_CanExpand()
     {
-        // Non-bash tools show input inline, so no expand needed
         var msg = ChatMessage.ToolCallMessage("grep", "call-3", "{\"pattern\":\"TODO\",\"path\":\"src/\"}");
         Assert.False(msg.IsComplete);
-        Assert.False(CanExpand(msg));
+        Assert.True(CanExpand(msg));
     }
 
     [Fact]
@@ -140,26 +137,22 @@ public class ToolCallExpandTests
     }
 
     [Fact]
-    public void CompletedNonBashCommand_WithIntentLoggedResult_NotExpandable()
+    public void CompletedNonBashCommand_WithIntentLoggedResult_ButHasInput_CanExpand()
     {
-        // Non-bash tools with unusable output and no expandable output are not expandable
-        // (their input is already shown inline in action-input)
         var msg = ChatMessage.ToolCallMessage("report_intent", "call-4", "{\"intent\":\"Fixing bug\"}");
         msg.IsComplete = true;
         msg.Content = "Intent logged";
         Assert.False(HasOutput(msg));
-        Assert.False(CanExpand(msg));
+        Assert.True(CanExpand(msg));
     }
 
     [Fact]
-    public void RunningNonBashTool_NotExpandableAndNoFullInput()
+    public void RunningNonBashTool_ShowsFullInputWhenExpanded()
     {
-        // Non-bash tools already show input in the always-visible action-input section,
-        // so they are not expandable and the full-input block does NOT render.
         var msg = ChatMessage.ToolCallMessage("edit", "call-5", "{\"path\":\"/src/file.cs\"}");
         msg.IsCollapsed = false;
-        Assert.False(CanExpand(msg)); // not expandable (input already visible inline)
-        Assert.False(ShowsFullInputWhenNoOutput(msg)); // full-input block skipped for non-bash
+        Assert.True(CanExpand(msg));
+        Assert.True(ShowsFullInputWhenNoOutput(msg));
     }
 
     [Fact]
