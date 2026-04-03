@@ -1,5 +1,5 @@
-using MauiDevFlow.Agent.Gtk;
-using MauiDevFlow.Blazor.Gtk;
+using Microsoft.Maui.DevFlow.Agent.Gtk;
+using Microsoft.Maui.DevFlow.Blazor.Gtk;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Hosting;
 using Platform.Maui.Linux.Gtk4.BlazorWebView;

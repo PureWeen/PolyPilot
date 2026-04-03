@@ -1,7 +1,7 @@
 using CommunityToolkit.Maui;
 using CommunityToolkit.Maui.Media;
-using MauiDevFlow.Agent.Gtk;
-using MauiDevFlow.Blazor.Gtk;
+using Microsoft.Maui.DevFlow.Agent.Gtk;
+using Microsoft.Maui.DevFlow.Blazor.Gtk;
 using Microsoft.Extensions.Logging;
 using Platform.Maui.Linux.Gtk4.BlazorWebView;
 using Platform.Maui.Linux.Gtk4.Essentials.Hosting;

@@ -2,10 +2,10 @@
   "version": 1,
   "isRoot": true,
   "tools": {
-    "redth.mauidevflow.cli": {
-      "version": "0.12.1",
+    "microsoft.maui.cli": {
+      "version": "0.1.0-preview.4.26202.3",
       "commands": [
-        "maui-devflow"
+        "maui"
       ],
       "rollForward": false
     }

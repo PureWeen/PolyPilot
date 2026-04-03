@@ -64,8 +64,8 @@
     <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
     <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
     <PackageReference Include="QRCoder" Version="*" />
-    <PackageReference Include="Redth.MauiDevFlow.Agent.Gtk" Version="0.23.1" />
-    <PackageReference Include="Redth.MauiDevFlow.Blazor.Gtk" Version="0.23.1" />
+    <PackageReference Include="Microsoft.Maui.DevFlow.Agent.Gtk" Version="0.1.0-preview.4.26202.3" />
+    <PackageReference Include="Microsoft.Maui.DevFlow.Blazor.Gtk" Version="0.1.0-preview.4.26202.3" />
   </ItemGroup>
 
   <ItemGroup>

@@ -3,8 +3,8 @@ using PolyPilot.Models;
 using PolyPilot.Provider;
 using Microsoft.Extensions.Logging;
 using ZXing.Net.Maui.Controls;
-using MauiDevFlow.Agent;
-using MauiDevFlow.Blazor;
+using Microsoft.Maui.DevFlow.Agent;
+using Microsoft.Maui.DevFlow.Blazor;
 using CommunityToolkit.Maui;
 using CommunityToolkit.Maui.Media;
 #if MACCATALYST

@@ -83,8 +83,8 @@
         <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
         <PackageReference Include="QRCoder" Version="1.7.0" />
         <PackageReference Include="ZXing.Net.Maui.Controls" Version="0.7.4" />
-        <PackageReference Include="Redth.MauiDevFlow.Agent" Version="0.23.1" />
-        <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="0.23.1" />
+        <PackageReference Include="Microsoft.Maui.DevFlow.Agent" Version="0.1.0-preview.4.26202.3" />
+        <PackageReference Include="Microsoft.Maui.DevFlow.Blazor" Version="0.1.0-preview.4.26202.3" />
     </ItemGroup>
 
     <!-- UI Automation for Windows Terminal tab switching (Windows-only) -->
