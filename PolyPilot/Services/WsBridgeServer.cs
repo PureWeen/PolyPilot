@@ -479,9 +479,9 @@ public class WsBridgeServer : IDisposable
         {
             downstream.NoDelay = true;
 
-            using var upstream = new TcpClient(AddressFamily.InterNetwork);
+            using var upstream = new TcpClient();
             upstream.NoDelay = true;
-            await upstream.ConnectAsync(IPAddress.Loopback, internalPort, ct).ConfigureAwait(false);
+            await upstream.ConnectAsync("localhost", internalPort, ct).ConfigureAwait(false);
 
             using var downstreamStream = downstream.GetStream();
             using var upstreamStream = upstream.GetStream();
