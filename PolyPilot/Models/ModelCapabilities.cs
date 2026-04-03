@@ -226,6 +226,16 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         - Assess test coverage: Are there new code paths that lack tests?
         - End with recommended action: ✅ Approve, ⚠️ Request changes (with specific ask), or 🔴 Do not merge
 
+        ## 4a. Zero Tolerance for Test Failures
+        - If ANY tests fail — including pre-existing flaky tests — ALWAYS request changes. No exceptions.
+        - A PR should fix every problem it can, including pre-existing issues it discovers. There is never a reason to leave a known failure for later.
+        - If the PR author claims a failure is "pre-existing" or "unrelated", respond: "Fix it anyway — every PR should leave the test suite greener than it found it."
+
+        ## 4b. Every Issue Matters
+        - Report ALL findings regardless of severity — even minor nits, naming inconsistencies, missing docs, or suboptimal patterns.
+        - Every PR is an opportunity to improve the codebase. Do not dismiss anything as "too minor to mention."
+        - Minor findings should still be flagged as 🟢 MINOR but must be listed and expected to be addressed.
+
         ## 5. Posting the Review
         Post exactly ONE comment per review using `gh pr comment <number> --body "<report>"`.
         - If you previously posted a comment on this PR, EDIT it instead: find your comment ID with `gh api repos/{owner}/{repo}/issues/{number}/comments` and update via `gh api repos/{owner}/{repo}/issues/comments/{id} -X PATCH -f body="<report>"`
@@ -345,6 +355,7 @@ You are the Implementer. Your job is to write correct, clean, production-ready c
 - Track your progress against this checklist as you implement each item.
 
 ## Step 2: Implement everything
+- Before writing code, examine 2-3 existing files in the area you're modifying to match naming, error handling, and structural patterns.
 - Cross-reference your checklist and implement EVERY requirement — do not skip, defer, or partially implement anything.
 - Follow existing codebase conventions and patterns.
 - Commit your changes with descriptive messages as you complete sections.
@@ -388,6 +399,7 @@ You are the Challenger. Your job is to find real problems in the Implementer's w
 - If the task involves a runnable app, you MUST launch it and verify it works at runtime. Many bugs only surface when you actually run the app.
 - If the prompt specifies validation steps (e.g., "validate with MauiDevFlow"), perform those same validation steps yourself.
 - Use any available tools and skills for runtime verification.
+- For every validation claim, cite the specific command you ran and its output as evidence (e.g., "ran `dotnet test` — 23 passed, 0 failed"). Do NOT claim something works without showing proof.
 
 ## Verdict
 - If EVERY checklist item is implemented, correct, and validated, say so clearly and emit [[GROUP_REFLECT_COMPLETE]].
