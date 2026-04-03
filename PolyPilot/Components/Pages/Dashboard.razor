@@ -932,6 +932,9 @@
                             var pos = ta.selectionStart;
                             // Surrogate-pair-aware helpers: determine how many UTF-16 code units
                             // the character at `idx` occupies (2 for supplementary chars / emoji, else 1).
+                            // Note: these handle surrogate pairs (2 UTF-16 code units per codepoint) but
+                            // not multi-codepoint grapheme clusters (e.g., flag emoji 🇺🇸, ZWJ sequences
+                            // 👨‍👩‍👧). This matches native macOS Emacs Ctrl-F/B/D behavior.
                             function charLen(s, idx) {
                                 var code = s.charCodeAt(idx);
                                 return (code >= 0xD800 && code <= 0xDBFF && idx + 1 < s.length) ? 2 : 1;
