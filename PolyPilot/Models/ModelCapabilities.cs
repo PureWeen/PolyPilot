@@ -648,8 +648,11 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 If the lookup fails → replace with a known-good PR. Do not use invented numbers.
 
                 ### Check 3: Overfitting
-                For every `output_contains` or `output_matches` value, check if the exact string
-                appears verbatim in SKILL.md. If it does → it tests vocabulary, not behavior.
+                For every `output_contains` or `output_matches` value, run:
+                ```bash
+                grep -F "<your assertion value>" <skill-directory>/SKILL.md
+                ```
+                If grep returns a match → that assertion tests vocabulary, not behavior.
                 Move it to a `rubric:` item that describes the OUTCOME instead.
 
                 ### Check 4: Self-contained prompts
