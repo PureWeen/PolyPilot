@@ -13,6 +13,33 @@ public class DiffParserTests
     }
 
     [Fact]
+    public void LooksLikeUnifiedDiff_ValidUnifiedDiff_ReturnsTrue()
+    {
+        var diff = """
+            diff --git a/src/file.cs b/src/file.cs
+            index abc..def 100644
+            --- a/src/file.cs
+            +++ b/src/file.cs
+            @@ -1,2 +1,2 @@
+            -old
+            +new
+            """;
+
+        Assert.True(DiffParser.LooksLikeUnifiedDiff(diff));
+    }
+
+    [Fact]
+    public void LooksLikeUnifiedDiff_PlainText_ReturnsFalse()
+    {
+        var output = """
+            Updated /tmp/file.txt successfully
+            2 lines changed
+            """;
+
+        Assert.False(DiffParser.LooksLikeUnifiedDiff(output));
+    }
+
+    [Fact]
     public void Parse_StandardDiff_ExtractsFileName()
     {
         var diff = """
@@ -169,6 +196,35 @@ public class DiffParserTests
         Assert.Equal("    <span title=\"old\">old &amp; value</span>", lines[1].Content);
         Assert.Equal("    <span title=\"new\">new &amp; value</span>", lines[2].Content);
         Assert.Equal("</div>", lines[3].Content);
+    }
+
+    [Fact]
+    public void Parse_StandardUnifiedDiff_WithoutGitPrefix()
+    {
+        // Standard `diff -u` output has no "diff --git" line
+        var diff = "--- a/file1.txt\n+++ b/file2.txt\n@@ -1,3 +1,3 @@\n context\n-old line\n+new line\n context2";
+        var files = DiffParser.Parse(diff);
+        Assert.Single(files);
+        Assert.Equal("file2.txt", files[0].FileName);
+        Assert.Single(files[0].Hunks);
+        Assert.Equal(4, files[0].Hunks[0].Lines.Count);
+    }
+
+    [Fact]
+    public void Parse_StandardUnifiedDiff_WithoutPathPrefix()
+    {
+        // Some tools produce --- /path/file without a/ or b/ prefix
+        var diff = "--- /tmp/old.txt\n+++ /tmp/new.txt\n@@ -1,2 +1,2 @@\n-old\n+new\n";
+        var files = DiffParser.Parse(diff);
+        Assert.Single(files);
+        Assert.Equal("/tmp/new.txt", files[0].FileName);
+    }
+
+    [Fact]
+    public void LooksLikeUnifiedDiff_StandardDiff_ReturnsTrue()
+    {
+        var diff = "--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n";
+        Assert.True(DiffParser.LooksLikeUnifiedDiff(diff));
     }
 
     [Fact]

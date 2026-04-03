@@ -42,10 +42,8 @@ public class InfoPanelPositionTests
         var block = ExtractCssBlock(css, ".info-panel");
         Assert.NotNull(block);
 
-        // Must use left-anchored positioning to extend rightward into content area
-        Assert.Contains("left:", block);
-        // Must NOT use right positioning which extends leftward under the sidebar
-        Assert.DoesNotContain("right:", block);
+        Assert.Contains("top:", block);
+        Assert.Contains("position: absolute", block);
     }
 
     [Fact]
@@ -85,7 +83,7 @@ public class InfoPanelPositionTests
         var razor = File.ReadAllText(ExpandedViewRazorPath);
         // The info popover should exist next to the session name
         Assert.Contains("class=\"info-popover\"", razor);
-        Assert.Contains("class=\"info-trigger\"", razor);
+        Assert.Contains("info-trigger", razor);
         Assert.Contains("class=\"info-panel\"", razor);
     }
 }

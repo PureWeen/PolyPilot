@@ -32,6 +32,26 @@ public class DiffLine
 
 public static class DiffParser
 {
+    public static bool LooksLikeUnifiedDiff(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        var hasOldFileMarker =
+            text.StartsWith("--- ", StringComparison.Ordinal) ||
+            text.Contains("\n--- ", StringComparison.Ordinal) ||
+            text.Contains("\r\n--- ", StringComparison.Ordinal);
+        var hasNewFileMarker =
+            text.StartsWith("+++ ", StringComparison.Ordinal) ||
+            text.Contains("\n+++ ", StringComparison.Ordinal) ||
+            text.Contains("\r\n+++ ", StringComparison.Ordinal);
+        var hasHunkMarker =
+            text.StartsWith("@@", StringComparison.Ordinal) ||
+            text.Contains("\n@@", StringComparison.Ordinal) ||
+            text.Contains("\r\n@@", StringComparison.Ordinal);
+
+        return hasOldFileMarker && hasNewFileMarker && hasHunkMarker;
+    }
+
     public static List<DiffFile> Parse(string unifiedDiff)
     {
         var files = new List<DiffFile>();
@@ -56,6 +76,44 @@ public static class DiffParser
                 if (parts.Length == 2)
                     current.FileName = parts[1];
                 continue;
+            }
+
+            // Handle standard unified diffs (no "diff --git" prefix).
+            // When we see "--- " without an active file, lookahead for "+++ ".
+            if (current == null && line.StartsWith("--- ") && i + 1 < lines.Length)
+            {
+                var nextLine = lines[i + 1].TrimEnd('\r');
+                if (nextLine.StartsWith("+++ "))
+                {
+                    current = new DiffFile();
+                    files.Add(current);
+                    hunk = null;
+
+                    var oldName = line[4..].Trim();
+                    var newName = nextLine[4..].Trim();
+                    if (oldName.StartsWith("a/")) oldName = oldName[2..];
+                    if (newName.StartsWith("b/")) newName = newName[2..];
+
+                    if (newName == "/dev/null")
+                    {
+                        current.IsDeleted = true;
+                        current.FileName = oldName;
+                    }
+                    else if (oldName == "/dev/null")
+                    {
+                        current.IsNew = true;
+                        current.FileName = newName;
+                    }
+                    else
+                    {
+                        current.FileName = newName;
+                        if (oldName != newName)
+                            current.OldFileName = oldName;
+                    }
+
+                    i++; // skip the +++ line
+                    continue;
+                }
             }
 
             if (current == null) continue;

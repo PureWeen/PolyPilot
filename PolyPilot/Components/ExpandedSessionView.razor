@@ -14,6 +14,7 @@
     var cardClass = Session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
     var providerDisplayName = CopilotService.GetProviderSessionDisplayName(Session.Name);
     var displayName = providerDisplayName ?? Session.Name;
+    var headerSecondaryIdentity = GetHeaderSecondaryIdentity(displayName, Session.GitBranch);
     var headerInputTokens = UsageInfo?.InputTokens ?? (Session.TotalInputTokens > 0 ? Session.TotalInputTokens : null);
     var headerOutputTokens = UsageInfo?.OutputTokens ?? (Session.TotalOutputTokens > 0 ? Session.TotalOutputTokens : null);
     var headerCurrentTokens = UsageInfo?.CurrentTokens ?? Session.ContextCurrentTokens;
@@ -21,20 +22,40 @@
 }
 <div class="expanded-card @cardClass" data-session="@Session.Name">
     <div class="chat-header">
-        <h2 class="chat-header-title">@displayName</h2>
-        @if (!string.IsNullOrEmpty(Session.GitBranch))
-        {
-            <span class="chat-header-branch" title="@Session.GitBranch">@Session.GitBranch</span>
-        }
-        @if (_prUrl != null && PlatformHelper.IsDesktop)
-        {
-            <button class="pr-badge" title="@_prUrl">@_prLabel</button>
-        }
-        <div class="chat-header-badges">
-            @if (Session.IsProcessing)
-            {
-                <span class="processing-dot"></span>
-            }
+        <button class="collapse-card-btn header-nav-btn"
+                type="button"
+                data-tooltip="Back to grid (Esc / ⌘E)"
+                aria-label="Back to grid"
+                @onclick="OnCollapse">
+            <span class="header-nav-icons" aria-hidden="true">
+                <svg viewBox="0 0 20 20">
+                    <path d="M11 4 5 10l6 6"></path>
+                    <path d="M6 10h9"></path>
+                </svg>
+                <svg viewBox="0 0 20 20">
+                    <rect x="3" y="3" width="5" height="5" rx="1"></rect>
+                    <rect x="12" y="3" width="5" height="5" rx="1"></rect>
+                    <rect x="3" y="12" width="5" height="5" rx="1"></rect>
+                    <rect x="12" y="12" width="5" height="5" rx="1"></rect>
+                </svg>
+            </span>
+        </button>
+        <div class="chat-header-main">
+            <div class="chat-header-title-row">
+                <h2 class="chat-header-title">@displayName</h2>
+                @if (_prUrl != null && PlatformHelper.IsDesktop)
+                {
+                    <button class="pr-badge" title="@_prUrl">@_prLabel</button>
+                }
+                @if (!string.IsNullOrEmpty(headerSecondaryIdentity))
+                {
+                    <span class="chat-header-pill chat-header-branch" title="@Session.GitBranch">@headerSecondaryIdentity</span>
+                }
+                @if (Session.IsProcessing)
+                {
+                    <span class="processing-dot"></span>
+                }
+            </div>
             @if (Session.ReflectionCycle is { IsActive: true, IsPaused: false } rc)
             {
                 var progress = rc.MaxIterations > 0 ? (double)rc.CurrentIteration / rc.MaxIterations * 100 : 0;
@@ -50,8 +71,19 @@
                     ⏸️ Paused @rp.CurrentIteration/@rp.MaxIterations
                 </span>
             }
+        </div>
+        <div class="chat-header-actions">
             <div class="info-popover">
-                <span class="info-trigger">ℹ︎</span>
+                <button class="header-action-btn icon-badge info-trigger"
+                        type="button"
+                        data-tooltip="Session info"
+                        aria-label="Session info">
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                        <circle cx="10" cy="10" r="7"></circle>
+                        <path d="M10 8v5"></path>
+                        <circle cx="10" cy="5.5" r="0.8" fill="currentColor" stroke="none"></circle>
+                    </svg>
+                </button>
                 <div class="info-panel">
                     <div class="info-row"><span class="info-label">Model</span><span class="info-value">@PrettifyModel(CurrentModel)</span></div>
                     @if (!string.IsNullOrEmpty(Session.WorkingDirectory))
@@ -83,16 +115,38 @@
             </div>
             @if (CopilotService.IsRemoteMode)
             {
-                <button class="icon-badge sync-btn @(_syncing ? "syncing" : "") @(!string.IsNullOrEmpty(_syncMessage) ? "has-message" : "")"
+                <button class="header-action-btn icon-badge sync-btn @(_syncing ? "syncing" : "") @(!string.IsNullOrEmpty(_syncMessage) ? "has-message" : "")"
+                        type="button"
                         data-tooltip="@(_syncMessage ?? "Sync messages")"
+                        aria-label="@(_syncMessage ?? "Sync messages")"
                         disabled="@_syncing"
                         @onclick="ForceSync"
-                        @onclick:stopPropagation="true">@(_syncing ? "⟳" : "🔄")</button>
+                        @onclick:stopPropagation="true">
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                        <path d="M15.5 7.5A6 6 0 0 0 5.7 5.7"></path>
+                        <path d="M5.7 5.7V9.5"></path>
+                        <path d="M5.7 5.7h3.8"></path>
+                        <path d="M4.5 12.5A6 6 0 0 0 14.3 14.3"></path>
+                        <path d="M14.3 14.3v-3.8"></path>
+                        <path d="M14.3 14.3h-3.8"></path>
+                    </svg>
+                </button>
             }
-            <button class="icon-badge fiesta-btn @(FiestaActive ? "active" : "")"
-                    data-tooltip="Fiesta workers"
-                    @onclick="ToggleFiestaPicker">🎉</button>
-            <button class="icon-badge collapse-card-btn" data-tooltip="Back to grid (Esc / ⌘E)" @onclick="OnCollapse">⊟</button>
+                <button class="header-action-btn icon-badge fiesta-btn @(FiestaActive ? "active" : "")"
+                        type="button"
+                        data-tooltip="Fiesta workers"
+                        aria-label="Fiesta workers"
+                        @onclick="ToggleFiestaPicker">
+                    <svg viewBox="0 0 20 20" aria-hidden="true">
+                        <path d="M5.2 13.6 11.5 7.3"></path>
+                        <path d="m10.7 6.6 2.7-1.1 1.1 2.7-2.7 1.1z"></path>
+                        <path d="M4.6 14.2 3.7 17l2.8-.9 5.4-5.4-1.9-1.9z"></path>
+                        <path d="M12.8 4.4V2.8"></path>
+                        <path d="M15.6 5.5 17 4.7"></path>
+                        <path d="m15 8.4 1.5.5"></path>
+                        <path d="M7.7 4.9 9 6.2"></path>
+                    </svg>
+                </button>
         </div>
     </div>
 
@@ -208,43 +262,49 @@
                 </div>
             </div>
         }
-        @if (!string.IsNullOrEmpty(Intent))
-        {
-            <div class="intent-pill">💭 @Intent</div>
-        }
         @{
             var queueSnapshot = Session.MessageQueue.Snapshot();
+            var hasInputMeta = !string.IsNullOrEmpty(Intent) || queueSnapshot.Count > 0 || (PendingImages?.Any() == true);
         }
-        @if (queueSnapshot.Count > 0)
+        @if (hasInputMeta)
         {
-            <div class="message-queue">
-                <div class="queue-header">
-                    <span>📋 Queued (@queueSnapshot.Count)</span>
-                    <button class="queue-clear-btn" @onclick="() => OnClearQueue.InvokeAsync(Session.Name)">Clear</button>
-                </div>
-                @for (var i = 0; i < queueSnapshot.Count; i++)
+            <div class="input-meta-stack">
+                @if (!string.IsNullOrEmpty(Intent))
                 {
-                    var index = i;
-                    var msg = queueSnapshot[i];
-                    <div class="queue-item">
-                        <span class="queue-index">@(index + 1)</span>
-                        <span class="queue-text">@Truncate(msg, 80)</span>
-                        <button class="queue-remove-btn" @onclick="() => OnRemoveQueuedMessage.InvokeAsync((Session.Name, index))">×</button>
+                    <div class="intent-pill">💭 @Intent</div>
+                }
+                @if (queueSnapshot.Count > 0)
+                {
+                    <div class="message-queue">
+                        <div class="queue-header">
+                            <span>📋 Queued (@queueSnapshot.Count)</span>
+                            <button class="queue-clear-btn" @onclick="() => OnClearQueue.InvokeAsync(Session.Name)">Clear</button>
+                        </div>
+                        @for (var i = 0; i < queueSnapshot.Count; i++)
+                        {
+                            var index = i;
+                            var msg = queueSnapshot[i];
+                            <div class="queue-item">
+                                <span class="queue-index">@(index + 1)</span>
+                                <span class="queue-text">@Truncate(msg, 80)</span>
+                                <button class="queue-remove-btn" @onclick="() => OnRemoveQueuedMessage.InvokeAsync((Session.Name, index))">×</button>
+                            </div>
+                        }
                     </div>
                 }
-            </div>
-        }
-        @if (PendingImages != null && PendingImages.Any())
-        {
-            <div class="attachment-strip">
-                @for (var pi = 0; pi < PendingImages.Count; pi++)
+                @if (PendingImages != null && PendingImages.Any())
                 {
-                    var pidx = pi;
-                    var pimg = PendingImages[pi];
-                    <div class="attachment-thumb">
-                        <img src="@pimg.DataUri" alt="@pimg.FileName" />
-                        <button class="attachment-remove" @onclick="() => OnRemovePendingImage.InvokeAsync((Session.Name, pidx))" title="Remove">×</button>
-                        <span class="attachment-name">@TruncateFileName(pimg.FileName, 15)</span>
+                    <div class="attachment-strip">
+                        @for (var pi = 0; pi < PendingImages.Count; pi++)
+                        {
+                            var pidx = pi;
+                            var pimg = PendingImages[pi];
+                            <div class="attachment-thumb">
+                                <img src="@pimg.DataUri" alt="@pimg.FileName" />
+                                <button class="attachment-remove" @onclick="() => OnRemovePendingImage.InvokeAsync((Session.Name, pidx))" title="Remove">×</button>
+                                <span class="attachment-name">@TruncateFileName(pimg.FileName, 15)</span>
+                            </div>
+                        }
                     </div>
                 }
             </div>
@@ -281,55 +341,56 @@
                 <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")' title="Plan mode — create a plan before implementing">Plan</button>
                 <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")' title="Autopilot mode — auto-approve tool calls">Autopilot</button>
             </div>
-            <span class="status-sep">·</span>
-            <span class="log-label" style="font-size:var(--type-footnote)" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log</span>
-            <span class="status-sep">·</span>
-            <span class="status-msgs" title="Total messages in this session">@Session.History.Count msgs</span>
-            @if (availableSkills?.Count > 0)
-            {
-                <span class="status-sep">·</span>
-                <span class="skills-trigger" data-trigger="skills" @onclick="ShowSkillsPopup" title="View available skills">@availableSkills.Count skills</span>
-            }
-            @if (availableAgents?.Count > 0)
-            {
-                <span class="status-sep">·</span>
-                <span class="skills-trigger" data-trigger="agents" @onclick="ShowAgentsPopup" title="View available agents">@availableAgents.Count agents</span>
-            }
-            @if (!string.IsNullOrEmpty(Session.ActiveAgentDisplayName ?? Session.ActiveAgentName))
-            {
-                <span class="status-sep">·</span>
-                <span class="active-agent-badge" title="Active CLI agent">🤖 @(Session.ActiveAgentDisplayName ?? Session.ActiveAgentName)</span>
-            }
-            @if (availablePrompts != null)
-            {
-                <span class="status-sep">·</span>
-                <span class="skills-trigger" data-trigger="prompts" @onclick="ShowPromptsPopup" title="Manage saved prompts">@(availablePrompts.Count == 1 ? "1 prompt" : $"{availablePrompts.Count} prompts")</span>
-            }
-            <span class="status-sep">·</span>
-            <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
-                @if (!AvailableModels.Contains(CurrentModel))
+            <div class="input-status-primary">
+                <span class="log-label" style="font-size:var(--type-footnote)" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log</span>
+                <span class="status-msgs" title="Total messages in this session">@Session.History.Count msgs</span>
+                @if (availableSkills?.Count > 0)
                 {
-                    <option value="@CurrentModel">@PrettifyModel(CurrentModel)</option>
+                    <span class="skills-trigger" data-trigger="skills" @onclick="ShowSkillsPopup" title="View available skills">@availableSkills.Count skills</span>
                 }
-                @foreach (var m in AvailableModels)
+                @if (availableAgents?.Count > 0)
                 {
-                    <option value="@m">@PrettifyModel(m)</option>
+                    <span class="skills-trigger" data-trigger="agents" @onclick="ShowAgentsPopup" title="View available agents">@availableAgents.Count agents</span>
                 }
-            </select>
-            <div class="status-spacer"></div>
-            <span class="status-extra">
-                @if (headerInputTokens.HasValue || headerOutputTokens.HasValue)
+                @if (!string.IsNullOrEmpty(Session.ActiveAgentDisplayName ?? Session.ActiveAgentName))
                 {
-                    <span class="status-tokens" title="Token usage: ↑ input tokens sent, ↓ output tokens received">↑@FormatTokenCount(headerInputTokens ?? 0) ↓@FormatTokenCount(headerOutputTokens ?? 0)</span>
+                    <span class="active-agent-badge" title="Active CLI agent">🤖 @(Session.ActiveAgentDisplayName ?? Session.ActiveAgentName)</span>
                 }
-                @if (headerCurrentTokens.HasValue && headerTokenLimit.HasValue && headerTokenLimit.Value > 0)
+            </div>
+            <div class="input-status-secondary">
+                @if (availablePrompts != null)
                 {
-                    var pct = (double)headerCurrentTokens.Value / headerTokenLimit.Value;
-                    var ctxColor = pct > 0.9 ? "#ef4444" : pct > 0.75 ? "#fbbf24" : "inherit";
-                    <span class="status-sep">·</span>
-                    <span class="status-ctx" style="color:@ctxColor" title="Context window usage — current tokens / maximum tokens">@FormatTokenCount(headerCurrentTokens.Value)/@FormatTokenCount(headerTokenLimit.Value) ctx</span>
+                    <span class="skills-trigger" data-trigger="prompts" @onclick="ShowPromptsPopup" title="Manage saved prompts">@(availablePrompts.Count == 1 ? "1 prompt" : $"{availablePrompts.Count} prompts")</span>
                 }
-            </span>
+                <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
+                    @if (!AvailableModels.Contains(CurrentModel))
+                    {
+                        <option value="@CurrentModel">@PrettifyModel(CurrentModel)</option>
+                    }
+                    @foreach (var m in AvailableModels)
+                    {
+                        <option value="@m">@PrettifyModel(m)</option>
+                    }
+                </select>
+                <span class="status-extra">
+                    @if (headerInputTokens.HasValue || headerOutputTokens.HasValue)
+                    {
+                        <span class="status-tokens" title="Token usage: ↑ input tokens sent, ↓ output tokens received">↑@FormatTokenCount(headerInputTokens ?? 0) ↓@FormatTokenCount(headerOutputTokens ?? 0)</span>
+                    }
+                    @if (headerCurrentTokens.HasValue && headerTokenLimit.HasValue && headerTokenLimit.Value > 0)
+                    {
+                        var pct = (double)headerCurrentTokens.Value / headerTokenLimit.Value;
+                        var ctxColor = pct > 0.9 ? "#ef4444" : pct > 0.75 ? "#fbbf24" : "inherit";
+                        var ctxGaugePct = Math.Min(100.0, Math.Max(0.0, pct * 100));
+                        <span class="status-ctx-wrap" title="Context window usage — current tokens / maximum tokens">
+                            <span class="status-context-ring"
+                                  style="@($"--ring-progress:{ctxGaugePct:F0}%; --ring-color:{ctxColor};")"
+                                  aria-hidden="true"></span>
+                            <span class="status-ctx" style="color:@ctxColor">@FormatTokenCount(headerCurrentTokens.Value)/@FormatTokenCount(headerTokenLimit.Value) ctx</span>
+                        </span>
+                    }
+                </span>
+            </div>
         </div>
     </div>
 </div>
@@ -388,6 +449,27 @@
     private bool _syncing;
     private string? _syncMessage;
     private System.Threading.Timer? _syncMessageTimer;
+
+    private static string? GetHeaderSecondaryIdentity(string displayName, string? secondaryValue)
+    {
+        if (string.IsNullOrWhiteSpace(secondaryValue))
+            return null;
+
+        return NormalizeHeaderIdentity(displayName) == NormalizeHeaderIdentity(secondaryValue)
+            ? null
+            : secondaryValue;
+    }
+
+    private static string NormalizeHeaderIdentity(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return string.Empty;
+
+        return new string(value
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToLowerInvariant)
+            .ToArray());
+    }
 
     private async Task ForceSync()
     {

@@ -95,7 +95,7 @@
         @if (Compact)
         {
             <div class="chat-msg reasoning">
-                <span class="chat-msg-role">💡</span>
+                <span class="chat-msg-role reasoning-role-icon" aria-hidden="true"></span>
                 <span class="chat-msg-text">@(Message.IsComplete ? "Thought" : "Thinking...")</span>
             </div>
         }
@@ -105,7 +105,10 @@
             <div class="reasoning-block @(Message.IsCollapsed && ChatMessageList.LineCount(Message.Content) > 5 ? "collapsed" : "")">
                 <div class="reasoning-header">
                     <button type="button" class="reasoning-toggle" @onclick="() => Message.IsCollapsed = !Message.IsCollapsed">
-                        <span class="reasoning-title">💡 @(Message.IsComplete ? "Thought" : "Thinking...")</span>
+                        <span class="reasoning-title">
+                            <span class="reasoning-icon" aria-hidden="true"></span>
+                            <span>@(Message.IsComplete ? "Thought" : "Thinking...")</span>
+                        </span>
                         @if (ChatMessageList.LineCount(Message.Content) > 5)
                         {
                             <span class="collapse-icon">@(Message.IsCollapsed ? "▶" : "▼")</span>
@@ -157,90 +160,126 @@
         else
         {
             var _hasOutput = Message.IsComplete && !string.IsNullOrEmpty(Message.Content) && !ChatMessageList.IsUnusableResult(Message.Content);
-            var _hasExpandableInput = Message.ToolName == "bash" && !string.IsNullOrEmpty(Message.ToolInput);
-            var _canExpand = _hasOutput || _hasExpandableInput;
+            var _hasInputDetails = !string.IsNullOrEmpty(Message.ToolInput);
+            var _hasImageOutput = !string.IsNullOrEmpty(Message.ImageDataUri) || ChatMessageList.GetImagePath(Message.Content) is string _;
+            var _hasDiffOutput = _hasOutput && !_hasImageOutput && DiffParser.LooksLikeUnifiedDiff(Message.Content);
+            var _outputLineCount = _hasOutput && !_hasImageOutput ? ChatMessageList.LineCount(Message.Content) : 0;
+            var _canExpand = _hasOutput || _hasInputDetails;
             var _inputCopyText = ChatCopyPayloads.GetToolInputCopyText(Message);
             var _outputCopyText = ChatCopyPayloads.GetToolOutputCopyText(Message);
-            @* Unified command box: header + input always visible, output collapsible *@
-            <div class="action-box @(ChatMessageList.GetActionLabel(Message.ToolName ?? "").CssClass) @(Message.IsComplete ? (Message.IsSuccess ? "done" : "failed") : "running")">
+            @* Unified compact command box: one summary row, details only when expanded *@
+            <div class="action-box @(ChatMessageList.GetActionLabel(Message.ToolName ?? "").CssClass) @(Message.IsComplete ? (Message.IsSuccess ? "done" : "failed") : "running") @(Message.IsCollapsed ? "collapsed" : "expanded")">
                 <div class="action-header @(_canExpand ? "expandable" : "")"
                      @onclick="() => { if (_canExpand) Message.IsCollapsed = !Message.IsCollapsed; }"
                      @onclick:stopPropagation="true">
                     <span class="action-dot"></span>
                     <span class="action-label">@(ChatMessageList.GetActionLabel(Message.ToolName ?? "").Label)</span>
                     <span class="action-desc @(ChatMessageList.IsPathTool(Message.ToolName ?? "") ? "truncate-head" : "")">@ChatMessageList.FormatActionDescriptionCompact(Message.ToolName ?? "", Message.ToolInput, Message.Content, Message.IsComplete)</span>
-                    @if (!string.IsNullOrEmpty(_inputCopyText))
+                    <span class="action-controls">
+                    @if (_hasOutput && _hasImageOutput)
                     {
-                        <CopyToClipboardButton Text="@_inputCopyText"
-                                               Title="Copy tool input"
-                                               CopiedTitle="Copied tool input"
-                                               CssClass="message-copy-btn action-copy-btn" />
+                        <span class="action-meta-hint">image</span>
                     }
                     @if (_canExpand)
                     {
-                        <span class="action-chevron">@(Message.IsCollapsed ? "▶" : "▼")</span>
+                        <span class="action-chevron @(Message.IsCollapsed ? "collapsed" : "expanded")" aria-hidden="true"></span>
                     }
+                    </span>
                 </div>
-                @if (!string.IsNullOrEmpty(Message.ToolInput) && Message.ToolName != "bash")
+                @if (!Message.IsCollapsed)
                 {
-                    <div class="action-input">
-                        <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput)</pre>
-                    </div>
-                }
-                @if (_hasOutput)
-                {
-                    <div class="action-output-toggle" @onclick="() => { if (_hasOutput) Message.IsCollapsed = !Message.IsCollapsed; }" @onclick:stopPropagation="true">
-                        <span class="toggle-icon">@(Message.IsCollapsed ? "▶" : "▼")</span>
-                        <span class="toggle-label">Output</span>
-                        <span class="action-output-spacer"></span>
-                        @if (!string.IsNullOrEmpty(_outputCopyText))
-                        {
-                            <CopyToClipboardButton Text="@_outputCopyText"
-                                                   Title="Copy tool output"
-                                                   CopiedTitle="Copied tool output"
-                                                   CssClass="message-copy-btn action-copy-btn" />
-                        }
-                        @if (!string.IsNullOrEmpty(Message.ImageDataUri) || ChatMessageList.GetImagePath(Message.Content) is string _)
-                        {
-                            <span class="output-hint">🖼 image</span>
-                        }
-                        else
-                        {
-                            <span class="output-hint">@ChatMessageList.LineCount(Message.Content) line@(ChatMessageList.LineCount(Message.Content) != 1 ? "s" : "")</span>
-                        }
-                    </div>
-                    @if (!Message.IsCollapsed)
+                    @if (_hasInputDetails)
                     {
-                        @if (!string.IsNullOrEmpty(Message.ToolInput))
-                        {
-                            <div class="action-full-input">
-                                <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput)</pre>
+                        <div class="action-full-input">
+                            <div class="action-detail-meta">
+                                <span>Input</span>
+                                @if (!string.IsNullOrEmpty(_inputCopyText))
+                                {
+                                    <CopyToClipboardButton Text="@_inputCopyText"
+                                                           Title="Copy tool input"
+                                                           CopiedTitle="Copied tool input"
+                                                           CssClass="message-copy-btn action-copy-btn" />
+                                }
                             </div>
-                        }
-                        @if (GetToolOutputImage(Message) is string toolImgUri)
-                        {
-                            <div class="action-output">
-                                <img src="@toolImgUri" alt="image" />
-                            </div>
-                        }
-                        else
-                        {
-                            <div class="action-output">
-                                <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
-                            </div>
-                        }
+                            <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput ?? "")</pre>
+                        </div>
                     }
-                }
-                else if (!Message.IsCollapsed && Message.ToolName == "bash" && !string.IsNullOrEmpty(Message.ToolInput))
-                {
-                    <div class="action-full-input">
-                        <pre>@ChatMessageList.FormatToolInputExpanded(Message.ToolName ?? "", Message.ToolInput)</pre>
-                    </div>
+                    @if (_hasOutput)
+                    {
+                        <div class="action-output">
+                            <div class="action-detail-meta">
+                                <span>Output</span>
+                                <span class="action-detail-hint">
+                                    @if (_hasImageOutput)
+                                    {
+                                        <span>image</span>
+                                    }
+                                    else if (_outputLineCount > 0)
+                                    {
+                                        <span>@_outputLineCount line@(_outputLineCount != 1 ? "s" : "")</span>
+                                    }
+                                    @if (!string.IsNullOrEmpty(_outputCopyText))
+                                    {
+                                        <CopyToClipboardButton Text="@_outputCopyText"
+                                                               Title="Copy tool output"
+                                                               CopiedTitle="Copied tool output"
+                                                               CssClass="message-copy-btn action-copy-btn" />
+                                    }
+                                </span>
+                            </div>
+                            @if (GetToolOutputImage(Message) is string toolImgUri)
+                            {
+                                <img src="@toolImgUri" alt="image" />
+                            }
+                            else if (_hasDiffOutput)
+                            {
+                                var _parsedDiff = DiffParser.Parse(Message.Content);
+                                if (_parsedDiff.Count > 0)
+                                {
+                                    <div class="action-output-diff">
+                                        <DiffView RawDiff="@Message.Content" />
+                                    </div>
+                                }
+                                else
+                                {
+                                    <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
+                                }
+                            }
+                            else
+                            {
+                                <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
+                            }
+                        </div>
+                    }
+                    else if (Message.ToolName == "bash" && !string.IsNullOrEmpty(Message.ToolInput))
+                    {
+                        <div class="action-output action-output-empty">
+                            <div class="action-detail-meta">
+                                <span>Awaiting output</span>
+                            </div>
+                        </div>
+                    }
+                    else if (!Message.IsComplete)
+                    {
+                        <div class="action-output action-output-empty">
+                            <div class="action-detail-meta">
+                                <span>Awaiting result</span>
+                            </div>
+                        </div>
+                    }
+                    else if (Message.IsComplete && !_hasOutput && Message.ToolName != "bash")
+                    {
+                        <div class="action-output action-output-empty">
+                            <div class="action-detail-meta">
+                                <span>No output</span>
+                            </div>
+                        </div>
+                    }
                 }
             </div>
         }
         break;
-
+ 
     case ChatMessageType.Error:
         var _errorCopyText = ChatCopyPayloads.GetPrimaryCopyText(Message);
         <div class="@(Compact ? "chat-msg error" : "error-card copyable-status-card")">
