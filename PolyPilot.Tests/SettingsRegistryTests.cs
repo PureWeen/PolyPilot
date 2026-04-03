@@ -229,6 +229,77 @@ public class SettingsRegistryTests
         Assert.Equal(UiTheme.PolyPilotLight, settings.Theme);
     }
 
+    // ── Amber theme cross-product tests ─────────────────────────────
+
+    [Fact]
+    public void ColorScheme_SetValue_PreservesAmber()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.AmberDark };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.colorScheme");
+        desc.SetValue!(ctx, "Light");
+        Assert.Equal(UiTheme.AmberLight, settings.Theme);
+    }
+
+    [Fact]
+    public void ColorScheme_SystemPreservesAmber()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.AmberDark };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.colorScheme");
+        desc.SetValue!(ctx, "System");
+        Assert.Equal(UiTheme.SystemAmber, settings.Theme);
+    }
+
+    [Fact]
+    public void ThemeStyle_GetValue_ReturnsAmber()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.AmberDark };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.themeStyle");
+        Assert.Equal("Amber", desc.GetValue!(ctx));
+    }
+
+    [Fact]
+    public void ThemeStyle_SetValue_SwitchesToAmber()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.PolyPilotDark };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.themeStyle");
+        desc.SetValue!(ctx, "Amber");
+        Assert.Equal(UiTheme.AmberDark, settings.Theme);
+    }
+
+    [Fact]
+    public void ThemeStyle_SystemPlusAmber()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.System };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.themeStyle");
+        desc.SetValue!(ctx, "Amber");
+        Assert.Equal(UiTheme.SystemAmber, settings.Theme);
+    }
+
+    [Fact]
+    public void ThemeStyle_SystemAmberBackToPolyPilot()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.SystemAmber };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.themeStyle");
+        Assert.Equal("Amber", desc.GetValue!(ctx));
+        desc.SetValue!(ctx, "PolyPilot");
+        Assert.Equal(UiTheme.System, settings.Theme);
+    }
+
+    [Fact]
+    public void ColorScheme_SystemAmberReturnsSystem()
+    {
+        var settings = new ConnectionSettings { Theme = UiTheme.SystemAmber };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "ui.colorScheme");
+        Assert.Equal("System", desc.GetValue!(ctx));
+    }
+
     [Fact]
     public void EachDescriptor_HasUniqueId()
     {
