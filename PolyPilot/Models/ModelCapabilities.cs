@@ -596,62 +596,66 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 No others exist. If you wrote any other type (e.g. `tool_call_before`, `tool_call_not_contains`),
                 replace it with a `rubric:` item instead.
 
-                ### Check 2: PR/issue numbers
-                Every PR number used in a prompt MUST be verified before writing:
-                ```bash
-                gh pr view <NUMBER> --json number 2>&1
-                ```
-                (This uses the current repo context — no hardcoded repo needed.)
-                If the lookup fails → replace with a known-good PR. Do not use invented numbers.
+                ### Check 2: PR/issue numbers (skip if skill doesn't reference PRs)
+                If your prompts reference PR or issue numbers, verify they exist before writing:
+                - GitHub: `gh pr view <NUMBER> --json number 2>&1`
+                - If `gh` is unavailable, or the skill targets a non-GitHub system, skip this check.
+                If the lookup fails → replace with a known-good number. Do not use invented numbers.
 
                 ### Check 3: Overfitting
                 For every `output_contains` or `output_matches` value, run:
                 ```bash
-                grep -F "<your assertion value>" <skill-directory>/SKILL.md
+                grep -iF "<your assertion value>" <skill-directory>/SKILL.md
                 ```
-                If grep returns a match → that assertion tests vocabulary, not behavior.
+                If grep returns a match → that assertion likely tests vocabulary, not behavior.
                 Move it to a `rubric:` item that describes the OUTCOME instead.
+                Exception: if the matched text is a CLI command or config value the agent should
+                produce, it tests behavior and may remain as an assertion.
 
                 ### Check 4: Self-contained prompts
-                Every prompt must produce signal WITHOUT external infrastructure (no simulators,
-                no real devices, no project-specific scripts, no external network calls). Embed
-                code snippets, test output, or error messages directly in the prompt rather than
-                asking the agent to run a project-specific test command on a real device.
+                Every prompt must produce signal WITHOUT external infrastructure (no live clusters,
+                no simulators or devices, no CI pipelines, no external services, no project-specific
+                build scripts). Embed failure output, config snippets, or error messages directly in
+                the prompt rather than asking the agent to run something against a live system.
 
                 ## Anti-patterns (DO NOT)
 
                 ```yaml
                 # BAD — overfitted on SKILL.md section heading:
                 - type: "output_contains"
-                  value: "Independent Assessment"   # literal heading from SKILL.md
+                  value: "Root Cause Analysis"   # literal heading from SKILL.md
 
                 # GOOD — tests behavioral outcome instead:
                 rubric:
-                  - "Agent forms its own assessment of the diff before reading the PR description"
+                  - "Agent identifies the underlying cause before proposing a fix"
 
                 # BAD — invented assertion type that doesn't exist:
                 - type: "tool_call_before"
-                  value: "gh pr diff"
+                  value: "read_config"
 
                 # GOOD — move ordering checks to rubric:
                 rubric:
-                  - "Agent fetches the diff before reading the PR body, demonstrating independence-first methodology"
+                  - "Agent reads the current state before making changes"
 
-                # BAD — requires a real device/project-specific script, will always be Blocked:
-                prompt: "Run the project test script with filter SomeFeatureCrash"
+                # BAD — requires a live environment, will always be Blocked:
+                prompt: "Apply the fix and run the integration test suite"
 
                 # GOOD — self-contained, embed the failure context directly:
                 prompt: |
-                  Use try-fix for this bug. The test currently fails with:
-                  System.NullReferenceException at FeatureHandler.ProcessItem() line 87
-                  Test command: dotnet test src/tests/Feature.Tests.csproj --filter SomeFeatureCrash
+                  Fix this bug. The failure output from CI is:
+                  Error: connection refused at SchedulerService.reconcile (scheduler.go:87)
+                  No live environment is needed — reason from the error and the source file only.
 
-                # BAD — fake PR number (validator gets "not found", scores zero signal):
-                prompt: "Review PR #99999"
+                # BAD — fake reference number (validator gets "not found", scores zero signal):
+                prompt: "Analyze incident #99999"
 
-                # GOOD — verified real PR from the current repository:
-                prompt: "Review PR #<verified-number>"
+                # GOOD — verified real reference from the current system:
+                prompt: "Analyze incident #<verified-number>"
                 ```
+
+                Note: Not all skills involve code or PRs. For non-code skills (documentation,
+                architecture decisions, incident response, cost analysis), focus rubric items on
+                reasoning quality and completeness rather than tool usage or code output.
 
                 ## STEP 5: Write the eval.yaml
 
