@@ -117,6 +117,7 @@ public static class MauiProgram
 	builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
 	builder.Services.AddSingleton<EfficiencyAnalysisService>();
 	builder.Services.AddSingleton<PrLinkService>();
+	builder.Services.AddSingleton<ScheduledTaskService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
@@ -135,7 +136,11 @@ public static class MauiProgram
 		// Startup cleanup: purge old zero-idle captures (keep last 100)
 		try { CopilotService.PurgeOldCaptures(); } catch { }
 
-		return builder.Build();
+		var app = builder.Build();
+		// Eagerly resolve ScheduledTaskService so the background timer starts on app launch
+		// regardless of whether the user visits the Scheduled Tasks page.
+		app.Services.GetRequiredService<ScheduledTaskService>();
+		return app;
 	}
 
 	private static void LogException(string source, Exception? ex)
