@@ -696,6 +696,14 @@
 
 .status-spacer { flex: 1 1 1rem; min-width: 0.5rem; }
 .status-sep { color: var(--hover-bg); user-select: none; }
+.input-status-primary,
+.input-status-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    min-width: 0;
+    flex-wrap: wrap;
+}
 
 .mode-switcher { display: flex; background: var(--control-bg); border: 1px solid var(--control-border); border-radius: 6px; overflow: hidden; }
 .mode-btn { all: unset; display: flex; align-items: center; gap: 0.2rem; padding: 0.1rem 0.35rem; font-size: var(--type-footnote); color: var(--text-dim); cursor: pointer; transition: all 0.15s ease; }
@@ -705,7 +713,13 @@
 .inline-model-select { all: unset; font-size: var(--type-callout); color: var(--text-on-surface); cursor: pointer; background: transparent; border: none; padding: 0.1rem 0; }
 .inline-model-select:hover { color: var(--accent-primary); }
 .inline-model-select option { background: var(--bg-tertiary); color: var(--text-primary); }
-.status-extra { display: contents; }
+.status-extra {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    min-width: 0;
+    flex-wrap: wrap;
+}
 
 .font-size-controls { display: inline-flex; align-items: center; gap: 0.15rem; }
 .font-size-btn { background: var(--hover-bg); border: 1px solid var(--hover-bg); border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-size: var(--type-footnote); font-weight: 600; padding: 0.1rem 0.3rem; line-height: 1; }
@@ -726,6 +740,15 @@
     font-size: var(--type-footnote);
     color: var(--accent-primary, #7c5cfc);
     cursor: pointer;
+}
+
+.status-msgs,
+.skills-trigger,
+.log-label,
+.active-agent-badge,
+.status-tokens,
+.status-ctx-wrap {
+    white-space: nowrap;
 }
 
 .active-agent-badge {
@@ -767,7 +790,8 @@
 /* === Mobile responsive === */
 @media (max-width: 640px) {
     .status-extra { display: none; }
-    .log-sep, .log-label { display: none; }
+    .status-sep,
+    .log-sep { display: none; }
     .context-badge { display: none; }
     .expanded-card .messages { padding: 0.5rem 0 0.22rem; }
     .model-badge { display: none; }
@@ -793,9 +817,63 @@
         padding: 0.3rem 0.65rem 0.2rem;
     }
     .input-row {
-        gap: 0.28rem;
-        padding: 0.36rem 0.65rem calc(0.5rem + var(--nav-bar-height, env(safe-area-inset-bottom, 0px)));
+        gap: 0;
+        padding: 0.2rem 0.5rem calc(0.34rem + var(--nav-bar-height, env(safe-area-inset-bottom, 0px)));
     }
-    .expanded-card .input-area textarea { font-size: var(--type-callout, 0.8rem); max-height: 30dvh; }
-    .input-status-bar { gap: 0.4rem; }
+    .expanded-card .input-area textarea {
+        font-size: var(--type-callout, 0.8rem);
+        max-height: 30dvh;
+        min-height: 2.8rem;
+        padding: calc((2.8rem - 1.35em) / 2) 0.68rem;
+    }
+    .attach-btn,
+    .mic-btn,
+    .send-btn,
+    .send-btn.stop-btn,
+    .stop-btn {
+        width: 2.55rem;
+        min-width: 2.55rem;
+    }
+    .attach-btn svg,
+    .mic-btn svg {
+        width: 15px;
+        height: 15px;
+    }
+    .send-btn svg,
+    .send-btn.stop-btn svg,
+    .stop-btn svg {
+        width: 17px;
+        height: 17px;
+    }
+    .input-status-bar {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 0.28rem;
+        padding: 0.14rem 0.5rem calc(0.46rem + var(--nav-bar-height, env(safe-area-inset-bottom, 0px)));
+        overflow: visible;
+    }
+    .mode-switcher {
+        width: fit-content;
+        max-width: 100%;
+    }
+    .input-status-primary,
+    .input-status-secondary {
+        display: flex;
+        gap: 0.34rem 0.7rem;
+        align-items: center;
+    }
+    .input-status-secondary {
+        justify-content: space-between;
+    }
+    .inline-model-select {
+        min-width: 0;
+        max-width: min(12.5rem, 100%);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: var(--type-footnote);
+    }
+    .input-status-secondary .skills-trigger {
+        font-size: var(--type-footnote);
+    }
 }
