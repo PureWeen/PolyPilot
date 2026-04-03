@@ -306,7 +306,7 @@ else
         StateHasChanged();
     }
 
-    private async Task Collapse()
+    private void ResetFormFields()
     {
         isExpanded = false;
         worktreeError = null;
@@ -316,6 +316,11 @@ else
         initialPrompt = "";
         selectedWorktreeId = null;
         nameManuallyEdited = false;
+    }
+
+    private async Task Collapse()
+    {
+        ResetFormFields();
 
         if (EmbeddedMode && OnCloseRequested.HasDelegate)
             await OnCloseRequested.InvokeAsync();
@@ -324,14 +329,7 @@ else
     /// <summary>Called by the parent on successful session creation to close the form.</summary>
     public void CollapseOnSuccess()
     {
-        isExpanded = false;
-        worktreeError = null;
-        branchInput = "";
-        prInput = "";
-        sessionDirectory = "";
-        initialPrompt = "";
-        selectedWorktreeId = null;
-        nameManuallyEdited = false;
+        ResetFormFields();
 
         if (EmbeddedMode && OnCloseRequested.HasDelegate)
             _ = OnCloseRequested.InvokeAsync();

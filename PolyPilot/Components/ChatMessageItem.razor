@@ -265,11 +265,12 @@
         break;
 
     case ChatMessageType.System:
+        var _systemCopyText = ChatCopyPayloads.GetPrimaryCopyText(Message);
         <div class="chat-msg system @(Message.Content.Contains("\n-") ? "system-multiline" : "")">
             <div class="system-copy-panel">
-                @if (!Compact && !string.IsNullOrEmpty(ChatCopyPayloads.GetPrimaryCopyText(Message)))
+                @if (!Compact && !string.IsNullOrEmpty(_systemCopyText))
                 {
-                    <CopyToClipboardButton Text="@ChatCopyPayloads.GetPrimaryCopyText(Message)"
+                    <CopyToClipboardButton Text="@_systemCopyText"
                                            Title="Copy system message"
                                            CopiedTitle="Copied system message"
                                            CssClass="message-copy-btn panel-copy-btn" />
@@ -280,11 +281,12 @@
         break;
 
     case ChatMessageType.ShellOutput:
+        var _shellCopyText = ChatCopyPayloads.GetPrimaryCopyText(Message);
         <div class="chat-msg shell-output">
             <div class="shell-output-panel">
-                @if (!Compact && !string.IsNullOrEmpty(ChatCopyPayloads.GetPrimaryCopyText(Message)))
+                @if (!Compact && !string.IsNullOrEmpty(_shellCopyText))
                 {
-                    <CopyToClipboardButton Text="@ChatCopyPayloads.GetPrimaryCopyText(Message)"
+                    <CopyToClipboardButton Text="@_shellCopyText"
                                            Title="Copy shell output"
                                            CopiedTitle="Copied shell output"
                                            CssClass="message-copy-btn panel-copy-btn" />
@@ -307,9 +309,10 @@
                 <div class="reflection-header">
                     <span class="reflection-pill-small">Reflection Cycle</span>
                     <span>Iteration @rData.Iteration / @rData.Max</span>
-                    @if (!Compact && !string.IsNullOrEmpty(ChatCopyPayloads.GetPrimaryCopyText(Message)))
+                    @{var _reflectionCardCopyText = ChatCopyPayloads.GetPrimaryCopyText(Message);}
+                    @if (!Compact && !string.IsNullOrEmpty(_reflectionCardCopyText))
                     {
-                        <CopyToClipboardButton Text="@ChatCopyPayloads.GetPrimaryCopyText(Message)"
+                        <CopyToClipboardButton Text="@_reflectionCardCopyText"
                                                Title="Copy reflection"
                                                CopiedTitle="Copied reflection"
                                                CssClass="message-copy-btn inline-copy-btn" />
@@ -328,11 +331,12 @@
         }
         else
         {
+            var _reflectionTextCopyText = ChatCopyPayloads.GetPrimaryCopyText(Message);
             <div class="chat-msg reflection">
                 <div class="reflection-text-panel">
-                    @if (!Compact && !string.IsNullOrEmpty(ChatCopyPayloads.GetPrimaryCopyText(Message)))
+                    @if (!Compact && !string.IsNullOrEmpty(_reflectionTextCopyText))
                     {
-                        <CopyToClipboardButton Text="@ChatCopyPayloads.GetPrimaryCopyText(Message)"
+                        <CopyToClipboardButton Text="@_reflectionTextCopyText"
                                                Title="Copy reflection"
                                                CopiedTitle="Copied reflection"
                                                CssClass="message-copy-btn panel-copy-btn" />
