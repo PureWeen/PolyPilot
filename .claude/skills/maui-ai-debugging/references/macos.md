@@ -51,12 +51,12 @@ The app project needs the Platform.Maui.MacOS packages plus the standard MauiDev
   <PackageReference Include="Platform.Maui.Essentials.MacOS" Version="*" />
 
   <!-- MauiDevFlow (standard packages — they include net10.0-macos support) -->
-  <PackageReference Include="Redth.MauiDevFlow.Agent" Version="*" />
-  <PackageReference Include="Redth.MauiDevFlow.Blazor" Version="*" />  <!-- Blazor only -->
+  <PackageReference Include="Microsoft.Maui.DevFlow.Agent" Version="*" />
+  <PackageReference Include="Microsoft.Maui.DevFlow.Blazor" Version="*" />  <!-- Blazor only -->
 </ItemGroup>
 ```
 
-The standard `Redth.MauiDevFlow.Agent` and `Redth.MauiDevFlow.Blazor` packages include
+The standard `Microsoft.Maui.DevFlow.Agent` and `Microsoft.Maui.DevFlow.Blazor` packages include
 `net10.0-macos` targets — no separate macOS-specific MauiDevFlow packages needed.
 
 ## Registration

@@ -12,17 +12,17 @@ this architecture.
 
 | Package | Purpose |
 |---------|---------|
-| `Redth.MauiDevFlow.Agent.Gtk` | In-app agent (visual tree, screenshots, tapping, logging) |
-| `Redth.MauiDevFlow.Blazor.Gtk` | CDP bridge for WebKitGTK BlazorWebView |
+| `Microsoft.Maui.DevFlow.Agent.Gtk` | In-app agent (visual tree, screenshots, tapping, logging) |
+| `Microsoft.Maui.DevFlow.Blazor.Gtk` | CDP bridge for WebKitGTK BlazorWebView |
 
-These replace `Redth.MauiDevFlow.Agent` and `Redth.MauiDevFlow.Blazor` which target
+These replace `Microsoft.Maui.DevFlow.Agent` and `Microsoft.Maui.DevFlow.Blazor` which target
 standard MAUI platforms (iOS, Android, macCatalyst, Windows).
 
 ```xml
 <ItemGroup>
-  <PackageReference Include="Redth.MauiDevFlow.Agent.Gtk" Version="*" />
+  <PackageReference Include="Microsoft.Maui.DevFlow.Agent.Gtk" Version="*" />
   <!-- Blazor Hybrid apps also need: -->
-  <PackageReference Include="Redth.MauiDevFlow.Blazor.Gtk" Version="*" />
+  <PackageReference Include="Microsoft.Maui.DevFlow.Blazor.Gtk" Version="*" />
 </ItemGroup>
 ```
 
