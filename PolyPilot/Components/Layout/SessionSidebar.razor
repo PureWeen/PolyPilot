@@ -1439,7 +1439,9 @@ else
     }
 
     private IReadOnlyList<string> availableModels =>
-        CopilotService.AvailableModels.Count > 0 ? CopilotService.AvailableModels : ModelHelper.FallbackModels;
+        CopilotService.AvailableModels.Count > 0
+            ? ModelHelper.BuildSelectionList(CopilotService.AvailableModels, selectedModel, CopilotService.DefaultModel)
+            : ModelHelper.BuildSelectionList(ModelHelper.FallbackModels, selectedModel, CopilotService.DefaultModel);
 
     private IEnumerable<PersistedSessionInfo> filteredPersistedSessions => 
         (string.IsNullOrWhiteSpace(sessionFilter) 
@@ -1468,7 +1470,7 @@ else
         // Restore last selected model
         var uiState = CopilotService.LoadUiState();
         if (!string.IsNullOrEmpty(uiState?.SelectedModel))
-            selectedModel = uiState.SelectedModel;
+            selectedModel = ModelHelper.NormalizeToSlug(uiState.SelectedModel);
     }
 
     private void SaveSelectedModel()

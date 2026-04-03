@@ -191,7 +191,7 @@
                     <div class="model-picker-inline" @onclick:stopPropagation="true">
                         <select value="@(Meta?.PreferredModel ?? "")" @onchange="OnPreferredModelChanged">
                             <option value="">Default (@Session.Model)</option>
-                            @foreach (var model in CopilotService.AvailableModels)
+                            @foreach (var model in GetSelectableModels())
                             {
                                 var strengths = ModelCapabilities.GetStrengths(model);
                                 <option value="@model" title="@strengths">@model</option>
@@ -404,6 +404,11 @@
         var slug = e.Value?.ToString();
         CopilotService.SetSessionPreferredModel(Session.Name, string.IsNullOrEmpty(slug) ? null : slug);
     }
+
+    private IReadOnlyList<string> GetSelectableModels() =>
+        CopilotService.AvailableModels.Count > 0
+            ? ModelHelper.BuildSelectionList(CopilotService.AvailableModels, Meta?.PreferredModel, Session.Model, CopilotService.DefaultModel)
+            : ModelHelper.BuildSelectionList(ModelHelper.FallbackModels, Meta?.PreferredModel, Session.Model, CopilotService.DefaultModel);
 
     private static string GetShortPath(string path)
     {

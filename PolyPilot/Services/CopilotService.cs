@@ -82,7 +82,6 @@ public partial class CopilotService : IAsyncDisposable
     private CancellationTokenSource? _codespaceHealthCts;
     private CancellationTokenSource? _authPollCts;
     private readonly object _authPollLock = new();
-    private readonly SemaphoreSlim _tokenResolutionLock = new(1, 1);
     private string? _resolvedGitHubToken;
     private Task? _codespaceHealthTask;
     // Cached dotfiles status — checked once when first SetupRequired state is encountered
@@ -106,6 +105,10 @@ public partial class CopilotService : IAsyncDisposable
     internal const int WatchdogServerRecoveryThreshold = 2;
     // Prevents concurrent TryRecoverPersistentServerAsync invocations from racing on _client.
     private readonly SemaphoreSlim _recoveryLock = new(1, 1);
+    // Coalesces model refresh requests so reconnect/recovery bursts share one fetch pipeline.
+    private readonly object _availableModelsFetchSync = new();
+    private Task _availableModelsFetchTask = Task.CompletedTask;
+    private bool _availableModelsFetchQueued;
     // Tracks when recovery last succeeded so concurrent callers that lose the lock can return true
     // if recovery just completed (within 30s), rather than showing a false-permanent error.
     private DateTime _lastRecoveryCompletedAt = DateTime.MinValue;
@@ -265,6 +268,11 @@ public partial class CopilotService : IAsyncDisposable
             ? _bridgeClient.AvailableModels
             : _localAvailableModels;
     private List<string> _localAvailableModels = new();
+    /// <summary>
+    /// Maps model slug (Id) → display name from the SDK's ListModelsAsync.
+    /// Used for richer display when the algorithmic prettification isn't sufficient.
+    /// </summary>
+    public Dictionary<string, string> ModelDisplayNames { get; private set; } = new();
 
     private readonly RepoManager _repoManager;
     private readonly CodespaceService _codespaceService;
@@ -322,14 +330,13 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Force-restarts the headless server to pick up fresh credentials, then re-checks auth.
     /// Called from the Dashboard "Re-authenticate" button after the user runs `copilot login`.
+    /// The server re-authenticates on its own at startup via its native credential store —
+    /// PolyPilot does NOT read the macOS Keychain (see PR #465 for why).
     /// </summary>
     public async Task ReauthenticateAsync()
     {
         StopAuthPolling();
         Debug("[AUTH] Re-authenticate requested — forcing server restart to pick up new credentials");
-        // Re-resolve the token off the UI thread — spawns up to 4 child processes
-        // (3× security + 1× gh) which can block for their timeout durations.
-        _resolvedGitHubToken = await Task.Run(() => ResolveGitHubTokenForServer());
         var recovered = await TryRecoverPersistentServerAsync();
         if (recovered)
         {
@@ -943,11 +950,9 @@ public partial class CopilotService : IAsyncDisposable
         // In Persistent mode, auto-start the server if not already running
         if (settings.Mode == ConnectionMode.Persistent)
         {
-            // Only forward tokens from env vars at startup — no Keychain read (would
-            // trigger a macOS password dialog for every user). If the server can't
-            // self-authenticate, CheckAuthStatusAsync below will detect it and lazily
-            // resolve the full token chain (including Keychain) on first auth failure.
-            // See .claude/skills/auth-token-safety/SKILL.md (INV-A1).
+            // Forward tokens from env vars only — the server authenticates on its own
+            // at startup via its native credential store. PolyPilot does NOT read the
+            // macOS Keychain (triggers password dialogs and corrupts ACLs — see PR #465).
             _resolvedGitHubToken ??= ResolveGitHubTokenFromEnv();
 
             if (!_serverManager.CheckServerRunning("127.0.0.1", settings.Port))
@@ -1092,7 +1097,9 @@ public partial class CopilotService : IAsyncDisposable
         _ = CheckAuthStatusAsync();
 
         // Load organization state FIRST (groups, pinning, sorting) so reconcile during restore doesn't wipe it
+        var startupSw = System.Diagnostics.Stopwatch.StartNew();
         LoadOrganization();
+        Debug($"[STARTUP-TIMING] LoadOrganization: {startupSw.ElapsedMilliseconds}ms");
 
         // Session restore runs in the background so the UI renders immediately.
         // With many sessions (40+), sequential ResumeSessionAsync calls can take
@@ -1103,7 +1110,13 @@ public partial class CopilotService : IAsyncDisposable
         // Without Task.Run, the async continuations run on the UI thread. LoadHistoryFromDisk's
         // .GetAwaiter().GetResult() then blocks the UI thread waiting for async file I/O whose
         // continuation needs the UI thread → classic SyncContext deadlock → blue screen.
-        _ = Task.Run(() => RestoreSessionsInBackgroundAsync(cancellationToken));
+        Debug($"[STARTUP-TIMING] Pre-restore: {startupSw.ElapsedMilliseconds}ms");
+        _ = Task.Run(async () =>
+        {
+            var restoreSw = System.Diagnostics.Stopwatch.StartNew();
+            await RestoreSessionsInBackgroundAsync(cancellationToken);
+            Debug($"[STARTUP-TIMING] RestoreSessionsInBackground: {restoreSw.ElapsedMilliseconds}ms");
+        });
 
         // Initialize any registered providers (from DI / plugin loader)
         await InitializeProvidersAsync(cancellationToken);
@@ -1263,6 +1276,8 @@ public partial class CopilotService : IAsyncDisposable
             return;
         }
 
+        _ = FetchAvailableModelsAsync();
+
         // Restore previous sessions
         LoadOrganization();
         await RestorePreviousSessionsAsync(cancellationToken);
@@ -1331,17 +1346,10 @@ public partial class CopilotService : IAsyncDisposable
                 await Task.Delay(250);
             }
 
-            // Forward whatever token was resolved (may be null for watchdog callers, or a
-            // freshly-resolved token from ReauthenticateAsync/CheckAuthStatusAsync).
-            // Do NOT clear _resolvedGitHubToken — re-reading Keychain produces the same
-            // (possibly expired) token, so clearing the cache only triggers redundant macOS
-            // password prompts on the next CheckAuthStatusAsync lazy-resolution cycle.
-            // Only ReauthenticateAsync (explicit user action) and ReconnectAsync (settings
-            // change) should clear the cache. See .claude/skills/auth-token-safety/SKILL.md.
+            // Forward env-var token if available; otherwise null lets the server
+            // authenticate on its own via its native credential store.
             var tokenToForward = _resolvedGitHubToken;
 
-            // Start a fresh server — forwards the cached token (if any) or null to let
-            // the server try native Keychain auth.
             var started = await _serverManager.StartServerAsync(settings.Port, tokenToForward);
             if (!started)
             {
@@ -1361,6 +1369,7 @@ public partial class CopilotService : IAsyncDisposable
             _client = CreateClient(settings);
             await _client.StartAsync(CancellationToken.None);
             IsInitialized = true;
+            _ = FetchAvailableModelsAsync();
 
             Debug("[SERVER-RECOVERY] Server recovery successful — new server started and client reconnected");
             FallbackNotice = "Persistent server was automatically restarted due to repeated failures. Your sessions should work again.";
@@ -1459,6 +1468,7 @@ public partial class CopilotService : IAsyncDisposable
                 await _client.StartAsync(cancellationToken);
                 IsInitialized = true;
                 NeedsConfiguration = false;
+                _ = FetchAvailableModelsAsync();
                 Debug("[SERVER-RESTART] Server restarted and client connected");
             }
             catch (Exception ex)
@@ -4826,7 +4836,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             try { await _client.DisposeAsync(); } catch { }
         }
         _recoveryLock.Dispose();
-        _tokenResolutionLock.Dispose();
     }
 
     private void StartExternalSessionScannerIfNeeded()

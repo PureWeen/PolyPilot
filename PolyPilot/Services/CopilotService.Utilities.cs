@@ -134,14 +134,17 @@ public partial class CopilotService
 
             using var doc = JsonDocument.Parse(lastLine);
             var type = doc.RootElement.GetProperty("type").GetString();
-            
-            var activeEvents = new[] { 
-                "assistant.turn_start", "tool.execution_start", 
-                "tool.execution_progress", "assistant.message_delta",
-                "assistant.reasoning", "assistant.reasoning_delta",
-                "assistant.intent"
-            };
-            return activeEvents.Contains(type);
+            if (type == null) return false; // Corrupt/partial event — treat as terminal
+
+            // Use a blacklist of terminal events rather than a whitelist of active ones.
+            // Any event that is NOT terminal means the session is still processing.
+            // The old whitelist missed intermediate states like assistant.turn_end (between
+            // tool rounds), assistant.message, and tool.execution_complete, causing
+            // actively-processing sessions to be incorrectly detected as idle on restore.
+            // session.idle is ephemeral (never on disk). session.start means session was
+            // created but never used — not actively processing. All are non-active states.
+            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown", "session.start" };
+            return !terminalEvents.Contains(type);
         }
         catch { return false; }
     }
@@ -788,28 +791,257 @@ public partial class CopilotService
 
     private async Task FetchAvailableModelsAsync()
     {
+        Task fetchTask;
+        lock (_availableModelsFetchSync)
+        {
+            if (_availableModelsFetchTask.IsCompleted)
+            {
+                _availableModelsFetchQueued = false;
+                _availableModelsFetchTask = RunAvailableModelsFetchLoopAsync();
+            }
+            else
+            {
+                _availableModelsFetchQueued = true;
+            }
+
+            fetchTask = _availableModelsFetchTask;
+        }
+
+        await fetchTask;
+    }
+
+    private async Task<IReadOnlyList<string>> GetSdkAvailableModelsAsync()
+    {
+        if (_client == null)
+            return Array.Empty<string>();
+
+        // ListModelsAsync is backed by the connected Copilot CLI/server, so this
+        // picks up released models without hardcoding them here.
+        var modelList = await _client.ListModelsAsync();
+        if (modelList == null || modelList.Count == 0)
+            return Array.Empty<string>();
+
+        return Models.ModelHelper.BuildSelectionList(
+            modelList
+                .Where(m => !string.IsNullOrEmpty(m.Id))
+                .Select(m => m.Id));
+    }
+
+    private async Task<IReadOnlyList<string>> GetDirectCliAvailableModelsAsync()
+    {
+        var cliPath = ResolveCopilotCliPath(_currentSettings?.CliSource ?? CliSourceMode.BuiltIn);
+        if (string.IsNullOrWhiteSpace(cliPath) || !File.Exists(cliPath))
+            return Array.Empty<string>();
+
+        var tempDir = Path.Combine(Path.GetTempPath(), "polypilot-model-probe");
+        Directory.CreateDirectory(tempDir);
+
+        using var process = new System.Diagnostics.Process();
+        process.StartInfo = new System.Diagnostics.ProcessStartInfo
+        {
+            FileName = cliPath,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WorkingDirectory = tempDir
+        };
+        process.StartInfo.ArgumentList.Add("-p");
+        process.StartInfo.ArgumentList.Add("Return exactly the list of model IDs shown in the /model Available tab as a JSON array. Use the current CLI runtime model availability. Do not inspect files or use tools. Return only JSON.");
+        process.StartInfo.ArgumentList.Add("--add-dir");
+        process.StartInfo.ArgumentList.Add(tempDir);
+        process.StartInfo.ArgumentList.Add("--no-custom-instructions");
+        process.StartInfo.ArgumentList.Add("--effort");
+        process.StartInfo.ArgumentList.Add("low");
+        process.StartInfo.ArgumentList.Add("--output-format");
+        process.StartInfo.ArgumentList.Add("text");
+        process.StartInfo.ArgumentList.Add("--silent");
+
+        process.Start();
+        process.StandardInput.Close();
+
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        // Start reading streams without CTS — they'll complete when the process exits
+        // or is killed. Using CTS here causes a race: if the token fires between
+        // WaitForExitAsync returning and the await below, a successful result is lost.
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
+
         try
         {
-            if (_client == null) return;
-            var modelList = await _client.ListModelsAsync();
-            if (modelList != null && modelList.Count > 0)
+            await process.WaitForExitAsync(cts.Token);
+        }
+        catch (OperationCanceledException ex)
+        {
+            TryTerminateProcess(process);
+            throw new TimeoutException("Timed out while probing models from the Copilot CLI.", ex);
+        }
+
+        var output = await outputTask;
+        var error = await errorTask;
+
+        if (process.ExitCode != 0)
+        {
+            var detail = FirstNonEmptyLine(error) ?? FirstNonEmptyLine(output) ?? $"exit code {process.ExitCode}";
+            throw new InvalidOperationException($"Copilot CLI model probe failed: {detail}");
+        }
+
+        var models = ParseDirectCliModelProbeOutput(output);
+        if (models.Count == 0)
+        {
+            var snippet = FirstNonEmptyLine(output) ?? "(no output)";
+            throw new InvalidOperationException($"Copilot CLI model probe returned no parseable models: {snippet}");
+        }
+
+        return models;
+    }
+
+    private async Task RunAvailableModelsFetchLoopAsync()
+    {
+        do
+        {
+            IReadOnlyList<string> sdkModels = Array.Empty<string>();
+            IReadOnlyList<string> directCliModels = Array.Empty<string>();
+
+            try
             {
-                var models = modelList
-                    .Where(m => !string.IsNullOrEmpty(m.Id))
-                    .Select(m => m.Id!)
-                    .OrderBy(m => m)
-                    .ToList();
-                if (models.Count > 0)
+                sdkModels = await GetSdkAvailableModelsAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to fetch models from SDK: {ex.Message}");
+            }
+
+            try
+            {
+                directCliModels = await GetDirectCliAvailableModelsAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to fetch models from direct CLI probe: {ex.Message}");
+            }
+
+            var primaryModels = directCliModels.Count > 0 ? directCliModels : sdkModels;
+            var supplementalModels = directCliModels.Count > 0 ? sdkModels : Array.Empty<string>();
+            if (primaryModels.Count > 0)
+            {
+                var models = Models.ModelHelper.BuildSelectionList(primaryModels, supplementalModels.ToArray()).ToList();
+                if (!_localAvailableModels.SequenceEqual(models, StringComparer.OrdinalIgnoreCase))
                 {
                     _localAvailableModels = models;
-                    Debug($"Loaded {models.Count} models from SDK");
-                    OnStateChanged?.Invoke();
+                    Debug($"Loaded {models.Count} models from Copilot CLI (sdk={sdkModels.Count}, direct={directCliModels.Count})");
+                    InvokeOnUI(() => OnStateChanged?.Invoke());
                 }
             }
-        }
-        catch (Exception ex)
+
+            lock (_availableModelsFetchSync)
+            {
+                if (!_availableModelsFetchQueued)
+                    break;
+
+                _availableModelsFetchQueued = false;
+            }
+        } while (true);
+    }
+
+    internal static IReadOnlyList<string> ParseDirectCliModelProbeOutput(string? output, int maxDepth = 5)
+    {
+        if (string.IsNullOrWhiteSpace(output) || maxDepth <= 0)
+            return Array.Empty<string>();
+
+        foreach (var line in output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
         {
-            Debug($"Failed to fetch models: {ex.Message}");
+            try
+            {
+                using var doc = JsonDocument.Parse(line);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                    continue;
+
+                if (doc.RootElement.TryGetProperty("data", out var data) &&
+                    data.ValueKind == JsonValueKind.Object &&
+                    data.TryGetProperty("content", out var content) &&
+                    content.ValueKind == JsonValueKind.String)
+                {
+                    var nested = ParseDirectCliModelProbeOutput(content.GetString(), maxDepth - 1);
+                    if (nested.Count > 0)
+                        return nested;
+                }
+            }
+            catch (JsonException)
+            {
+                // Fall back to raw array extraction below.
+            }
+        }
+
+        foreach (var candidate in GetJsonArrayCandidates(output))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(candidate);
+                if (doc.RootElement.ValueKind != JsonValueKind.Array)
+                    continue;
+
+                return Models.ModelHelper.BuildSelectionList(
+                    doc.RootElement
+                        .EnumerateArray()
+                        .Where(e => e.ValueKind == JsonValueKind.String)
+                        .Select(e => e.GetString())
+                        .Where(s => !string.IsNullOrWhiteSpace(s))
+                        .Where(s => Models.ModelHelper.IsValidModelSlug(Models.ModelHelper.NormalizeToSlug(s))));
+            }
+            catch (JsonException)
+            {
+                // Keep trying more permissive candidate extraction below.
+            }
+        }
+
+        return Array.Empty<string>();
+    }
+
+    private static IEnumerable<string> GetJsonArrayCandidates(string output)
+    {
+        var trimmed = output.Trim();
+        if (trimmed.Length == 0)
+            yield break;
+
+        yield return trimmed;
+
+        if (trimmed.StartsWith("```", StringComparison.Ordinal))
+        {
+            var firstNewline = trimmed.IndexOf('\n');
+            var lastFence = trimmed.LastIndexOf("```", StringComparison.Ordinal);
+            if (firstNewline >= 0 && lastFence > firstNewline)
+                yield return trimmed[(firstNewline + 1)..lastFence].Trim();
+        }
+
+        var start = trimmed.IndexOf('[');
+        var end = trimmed.LastIndexOf(']');
+        if (start >= 0 && end > start)
+            yield return trimmed[start..(end + 1)];
+    }
+
+    private static string? FirstNonEmptyLine(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return null;
+
+        return text
+            .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Select(line => line.Trim())
+            .FirstOrDefault(line => line.Length > 0);
+    }
+
+    private static void TryTerminateProcess(System.Diagnostics.Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+                process.Kill(entireProcessTree: true);
+        }
+        catch
+        {
+            // Best-effort cleanup after a timeout.
         }
     }
 
@@ -849,12 +1081,6 @@ public partial class CopilotService
     /// Checks the CLI server's authentication status via the SDK and surfaces a
     /// dismissible banner if the server is not authenticated.
     /// Returns true if authenticated, false otherwise.
-    ///
-    /// On first auth failure (when no token has been resolved yet), performs a lazy
-    /// full token resolution (including Keychain) and auto-restarts the server.
-    /// This avoids preemptive Keychain reads at startup while still fixing auth
-    /// for users whose headless server can't access the Keychain.
-    /// See .claude/skills/auth-token-safety/SKILL.md (INV-A1, INV-A2).
     /// </summary>
     private async Task<bool> CheckAuthStatusAsync()
     {
@@ -865,11 +1091,6 @@ public partial class CopilotService
             if (status.IsAuthenticated)
             {
                 StopAuthPolling();
-                // Mark that the server can self-authenticate — no Keychain read needed.
-                // Without this, _resolvedGitHubToken stays null after startup (no env var),
-                // and any later transient auth failure triggers the lazy Keychain path
-                // (3 service names × 3s timeout each = 3 macOS password dialogs).
-                _resolvedGitHubToken ??= string.Empty;
                 InvokeOnUI(() =>
                 {
                     AuthNotice = null;
@@ -882,60 +1103,9 @@ public partial class CopilotService
             {
                 Debug($"[AUTH] Not authenticated: {status.StatusMessage}");
 
-                // Lazy token resolution: if we haven't tried the full chain yet (Keychain + gh),
-                // do it now and auto-restart the server. This handles the case where the headless
-                // server can't access the Keychain on its own (macOS ACL restriction).
-                // SemaphoreSlim(1,1) prevents concurrent callers from both triggering Keychain
-                // dialogs. Loser falls through to StartAuthPolling (correct — next poll retries).
-                // See .claude/skills/auth-token-safety/SKILL.md (INV-A2).
-                if (_resolvedGitHubToken == null && await _tokenResolutionLock.WaitAsync(0))
-                {
-                    try
-                    {
-                        // Double-check after acquiring lock — winner may have set it
-                        if (_resolvedGitHubToken == null)
-                        {
-                            var fullToken = await Task.Run(() => ResolveGitHubTokenForServer());
-                            if (fullToken != null)
-                            {
-                                Debug("[AUTH] Lazy token resolution found a token — restarting server with it");
-                                _resolvedGitHubToken = fullToken;
-                                var recovered = await TryRecoverPersistentServerAsync();
-                                if (recovered)
-                                {
-                                    // Re-check auth after restart
-                                    try
-                                    {
-                                        var recheck = await _client!.GetAuthStatusAsync();
-                                        if (recheck.IsAuthenticated)
-                                        {
-                                            InvokeOnUI(() =>
-                                            {
-                                                AuthNotice = null;
-                                                OnStateChanged?.Invoke();
-                                            });
-                                            Debug($"[AUTH] Authenticated after lazy restart as {recheck.Login}");
-                                            _ = FetchGitHubUserInfoAsync();
-                                            return true;
-                                        }
-                                    }
-                                    catch (Exception recheckEx)
-                                    {
-                                        Debug($"[AUTH] Re-check after lazy restart failed: {recheckEx.Message}");
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    finally
-                    {
-                        _tokenResolutionLock.Release();
-                    }
-                }
-
                 InvokeOnUI(() =>
                 {
-                    AuthNotice = "Not authenticated — run the login command below, then click Re-authenticate.";
+                    AuthNotice = "Not authenticated — run `copilot login` in a terminal, then click Re-authenticate.";
                     OnStateChanged?.Invoke();
                 });
                 StartAuthPolling();
@@ -976,10 +1146,7 @@ public partial class CopilotService
                         if (status.IsAuthenticated)
                         {
                             Debug($"[AUTH-POLL] Auth detected ({status.Login}) — triggering server restart");
-                            // Use cached token only — do NOT call ResolveGitHubTokenForServer()
-                            // here. The polling loop runs every 10s; re-reading Keychain would
-                            // trigger a macOS password dialog on every cycle.
-                            // See .claude/skills/auth-token-safety/SKILL.md (INV-A2).
+                            // Use cached env-var token only — the server self-authenticates.
                             StopAuthPolling();
                             var recovered = await TryRecoverPersistentServerAsync();
                             if (recovered)
@@ -1044,110 +1211,5 @@ public partial class CopilotService
             }
         }
         return null;
-    }
-
-    /// <summary>
-    /// Full token resolution chain including macOS Keychain and gh CLI.
-    /// ⚠️ DANGEROUS: Keychain read triggers a macOS password dialog. Only call on
-    /// explicit user action (ReauthenticateAsync) or after confirmed auth failure.
-    /// Never call preemptively at startup or in automatic polling loops.
-    /// See .claude/skills/auth-token-safety/SKILL.md (INV-A1, INV-A2).
-    ///
-    /// Resolution order:
-    ///   1. COPILOT_GITHUB_TOKEN, GH_TOKEN, GITHUB_TOKEN env vars (no prompt)
-    ///   2. macOS Keychain entry written by `copilot login` (⚠️ may prompt)
-    ///   3. `gh auth token` if the gh CLI is installed (no prompt)
-    /// </summary>
-    internal static string? ResolveGitHubTokenForServer()
-    {
-        // 1. Environment variables (same precedence as copilot CLI) — no prompt
-        var envToken = ResolveGitHubTokenFromEnv();
-        if (envToken != null) return envToken;
-
-        // 2. macOS Keychain — `copilot login` stores the OAuth token here via keytar.node.
-        //    The headless server process may not inherit the ACL for this entry, so we read
-        //    it from the UI process (which has full login-keychain access) and forward it.
-        //    ⚠️ This triggers a macOS password dialog if PolyPilot isn't in the ACL.
-        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
-        {
-            var keychainToken = TryReadCopilotKeychainToken();
-            if (keychainToken != null)
-            {
-                Console.WriteLine("[AUTH] Resolved token from macOS Keychain (copilot login)");
-                return keychainToken;
-            }
-        }
-
-        // 3. gh CLI fallback — works when the user authenticated via `gh auth login`
-        var ghToken = RunProcessWithTimeout("gh", new[] { "auth", "token" }, 5000);
-        if (ghToken != null)
-        {
-            Console.WriteLine("[AUTH] Resolved token from `gh auth token`");
-            return ghToken;
-        }
-
-        Console.WriteLine("[AUTH] No GitHub token could be resolved for server forwarding");
-        return null;
-    }
-
-    /// <summary>
-    /// Reads the GitHub OAuth token stored by <c>copilot login</c> from the macOS login Keychain.
-    /// Uses the <c>security</c> CLI (built into macOS) so no extra entitlements are needed.
-    /// Returns null silently on any failure (missing entry, no access, etc.).
-    /// </summary>
-    internal static string? TryReadCopilotKeychainToken()
-    {
-        // `copilot login` stores the token via keytar.node under a service name that
-        // has changed across CLI versions. We try all known names (most common first).
-        foreach (var serviceName in new[] { "copilot-cli", "github-copilot", "GitHub Copilot" })
-        {
-            var token = RunProcessWithTimeout("security",
-                new[] { "find-generic-password", "-s", serviceName, "-w" }, 3000);
-            if (token != null)
-                return token;
-        }
-        return null;
-    }
-
-    /// <summary>
-    /// Runs a process with a timeout, returning trimmed stdout on success or null on failure/timeout.
-    /// Kills the process if it exceeds the timeout to prevent zombies.
-    /// </summary>
-    internal static string? RunProcessWithTimeout(string fileName, string[] args, int timeoutMs)
-    {
-        try
-        {
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = fileName,
-                UseShellExecute = false,
-                RedirectStandardOutput = true,
-                RedirectStandardError = false, // Don't redirect — unused output fills pipe buffer and blocks
-                CreateNoWindow = true
-            };
-            foreach (var arg in args)
-                psi.ArgumentList.Add(arg);
-
-            using var proc = System.Diagnostics.Process.Start(psi);
-            if (proc == null) return null;
-
-            // Read output asynchronously with timeout to prevent blocking on
-            // ACL dialogs (security) or network hangs (gh)
-            var readTask = proc.StandardOutput.ReadToEndAsync();
-            if (!proc.WaitForExit(timeoutMs))
-            {
-                try { proc.Kill(); } catch { }
-                // Drain the abandoned read task to avoid unobserved ObjectDisposedException
-                try { readTask.GetAwaiter().GetResult(); } catch { }
-                return null;
-            }
-            // Process exited within timeout — ReadToEndAsync should complete quickly
-            var output = readTask.GetAwaiter().GetResult().Trim();
-            return proc.ExitCode == 0 && !string.IsNullOrEmpty(output) ? output : null;
-        }
-        catch
-        {
-            return null;
-        }
     }
 }

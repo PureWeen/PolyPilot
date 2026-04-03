@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace PolyPilot.Models;
 
@@ -10,9 +11,19 @@ namespace PolyPilot.Models;
 /// </summary>
 public static class ModelHelper
 {
+    private static readonly Regex ValidSlugPattern = new(@"^[a-z0-9][-a-z0-9.]*$", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Returns true if the string looks like a valid model slug
+    /// (lowercase alphanumeric with hyphens and dots, e.g. "claude-opus-4.6").
+    /// </summary>
+    public static bool IsValidModelSlug(string? slug) =>
+        !string.IsNullOrEmpty(slug) && ValidSlugPattern.IsMatch(slug);
+
     public static IReadOnlyList<string> FallbackModels { get; } = new[]
     {
         "claude-opus-4.6",
+        "claude-opus-4.6-1m",
         "claude-opus-4.6-fast",
         "claude-opus-4.5",
         "claude-sonnet-4.5",
@@ -32,6 +43,35 @@ public static class ModelHelper
         "gpt-4.1",
         "gemini-3-pro-preview",
     };
+
+    /// <summary>
+    /// Builds a model picker list from CLI-discovered models plus any required
+    /// fallback choices (current selection, current session model, default model).
+    /// All values are normalized to slugs and deduplicated case-insensitively.
+    /// </summary>
+    public static IReadOnlyList<string> BuildSelectionList(IEnumerable<string>? discoveredModels, params string?[] requiredModels)
+    {
+        var result = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        void Add(string? model)
+        {
+            var normalized = NormalizeToSlug(model);
+            if (!string.IsNullOrEmpty(normalized) && seen.Add(normalized))
+                result.Add(normalized);
+        }
+
+        if (discoveredModels != null)
+        {
+            foreach (var model in discoveredModels)
+                Add(model);
+        }
+
+        foreach (var model in requiredModels)
+            Add(model);
+
+        return result;
+    }
 
     /// <summary>
     /// Normalize any model string to its canonical slug form.
@@ -87,6 +127,47 @@ public static class ModelHelper
         if (string.IsNullOrWhiteSpace(model)) return false;
         // Display names have uppercase letters or spaces
         return model.Any(char.IsUpper) || model.Contains(' ');
+    }
+
+    /// <summary>
+    /// Decide whether an observed SDK/CLI event model should replace the current session model.
+    /// Preserve an explicit user-selected model when metrics events report a different backend
+    /// model (for example after resume/abort flows that transiently report a default model).
+    /// </summary>
+    public static bool ShouldAcceptObservedModel(string? currentModel, string? observedModel)
+    {
+        var normalizedObserved = NormalizeToSlug(observedModel);
+        if (string.IsNullOrEmpty(normalizedObserved))
+            return false;
+
+        var normalizedCurrent = NormalizeToSlug(currentModel);
+        return string.IsNullOrEmpty(normalizedCurrent) ||
+               normalizedCurrent == "resumed" ||
+               normalizedCurrent == normalizedObserved;
+    }
+
+    /// <summary>
+    /// Converts a model slug to a human-friendly display name.
+    /// If displayNames dictionary is provided and contains the slug, uses the SDK's display name.
+    /// Otherwise falls back to algorithmic prettification.
+    /// </summary>
+    public static string PrettifyModel(string modelId, IReadOnlyDictionary<string, string>? displayNames = null)
+    {
+        if (string.IsNullOrEmpty(modelId)) return modelId;
+
+        // If we have an SDK-provided display name, prefer it
+        if (displayNames != null && displayNames.TryGetValue(modelId, out var sdkName))
+            return sdkName;
+
+        // Algorithmic fallback
+        var display = modelId
+            .Replace("claude-", "Claude ")
+            .Replace("gpt-", "GPT-")
+            .Replace("gemini-", "Gemini ");
+        display = display.Replace("-", " ");
+        display = display.Replace("GPT ", "GPT-");
+        return string.Join(' ', display.Split(' ', StringSplitOptions.RemoveEmptyEntries).Select(s =>
+            s.Length > 0 ? char.ToUpper(s[0]) + s[1..] : s));
     }
 
     internal static string? ExtractLatestModelFromEvents(IEnumerable<string> lines)

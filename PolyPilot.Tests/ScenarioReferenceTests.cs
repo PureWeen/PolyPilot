@@ -153,13 +153,14 @@ public class ScenarioReferenceTests
 
     /// <summary>
     /// Scenario: "create-session-model-picker-includes-gpt-5-4"
-    /// Unit test equivalents: ModelSelectionTests.FallbackModels_IncludeCurrentGptVariants
+    /// Unit test equivalents: ModelSelectionTests.BuildSelectionList_AppendsSelectionAndDefault_WhenDiscoveryIsEmpty,
+    ///   ModelSelectionTests.BuildSelectionList_NormalizesDiscoveredModels_AndAvoidsDuplicates,
     ///   and EventsJsonlParsingTests.ExtractLatestModelFromEvents_LaterModelChangeWins
     /// </summary>
     [Fact]
     public void Scenario_ModelPickerIncludesGpt54_HasUnitTestCoverage()
     {
-        Assert.True(true, "See ModelSelectionTests.FallbackModels_IncludeCurrentGptVariants and EventsJsonlParsingTests.ExtractLatestModelFromEvents_LaterModelChangeWins");
+        Assert.True(true, "See ModelSelectionTests.BuildSelectionList_* and EventsJsonlParsingTests.ExtractLatestModelFromEvents_LaterModelChangeWins");
     }
 
     /// <summary>

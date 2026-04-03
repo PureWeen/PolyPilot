@@ -530,6 +530,7 @@ public partial class CopilotService
                 if (entries != null && entries.Count > 0)
                 {
                     Debug($"Restoring {entries.Count} previous sessions...");
+                    var restoreSw = System.Diagnostics.Stopwatch.StartNew();
                     IsRestoring = true;
 
                     // Snapshot groups once for thread safety — bridge/SDK events can
@@ -646,16 +647,49 @@ public partial class CopilotService
                             _sessions[entry.DisplayName] = lazyState;
                             _activeSessionName ??= entry.DisplayName;
                             RestoreUsageStats(entry);
-                            // Eagerly resume sessions that are still actively processing on the
-                            // headless server. Check events.jsonl (authoritative) first, then fall
-                            // back to LastPrompt (saved when IsProcessing=true at debounce time).
-                            // Without this, actively-running sessions appear idle after app restart
-                            // because they're only loaded as lazy placeholders with no SDK connection.
+                            // Check if session is still actively processing on the headless server.
                             var isStillActive = IsSessionStillProcessing(entry.SessionId);
-                            if (isStillActive || !string.IsNullOrWhiteSpace(entry.LastPrompt))
+                            if (isStillActive)
                             {
+                                // Session is actively running on the copilot server (tool calls in
+                                // flight). Do NOT eager-resume — ResumeSessionAsync kills in-flight
+                                // tool execution on the CLI (the resume replaces the event stream and
+                                // abandons running tools). Instead, mark as processing locally and
+                                // start a file-based poller that watches events.jsonl for completion.
+                                // When the CLI finishes, the poller triggers a lazy-resume to pick up
+                                // the results.
+                                Debug($"Deferring resume for actively-processing session: {entry.DisplayName} (will poll events.jsonl)");
+                                var capturedState = lazyState;
+                                var capturedName = entry.DisplayName;
+                                var capturedSessionId = entry.SessionId;
+                                InvokeOnUI(() =>
+                                {
+                                    capturedState.Info.IsProcessing = true;
+                                    capturedState.Info.IsResumed = true;
+                                    capturedState.HasUsedToolsThisTurn = true;
+                                    // INV-9: Set IsMultiAgentSession so the watchdog uses the correct
+                                    // timeout tier (600s for multi-agent workers, not 120s).
+                                    capturedState.IsMultiAgentSession = IsSessionInMultiAgentGroup(capturedName);
+                                    capturedState.Info.ProcessingPhase = 3; // Working
+                                    capturedState.Info.ProcessingStartedAt = DateTime.UtcNow;
+                                    // Reset LastUpdatedAt so the UI doesn't show stale "Xm ago" from
+                                    // a previous app instance. Without this, sessions show "494m ago"
+                                    // because LastUpdatedAt is only updated by SDK events (which don't
+                                    // arrive during the poll-then-resume window).
+                                    capturedState.Info.LastUpdatedAt = DateTime.Now;
+                                    StartProcessingWatchdog(capturedState, capturedName);
+                                    NotifyStateChanged();
+                                });
+                                // Poll events.jsonl — when the CLI finishes (session.idle/shutdown),
+                                // trigger a lazy resume to connect and pick up the response.
+                                _ = PollEventsAndResumeWhenIdleAsync(capturedName, capturedState, capturedSessionId, cancellationToken);
+                            }
+                            else if (!string.IsNullOrWhiteSpace(entry.LastPrompt))
+                            {
+                                // Session had a pending prompt but CLI is no longer active —
+                                // safe to eager-resume to retry the prompt.
                                 eagerResumeCandidates.Add((entry.DisplayName, lazyState));
-                                Debug($"Queued eager resume for interrupted session: {entry.DisplayName} (active={isStillActive}, hasLastPrompt={!string.IsNullOrWhiteSpace(entry.LastPrompt)})");
+                                Debug($"Queued eager resume for interrupted session: {entry.DisplayName} (hasLastPrompt=true)");
                             }
                             Debug($"Loaded session placeholder: {entry.DisplayName} ({lazyHistory.Count} messages)");
                         }
@@ -786,6 +820,7 @@ public partial class CopilotService
                         }, cancellationToken);
                     }
                     
+                    Debug($"[STARTUP-TIMING] Session loop complete: {restoreSw.ElapsedMilliseconds}ms ({entries.Count} sessions)");
                     IsRestoring = false;
                 }
             }
@@ -795,6 +830,148 @@ public partial class CopilotService
             }
         }
 
+    }
+
+    /// <summary>
+    /// Polls events.jsonl for a session that's actively processing on the CLI.
+    /// When the CLI finishes (session.idle or session.shutdown appears, or the file
+    /// goes stale), triggers a lazy-resume to connect and load the response.
+    /// 
+    /// IMPORTANT: We cannot call ResumeSessionAsync while the CLI is running tools —
+    /// the resume command kills in-flight tool execution. This poller bridges the gap
+    /// by waiting for the CLI to finish before connecting.
+    /// </summary>
+    private async Task PollEventsAndResumeWhenIdleAsync(
+        string sessionName, SessionState state, string sessionId, CancellationToken ct)
+    {
+        var eventsFile = Path.Combine(SessionStatePath, sessionId, "events.jsonl");
+        var maxPollTime = TimeSpan.FromMinutes(30);
+        var pollInterval = TimeSpan.FromSeconds(5);
+        var started = DateTime.UtcNow;
+
+        Debug($"[POLL] Starting events.jsonl poll for '{sessionName}' (id={sessionId})");
+
+        try
+        {
+            while (!ct.IsCancellationRequested && (DateTime.UtcNow - started) < maxPollTime)
+            {
+                await Task.Delay(pollInterval, ct);
+
+                // Check if the user already interacted (sent a message) which would have
+                // triggered EnsureSessionConnectedAsync — no need to poll anymore.
+                if (state.Session != null)
+                {
+                    Debug($"[POLL] '{sessionName}' already connected (user interaction) — stopping poll");
+                    return;
+                }
+
+                // Check if the watchdog already cleared IsProcessing — session is done.
+                if (!state.Info.IsProcessing)
+                {
+                    Debug($"[POLL] '{sessionName}' no longer processing (watchdog cleared) — stopping poll");
+                    return;
+                }
+
+                // Read last event type from events.jsonl for terminal events.
+                // NOTE: session.idle is ephemeral (never written to events.jsonl by design).
+                // session.error is also not persisted. Only session.shutdown is reliably on disk.
+                // The watchdog is the primary completion detection for disconnected sessions.
+                var lastEventType = GetLastEventType(eventsFile);
+                if (lastEventType == null) continue;
+
+                var isTerminal = lastEventType is "session.shutdown";
+
+                if (isTerminal)
+                {
+                    Debug($"[POLL] '{sessionName}' CLI finished (lastEvent={lastEventType}) — resuming session");
+
+                    // INV-3/INV-12: Capture generation BEFORE async operations to prevent
+                    // stale poller from corrupting a new turn started by user interaction.
+                    var pollerGen = Interlocked.Read(ref state.ProcessingGeneration);
+
+                    // Load the full history from events.jsonl (includes response content).
+                    // Merge happens inside InvokeOnUI because History is an ObservableCollection
+                    // and all other mutations run on the UI thread.
+                    List<ChatMessage>? diskHistory = null;
+                    try
+                    {
+                        (diskHistory, _) = await LoadBestHistoryAsync(sessionId);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug($"[POLL] '{sessionName}' failed to load disk history: {ex.Message}");
+                    }
+
+                    // Now safe to resume — the CLI is idle, no tools to interrupt.
+                    // Only connect if user hasn't already connected via SendPromptAsync
+                    if (state.Session == null)
+                    {
+                        try
+                        {
+                            await EnsureSessionConnectedAsync(sessionName, state, ct);
+                            Debug($"[POLL] '{sessionName}' lazy-resume complete after poll");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug($"[POLL] '{sessionName}' lazy-resume failed: {ex.Message}");
+                        }
+                    }
+
+                    // Complete the response — the session is done.
+                    InvokeOnUI(() =>
+                    {
+                        // INV-3: Generation guard — if user sent a new message during
+                        // the poll→resume window, this completion belongs to the old turn.
+                        if (Interlocked.Read(ref state.ProcessingGeneration) != pollerGen) return;
+                        if (!state.Info.IsProcessing) return; // watchdog already cleared
+
+                        // Merge disk history on UI thread (History is ObservableCollection)
+                        if (diskHistory != null && diskHistory.Count > state.Info.History.Count)
+                        {
+                            var existingCount = state.Info.History.Count;
+                            foreach (var msg in diskHistory.Skip(existingCount))
+                                state.Info.History.Add(msg);
+                            Debug($"[POLL] '{sessionName}' loaded {diskHistory.Count - existingCount} new messages from disk (total={state.Info.History.Count})");
+                        }
+                        FlushCurrentResponse(state);
+                        CompleteResponse(state, pollerGen);
+                        NotifyStateChanged();
+                    });
+                    return;
+                }
+            }
+
+            if ((DateTime.UtcNow - started) >= maxPollTime)
+            {
+                Debug($"[POLL-TIMEOUT] '{sessionName}' poll timed out after {maxPollTime.TotalMinutes:F0} minutes — cleaning up");
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            Debug($"[POLL] '{sessionName}' poll cancelled");
+        }
+        catch (Exception ex)
+        {
+            Debug($"[POLL] '{sessionName}' poll error: {ex.Message}");
+        }
+        finally
+        {
+            // Safety net: if IsProcessing is still true and generation hasn't changed,
+            // clear it so the session doesn't appear stuck indefinitely.
+            var finalGen = Interlocked.Read(ref state.ProcessingGeneration);
+            if (state.Info.IsProcessing && state.Session == null)
+            {
+                InvokeOnUI(() =>
+                {
+                    if (Interlocked.Read(ref state.ProcessingGeneration) != finalGen) return;
+                    if (!state.Info.IsProcessing) return;
+                    Debug($"[POLL-CLEANUP] '{sessionName}' clearing stuck IsProcessing after poll exit");
+                    FlushCurrentResponse(state);
+                    CompleteResponse(state, finalGen);
+                    NotifyStateChanged();
+                });
+            }
+        }
     }
 
     public void SaveUiState(string currentPage, string? activeSession = null, int? fontSize = null, string? selectedModel = null, bool? expandedGrid = null, string? expandedSession = "<<unspecified>>", Dictionary<string, string>? inputModes = null, int? gridColumns = null, int? cardMinHeight = null)

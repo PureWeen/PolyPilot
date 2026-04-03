@@ -303,6 +303,9 @@ public class StuckSessionRecoveryTests
     [InlineData("assistant.reasoning")]
     [InlineData("assistant.reasoning_delta")]
     [InlineData("assistant.intent")]
+    [InlineData("assistant.turn_end")]       // between tool rounds — still processing
+    [InlineData("assistant.message")]        // mid-turn text — still processing
+    [InlineData("tool.execution_end")]       // tool just completed — still processing
     public void IsSessionStillProcessing_AllActiveEventTypes_ReturnTrue(string eventType)
     {
         var svc = CreateService();
@@ -326,11 +329,10 @@ public class StuckSessionRecoveryTests
 
     [Theory]
     [InlineData("session.idle")]
-    [InlineData("assistant.message")]
-    [InlineData("session.start")]
-    [InlineData("assistant.turn_end")]
-    [InlineData("tool.execution_end")]
-    public void IsSessionStillProcessing_InactiveEventTypes_ReturnFalse(string eventType)
+    [InlineData("session.error")]
+    [InlineData("session.shutdown")]
+    [InlineData("session.start")]     // created but never used — not actively processing
+    public void IsSessionStillProcessing_TerminalEventTypes_ReturnFalse(string eventType)
     {
         var svc = CreateService();
         var tmpDir = Path.Combine(Path.GetTempPath(), "polypilot-test-" + Guid.NewGuid().ToString("N"));
@@ -343,7 +345,7 @@ public class StuckSessionRecoveryTests
         {
             File.WriteAllText(eventsFile, $$$"""{"type":"{{{eventType}}}","data":{}}""");
             var result = svc.IsSessionStillProcessing(sessionId, tmpDir);
-            Assert.False(result, $"Inactive event type '{eventType}' should not report still processing");
+            Assert.False(result, $"Terminal event type '{eventType}' should not report still processing");
         }
         finally
         {

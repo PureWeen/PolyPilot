@@ -3358,19 +3358,22 @@
     // === Model, plan mode, font, token helpers ===
 
     private IReadOnlyList<string> availableModels =>
-        CopilotService.AvailableModels.Count > 0 ? CopilotService.AvailableModels : ModelHelper.FallbackModels;
+        CopilotService.AvailableModels.Count > 0
+            ? ModelHelper.BuildSelectionList(CopilotService.AvailableModels, CopilotService.DefaultModel)
+            : ModelHelper.BuildSelectionList(ModelHelper.FallbackModels, CopilotService.DefaultModel);
 
     private string GetSessionModel(AgentSessionInfo session)
     {
-        // Priority: 1) Usage info (TRUTH) - what the backend is actually using
-        if (usageBySession.TryGetValue(session.Name, out var u) && !string.IsNullOrEmpty(u.Model))
-            return u.Model;
-
-        // Priority: 2) Session model property (initial configuration)
+        // Priority: 1) Session model property (user's explicit choice, persisted across restarts)
         if (!string.IsNullOrEmpty(session.Model) && session.Model != "resumed")
             return session.Model;
 
-        return availableModels[0];
+        // Priority: 2) Usage info - what the backend reported
+        if (usageBySession.TryGetValue(session.Name, out var u) && !string.IsNullOrEmpty(u.Model))
+            return u.Model;
+
+        // Fallback: default model (never alphabetical first which may be haiku)
+        return CopilotService.DefaultModel;
     }
 
     private string GetExpandedModel(AgentSessionInfo session)

@@ -644,6 +644,14 @@ public partial class CopilotService
                 // Cancel the TurnEnd→Idle fallback — normal SessionIdleEvent arrived
                 CancelTurnEndFallback(state);
 
+                // Diagnostic: dump raw backgroundTasks payload to prove whether CLI populates it consistently
+                {
+                    var bt = idle.Data?.BackgroundTasks;
+                    var agentCount = bt?.Agents?.Length ?? -1;
+                    var shellCount = bt?.Shells?.Length ?? -1;
+                    Debug($"[IDLE-DIAG] '{sessionName}' session.idle payload: backgroundTasks={{agents={agentCount}, shells={shellCount}, null={bt == null}}}");
+                }
+
                 // KEY FIX: Check if the server reports active background tasks (sub-agents, shells).
                 // session.idle with background tasks means "foreground quiesced, background still running."
                 // Do NOT treat this as terminal — flush text and wait for the real idle.
@@ -658,6 +666,23 @@ public partial class CopilotService
                     {
                         if (state.IsOrphaned) return;
                         FlushCurrentResponse(state);
+
+                        // FIX #403: If IsProcessing was already cleared (by watchdog timeout,
+                        // reconnect, or prior EVT-REARM cycle), re-arm it. Without this, the
+                        // session appears done but background tasks are still running — the
+                        // orchestrator collects a truncated/empty response.
+                        // Guards mirror EVT-REARM: skip if orphaned or user-aborted.
+                        if (!state.Info.IsProcessing && !state.WasUserAborted)
+                        {
+                            Debug($"[IDLE-DEFER-REARM] '{sessionName}' re-arming IsProcessing — background tasks active but processing was cleared");
+                            state.Info.IsProcessing = true;
+                            state.Info.ProcessingPhase = 3; // Working (background tasks)
+                            state.Info.ProcessingStartedAt ??= DateTime.UtcNow;
+                            state.HasUsedToolsThisTurn = true; // 600s timeout (background tasks can run long)
+                            state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName);
+                            StartProcessingWatchdog(state, sessionName);
+                        }
+
                         NotifyStateChangedCoalesced();
                     });
                     break; // Don't complete — wait for next idle without background tasks
@@ -710,8 +735,18 @@ public partial class CopilotService
                 if (!string.IsNullOrEmpty(startModel))
                 {
                     var normalizedStartModel = Models.ModelHelper.NormalizeToSlug(startModel);
-                    state.Info.Model = normalizedStartModel;
-                    Debug($"Session model from start event: {startModel} → {normalizedStartModel}");
+                    // Only update if the user hasn't already set a model — the CLI may
+                    // report a default model (e.g. haiku) after abort/resume that overrides
+                    // the user's explicit choice.
+                    if (string.IsNullOrEmpty(state.Info.Model) || state.Info.Model == "resumed")
+                    {
+                        state.Info.Model = normalizedStartModel;
+                        Debug($"Session model from start event: {startModel} → {normalizedStartModel}");
+                    }
+                    else if (normalizedStartModel != state.Info.Model)
+                    {
+                        Debug($"Session model from start event ignored: {startModel} → {normalizedStartModel} (keeping user choice: {state.Info.Model})");
+                    }
                 }
                 Invoke(() => { if (!IsRestoring) SaveActiveSessionsToDisk(); });
                 break;
@@ -737,8 +772,15 @@ public partial class CopilotService
                 if (!string.IsNullOrEmpty(uModel))
                 {
                     var normalizedUModel = Models.ModelHelper.NormalizeToSlug(uModel);
-                    Debug($"[UsageInfo] Updating model from event: {state.Info.Model} -> {normalizedUModel}");
-                    state.Info.Model = normalizedUModel;
+                    if (Models.ModelHelper.ShouldAcceptObservedModel(state.Info.Model, normalizedUModel))
+                    {
+                        Debug($"[UsageInfo] Updating model from event: {state.Info.Model} -> {normalizedUModel}");
+                        state.Info.Model = normalizedUModel;
+                    }
+                    else
+                    {
+                        Debug($"[UsageInfo] Ignoring backend-reported model: {normalizedUModel} (keeping explicit session model: {state.Info.Model})");
+                    }
                 }
                 if (uCurrentTokens.HasValue) state.Info.ContextCurrentTokens = uCurrentTokens;
                 if (uTokenLimit.HasValue) state.Info.ContextTokenLimit = uTokenLimit;
@@ -772,7 +814,17 @@ public partial class CopilotService
                 }
                 catch { }
                 if (!string.IsNullOrEmpty(aModel))
-                    state.Info.Model = Models.ModelHelper.NormalizeToSlug(aModel);
+                {
+                    var normalizedAModel = Models.ModelHelper.NormalizeToSlug(aModel);
+                    if (Models.ModelHelper.ShouldAcceptObservedModel(state.Info.Model, normalizedAModel))
+                    {
+                        state.Info.Model = normalizedAModel;
+                    }
+                    else
+                    {
+                        Debug($"[AssistantUsage] Ignoring backend-reported model: {normalizedAModel} (keeping explicit session model: {state.Info.Model})");
+                    }
+                }
                 if (aInput.HasValue) state.Info.TotalInputTokens += aInput.Value;
                 if (aOutput.HasValue) state.Info.TotalOutputTokens += aOutput.Value;
                 if (aInput.HasValue || aOutput.HasValue || aPremiumQuota != null)
