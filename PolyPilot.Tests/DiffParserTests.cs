@@ -13,6 +13,33 @@ public class DiffParserTests
     }
 
     [Fact]
+    public void LooksLikeUnifiedDiff_ValidUnifiedDiff_ReturnsTrue()
+    {
+        var diff = """
+            diff --git a/src/file.cs b/src/file.cs
+            index abc..def 100644
+            --- a/src/file.cs
+            +++ b/src/file.cs
+            @@ -1,2 +1,2 @@
+            -old
+            +new
+            """;
+
+        Assert.True(DiffParser.LooksLikeUnifiedDiff(diff));
+    }
+
+    [Fact]
+    public void LooksLikeUnifiedDiff_PlainText_ReturnsFalse()
+    {
+        var output = """
+            Updated /tmp/file.txt successfully
+            2 lines changed
+            """;
+
+        Assert.False(DiffParser.LooksLikeUnifiedDiff(output));
+    }
+
+    [Fact]
     public void Parse_StandardDiff_ExtractsFileName()
     {
         var diff = """

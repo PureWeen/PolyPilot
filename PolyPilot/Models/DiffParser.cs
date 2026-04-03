@@ -32,6 +32,29 @@ public class DiffLine
 
 public static class DiffParser
 {
+    public static bool LooksLikeUnifiedDiff(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        var hasOldFileMarker =
+            text.StartsWith("--- ", StringComparison.Ordinal) ||
+            text.Contains("\n--- ", StringComparison.Ordinal) ||
+            text.Contains("\r\n--- ", StringComparison.Ordinal);
+        var hasNewFileMarker =
+            text.StartsWith("+++ ", StringComparison.Ordinal) ||
+            text.Contains("\n+++ ", StringComparison.Ordinal) ||
+            text.Contains("\r\n+++ ", StringComparison.Ordinal);
+        var hasHunkMarker =
+            text.StartsWith("@@", StringComparison.Ordinal) ||
+            text.Contains("\n@@", StringComparison.Ordinal) ||
+            text.Contains("\r\n@@", StringComparison.Ordinal);
+
+        if (!hasOldFileMarker || !hasNewFileMarker || !hasHunkMarker)
+            return false;
+
+        return Parse(text).Count > 0;
+    }
+
     public static List<DiffFile> Parse(string unifiedDiff)
     {
         var files = new List<DiffFile>();

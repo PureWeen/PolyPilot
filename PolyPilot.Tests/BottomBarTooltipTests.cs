@@ -96,7 +96,7 @@ public class BottomBarTooltipTests
     public void ExpandedSessionView_ContextUsage_HasTitle()
     {
         var content = ReadExpandedSessionView();
-        Assert.Matches(@"class=""status-ctx""[^>]*\btitle=""[^""]+""", content);
+        Assert.Matches(@"class=""status-ctx-wrap""[^>]*\btitle=""[^""]+""", content);
     }
 
     // --- SessionSidebar: footer buttons ---

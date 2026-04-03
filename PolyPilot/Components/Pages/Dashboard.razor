@@ -110,13 +110,19 @@
             var grpProgress = CopilotService.GetMultiAgentProgress(expandedGroup.Id);
             var expandedGroupId = expandedGroup.Id;
             <div class="ma-expanded-toolbar" @onclick:stopPropagation="true">
-                <span class="ma-expanded-toolbar-label">🤖 @expandedGroup.Name</span>
-                <select class="ma-mode-select" @onchange="(e) => OnMultiAgentModeChanged(expandedGroupId, e)">
-                    <option value="Broadcast" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.Broadcast)">📡 Broadcast</option>
-                    <option value="Sequential" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.Sequential)">⏩ Sequential</option>
-                    <option value="Orchestrator" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.Orchestrator)">🎯 Orchestrate</option>
-                    <option value="OrchestratorReflect" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">🔄 Reflect</option>
-                </select>
+                <span class="ma-expanded-toolbar-label">
+                    <span class="dashboard-ma-group-icon" aria-hidden="true"></span>
+                    <span>@expandedGroup.Name</span>
+                </span>
+                <span class="ma-mode-picker" @onclick:stopPropagation="true">
+                    <span class="dashboard-ma-mode-icon @GetDashboardMultiAgentModeIconClass(expandedGroup.OrchestratorMode)" aria-hidden="true"></span>
+                    <select class="ma-mode-select" aria-label="Orchestration mode" @onchange="(e) => OnMultiAgentModeChanged(expandedGroupId, e)">
+                        <option value="Broadcast" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.Broadcast)">Broadcast</option>
+                        <option value="Sequential" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.Sequential)">Sequential</option>
+                        <option value="Orchestrator" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.Orchestrator)">Orchestrate</option>
+                        <option value="OrchestratorReflect" selected="@(expandedGroup.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">Reflect</option>
+                    </select>
+                </span>
                 @if (expandedGroup.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
                 {
                     <span class="reflect-iter-inline">
@@ -201,15 +207,20 @@
     else
     {
         <div class="dashboard-header">
-            <h2>Session Orchestrator</h2>
-            <span class="session-count">@sessions.Count active sessions</span>
-            @if (CopilotService.IsRemoteMode)
-            {
-                <span class="bridge-status @(CopilotService.IsBridgeConnected ? "connected" : "disconnected")" 
-                      title="@(CopilotService.IsBridgeConnected ? "Bridge connected" : "Bridge disconnected — reconnecting...")">
-                    @(CopilotService.IsBridgeConnected ? "🟢" : "🔴")
-                </span>
-            }
+            <div class="dashboard-header-main">
+                <h2>Session Orchestrator</h2>
+                <div class="dashboard-header-meta">
+                    <span class="session-count">@sessions.Count active sessions</span>
+                    @if (CopilotService.IsRemoteMode)
+                    {
+                        <span class="bridge-status @(CopilotService.IsBridgeConnected ? "connected" : "disconnected")"
+                              title="@(CopilotService.IsBridgeConnected ? "Bridge connected" : "Bridge disconnected — reconnecting...")">
+                            <span class="bridge-status-dot" aria-hidden="true"></span>
+                            <span class="bridge-status-text">@(CopilotService.IsBridgeConnected ? "Bridge online" : "Reconnecting")</span>
+                        </span>
+                    }
+                </div>
+            </div>
             <div class="toolbar-actions">
                 <button class="toolbar-overflow-btn" @onclick="() => toolbarMenuOpen = !toolbarMenuOpen"
                         @onclick:stopPropagation="true" title="More options">⋯</button>
@@ -230,30 +241,42 @@
                     }
                     else
                     {
-                        <button class="grid-density-btn" @onclick="() => { isAddingDashGroup = true; }" title="New group">+ Group</button>
-                        <button class="grid-density-btn multi-agent-btn" @onclick="() => { isAddingMultiAgentGroup = true; }" title="New multi-agent group">🤖 + Multi-Agent</button>
+                        <button class="grid-density-btn toolbar-action-btn" @onclick="() => { isAddingDashGroup = true; }" title="New group">
+                            <span class="toolbar-action-icon add-group" aria-hidden="true"></span>
+                            <span>Group</span>
+                        </button>
+                        <button class="grid-density-btn toolbar-action-btn multi-agent-btn" @onclick="() => { isAddingMultiAgentGroup = true; }" title="New multi-agent group">
+                            <span class="toolbar-action-icon multi-agent" aria-hidden="true"></span>
+                            <span>Multi-Agent</span>
+                        </button>
                     }
                     <span class="grid-columns-control">
+                        <span class="toolbar-control-label">Grid</span>
                         <button class="grid-col-btn" @onclick="DecrementGridColumns" disabled="@(_gridColumns <= 2)" title="Fewer columns">−</button>
                         <span class="grid-col-label" title="Cards per row">@_gridColumns col</span>
                         <button class="grid-col-btn" @onclick="IncrementGridColumns" disabled="@(_gridColumns >= 6)" title="More columns">+</button>
                     </span>
                     <span class="grid-columns-control">
+                        <span class="toolbar-control-label">Height</span>
                         <button class="grid-col-btn" @onclick="DecrementCardHeight" disabled="@(_cardMinHeight <= 150)" title="Shorter cards">−</button>
-                        <span class="grid-col-label" title="Card min height">↕ @(_cardMinHeight)px</span>
+                        <span class="grid-col-label" title="Card min height">@(_cardMinHeight)px</span>
                         <button class="grid-col-btn" @onclick="IncrementCardHeight" disabled="@(_cardMinHeight >= 600)" title="Taller cards">+</button>
                     </span>
                     <span class="font-size-controls">
+                        <span class="toolbar-control-label">Text</span>
                         <button class="font-size-btn" @onclick="DecreaseFontSize" disabled="@(fontSize <= 12)" title="Decrease font size (⌘−)">A−</button>
                         <span class="font-size-label" @onclick="ResetFontSize" title="Reset font size (⌘0)">@(fontSize)px</span>
                         <button class="font-size-btn" @onclick="IncreaseFontSize" disabled="@(fontSize >= 24)" title="Increase font size (⌘+)">A+</button>
                     </span>
-                    <select class="sort-select" @onchange="OnSortModeChanged">
-                        <option value="LastActive" selected="@(CopilotService.Organization.SortMode == SessionSortMode.LastActive)">↕ Last Active</option>
-                        <option value="CreatedAt" selected="@(CopilotService.Organization.SortMode == SessionSortMode.CreatedAt)">↕ Created</option>
-                        <option value="Alphabetical" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Alphabetical)">↕ A–Z</option>
-                        <option value="Manual" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Manual)">↕ Manual</option>
-                    </select>
+                    <label class="toolbar-sort-wrap">
+                        <span class="toolbar-control-label">Sort</span>
+                        <select class="sort-select" aria-label="Sort sessions" @onchange="OnSortModeChanged">
+                            <option value="LastActive" selected="@(CopilotService.Organization.SortMode == SessionSortMode.LastActive)">Last active</option>
+                            <option value="CreatedAt" selected="@(CopilotService.Organization.SortMode == SessionSortMode.CreatedAt)">Created</option>
+                            <option value="Alphabetical" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Alphabetical)">A-Z</option>
+                            <option value="Manual" selected="@(CopilotService.Organization.SortMode == SessionSortMode.Manual)">Manual</option>
+                        </select>
+                    </label>
                 </div>
             </div>
         </div>
@@ -264,7 +287,10 @@
             @if (focusSessions.Count > 0)
             {
             <div class="focus-strip-header">
-                <span class="focus-strip-label">🎯 Focus</span>
+                <span class="focus-strip-label">
+                    <span class="focus-strip-icon" aria-hidden="true"></span>
+                    <span>Focus</span>
+                </span>
                 <span class="focus-strip-count">@focusSessions.Count</span>
                 <span class="focus-strip-hint">Use ⬆⬇ to reorder · ✕ to remove</span>
             </div>
@@ -343,18 +369,21 @@
                      @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
                     @if (group.IsMultiAgent)
                     {
-                        <span class="group-divider-badge">🤖</span>
+                        <span class="group-divider-badge" aria-hidden="true"></span>
                     }
                     <span class="group-divider-name">@group.Name</span>
                     @if (group.IsMultiAgent)
                     {
                         <span class="group-divider-mode" @onclick:stopPropagation="true">
-                            <select class="ma-mode-select" @onchange="(e) => OnMultiAgentModeChanged(group.Id, e)">
-                                <option value="Broadcast" selected="@(group.OrchestratorMode == MultiAgentMode.Broadcast)">📡 Broadcast</option>
-                                <option value="Sequential" selected="@(group.OrchestratorMode == MultiAgentMode.Sequential)">⏩ Sequential</option>
-                                <option value="Orchestrator" selected="@(group.OrchestratorMode == MultiAgentMode.Orchestrator)">🎯 Orchestrate</option>
-                                <option value="OrchestratorReflect" selected="@(group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">🔄 Reflect</option>
-                            </select>
+                            <span class="ma-mode-picker" @onclick:stopPropagation="true">
+                                <span class="dashboard-ma-mode-icon @GetDashboardMultiAgentModeIconClass(group.OrchestratorMode)" aria-hidden="true"></span>
+                                <select class="ma-mode-select" aria-label="Orchestration mode" @onchange="(e) => OnMultiAgentModeChanged(group.Id, e)">
+                                    <option value="Broadcast" selected="@(group.OrchestratorMode == MultiAgentMode.Broadcast)">Broadcast</option>
+                                    <option value="Sequential" selected="@(group.OrchestratorMode == MultiAgentMode.Sequential)">Sequential</option>
+                                    <option value="Orchestrator" selected="@(group.OrchestratorMode == MultiAgentMode.Orchestrator)">Orchestrate</option>
+                                    <option value="OrchestratorReflect" selected="@(group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">Reflect</option>
+                                </select>
+                            </span>
                         </span>
                     }
                     <span class="group-divider-count">@groupSessions.Count sessions</span>
@@ -1704,7 +1733,7 @@
                 if (dispatch.DispatchCount > 0)
                 {
                     hostSession.History.Add(ChatMessage.SystemMessage(
-                        $"🎉 Dispatched to {dispatch.DispatchCount} worker{(dispatch.DispatchCount == 1 ? "" : "s")} in Fiesta mode."));
+                        $"Fiesta dispatched to {dispatch.DispatchCount} worker{(dispatch.DispatchCount == 1 ? "" : "s")}."));
                     hostSession.MessageCount = hostSession.History.Count;
                 }
             }
@@ -2751,7 +2780,7 @@
                     .ToList();
                 var workerText = workers.Count > 0 ? string.Join(", ", workers) : "(none)";
                 session.History.Add(ChatMessage.SystemMessage(
-                    $"🎉 Fiesta **{fiestaName}** started with {workerText}. Mention workers to dispatch work."));
+                    $"Fiesta **{fiestaName}** started with {workerText}. Mention workers to dispatch work."));
                 session.MessageCount = session.History.Count;
             }
         }
@@ -2802,7 +2831,7 @@
             var key = $"{sessionName}:{update.TaskId}";
             if (!_fiestaStreamingMessages.TryGetValue(key, out var liveMessage))
             {
-                liveMessage = ChatMessage.SystemMessage($"🎉 @{update.WorkerName}: ");
+                liveMessage = ChatMessage.SystemMessage($"Fiesta · @{update.WorkerName}: ");
                 session.History.Add(liveMessage);
                 _fiestaStreamingMessages[key] = liveMessage;
             }
@@ -2810,7 +2839,7 @@
             switch (update.Kind)
             {
                 case FiestaTaskUpdateKind.Started:
-                    liveMessage.Content = $"🎉 @{update.WorkerName}: {update.Content}";
+                    liveMessage.Content = $"Fiesta · @{update.WorkerName}: {update.Content}";
                     break;
                 case FiestaTaskUpdateKind.Delta:
                     liveMessage.Content += update.Content;
@@ -3084,6 +3113,15 @@
             CopilotService.SetMultiAgentMode(groupId, mode);
         }
     }
+
+    private static string GetDashboardMultiAgentModeIconClass(MultiAgentMode mode) => mode switch
+    {
+        MultiAgentMode.Broadcast => "broadcast",
+        MultiAgentMode.Sequential => "sequential",
+        MultiAgentMode.Orchestrator => "orchestrator",
+        MultiAgentMode.OrchestratorReflect => "reflect",
+        _ => "orchestrator"
+    };
 
     private static string GetInputPlaceholder(MultiAgentMode mode) => mode switch
     {
