@@ -152,6 +152,12 @@ public class WsBridgeServer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Finds a free loopback port by binding to port 0 and reading the assigned port.
+    /// There is a small TOCTOU race window between releasing this listener and the caller
+    /// rebinding the port — another process could claim it in between. The caller mitigates
+    /// this with a 5-attempt retry loop in TryBindBridgePipeline.
+    /// </summary>
     private static int GetFreeLoopbackPort()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -302,7 +308,13 @@ public class WsBridgeServer : IDisposable
 
             try
             {
-                var context = await _listener!.GetContextAsync();
+                // Capture local references before awaiting — StopListenersOnly() can null
+                // these fields from another thread (error handlers in ProxyAcceptLoopAsync).
+                var listener = _listener;
+                var proxy = _proxyListener;
+                if (listener?.IsListening != true || proxy == null) continue;
+
+                var context = await listener.GetContextAsync();
 
                 if (context.Request.IsWebSocketRequest &&
                     context.Request.Url?.AbsolutePath == "/pair")
@@ -409,7 +421,12 @@ public class WsBridgeServer : IDisposable
 
             try
             {
-                var client = await _proxyListener!.AcceptTcpClientAsync(ct);
+                // Capture a local reference before awaiting — StopListenersOnly() can null
+                // _proxyListener from another thread (error handlers in AcceptLoopAsync).
+                var proxy = _proxyListener;
+                if (proxy == null) continue;
+
+                var client = await proxy.AcceptTcpClientAsync(ct);
                 _ = Task.Run(() => ProxyClientAsync(client, ct), CancellationToken.None);
             }
             catch (ObjectDisposedException)

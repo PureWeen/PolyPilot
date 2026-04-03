@@ -95,6 +95,12 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
     /// before forwarding, and many WebSocket clients cannot set custom headers on
     /// the initial HTTP upgrade request. The query string fallback ensures the token
     /// reaches the server in both environments.
+    /// <para>
+    /// ⚠️ Security note: The token appears in the URL, which means intermediaries (DevTunnel
+    /// cloud infrastructure, corporate proxies) and exception messages may log it. The token
+    /// is session-scoped and short-lived, bounding the exposure. Any code that logs URIs
+    /// containing bridge URLs should redact the <c>?token=</c> query parameter.
+    /// </para>
     /// </summary>
     internal static string AddTokenQuery(string url, string? authToken)
     {

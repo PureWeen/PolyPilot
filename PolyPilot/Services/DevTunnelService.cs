@@ -468,7 +468,12 @@ public partial class DevTunnelService : IDisposable
             return null;
         }
 
-        return ParseAccessTokenOutput(output) ?? ParseAccessTokenOutput(error);
+        // Prefer stdout; only fall back to stderr when stdout was truly empty/whitespace,
+        // to avoid picking up error messages or warnings as false-positive tokens.
+        var token = ParseAccessTokenOutput(output);
+        if (token != null)
+            return token;
+        return string.IsNullOrWhiteSpace(output) ? ParseAccessTokenOutput(error) : null;
     }
 
     internal static string? ParseAccessTokenOutput(string? output)
@@ -568,7 +573,18 @@ public partial class DevTunnelService : IDisposable
             || trimmed.Any(char.IsWhiteSpace))
             return false;
 
-        return trimmed.Count(c => c == '.') >= 2 || trimmed.Length >= 24;
+        // Tokens with dots (JWT-style "header.payload.signature") must be at least 32 chars
+        // to avoid matching version strings like "1.0.0-preview.260212.1" (22 chars).
+        var dotCount = trimmed.Count(c => c == '.');
+        if (dotCount >= 1 && trimmed.Length >= 32)
+            return true;
+
+        // Opaque tokens (no dots) must be at least 24 chars and consist only of
+        // base64url-safe characters to avoid matching error messages or file paths.
+        if (dotCount == 0 && trimmed.Length >= 24)
+            return trimmed.All(c => char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '+' || c == '=');
+
+        return false;
     }
 
     private static string SummarizeTokenCommandOutput(string primary, string secondary)
