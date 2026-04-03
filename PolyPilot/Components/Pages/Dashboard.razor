@@ -3128,12 +3128,15 @@
         var newName = await JS.InvokeAsync<string>("getElementValue", "cardRenameInput");
         if (!string.IsNullOrWhiteSpace(newName) && newName.Trim() != oldName)
         {
-            CopilotService.RenameSession(oldName, newName.Trim());
-            _mruSessions.Remove(oldName);
-            _mruSet.Remove(oldName);
-            TouchMru(newName.Trim());
-            if (expandedSession == oldName)
-                expandedSession = newName.Trim();
+            var success = CopilotService.RenameSession(oldName, newName.Trim());
+            if (success)
+            {
+                _mruSessions.Remove(oldName);
+                _mruSet.Remove(oldName);
+                TouchMru(newName.Trim());
+                if (expandedSession == oldName)
+                    expandedSession = newName.Trim();
+            }
         }
     }
 
