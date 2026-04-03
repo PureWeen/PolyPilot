@@ -1132,25 +1132,27 @@ public partial class CopilotService
         OnStateChanged?.Invoke();
     }
 
-    public void ToggleGroupCollapsed(string groupId)
+    public void ToggleGroupCollapsed(string groupId, bool notifyStateChange = true)
     {
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         if (group != null)
         {
             group.IsCollapsed = !group.IsCollapsed;
             SaveOrganization();
-            OnStateChanged?.Invoke();
+            if (notifyStateChange)
+                OnStateChanged?.Invoke();
         }
     }
 
-    public void ToggleUnpinnedCollapsed(string groupId)
+    public void ToggleUnpinnedCollapsed(string groupId, bool notifyStateChange = true)
     {
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         if (group != null)
         {
             group.UnpinnedCollapsed = !group.UnpinnedCollapsed;
             SaveOrganization();
-            OnStateChanged?.Invoke();
+            if (notifyStateChange)
+                OnStateChanged?.Invoke();
         }
     }
 
