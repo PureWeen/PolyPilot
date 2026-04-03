@@ -1844,6 +1844,10 @@ else
     private List<(SessionGroup Group, List<AgentSessionInfo> Sessions)> _codespaceGroups = new();
     private bool _showGroupHeaders;
 
+    // RenderFilterBar runs first in the template, before the session list reads
+    // _regularGroupModels/_codespaceGroups. This ordering is load-bearing: the
+    // auto-reset path below rebuilds rendered groups so the session list sees the
+    // updated filter in the same synchronous render pass.
     private RenderFragment RenderFilterBar => __builder =>
     {
         var processingCount = CountByStatus(SessionStatusFilter.Processing);
