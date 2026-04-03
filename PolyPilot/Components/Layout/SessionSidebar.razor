@@ -2153,7 +2153,9 @@ else
         _showGroupHeaders = CopilotService.HasMultipleGroups;
 
         var organized = CopilotService.GetOrganizedSessions();
-        var metas = CopilotService.Organization.Sessions.ToDictionary(m => m.SessionName);
+        var metas = new Dictionary<string, SessionMeta>(CopilotService.Organization.Sessions.Count);
+        foreach (var m in CopilotService.Organization.Sessions)
+            metas.TryAdd(m.SessionName, m);
         var regularGroups = new List<GroupRenderModel>(organized.Count);
         var codespaceGroups = new List<(SessionGroup Group, List<AgentSessionInfo> Sessions)>();
 
