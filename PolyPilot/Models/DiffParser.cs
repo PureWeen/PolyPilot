@@ -49,10 +49,7 @@ public static class DiffParser
             text.Contains("\n@@", StringComparison.Ordinal) ||
             text.Contains("\r\n@@", StringComparison.Ordinal);
 
-        if (!hasOldFileMarker || !hasNewFileMarker || !hasHunkMarker)
-            return false;
-
-        return Parse(text).Count > 0;
+        return hasOldFileMarker && hasNewFileMarker && hasHunkMarker;
     }
 
     public static List<DiffFile> Parse(string unifiedDiff)

@@ -70,10 +70,15 @@ else
 @code {
     [Parameter] public string RawDiff { get; set; } = "";
     private List<DiffFile> Files { get; set; } = new();
+    private string? _lastRawDiff;
 
     protected override void OnParametersSet()
     {
-        Files = DiffParser.Parse(RawDiff);
+        if (RawDiff != _lastRawDiff)
+        {
+            _lastRawDiff = RawDiff;
+            Files = DiffParser.Parse(RawDiff);
+        }
     }
 
 }
