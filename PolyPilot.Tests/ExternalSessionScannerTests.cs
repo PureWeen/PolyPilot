@@ -483,7 +483,40 @@ public class ExternalSessionScannerTests : IDisposable
 
         Assert.NotNull(child);
 
-        Assert.Equal(livePid, detectedPid);
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, $"inuse.{child.Id}.lock"), "");
+
+            // `sleep 60` / `timeout /t 60` will not exit in the test window — no race guard needed.
+            Assert.False(child.HasExited, "Long-running child process should still be alive");
+
+            // FindActiveLockPid requires a dotnet/copilot/node/github process name.
+            // `sleep`/`cmd` won't pass that filter. We need to use the current test process instead.
+            // On some platforms (e.g., Windows), the test host process is named "testhost"
+            // which doesn't match the safety filter — verify the behaviour accordingly.
+            var testSessionId = Guid.NewGuid().ToString();
+            var testDir = Path.Combine(_sessionStateDir, testSessionId);
+            Directory.CreateDirectory(testDir);
+            var myPid = Environment.ProcessId;
+            File.WriteAllText(Path.Combine(testDir, $"inuse.{myPid}.lock"), "");
+
+            var myName = System.Diagnostics.Process.GetCurrentProcess().ProcessName.ToLowerInvariant();
+            var matchesFilter = myName.Contains("copilot") || myName.Contains("node") ||
+                                myName.Contains("dotnet") || myName.Contains("github");
+
+            var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
+            var detectedPid = scanner.FindActiveLockPid(testDir);
+
+            if (matchesFilter)
+                Assert.Equal(myPid, detectedPid);
+            else
+                Assert.Null(detectedPid); // Process name doesn't pass the safety filter
+        }
+        finally
+        {
+            if (!child.HasExited) child.Kill();
+            child.Dispose();
+        }
     }
 
     [Fact]
