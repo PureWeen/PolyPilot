@@ -47,6 +47,22 @@ public class ChatCopyPayloadTests
     }
 
     [Fact]
+    public void GrepToolInput_QuotesPatternAndTarget()
+    {
+        var input = "{\"pattern\":\"hello world\",\"path\":\"/my project/src\"}";
+
+        Assert.Equal("grep 'hello world' '/my project/src'", ChatCopyPayloads.GetToolInputCopyText("grep", input));
+    }
+
+    [Fact]
+    public void GrepToolInput_EscapesSingleQuotesInPattern()
+    {
+        var input = "{\"pattern\":\"it's a test\",\"glob\":\"*.cs\"}";
+
+        Assert.Equal(@"grep 'it'\''s a test' '*.cs'", ChatCopyPayloads.GetToolInputCopyText("grep", input));
+    }
+
+    [Fact]
     public void ToolOutput_CopiesFullStoredOutput()
     {
         var msg = ChatMessage.ToolCallMessage("bash", "call-3", "{\"command\":\"git status\"}");

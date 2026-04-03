@@ -2195,7 +2195,7 @@ else
         {
             var group = await CopilotService.CreateGroupFromPresetAsync(preset);
             if (group != null || CopilotService.IsRemoteMode)
-                createSessionFormRef?.CollapseOnSuccess();
+                if (createSessionFormRef != null) await createSessionFormRef.CollapseOnSuccess();
             if (group != null)
             {
                 CopilotService.ToggleGroupCollapsed(group.Id);
@@ -2270,7 +2270,7 @@ else
             }
 
             newSessionName = "";
-            createSessionFormRef?.CollapseOnSuccess();
+            if (createSessionFormRef != null) await createSessionFormRef.CollapseOnSuccess();
             CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();
         }

@@ -116,8 +116,10 @@ public static class ChatCopyPayloads
             ?? ExtractJsonPropFull(root, "path")
             ?? ".";
 
-        return $"grep '{pattern}' {target}";
+        return $"grep '{ShellEscape(pattern)}' '{ShellEscape(target)}'";
     }
+
+    private static string ShellEscape(string s) => s.Replace("'", @"'\''", StringComparison.Ordinal);
 
     private static string? ExtractJsonPropFull(JsonElement root, string prop)
     {

@@ -327,12 +327,12 @@ else
     }
 
     /// <summary>Called by the parent on successful session creation to close the form.</summary>
-    public void CollapseOnSuccess()
+    public async Task CollapseOnSuccess()
     {
         ResetFormFields();
 
         if (EmbeddedMode && OnCloseRequested.HasDelegate)
-            _ = OnCloseRequested.InvokeAsync();
+            await OnCloseRequested.InvokeAsync();
 
         StateHasChanged();
     }
