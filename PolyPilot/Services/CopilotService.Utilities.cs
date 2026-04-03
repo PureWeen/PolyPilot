@@ -136,34 +136,23 @@ public partial class CopilotService
             var type = doc.RootElement.GetProperty("type").GetString();
             if (type == null) return false; // Corrupt/partial event — treat as terminal
 
-            // session.idle is ephemeral (never on disk). assistant.turn_end means the
-            // sub-turn finished — if it's the last event, the session completed cleanly.
-            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown", "session.start", "assistant.turn_end" };
+            // session.idle is ephemeral (never on disk). session.start can also be the only
+            // on-disk event for a never-used session, so treat it as terminal on restore.
+            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown", "session.start" };
             if (terminalEvents.Contains(type)) return false;
 
-            // Smart completion for assistant.message: check whether any tool.execution_start
-            // is pending in the recent event history. If the model wrote a message and no
-            // tool was started after it, the turn completed cleanly.
-            // This eliminates the 600s watchdog delay for clean turn completions (no tools).
-            if (type is "assistant.message")
+            // Smart completion for assistant.message / assistant.turn_end: session.idle is not
+            // written to disk, so a clean no-tool turn can appear to end on one of these events.
+            // Only treat it as idle if the current sub-turn shows no tool activity at all.
+            // If tools were involved, stay conservative and keep waiting for resumed events or
+            // the watchdog timeout — this avoids losing between-round tool output after relaunch.
+            if (type is "assistant.message" or "assistant.turn_end")
             {
                 var tailTypes = GetTailEventTypes(eventsFile, 30);
-                if (tailTypes != null && tailTypes.Count > 1)
+                if (tailTypes != null && tailTypes.Count > 1 && IsCleanNoToolSubturn(tailTypes))
                 {
-                    // Skip tailTypes[0] (the assistant.message we already know about).
-                    // Walk backwards through earlier events: if we find tool.execution_start
-                    // before hitting assistant.turn_end or session.resume, tools are pending.
-                    bool hasPendingTools = false;
-                    for (int i = 1; i < tailTypes.Count; i++)
-                    {
-                        if (tailTypes[i] == "tool.execution_start") { hasPendingTools = true; break; }
-                        if (tailTypes[i] is "assistant.turn_end" or "session.resume") break;
-                    }
-                    if (!hasPendingTools)
-                    {
-                        Debug($"[RESTORE] events.jsonl for '{sessionId}' ends with {type} and no pending tools — treating as idle");
-                        return false;
-                    }
+                    Debug($"[RESTORE] events.jsonl for '{sessionId}' ends with {type} and the current sub-turn has no tool activity — treating session as idle");
+                    return false;
                 }
             }
 
@@ -249,6 +238,26 @@ public partial class CopilotService
             return result;
         }
         catch { return null; }
+    }
+
+    /// <summary>
+    /// Returns true when the current sub-turn contains no tool activity before the latest
+    /// assistant.message / assistant.turn_end. The scan stops at the start of the current
+    /// sub-turn so older tool rounds don't keep a clean completion alive.
+    /// </summary>
+    internal static bool IsCleanNoToolSubturn(List<string> tailTypes)
+    {
+        for (int i = 1; i < tailTypes.Count; i++)
+        {
+            var evt = tailTypes[i];
+            if (evt.StartsWith("tool.execution_", StringComparison.Ordinal))
+                return false;
+
+            if (evt is "assistant.turn_start" or "assistant.turn_end" or "session.resume" or "session.start")
+                break;
+        }
+
+        return true;
     }
 
     /// <summary>

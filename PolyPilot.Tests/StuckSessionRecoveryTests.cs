@@ -330,7 +330,6 @@ public class StuckSessionRecoveryTests
     [InlineData("session.error")]
     [InlineData("session.shutdown")]
     [InlineData("session.start")]         // created but never used — not actively processing
-    [InlineData("assistant.turn_end")]    // turn finished — clean completion
     public void IsSessionStillProcessing_TerminalEventTypes_ReturnFalse(string eventType)
     {
         var svc = CreateService();
@@ -380,7 +379,34 @@ public class StuckSessionRecoveryTests
     [Fact]
     public void IsSessionStillProcessing_TurnEndWithPendingTools_ReturnsTrue()
     {
-        // Turn ended between tool rounds — tool.execution_start is pending.
+        // Turn ended after a tool round. This can still be between rounds, so restore
+        // must stay conservative and keep the session active until the next events arrive.
+        var svc = CreateService();
+        var tmpDir = Path.Combine(Path.GetTempPath(), "polypilot-test-" + Guid.NewGuid().ToString("N"));
+        var sessionId = Guid.NewGuid().ToString();
+        var sessionDir = Path.Combine(tmpDir, sessionId);
+        Directory.CreateDirectory(sessionDir);
+        var eventsFile = Path.Combine(sessionDir, "events.jsonl");
+
+        try
+        {
+            File.WriteAllText(eventsFile,
+                """{"type":"assistant.turn_start","data":{}}""" + "\n" +
+                """{"type":"assistant.message","data":{}}""" + "\n" +
+                """{"type":"tool.execution_start","data":{}}""" + "\n" +
+                """{"type":"tool.execution_complete","data":{}}""" + "\n" +
+                """{"type":"assistant.turn_end","data":{}}""");
+            var result = svc.IsSessionStillProcessing(sessionId, tmpDir);
+            Assert.True(result, "turn_end after tool activity in the same sub-turn should report still processing");
+        }
+        finally { Directory.Delete(tmpDir, true); }
+    }
+
+    [Fact]
+    public void IsSessionStillProcessing_TurnEndNoCurrentToolsAfterEarlierToolRound_ReturnsFalse()
+    {
+        // Older tool rounds must not leak across assistant.turn_start boundaries and keep a
+        // later clean no-tool turn alive.
         var svc = CreateService();
         var tmpDir = Path.Combine(Path.GetTempPath(), "polypilot-test-" + Guid.NewGuid().ToString("N"));
         var sessionId = Guid.NewGuid().ToString();
@@ -397,15 +423,10 @@ public class StuckSessionRecoveryTests
                 """{"type":"tool.execution_complete","data":{}}""" + "\n" +
                 """{"type":"assistant.turn_end","data":{}}""" + "\n" +
                 """{"type":"assistant.turn_start","data":{}}""" + "\n" +
-                """{"type":"assistant.message","data":{}}""" + "\n" +
-                """{"type":"tool.execution_start","data":{}}""" + "\n" +
-                """{"type":"tool.execution_complete","data":{}}""" + "\n" +
-                """{"type":"assistant.turn_end","data":{}}""" + "\n" +
-                """{"type":"assistant.turn_start","data":{}}""" + "\n" +
-                """{"type":"assistant.message","data":{}}""" + "\n" +
-                """{"type":"tool.execution_start","data":{}}""");
+                """{"type":"assistant.message","data":{"content":"final answer"}}""" + "\n" +
+                """{"type":"assistant.turn_end","data":{}}""");
             var result = svc.IsSessionStillProcessing(sessionId, tmpDir);
-            Assert.True(result, "turn_end followed by tool.execution_start should report still processing");
+            Assert.False(result, "A clean no-tool turn_end should not be kept active by tools from an earlier round");
         }
         finally { Directory.Delete(tmpDir, true); }
     }
