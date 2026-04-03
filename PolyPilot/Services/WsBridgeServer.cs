@@ -497,7 +497,13 @@ public class WsBridgeServer : IDisposable
 
             var clientToServer = downstreamStream.CopyToAsync(upstreamStream, 81920, ct);
             var serverToClient = upstreamStream.CopyToAsync(downstreamStream, 81920, ct);
-            await Task.WhenAny(clientToServer, serverToClient).ConfigureAwait(false);
+            var completed = await Task.WhenAny(clientToServer, serverToClient).ConfigureAwait(false);
+
+            // Suppress unobserved exceptions on the losing task — when one direction
+            // completes, the using blocks dispose the streams, causing the other
+            // CopyToAsync to throw ObjectDisposedException.
+            var other = completed == clientToServer ? serverToClient : clientToServer;
+            _ = other.ContinueWith(static t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
         }
         catch (OperationCanceledException) { }
         catch (Exception ex)
@@ -545,7 +551,6 @@ public class WsBridgeServer : IDisposable
         var lines = headerText.Split("\r\n", StringSplitOptions.None);
         var builder = new StringBuilder(headerText.Length + 128);
         bool wroteHost = false;
-        bool wroteForwardedFor = false;
 
         foreach (var line in lines)
         {
@@ -559,19 +564,17 @@ public class WsBridgeServer : IDisposable
                 continue;
             }
 
-            if (!string.IsNullOrEmpty(remoteIp) && line.StartsWith("X-Forwarded-For:", StringComparison.OrdinalIgnoreCase))
-            {
-                builder.Append(line).Append(", ").Append(remoteIp).Append("\r\n");
-                wroteForwardedFor = true;
+            // Strip any client-supplied X-Forwarded-For — this is a single-hop proxy,
+            // so we replace (not append) to prevent spoofing of IsLoopbackRequest.
+            if (line.StartsWith("X-Forwarded-For:", StringComparison.OrdinalIgnoreCase))
                 continue;
-            }
 
             builder.Append(line).Append("\r\n");
         }
 
         if (!wroteHost)
             builder.Append("Host: localhost:").Append(internalPort).Append("\r\n");
-        if (!string.IsNullOrEmpty(remoteIp) && !wroteForwardedFor)
+        if (!string.IsNullOrEmpty(remoteIp))
             builder.Append("X-Forwarded-For: ").Append(remoteIp).Append("\r\n");
 
         builder.Append("\r\n");

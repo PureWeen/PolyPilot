@@ -89,6 +89,13 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         await ConnectCoreAsync(url, token, ct);
     }
 
+    /// <summary>
+    /// Sends the auth token redundantly in the URL query string (?token=...).
+    /// DevTunnel infrastructure strips custom headers (e.g. X-Bridge-Authorization)
+    /// before forwarding, and many WebSocket clients cannot set custom headers on
+    /// the initial HTTP upgrade request. The query string fallback ensures the token
+    /// reaches the server in both environments.
+    /// </summary>
     internal static string AddTokenQuery(string url, string? authToken)
     {
         if (string.IsNullOrWhiteSpace(url) || string.IsNullOrWhiteSpace(authToken))
