@@ -390,7 +390,8 @@ public class WsBridgeServer : IDisposable
             {
                 if (ct.IsCancellationRequested) break;
                 Console.WriteLine($"[WsBridge] Listener error ({ex.ErrorCode}): {ex.Message} — will restart");
-                StopListenersOnly();
+                await _restartLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                try { StopListenersOnly(); } finally { _restartLock.Release(); }
             }
             catch (Exception ex)
             {
@@ -432,7 +433,8 @@ public class WsBridgeServer : IDisposable
             catch (ObjectDisposedException)
             {
                 if (ct.IsCancellationRequested) break;
-                StopListenersOnly();
+                await _restartLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                try { StopListenersOnly(); } finally { _restartLock.Release(); }
             }
             catch (OperationCanceledException)
             {
@@ -442,7 +444,8 @@ public class WsBridgeServer : IDisposable
             {
                 if (ct.IsCancellationRequested) break;
                 Console.WriteLine($"[WsBridge] Proxy accept error: {ex.Message} — will restart");
-                StopListenersOnly();
+                await _restartLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
+                try { StopListenersOnly(); } finally { _restartLock.Release(); }
             }
             catch (Exception ex)
             {
@@ -505,7 +508,10 @@ public class WsBridgeServer : IDisposable
 
             var request = await ReadProxyRequestAsync(downstreamStream, ct).ConfigureAwait(false);
             if (request == null)
+            {
+                Console.WriteLine("[WsBridge] Proxy request dropped (incomplete headers or exceeded 64KB limit)");
                 return;
+            }
 
             var remoteIp = (downstream.Client.RemoteEndPoint as IPEndPoint)?.Address.ToString();
             var forwarded = RewriteProxyRequest(request.Value.Buffer, request.Value.HeaderLength, remoteIp, internalPort);
