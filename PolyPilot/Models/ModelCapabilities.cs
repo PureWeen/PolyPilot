@@ -629,6 +629,70 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
                 - [what behavioral differences they target]
                 ```
 
+                ## STEP 4.5: Pre-write validation (MANDATORY before creating file)
+
+                Run these checks against your planned YAML BEFORE calling create():
+
+                ### Check 1: Assertion types
+                Every `type:` value MUST be one of exactly these 7:
+                `output_contains`, `output_not_contains`, `output_matches`, `output_not_matches`,
+                `file_exists`, `file_contains`, `exit_success`.
+                No others exist. If you wrote any other type (e.g. `tool_call_before`, `tool_call_not_contains`),
+                replace it with a `rubric:` item instead.
+
+                ### Check 2: PR/issue numbers
+                Every PR number used in a prompt MUST be verified before writing:
+                ```bash
+                gh pr view <NUMBER> --repo dotnet/maui --json number 2>&1
+                ```
+                If the lookup fails → replace with a known-good PR. Do not use invented numbers.
+
+                ### Check 3: Overfitting
+                For every `output_contains` or `output_matches` value, check if the exact string
+                appears verbatim in SKILL.md. If it does → it tests vocabulary, not behavior.
+                Move it to a `rubric:` item that describes the OUTCOME instead.
+
+                ### Check 4: Self-contained prompts
+                Every prompt must produce signal WITHOUT external infrastructure (no Android/iOS
+                simulators, no real devices, no external network calls). Embed code snippets,
+                test output, or file contents directly in the prompt rather than asking the agent
+                to run a test on a real device.
+
+                ## Anti-patterns (DO NOT)
+
+                ```yaml
+                # BAD — overfitted on SKILL.md section heading:
+                - type: "output_contains"
+                  value: "Independent Assessment"   # literal heading from SKILL.md
+
+                # GOOD — tests behavioral outcome instead:
+                rubric:
+                  - "Agent forms its own assessment of the diff before reading the PR description"
+
+                # BAD — invented assertion type that doesn't exist:
+                - type: "tool_call_before"
+                  value: "gh pr diff"
+
+                # GOOD — move ordering checks to rubric:
+                rubric:
+                  - "Agent fetches the diff before reading the PR body, demonstrating independence-first methodology"
+
+                # BAD — requires a real device, will always be Blocked in CI:
+                prompt: "Run BuildAndRunHostApp.ps1 -Platform android -TestFilter CollectionViewCrash"
+
+                # GOOD — self-contained, tests reasoning not infrastructure:
+                prompt: |
+                  Use try-fix for this bug. The test currently fails with:
+                  System.NullReferenceException at RecyclerViewAdapter.GetView() line 142
+                  Test command: dotnet test src/Controls/tests/Controls.DeviceTests.csproj --filter CollectionViewCrash
+
+                # BAD — fake PR number (validator gets "not found", scores zero signal):
+                prompt: "Review PR #34000 in dotnet/maui"
+
+                # GOOD — verified real PR:
+                prompt: "Review PR #28713 in dotnet/maui"
+                ```
+
                 ## Rules
                 - ALWAYS write the file to disk. Your output is consumed by other workers.
                 - Focus on BEHAVIORAL differences — what changes when the skill is active?
