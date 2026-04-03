@@ -78,6 +78,44 @@ public static class DiffParser
                 continue;
             }
 
+            // Handle standard unified diffs (no "diff --git" prefix).
+            // When we see "--- " without an active file, lookahead for "+++ ".
+            if (current == null && line.StartsWith("--- ") && i + 1 < lines.Length)
+            {
+                var nextLine = lines[i + 1].TrimEnd('\r');
+                if (nextLine.StartsWith("+++ "))
+                {
+                    current = new DiffFile();
+                    files.Add(current);
+                    hunk = null;
+
+                    var oldName = line[4..].Trim();
+                    var newName = nextLine[4..].Trim();
+                    if (oldName.StartsWith("a/")) oldName = oldName[2..];
+                    if (newName.StartsWith("b/")) newName = newName[2..];
+
+                    if (newName == "/dev/null")
+                    {
+                        current.IsDeleted = true;
+                        current.FileName = oldName;
+                    }
+                    else if (oldName == "/dev/null")
+                    {
+                        current.IsNew = true;
+                        current.FileName = newName;
+                    }
+                    else
+                    {
+                        current.FileName = newName;
+                        if (oldName != newName)
+                            current.OldFileName = oldName;
+                    }
+
+                    i++; // skip the +++ line
+                    continue;
+                }
+            }
+
             if (current == null) continue;
 
             if (line.StartsWith("new file"))
