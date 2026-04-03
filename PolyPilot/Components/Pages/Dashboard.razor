@@ -152,14 +152,19 @@
                 }
             </div>
         }
-        @* Keep-alive: render all active sessions, JS owns 'active' class for instant switching *@
+        @* Keep-alive: render slot divs for all sessions (JS needs them for instant CSS toggle),
+           but only populate expensive ExpandedSessionView content for MRU/expanded/processing sessions *@
         @foreach (var session in sessions)
         {
+            var renderContent = ShouldRenderSlot(session.Name);
             <KeepAliveSession Id="@($"slot-{session.Name.Replace(" ", "-")}")"
                               IsVisible="@(session.Name == expandedSession)"
-                              WarmWhenHidden="@(completedSessions.Contains(session.Name) || (session.IsProcessing && (streamingBySession.ContainsKey(session.Name) || currentToolBySession.ContainsKey(session.Name) || activityBySession.ContainsKey(session.Name))))"
+                              HasContent="renderContent"
+                              WarmWhenHidden="@(renderContent && (completedSessions.Contains(session.Name) || (session.IsProcessing && (streamingBySession.ContainsKey(session.Name) || currentToolBySession.ContainsKey(session.Name) || activityBySession.ContainsKey(session.Name)))))"
                               HiddenWarmIntervalMs="250"
                               @key="session.Name">
+                @if (renderContent)
+                {
                 <ExpandedSessionView Session="session"
                                      IsCompleted="@completedSessions.Contains(session.Name)"
                                      IsLoadingHistory="@(CopilotService.IsRemoteMode && session.MessageCount > 0 && session.History.Count == 0)"
@@ -201,6 +206,7 @@
                                      OnStopFiesta="StopFiestaForSession"
                                      OnStopReflection="() => StopReflectionForSession(session.Name)"
                                      OnReconnectRequested="() => CopilotService.RecoverSessionAsync(session.Name)" />
+                }
             </KeepAliveSession>
         }
     }
@@ -553,6 +559,13 @@
     private string? mobileConnectError;
     private bool _needsScrollToBottom;
     private volatile bool _sessionSwitching; // true during ExpandSession to skip redundant JS interop
+    
+    // Keep-alive slot cap: only render DOM for the N most recently accessed sessions.
+    // All other sessions are evicted from the DOM to reduce node count.
+    // Session state lives in CopilotService — no data loss on eviction.
+    private const int MaxKeepAliveSlots = 5;
+    private LinkedList<string> _mruSessions = new();
+    private HashSet<string> _mruSet = new(); // O(1) lookup companion for _mruSessions
     private bool _loadMoreObserverInitialized;
     private bool isCompactGrid;  // true = compact cards, false = spacious cards
     private int _gridColumns = 3;  // number of cards per row (2-6)
@@ -657,6 +670,7 @@
                 if (!string.IsNullOrEmpty(uiState.ExpandedSession))
                 {
                     expandedSession = uiState.ExpandedSession;
+                    TouchMru(uiState.ExpandedSession);
                     _explicitlyCollapsed = false;
                     _initialGridSet = true; // Prevent RefreshState from overriding
                     // Don't set active session yet - will do after Initialize
@@ -1414,6 +1428,7 @@
                 if (selected != null && sessions.Any(s => s.Name == selected))
                 {
                     expandedSession = selected;
+                    TouchMru(selected);
                     _lastActiveSession = selected;
                     _focusedInputId = $"input-{selected.Replace(" ", "-")}";
                 }
@@ -1431,12 +1446,14 @@
             if (sessions.Count == 1 && expandedSession == null && !_explicitlyCollapsed)
             {
                 expandedSession = sessions[0].Name;
+                TouchMru(sessions[0].Name);
                 CopilotService.SwitchSession(sessions[0].Name);
             }
             if (sessionSwitched && active != null && sessions.Any(s => s.Name == active))
             {
                 _lastActiveSession = active;
                 expandedSession = active;
+                TouchMru(active);
                 _focusedInputId = $"input-{active!.Replace(" ", "-")}";
                 _needsScrollToBottom = true;
                 CopilotService.SaveUiState("/dashboard", activeSession: active, expandedSession: active, expandedGrid: !isCompactGrid);
@@ -1446,6 +1463,7 @@
             {
                 _lastActiveSession = active;
                 expandedSession = active;
+                TouchMru(active);
                 _needsScrollToBottom = true;
             }
             else if (sessionSwitched && active == null)
@@ -2093,6 +2111,7 @@
                 {
                     CopilotService.SetActiveSession(created.Name);
                     expandedSession = created.Name;
+                    TouchMru(created.Name);
                     _explicitlyCollapsed = false;
                 }
                 await InvokeAsync(SafeRefreshAsync);
@@ -2118,6 +2137,10 @@
                     var success = CopilotService.RenameSession(sessionName, arg);
                     if (success)
                     {
+                        // Always clean up MRU for old name, not just when expanded
+                        _mruSessions.Remove(sessionName);
+                        _mruSet.Remove(sessionName);
+                        TouchMru(arg);
                         if (expandedSession == sessionName)
                             expandedSession = arg;
                         sessions = CopilotService.GetAllSessions().ToList();
@@ -2964,11 +2987,55 @@
         await JS.InvokeVoidAsync("clickElement", fileId);
     }
 
+    private void TouchMru(string sessionName)
+    {
+        if (_mruSet.Contains(sessionName))
+        {
+            _mruSessions.Remove(sessionName);
+        }
+        _mruSessions.AddFirst(sessionName);
+        _mruSet.Add(sessionName);
+        // Evict oldest beyond cap — but never evict processing sessions
+        while (_mruSessions.Count > MaxKeepAliveSlots)
+        {
+            // Scan from tail for a non-processing candidate to evict
+            var node = _mruSessions.Last;
+            LinkedListNode<string>? evictTarget = null;
+            while (node != null)
+            {
+                var s = sessions.FirstOrDefault(s => s.Name == node.Value);
+                if (s?.IsProcessing != true)
+                {
+                    evictTarget = node;
+                    break;
+                }
+                node = node.Previous;
+            }
+            if (evictTarget == null)
+                break; // all entries are processing — allow temporary overflow
+            _mruSessions.Remove(evictTarget);
+            _mruSet.Remove(evictTarget.Value);
+        }
+    }
+
+    private bool ShouldRenderSlot(string sessionName)
+    {
+        // Always render: MRU sessions, the currently expanded session, the active session,
+        // and processing sessions. ActiveSessionName is checked as fallback because
+        // expandedSession may lag behind by one render cycle after sidebar clicks.
+        if (_mruSet.Contains(sessionName) || sessionName == expandedSession 
+            || sessionName == CopilotService.ActiveSessionName)
+            return true;
+        var session = sessions.FirstOrDefault(s => s.Name == sessionName);
+        return session?.IsProcessing == true;
+    }
+
     private async Task ExpandSession(string sessionName)
     {
         // Fire-and-forget draft save — don't block the switch on JS interop
         _ = SaveDraftsAndCursor();
         expandedSession = sessionName;
+        TouchMru(sessionName);
         _needsScrollToBottom = true;
         _sessionSwitching = true; // tells RefreshState to skip redundant work
         // Suppress Blazor renders for 300ms to let browser paint the CSS toggle uninterrupted
@@ -3061,7 +3128,15 @@
         var newName = await JS.InvokeAsync<string>("getElementValue", "cardRenameInput");
         if (!string.IsNullOrWhiteSpace(newName) && newName.Trim() != oldName)
         {
-            CopilotService.RenameSession(oldName, newName.Trim());
+            var success = CopilotService.RenameSession(oldName, newName.Trim());
+            if (success)
+            {
+                _mruSessions.Remove(oldName);
+                _mruSet.Remove(oldName);
+                TouchMru(newName.Trim());
+                if (expandedSession == oldName)
+                    expandedSession = newName.Trim();
+            }
         }
     }
 
@@ -3331,6 +3406,9 @@
     private async Task CloseSession(string sessionName)
     {
         await CopilotService.CloseSessionAsync(sessionName);
+        // Clean up MRU to prevent stale entries occupying slots
+        _mruSessions.Remove(sessionName);
+        _mruSet.Remove(sessionName);
         if (expandedSession == sessionName)
         {
             expandedSession = null;
@@ -3348,6 +3426,7 @@
         CopilotService.SwitchSession(sessionName);
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
+        TouchMru(sessionName);
         _needsScrollToBottom = true;
         _focusedInputId = $"input-{sessionName.Replace(" ", "-")}";
         _cursorStart = 0;
@@ -3383,6 +3462,7 @@
     {
         await SaveDraftsAndCursor();
         expandedSession = sessionName;
+        TouchMru(sessionName);
         CopilotService.SwitchSession(sessionName);
         var s = CopilotService.GetSession(sessionName);
         if (s != null) s.LastReadMessageCount = s.History.Count;
@@ -3410,6 +3490,7 @@
         if (idx < 0) idx = 0;
         idx = reverse ? (idx - 1 + sessions.Count) % sessions.Count : (idx + 1) % sessions.Count;
         expandedSession = sessions[idx].Name;
+        TouchMru(sessions[idx].Name);
         CopilotService.SwitchSession(expandedSession);
         var cs = CopilotService.GetSession(expandedSession);
         if (cs != null) cs.LastReadMessageCount = cs.History.Count;
@@ -3460,6 +3541,7 @@
                     {
                         await SaveDraftsAndCursor();
                         expandedSession = session.Name;
+                        TouchMru(session.Name);
                         _focusedInputId = $"input-{session.Name.Replace(" ", "-")}";
                     }
                     CopilotService.SwitchSession(session.Name);

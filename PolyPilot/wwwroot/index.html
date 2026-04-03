@@ -657,6 +657,12 @@
             if (!name) return;
             var slotId = 'slot-' + name.replace(/ /g, '-');
             window.switchKeepAliveSlot(slotId, name);
+            // Also tell Dashboard to expand this session — the sidebar's Blazor handler
+            // only calls SwitchSession, which is async/throttled. JsExpandSession sets
+            // expandedSession + TouchMru synchronously so the slot content renders immediately.
+            if (window.__dashRef) {
+                window.__dashRef.invokeMethodAsync('JsExpandSession', name);
+            }
         }, true);
 
         window.saveCardScrollPositions = function() {
