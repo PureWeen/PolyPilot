@@ -338,6 +338,7 @@ When modifying orchestration, verify:
 - [ ] **INV-O7**: Worker timeouts use 10-minute default (600s for resumed sessions)
 - [ ] **INV-O8**: Cancellation tokens propagated to all async operations
 - [ ] **INV-O15**: IDLE-DEFER flushes CurrentResponse before breaking (content preservation)
+- [ ] **INV-O17**: IDLE-DEFER-REARM re-arms IsProcessing when idle arrives with backgroundTasks but IsProcessing is already false (PR #472)
 
 ---
 
@@ -763,6 +764,59 @@ These layers remain as fallbacks for edge cases where IDLE-DEFER doesn't fire:
 | `RecoverFromPrematureIdleIfNeededAsync` | Poll signal + events.jsonl freshness | Collect full response after partial TCS |
 | `IsEventsFileActive` | events.jsonl mtime < 15s | Detect ongoing CLI activity |
 
+### IDLE-DEFER-REARM (PR #472)
+
+When multiple `session.idle` events arrive for a session with active `backgroundTasks`,
+the first IDLE-DEFER correctly defers completion. But if `CompleteResponse` runs between
+the first and second idle (e.g., triggered by a watchdog or another code path), then
+`IsProcessing` is already `false` when the second idle arrives. Without re-arming,
+background agents would finish their work but no completion event would fire — the
+classic "zero-idle" symptom where the session appears stuck.
+
+**IDLE-DEFER-REARM** detects this scenario and re-arms processing:
+
+```csharp
+case SessionIdleEvent idle:
+    CancelTurnEndFallback(state);
+    
+    if (HasActiveBackgroundTasks(idle))
+    {
+        // ... existing IDLE-DEFER logic (flush, break) ...
+        
+        // REARM: If IsProcessing is already false, re-arm it so the
+        // next idle (without background tasks) triggers CompleteResponse.
+        if (!state.Info.IsProcessing)
+        {
+            state.Info.IsProcessing = true;
+            state.Info.HasUsedToolsThisTurn = true; // 600s tool timeout
+            RestartProcessingWatchdog(state);
+            Debug($"[IDLE-DEFER-REARM] ...");
+        }
+        break;
+    }
+    
+    CompleteResponse(state, idleGeneration);
+```
+
+**What the re-arm sets:**
+- `IsProcessing = true` — so the next non-deferred idle fires `CompleteResponse`
+- `HasUsedToolsThisTurn = true` — enables the 600s tool timeout instead of 120s,
+  since background agents may run for several minutes
+- Restarts the processing watchdog — provides a safety net if no further idle arrives
+- Logs `[IDLE-DEFER-REARM]` to `event-diagnostics.log`
+
+### `session.idle` Is Ephemeral — Never Persisted
+
+> **⚠️ `session.idle` is NEVER written to `events.jsonl` by design.** It is a
+> transient signal from the CLI, not a persisted event. Any restore or recovery
+> logic that depends on reading `session.idle` from disk is fundamentally flawed.
+> The poller in `PollEventsAndResumeWhenIdleAsync` watches for `session.shutdown`
+> instead, which IS persisted.
+
+This matters for IDLE-DEFER because after an app restart, there will be no
+`session.idle` replay — the watchdog and resume logic handle completion detection
+for interrupted sessions, not idle event replay.
+
 ---
 
 ## "Fix with Copilot" — Multi-Agent Awareness
@@ -959,6 +1013,7 @@ Reflect mode runs multiple iterations. Expect this pattern:
 | Orchestration hangs on reconnect | Check for missing TrySetCanceled | TCS not canceled; see INV-O9 |
 | Many IDLE-DEFER entries | `grep "IDLE-DEFER" diagnostics.log` | Normal — worker has active sub-agents; wait for completion |
 | IDLE-DEFER but worker never completes | Check if background tasks are leaking | Sub-agent/shell not terminating; check CLI logs |
+| IDLE-DEFER-REARM entries | `grep "IDLE-DEFER-REARM" diagnostics.log` | Normal — IsProcessing was false when deferred idle arrived; re-armed for next completion |
 | Worker stuck 30+ min, events.jsonl fresh | Check file size across watchdog cycles | Dead connection — file-size-growth check should catch in ~360s (INV-O16) |
 
 ---

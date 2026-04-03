@@ -254,6 +254,8 @@ For multi-agent sessions, Case B also checks **file-size-growth**: if events.jso
 
 Note: `session.idle` is an ephemeral event (`ephemeral: true` in the SDK schema) — it is delivered over the live event stream but intentionally NOT written to `events.jsonl`. When `session.idle` includes active `backgroundTasks` (sub-agents, shells), the IDLE-DEFER logic defers completion until a subsequent idle arrives with empty/null backgroundTasks. In rare cases where `IsProcessing` was already cleared (by watchdog timeout or reconnect) before the deferred idle arrives, the session may appear stuck until the watchdog fires again — see issue #403.
 
+When `session.idle` with active `backgroundTasks` arrives but `IsProcessing` is already `false`, the handler re-arms: sets `IsProcessing = true`, `HasUsedToolsThisTurn = true` (600s timeout), restarts watchdog, logs `[IDLE-DEFER-REARM]`. This prevents zero-idle symptoms where IDLE-DEFER fires once but subsequent idles are no-ops.
+
 When the watchdog fires, it marshals state mutations to the UI thread via `InvokeOnUI()` and adds a system warning message.
 
 ### Diagnostic Log Tags
@@ -262,6 +264,7 @@ The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags
 - `[EVT]` — SDK event received (only SessionIdleEvent, AssistantTurnEndEvent, SessionErrorEvent)
 - `[IDLE]` — SessionIdleEvent dispatched to CompleteResponse
 - `[IDLE-DEFER]` — SessionIdleEvent deferred due to active background tasks (agents/shells)
+- `[IDLE-DEFER-REARM]` — SessionIdleEvent re-armed IsProcessing after it was already cleared
 - `[COMPLETE]` — CompleteResponse executed or skipped
 - `[RECONNECT]` — session replaced after disconnect
 - `[ERROR]` — SessionErrorEvent or SendAsync/reconnect failure cleared IsProcessing
@@ -288,6 +291,8 @@ When a user changes the model via the UI dropdown:
 - The SDK continues using the original model from session creation
 - To truly switch models, the session must be destroyed and recreated
 
+`GetSessionModel` prioritizes: (1) user's explicit choice (`session.Model`), (2) backend-reported model from usage info, (3) `DefaultModel` fallback. `ShouldAcceptObservedModel()` in `ModelHelper.cs` prevents `SessionUsageInfoEvent` and `AssistantUsageEvent` from overwriting an explicit user model selection — the observed model is only accepted if no explicit choice was made or if the observed model matches the explicit choice.
+
 ### SDK Data Types
 - `AssistantUsageData` properties (`InputTokens`, `OutputTokens`, etc.) are `Double?` not `int?`
 - Use `Convert.ToInt32(value)` for conversion, not `value as int?`
@@ -301,6 +306,9 @@ Avoid `@bind:event="oninput"` — causes round-trip lag per keystroke. Use plain
 `SaveActiveSessionsToDisk`, `SaveOrganization`, and `SaveUiState` use timer-based debounce (2s/2s/1s) — **must flush in DisposeAsync**. `LoadPersistedSessions()` scans all session directories (750+) — **never call from render-triggered paths**. `GetOrganizedSessions()` is cached with hash-key invalidation. `_sessionSwitching` flag must stay true until `SafeRefreshAsync` reads it. See `.claude/skills/performance-optimization/SKILL.md` for detailed invariants.
 
 For detailed stuck-session debugging knowledge (8 invariants from 7 PRs of fix cycles), see `.claude/skills/processing-state-safety/SKILL.md`.
+
+### Smart Completion Scan
+**Smart completion scan:** `assistant.turn_end` and `assistant.message` are not unconditionally terminal — they appear between every tool round. `IsSessionStillProcessing` uses `IsCleanNoToolSubturn()` to scan backward from the last event within the current sub-turn (bounded by `assistant.turn_start`/`session.resume`/`session.start`). If any `tool.execution_*` event is found in the current sub-turn, the session is considered still processing. Clean no-tool turns are detected immediately, eliminating the 600s watchdog delay for simple conversations.
 
 ### Session Persistence
 - Active sessions: `~/.polypilot/active-sessions.json` (includes `LastPrompt` — last user message if session was processing during save)
