@@ -2,7 +2,7 @@
   "description": "UI scenario tests for mode switching and session persistence. Each scenario is executed against a running PolyPilot app using MauiDevFlow CDP commands. Scenarios assume the app starts in Persistent mode with sessions loaded.",
   "prerequisites": {
     "build": "cd PolyPilot && ./relaunch.sh",
-    "waitForAgent": "maui-devflow MAUI status",
+    "waitForAgent": "maui devflow MAUI status",
     "initialMode": "Persistent"
   },
   "scenarios": [

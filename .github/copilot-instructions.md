@@ -16,7 +16,7 @@ dotnet build -f net10.0-maccatalyst   # Build only
 > **🚨 RULES FOR CALLING RELAUNCH.SH 🚨**
 > 1. Do NOT chain ANYTHING after `./relaunch.sh` in the same bash call — no `&&`, `;`, `|`, `sleep`.
 > 2. You have ~10 seconds after relaunch.sh returns to make additional quick tool calls
->    (e.g., `maui-devflow wait`, `tail`, short verification commands). Use this window
+>    (e.g., `maui devflow wait`, `tail`, short verification commands). Use this window
 >    to keep working — verify the relaunch, reconnect to MauiDevFlow, test your changes.
 > 3. If one tool call gets interrupted by the kill, that's OK — the CLI keeps your session
 >    alive. Just continue on the next turn.
@@ -32,11 +32,11 @@ Your turn may get interrupted if a tool call is in-flight when the kill happens 
 the CLI keeps your session alive. On your next turn, verify and continue:
 ```bash
 # Next turn: verify relaunch + reconnect to MauiDevFlow
-tail -3 ~/.polypilot/relaunch.log && maui-devflow wait --timeout 30
+tail -3 ~/.polypilot/relaunch.log && maui devflow wait --timeout 30
 ```
 ```bash
 # Then test your changes via CDP
-maui-devflow cdp Runtime evaluate '...'
+maui devflow cdp Runtime evaluate '...'
 ```
 
 **NEVER do this:**
@@ -100,13 +100,13 @@ dotnet build -f net10.0-ios -t:Run -p:_DeviceName=:v2:udid=<UDID>
 ```
 
 ### MauiDevFlow (UI inspection & debugging)
-The app integrates `Redth.MauiDevFlow.Agent` + `Redth.MauiDevFlow.Blazor` for remote UI inspection. See `.claude/skills/maui-ai-debugging/SKILL.md` for the full command reference.
+The app integrates `Microsoft.Maui.DevFlow.Agent` + `Microsoft.Maui.DevFlow.Blazor` for remote UI inspection. See `.claude/skills/maui-ai-debugging/SKILL.md` for the full command reference.
 ```bash
-maui-devflow MAUI status           # Agent connection
-maui-devflow cdp status            # CDP/Blazor WebView
-maui-devflow MAUI tree             # Visual tree
-maui-devflow cdp snapshot          # DOM snapshot (best for AI)
-maui-devflow MAUI logs             # Application ILogger output
+maui devflow MAUI status           # Agent connection
+maui devflow cdp status            # CDP/Blazor WebView
+maui devflow MAUI tree             # Visual tree
+maui devflow cdp snapshot          # DOM snapshot (best for AI)
+maui devflow MAUI logs             # Application ILogger output
 ```
 For Android, always run `adb reverse tcp:9223 tcp:9223` after deploy.
 

@@ -10,8 +10,8 @@ namespace PolyPilot.Tests;
 ///
 /// To execute scenarios against a live app, use MauiDevFlow:
 ///   cd PolyPilot && ./relaunch.sh
-///   maui-devflow MAUI status  # wait for agent
-///   # Then iterate steps via: maui-devflow cdp Runtime evaluate "..."
+///   maui devflow MAUI status  # wait for agent
+///   # Then iterate steps via: maui devflow cdp Runtime evaluate "..."
 /// </summary>
 public class ScenarioReferenceTests
 {

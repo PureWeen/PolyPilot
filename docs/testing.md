@@ -1,6 +1,6 @@
 # Testing Guide
 
-PolyPilot uses a two-layer testing strategy: **deterministic unit tests** that run without the app, and **executable UI scenarios** that validate against a running instance using [MauiDevFlow](https://github.com/ArdaKit/Redth.MauiDevFlow).
+PolyPilot uses a two-layer testing strategy: **deterministic unit tests** that run without the app, and **executable UI scenarios** that validate against a running instance using [MauiDevFlow](https://github.com/dotnet/maui-labs/tree/main/src/DevFlow).
 
 ## Unit Tests (xUnit)
 
@@ -72,22 +72,22 @@ Scenarios are JSON files in `PolyPilot.Tests/Scenarios/` that describe end-to-en
 
 2. **Wait for the MauiDevFlow agent to connect:**
    ```bash
-   maui-devflow MAUI status    # Poll until connected
+   maui devflow MAUI status    # Poll until connected
    ```
 
 3. **Execute scenario steps via CDP:**
    ```bash
    # Navigate
-   maui-devflow cdp Input dispatchClickEvent "a[href='/settings']"
+   maui devflow cdp Input dispatchClickEvent "a[href='/settings']"
 
    # Read state
-   maui-devflow cdp Runtime evaluate "document.querySelectorAll('.session-item').length"
+   maui devflow cdp Runtime evaluate "document.querySelectorAll('.session-item').length"
 
    # Fill input
-   maui-devflow cdp Input fill ".branch-input" "feature/my-branch"
+   maui devflow cdp Input fill ".branch-input" "feature/my-branch"
 
    # Take screenshot for visual verification
-   maui-devflow MAUI screenshot --output check.png
+   maui devflow MAUI screenshot --output check.png
    ```
 
 ### Scenario Format

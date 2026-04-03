@@ -2,7 +2,7 @@
   "description": "Multi-agent orchestration scenarios for PolyPilot. Tests cover the OrchestratorReflect loop, stall detection, reconciliation stability, group lifecycle, and Squad integration. Each scenario can be executed against a running app using MauiDevFlow CDP commands. See docs/multi-agent-orchestration.md for the architecture spec.",
   "prerequisites": {
     "build": "cd PolyPilot && .\\relaunch.ps1",
-    "waitForAgent": "maui-devflow MAUI status",
+    "waitForAgent": "maui devflow MAUI status",
     "initialMode": "Persistent",
     "notes": "App must be in Persistent or Demo mode. Multi-agent features require at least one worktree configured. Squad scenarios require a worktree with a .squad/ directory."
   },

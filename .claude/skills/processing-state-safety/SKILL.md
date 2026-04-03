@@ -339,7 +339,7 @@ When a session shows "Thinking..." indefinitely:
 
 3. **Check `IsProcessing` state** — via MauiDevFlow CDP:
    ```bash
-   maui-devflow cdp Runtime evaluate "document.querySelector('.processing-indicator')?.textContent"
+   maui devflow cdp Runtime evaluate "document.querySelector('.processing-indicator')?.textContent"
    ```
 
 4. **Common stuck patterns:**
