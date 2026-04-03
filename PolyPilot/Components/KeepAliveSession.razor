@@ -13,12 +13,14 @@
 @code {
     [Parameter] public string Id { get; set; } = "";
     [Parameter] public bool IsVisible { get; set; }
+    [Parameter] public bool HasContent { get; set; } = true;
     [Parameter] public bool WarmWhenHidden { get; set; }
     [Parameter] public int HiddenWarmIntervalMs { get; set; } = 250;
     [Parameter] public RenderFragment ChildContent { get; set; } = default!;
     [Parameter(CaptureUnmatchedValues = true)] public Dictionary<string, object>? AdditionalAttributes { get; set; }
     
     private bool _prevVisible;
+    private bool _prevHasContent = true;
     private long _lastHiddenWarmRenderAt;
 
     protected override bool ShouldRender()
@@ -28,6 +30,13 @@
         {
             _prevVisible = IsVisible;
             if (IsVisible) _lastHiddenWarmRenderAt = 0;
+            return true;
+        }
+
+        // Always render if content availability changed (mounting/unmounting ExpandedSessionView)
+        if (HasContent != _prevHasContent)
+        {
+            _prevHasContent = HasContent;
             return true;
         }
 
@@ -49,6 +58,10 @@
     
     protected override void OnAfterRender(bool firstRender)
     {
-        if (firstRender) _prevVisible = IsVisible;
+        if (firstRender)
+        {
+            _prevVisible = IsVisible;
+            _prevHasContent = HasContent;
+        }
     }
 }
