@@ -531,12 +531,16 @@ public class WsBridgeServer : IDisposable
 
     private static async Task<(byte[] Buffer, int HeaderLength)?> ReadProxyRequestAsync(Stream stream, CancellationToken ct)
     {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TimeSpan.FromSeconds(30));
+        var token = timeoutCts.Token;
+
         var buffer = new byte[4096];
         using var ms = new MemoryStream();
 
         while (ms.Length < 64 * 1024)
         {
-            var read = await stream.ReadAsync(buffer, ct).ConfigureAwait(false);
+            var read = await stream.ReadAsync(buffer, token).ConfigureAwait(false);
             if (read == 0)
                 return null;
 
@@ -1348,6 +1352,10 @@ public class WsBridgeServer : IDisposable
         }
         catch (OperationCanceledException)
         {
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[WsBridge] Failed to send directory list: {ex.Message}");
         }
     }
 
