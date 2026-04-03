@@ -926,7 +926,7 @@
                             }
                         }
                         // Emacs-style Ctrl keybindings for text navigation (macOS)
-                        if (isInput && e.ctrlKey && !e.metaKey && !e.altKey && /^Mac/.test(navigator.userAgentData?.platform ?? navigator.platform)) {
+                        if (isInput && e.ctrlKey && !e.metaKey && !e.altKey && /^mac/i.test(navigator.userAgentData?.platform ?? navigator.platform)) {
                             var ta = e.target;
                             var text = ta.value;
                             var pos = ta.selectionStart;
