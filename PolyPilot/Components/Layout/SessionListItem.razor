@@ -351,6 +351,7 @@
     private string? _prUrl;
     private string _prLabel = "PR";
     private string? _lastPrCheckedDir;
+    private string? _renderSignature;
 
     protected override void OnParametersSet()
     {
@@ -361,6 +362,58 @@
             _lastPrCheckedDir = dir;
             _ = FetchPrUrlAsync(dir);
         }
+    }
+
+    protected override bool ShouldRender()
+    {
+        var signature = string.Join('|',
+            Session.Name,
+            Session.Model,
+            Session.MessageCount,
+            Session.IsProcessing ? 1 : 0,
+            Session.ProcessingPhase,
+            Session.ToolCallCount,
+            Session.HasPermissionIssue ? 1 : 0,
+            Session.LastReadMessageCount,
+            Session.LastUpdatedAt.Ticks,
+            Session.WorkingDirectory ?? "",
+            Session.SessionId ?? "",
+            Session.ContextCurrentTokens?.ToString() ?? "",
+            Session.ContextTokenLimit?.ToString() ?? "",
+            Session.GitBranch ?? "",
+            Session.IsOrchestratorWorker ? 1 : 0,
+            Meta?.GroupId ?? "",
+            Meta?.WorktreeId ?? "",
+            Meta?.PreferredModel ?? "",
+            Meta?.Role.ToString() ?? "",
+            Meta?.IsPinned == true ? 1 : 0,
+            IsActive ? 1 : 0,
+            IsCompleted ? 1 : 0,
+            IsDisabled ? 1 : 0,
+            IsRenaming ? 1 : 0,
+            IsMenuOpen ? 1 : 0,
+            ShortcutIndex,
+            Groups?.Count ?? 0,
+            IsWorkerChild ? 1 : 0,
+            IsMultiAgentMember ? 1 : 0,
+            CompactMode ? 1 : 0,
+            ShowChildrenToggle ? 1 : 0,
+            AreChildrenCollapsed ? 1 : 0,
+            ChildCount,
+            ShowInlineModeControl ? 1 : 0,
+            HideRoleBadge ? 1 : 0,
+            InlineMode?.ToString() ?? "",
+            UsageInfo?.Model ?? "",
+            UsageInfo?.CurrentTokens?.ToString() ?? "",
+            UsageInfo?.TokenLimit?.ToString() ?? "",
+            _prUrl ?? "",
+            _prLabel);
+
+        if (signature == _renderSignature)
+            return false;
+
+        _renderSignature = signature;
+        return true;
     }
 
     private async Task FetchPrUrlAsync(string dir)

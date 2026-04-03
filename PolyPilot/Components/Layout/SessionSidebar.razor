@@ -847,13 +847,10 @@ else
 
         <div class="session-list">
             @{
-                var organized = CopilotService.GetOrganizedSessions();
-                var showGroupHeaders = CopilotService.HasMultipleGroups;
+                var showGroupHeaders = _showGroupHeaders;
                 var sessionIndex = 0;
-                var regularGroups = organized.Where(g => !g.Group.IsCodespace)
-                    .Select(g => (g.Group, Sessions: ApplyStatusFilter(g.Sessions)))
-                    .ToList();
-                var codespaceGroups = organized.Where(g => g.Group.IsCodespace).ToList();
+                var regularGroups = _regularGroupModels;
+                var codespaceGroups = _codespaceGroups;
             }
 
             @if (!sessions.Any() && !CopilotService.HasMultipleGroups)
@@ -862,7 +859,7 @@ else
                 <p class="no-sessions">No active sessions.<br/>Create one above or resume below.</p>
             }
 
-            @if (sessions.Any() && _statusFilter != SessionStatusFilter.All && !regularGroups.Any(g => g.Sessions.Any()))
+                @if (sessions.Any() && _statusFilter != SessionStatusFilter.All && !regularGroups.Any(g => g.AllSessions.Any()))
             {
                 <p class="no-sessions" style="padding:1rem 0.5rem;font-style:italic;color:var(--text-dim)">No @(_statusFilter.ToString().ToLowerInvariant()) sessions</p>
             }
@@ -874,9 +871,11 @@ else
                     <div class="section-header"><span class="section-header-label">Active Sessions</span></div>
                 }
 
-                @foreach (var (group, groupSessions) in regularGroups)
-                {
-                    var groupProvider = CopilotService.GetProviderForGroup(group.Id);
+                    @foreach (var groupModel in regularGroups)
+                    {
+                        var group = groupModel.Group;
+                        var groupSessions = groupModel.AllSessions;
+                        var groupProvider = CopilotService.GetProviderForGroup(group.Id);
                     @if (showGroupHeaders)
                     {
                         var isRepoGroup = !string.IsNullOrEmpty(group.RepoId);
@@ -917,7 +916,7 @@ else
                         <div class="group-header @(group.IsCollapsed ? "collapsed" : "") @(isRepoGroup || isLocalFolderGroup ? "repo-group" : "") @(groupProvider != null ? "provider-group" : "")"
                              title="@groupTitle"
                              style="@(groupProvider != null ? $"border-left-color: {groupProvider.AccentColor};" : "")"
-                             @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
+                             @onclick="() => ToggleGroupCollapsedLocal(group.Id)">
                             <span class="group-chevron @(group.IsCollapsed ? "collapsed" : "expanded")" aria-hidden="true"></span>
                             @if (groupProvider != null)
                             {
@@ -1287,7 +1286,7 @@ else
                                                  ShowChildrenToggle="@(workerCount > 0)"
                                                  AreChildrenCollapsed="group.UnpinnedCollapsed"
                                                  ChildCount="@workerCount"
-                                                 OnToggleChildren="() => CopilotService.ToggleUnpinnedCollapsed(wToggleGroupId)"
+                                                 OnToggleChildren="() => ToggleUnpinnedCollapsedLocal(wToggleGroupId)"
                                                  ShowInlineModeControl="@(group.OrchestratorMode is MultiAgentMode.Orchestrator or MultiAgentMode.OrchestratorReflect)"
                                                  HideRoleBadge="@(group.OrchestratorMode is MultiAgentMode.Orchestrator or MultiAgentMode.OrchestratorReflect)"
                                                  InlineMode="group.OrchestratorMode"
@@ -1297,7 +1296,7 @@ else
                             {
                                 @if (orchSession == null)
                                 {
-                                    <div class="unpinned-toggle worker-toggle" @onclick="() => CopilotService.ToggleUnpinnedCollapsed(wToggleGroupId)" @onclick:stopPropagation="true">
+                                    <div class="unpinned-toggle worker-toggle" @onclick="() => ToggleUnpinnedCollapsedLocal(wToggleGroupId)" @onclick:stopPropagation="true">
                                         <span class="unpinned-chevron @(group.UnpinnedCollapsed ? "collapsed" : "expanded")" aria-hidden="true"></span>
                                         <span class="unpinned-label">@workerCount @(workerCount != 1 ? "workers" : "worker")</span>
                                     </div>
@@ -1344,7 +1343,7 @@ else
                         }
                         else
                         {
-                        @foreach (var session in GetFilteredSessions(groupSessions, group, true))
+                        @foreach (var session in groupModel.PinnedSessions)
                         {
                             sessionIndex++;
                             var idx = sessionIndex;
@@ -1375,16 +1374,16 @@ else
                                              OnAnalyze="() => AnalyzeSessionEfficiency(sName)"
                                              OnContinueInNewSession="() => ContinueInNewSession(sName)" />
                         }
-                        @if (HasUnpinnedToggle(groupSessions))
+                        @if (groupModel.ShowUnpinnedToggle)
                         {
                             var toggleGroupId = group.Id;
-                            var unpinnedCount = CountUnpinned(groupSessions);
-                            <div class="unpinned-toggle" @onclick="() => CopilotService.ToggleUnpinnedCollapsed(toggleGroupId)" @onclick:stopPropagation="true">
+                            var unpinnedCount = groupModel.UnpinnedCount;
+                            <div class="unpinned-toggle" @onclick="() => ToggleUnpinnedCollapsedLocal(toggleGroupId)" @onclick:stopPropagation="true">
                                 <span class="unpinned-chevron @(group.UnpinnedCollapsed ? "collapsed" : "expanded")" aria-hidden="true"></span>
                                 <span class="unpinned-label">@(unpinnedCount) @(group.UnpinnedCollapsed ? "more" : "") @(unpinnedCount != 1 ? "sessions" : "session")</span>
                             </div>
                         }
-                        @foreach (var session in GetFilteredSessions(groupSessions, group, false))
+                        @foreach (var session in groupModel.UnpinnedSessions)
                         {
                             sessionIndex++;
                             var idx = sessionIndex;
@@ -1432,7 +1431,7 @@ else
                         {
                         <div class="group-header codespace-group @(group.IsCollapsed ? "collapsed" : "") @(csDisconnected ? "cs-group-disabled" : "")"
                              title="GitHub Codespace: @group.CodespaceName"
-                             @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
+                             @onclick="() => ToggleGroupCollapsedLocal(group.Id)">
                             <span class="group-chevron @(group.IsCollapsed ? "collapsed" : "expanded")" aria-hidden="true"></span>
                             <span class="group-repo-icon" title="GitHub Codespace">🖥️</span>
                             @if (csState == CodespaceConnectionState.Connected)
@@ -1833,82 +1832,100 @@ else
         return sessions.Count(s => GetSessionStatus(s) == filter);
     }
 
+    private sealed record GroupRenderModel(
+        SessionGroup Group,
+        List<AgentSessionInfo> AllSessions,
+        List<AgentSessionInfo> PinnedSessions,
+        List<AgentSessionInfo> UnpinnedSessions,
+        bool ShowUnpinnedToggle,
+        int UnpinnedCount);
+
+    private List<GroupRenderModel> _regularGroupModels = new();
+    private List<(SessionGroup Group, List<AgentSessionInfo> Sessions)> _codespaceGroups = new();
+    private bool _showGroupHeaders;
+
+    // RenderFilterBar runs first in the template, before the session list reads
+    // _regularGroupModels/_codespaceGroups. This ordering is load-bearing: the
+    // auto-reset path below rebuilds rendered groups so the session list sees the
+    // updated filter in the same synchronous render pass.
     private RenderFragment RenderFilterBar => __builder =>
     {
         var processingCount = CountByStatus(SessionStatusFilter.Processing);
         var attentionCount  = CountByStatus(SessionStatusFilter.NeedsAttention);
         var stuckCount      = CountByStatus(SessionStatusFilter.Stuck);
 
-        // Only show when there are interesting non-idle sessions
-        if (processingCount == 0 && attentionCount == 0 && stuckCount == 0)
-        {
-            // Auto-reset the filter so the sidebar doesn't show zero results with no recovery path
-            if (_statusFilter != SessionStatusFilter.All)
+            // Only show when there are interesting non-idle sessions
+            if (processingCount == 0 && attentionCount == 0 && stuckCount == 0)
             {
-                _statusFilter = SessionStatusFilter.All;
+                // Auto-reset the filter so the sidebar doesn't show zero results with no recovery path
+                if (_statusFilter != SessionStatusFilter.All)
+                {
+                    _statusFilter = SessionStatusFilter.All;
+                    RebuildRenderedGroups();
+                }
+                return;
             }
-            return;
-        }
 
         <div class="status-filter-bar">
             <button class="filter-chip filter-chip-all @(_statusFilter == SessionStatusFilter.All ? "active" : "")"
-                    @onclick="() => { _statusFilter = SessionStatusFilter.All; StateHasChanged(); }">
+                    @onclick="() => SetStatusFilter(SessionStatusFilter.All)">
                 All <span class="filter-count">@sessions.Count</span>
             </button>
             @if (processingCount > 0)
             {
                 <button class="filter-chip filter-chip-processing @(_statusFilter == SessionStatusFilter.Processing ? "active" : "")"
-                        @onclick="() => { _statusFilter = SessionStatusFilter.Processing; StateHasChanged(); }">
+                        @onclick="() => SetStatusFilter(SessionStatusFilter.Processing)">
                     ⚙ Working <span class="filter-count">@processingCount</span>
                 </button>
             }
             @if (attentionCount > 0)
             {
                 <button class="filter-chip filter-chip-attention @(_statusFilter == SessionStatusFilter.NeedsAttention ? "active" : "")"
-                        @onclick="() => { _statusFilter = SessionStatusFilter.NeedsAttention; StateHasChanged(); }">
+                        @onclick="() => SetStatusFilter(SessionStatusFilter.NeedsAttention)">
                     ● Attention <span class="filter-count">@attentionCount</span>
                 </button>
             }
             @if (stuckCount > 0)
             {
                 <button class="filter-chip filter-chip-stuck @(_statusFilter == SessionStatusFilter.Stuck ? "active" : "")"
-                        @onclick="() => { _statusFilter = SessionStatusFilter.Stuck; StateHasChanged(); }">
+                        @onclick="() => SetStatusFilter(SessionStatusFilter.Stuck)">
                     ⚠ Stuck <span class="filter-count">@stuckCount</span>
                 </button>
             }
             <button class="filter-chip filter-chip-idle @(_statusFilter == SessionStatusFilter.Idle ? "active" : "")"
-                    @onclick="() => { _statusFilter = SessionStatusFilter.Idle; StateHasChanged(); }">
+                    @onclick="() => SetStatusFilter(SessionStatusFilter.Idle)">
                 Idle <span class="filter-count">@CountByStatus(SessionStatusFilter.Idle)</span>
             </button>
         </div>
     };
 
-    private List<AgentSessionInfo> GetFilteredSessions(List<AgentSessionInfo> all, SessionGroup group, bool pinnedPass)
+    private GroupRenderModel BuildGroupRenderModel(
+        SessionGroup group,
+        List<AgentSessionInfo> all,
+        IReadOnlyDictionary<string, SessionMeta> metas)
     {
-        var hasPinned = all.Any(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned == true);
-        var hasUnpinned = all.Any(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned != true);
-        if (!hasPinned || !hasUnpinned)
-            return pinnedPass ? all : new List<AgentSessionInfo>();
+        if (all.Count == 0)
+            return new GroupRenderModel(group, all, all, [], false, 0);
 
-        if (pinnedPass)
-            return all.Where(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned == true).ToList();
+        var pinned = new List<AgentSessionInfo>(all.Count);
+        var unpinned = new List<AgentSessionInfo>(all.Count);
 
-        if (group.UnpinnedCollapsed)
-            return new List<AgentSessionInfo>();
+        foreach (var session in all)
+        {
+            if (metas.TryGetValue(session.Name, out var meta) && meta.IsPinned)
+                pinned.Add(session);
+            else
+                unpinned.Add(session);
+        }
 
-        return all.Where(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned != true).ToList();
-    }
-
-    private bool HasUnpinnedToggle(List<AgentSessionInfo> all)
-    {
-        var hasPinned = all.Any(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned == true);
-        var hasUnpinned = all.Any(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned != true);
-        return hasPinned && hasUnpinned;
-    }
-
-    private int CountUnpinned(List<AgentSessionInfo> all)
-    {
-        return all.Count(s => CopilotService.GetSessionMeta(s.Name)?.IsPinned != true);
+        var showUnpinnedToggle = pinned.Count > 0 && unpinned.Count > 0;
+        return new GroupRenderModel(
+            group,
+            all,
+            showUnpinnedToggle ? pinned : all,
+            showUnpinnedToggle && !group.UnpinnedCollapsed ? unpinned : [],
+            showUnpinnedToggle,
+            unpinned.Count);
     }
 
     private bool showAddRepo = false;
@@ -2066,12 +2083,27 @@ else
 
     private DateTime _lastSidebarRefresh = DateTime.MinValue;
     private bool _sidebarRefreshPending;
+    private string? _lastProviderCommandsSignature;
+    private string? _lastSessionListSignature;
 
     private async Task RefreshSessionsManually()
     {
         _sidebarRefreshPending = false;
         _lastSidebarRefresh = DateTime.MinValue;
         await CopilotService.RefreshSessionsAsync();
+    }
+
+    private void ToggleGroupCollapsedLocal(string groupId)
+    {
+        CopilotService.ToggleGroupCollapsed(groupId, notifyStateChange: false);
+        StateHasChanged();
+    }
+
+    private void ToggleUnpinnedCollapsedLocal(string groupId)
+    {
+        CopilotService.ToggleUnpinnedCollapsed(groupId, notifyStateChange: false);
+        RebuildRenderedGroups();
+        StateHasChanged();
     }
 
     private void RefreshSessions()
@@ -2085,17 +2117,19 @@ else
                 _ = Task.Delay(500).ContinueWith(_ => InvokeAsync(async () => {
                     _sidebarRefreshPending = false;
                     _lastSidebarRefresh = DateTime.UtcNow;
-                    sessions = CopilotService.GetAllSessions().ToList();
+                    RefreshSessionSnapshot();
+                    RebuildRenderedGroups();
                     if (CopilotService.IsRemoteMode)
                         persistedSessions = CopilotService.GetPersistedSessions().ToList();
                     StateHasChanged();
-                    try { await JS.InvokeVoidAsync("updateProviderCommands", CopilotService.GetAllProviderCommandDtos()); } catch { }
+                    await SyncProviderCommandsIfChangedAsync();
                 }));
             }
             return;
         }
         _lastSidebarRefresh = now;
-        sessions = CopilotService.GetAllSessions().ToList();
+        RefreshSessionSnapshot();
+        RebuildRenderedGroups();
         // In remote mode, persisted sessions come from bridge (cheap in-memory read),
         // so refresh them on state change. On desktop, skip — it scans all session directories.
         if (CopilotService.IsRemoteMode)
@@ -2103,8 +2137,70 @@ else
         InvokeAsync(async () =>
         {
             StateHasChanged();
-            try { await JS.InvokeVoidAsync("updateProviderCommands", CopilotService.GetAllProviderCommandDtos()); } catch { }
+            await SyncProviderCommandsIfChangedAsync();
         });
+    }
+
+    private void RefreshSessionSnapshot()
+    {
+        var allSessions = CopilotService.GetAllSessions().ToList();
+        var signature = string.Join('\u001f', allSessions.Select(s => $"{s.Name}\u001e{s.SessionId}\u001e{s.IsHidden}"));
+        if (signature != _lastSessionListSignature)
+        {
+            sessions = allSessions;
+            _lastSessionListSignature = signature;
+        }
+    }
+
+    private void RebuildRenderedGroups()
+    {
+        _showGroupHeaders = CopilotService.HasMultipleGroups;
+
+        var organized = CopilotService.GetOrganizedSessions();
+        var metas = new Dictionary<string, SessionMeta>(CopilotService.Organization.Sessions.Count);
+        foreach (var m in CopilotService.Organization.Sessions)
+            metas.TryAdd(m.SessionName, m);
+        var regularGroups = new List<GroupRenderModel>(organized.Count);
+        var codespaceGroups = new List<(SessionGroup Group, List<AgentSessionInfo> Sessions)>();
+
+        foreach (var (group, groupSessions) in organized)
+        {
+            if (group.IsCodespace)
+            {
+                codespaceGroups.Add((group, groupSessions));
+                continue;
+            }
+
+            regularGroups.Add(BuildGroupRenderModel(group, ApplyStatusFilter(groupSessions), metas));
+        }
+
+        _regularGroupModels = regularGroups;
+        _codespaceGroups = codespaceGroups;
+    }
+
+    private void SetStatusFilter(SessionStatusFilter filter)
+    {
+        if (_statusFilter == filter)
+            return;
+
+        _statusFilter = filter;
+        RebuildRenderedGroups();
+        StateHasChanged();
+    }
+
+    private async Task SyncProviderCommandsIfChangedAsync()
+    {
+        try
+        {
+            var providerCmds = CopilotService.GetAllProviderCommandDtos();
+            var signature = string.Join('\u001f', providerCmds.Select(c => $"{c.ProviderId}\u001e{c.Id}\u001e{c.Label}\u001e{c.Tooltip}"));
+            if (signature == _lastProviderCommandsSignature)
+                return;
+
+            _lastProviderCommandsSignature = signature;
+            await JS.InvokeVoidAsync("updateProviderCommands", providerCmds);
+        }
+        catch { }
     }
 
     private void OnRepoStateChanged() => InvokeAsync(StateHasChanged);
@@ -2728,6 +2824,7 @@ else
         if (session != null) session.LastReadMessageCount = session.History.Count;
         // SaveUiState is debounced (in-memory + timer) — no need for Task.Run
         CopilotService.SaveUiState("/", name);
+        StateHasChanged();
         await OnSessionSelected.InvokeAsync();
         if (currentPage != "/")
             Nav.NavigateTo("/");
