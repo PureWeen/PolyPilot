@@ -162,7 +162,7 @@
             var _hasOutput = Message.IsComplete && !string.IsNullOrEmpty(Message.Content) && !ChatMessageList.IsUnusableResult(Message.Content);
             var _hasInputDetails = !string.IsNullOrEmpty(Message.ToolInput);
             var _hasImageOutput = !string.IsNullOrEmpty(Message.ImageDataUri) || ChatMessageList.GetImagePath(Message.Content) is string _;
-            var _hasDiffOutput = _hasOutput && !_hasImageOutput && DiffParser.LooksLikeUnifiedDiff(Message.Content);
+            var _hasDiffOutput = _hasOutput && !_hasImageOutput && DiffParser.ShouldRenderDiffView(Message.Content, Message.ToolName);
             var _outputLineCount = _hasOutput && !_hasImageOutput ? ChatMessageList.LineCount(Message.Content) : 0;
             var _canExpand = _hasOutput || _hasInputDetails;
             var _inputCopyText = ChatCopyPayloads.GetToolInputCopyText(Message);
@@ -231,19 +231,23 @@
                             {
                                 <img src="@toolImgUri" alt="image" />
                             }
-                            else if (_hasDiffOutput)
-                            {
-                                var _parsedDiff = DiffParser.Parse(Message.Content);
-                                if (_parsedDiff.Count > 0)
-                                {
+                             else if (_hasDiffOutput)
+                             {
+                                 var _parsedDiff = DiffParser.Parse(Message.Content);
+                                 if (_parsedDiff.Count > 0)
+                                 {
                                     <div class="action-output-diff">
                                         <DiffView RawDiff="@Message.Content" />
                                     </div>
-                                }
-                                else
-                                {
-                                    <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
-                                }
+                             }
+                             else if (Message.ToolName == "view" && DiffParser.TryExtractNumberedViewOutput(Message.Content, out var _plainViewOutput))
+                             {
+                                 <pre>@ChatMessageList.TruncateResult(_plainViewOutput)</pre>
+                             }
+                             else
+                             {
+                                 <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
+                             }
                             }
                             else
                             {

@@ -228,6 +228,42 @@ public class DiffParserTests
     }
 
     [Fact]
+    public void ShouldRenderDiffView_ViewTool_ReturnsFalse()
+    {
+        var diff = "--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n";
+        Assert.False(DiffParser.ShouldRenderDiffView(diff, "view"));
+    }
+
+    [Fact]
+    public void ShouldRenderDiffView_NonViewTool_UsesUnifiedDiffDetection()
+    {
+        var diff = "--- a/file.txt\n+++ b/file.txt\n@@ -1 +1 @@\n-old\n+new\n";
+        Assert.True(DiffParser.ShouldRenderDiffView(diff, "bash"));
+    }
+
+    [Fact]
+    public void TryExtractNumberedViewOutput_SyntheticReadDiff_ReturnsPlainNumberedText()
+    {
+        var diff = """
+            diff --git a/README.md b/README.md
+            index 0000000..0000000 100644
+            --- a/README.md
+            +++ b/README.md
+            @@ -1,3 +1,3 @@
+             <p align="center">
+               <img src="logo.png">
+             </p>
+            """;
+
+        var ok = DiffParser.TryExtractNumberedViewOutput(diff, out var text);
+
+        Assert.True(ok);
+        Assert.Contains("1. <p align=\"center\">", text);
+        Assert.Contains("2.   <img src=\"logo.png\">", text);
+        Assert.Contains("3. </p>", text);
+    }
+
+    [Fact]
     public void Parse_AngleBracketsInCode_NotEncoded()
     {
         // Verify generic type parameters with <> are preserved as-is

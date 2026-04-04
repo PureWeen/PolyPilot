@@ -32,6 +32,51 @@ public class DiffLine
 
 public static class DiffParser
 {
+    public static bool ShouldRenderDiffView(string? text, string? toolName)
+    {
+        // `view`/Read tool results should stay as plain file reads even if the
+        // content happens to contain unified-diff markers.
+        if (string.Equals(toolName, "view", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        return LooksLikeUnifiedDiff(text);
+    }
+
+    public static bool TryExtractNumberedViewOutput(string? text, out string plainText)
+    {
+        plainText = "";
+        if (!LooksLikeUnifiedDiff(text))
+            return false;
+
+        var files = Parse(text!);
+        if (files.Count == 0)
+            return false;
+
+        var sb = new StringBuilder();
+        foreach (var file in files)
+        {
+            foreach (var hunk in file.Hunks)
+            {
+                foreach (var line in hunk.Lines)
+                {
+                    // For a "read/view" style presentation, show the current file
+                    // content. Skip removed-only lines, prefer the new line number.
+                    if (line.Type == DiffLineType.Removed && line.NewLineNo is null)
+                        continue;
+
+                    var lineNo = line.NewLineNo ?? line.OldLineNo;
+                    if (lineNo.HasValue)
+                        sb.Append(lineNo.Value).Append(". ");
+
+                    sb.AppendLine(line.Content);
+                }
+            }
+        }
+
+        plainText = sb.ToString().TrimEnd();
+        return !string.IsNullOrWhiteSpace(plainText);
+    }
+
     public static bool LooksLikeUnifiedDiff(string? text)
     {
         if (string.IsNullOrWhiteSpace(text)) return false;
