@@ -29,6 +29,7 @@ public class WsBridgeServer : IDisposable
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
     private long _lastPairRequestAcceptedAtTicks = DateTime.MinValue.Ticks;
     private readonly ConcurrentQueue<PendingBridgePrompt> _pendingBridgePrompts = new();
+    private readonly SemaphoreSlim _drainLock = new(1, 1);
     private record PendingBridgePrompt(string SessionName, string Message, string? AgentMode);
 
     // Debounce timers to prevent flooding mobile clients during streaming
@@ -274,21 +275,54 @@ public class WsBridgeServer : IDisposable
     /// <summary>
     /// Replay bridge prompts that were queued during session restore.
     /// Called by CopilotService after IsRestoring transitions to false.
+    /// Serialized via _drainLock to prevent concurrent drains from reordering prompts.
     /// </summary>
     public async Task DrainPendingPromptsAsync()
     {
-        while (_pendingBridgePrompts.TryDequeue(out var pending))
+        await _drainLock.WaitAsync();
+        try
         {
-            Console.WriteLine($"[BRIDGE] Replaying queued prompt for '{pending.SessionName}'");
-            try
+            while (_pendingBridgePrompts.TryDequeue(out var pending))
             {
-                await _copilot!.SendPromptAsync(pending.SessionName, pending.Message, agentMode: pending.AgentMode);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"[BRIDGE] Failed to replay prompt for '{pending.SessionName}': {ex.Message}");
+                Console.WriteLine($"[BRIDGE] Replaying queued prompt for '{pending.SessionName}'");
+                try
+                {
+                    await DispatchBridgePromptAsync(pending.SessionName, pending.Message, pending.AgentMode);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"[BRIDGE] Failed to replay prompt for '{pending.SessionName}': {ex.Message}");
+                }
             }
         }
+        finally
+        {
+            _drainLock.Release();
+        }
+    }
+
+    /// <summary>
+    /// Dispatch a bridge prompt with orchestrator routing on the UI thread.
+    /// Shared by both the live send_message handler and the drain replay loop.
+    /// </summary>
+    private async Task DispatchBridgePromptAsync(string sessionName, string message, string? agentMode, CancellationToken ct = default)
+    {
+        await _copilot!.InvokeOnUIAsync(async () =>
+        {
+            var orchGroupId = _copilot.GetOrchestratorGroupId(sessionName);
+            if (orchGroupId != null)
+            {
+                var orchGroup = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == orchGroupId);
+                if (orchGroup?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                    _copilot.StartGroupReflection(orchGroupId, message, orchGroup.MaxReflectIterations ?? 5);
+                Console.WriteLine($"[WsBridge] Routing '{sessionName}' through orchestration pipeline (group={orchGroupId})");
+                await _copilot.SendToMultiAgentGroupAsync(orchGroupId, message, ct);
+            }
+            else
+            {
+                await _copilot.SendPromptAsync(sessionName, message, cancellationToken: ct, agentMode: agentMode);
+            }
+        });
     }
 
     public void Stop()
@@ -848,41 +882,13 @@ public class WsBridgeServer : IDisposable
                         {
                             _pendingBridgePrompts.Enqueue(new PendingBridgePrompt(sendSession, sendMessage, sendAgentMode));
                             Console.WriteLine($"[BRIDGE] Queued prompt for '{sendSession}' during restore ({_pendingBridgePrompts.Count} pending)");
-                            // TOCTOU guard: if restore completed between our check and enqueue,
-                            // DrainPendingPromptsAsync already ran and missed this item. Drain again.
-                            if (!_copilot.IsRestoring)
-                            {
-                                _ = Task.Run(async () =>
-                                {
-                                    try { await DrainPendingPromptsAsync(); }
-                                    catch { /* logged inside drain */ }
-                                });
-                            }
                             break;
                         }
 
-                        // Check orchestrator routing and dispatch atomically on the UI thread.
-                        // GetOrchestratorGroupId and SendToMultiAgentGroupAsync both read
-                        // Organization.Sessions/Groups (plain List<T>, UI-thread-only).
-                        _ = _copilot.InvokeOnUIAsync(async () =>
+                        // Dispatch with orchestrator routing on the UI thread (fire-and-forget).
+                        _ = Task.Run(async () =>
                         {
-                            try
-                            {
-                                var orchGroupId = _copilot.GetOrchestratorGroupId(sendSession);
-                                if (orchGroupId != null)
-                                {
-                                    // Mirror Dashboard.razor's AutoStartReflectionIfNeeded behavior
-                                    var orchGroup = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == orchGroupId);
-                                    if (orchGroup?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
-                                        _copilot.StartGroupReflection(orchGroupId, sendMessage, orchGroup.MaxReflectIterations ?? 5);
-                                    Console.WriteLine($"[WsBridge] Routing '{sendSession}' through orchestration pipeline (group={orchGroupId})");
-                                    await _copilot.SendToMultiAgentGroupAsync(orchGroupId, sendMessage, ct);
-                                }
-                                else
-                                {
-                                    await _copilot.SendPromptAsync(sendSession, sendMessage, cancellationToken: ct, agentMode: sendAgentMode);
-                                }
-                            }
+                            try { await DispatchBridgePromptAsync(sendSession, sendMessage, sendAgentMode, ct); }
                             catch (Exception ex) { Console.WriteLine($"[WsBridge] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
                         });
                     }
