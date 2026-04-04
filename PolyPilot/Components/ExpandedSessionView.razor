@@ -1075,8 +1075,10 @@
                                 ov.remove();
                                 var inputEl = document.querySelector('[data-session=""{sessionName}""] textarea');
                                 if(inputEl){{
-                                    var ctx = window.__ppPrNumber ? window.__ppPrNumber : '';
-                                    inputEl.value = '/prompt use ' + p.name + ' -- ' + ctx;
+                                    var ctx = (p.sourceLabel === 'built-in' && window.__ppPrNumber) ? window.__ppPrNumber : '';
+                                    inputEl.value = ctx
+                                        ? '/prompt use ' + p.name + ' -- ' + ctx
+                                        : '/prompt use ' + p.name;
                                     inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
                                     inputEl.focus();
                                     inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);

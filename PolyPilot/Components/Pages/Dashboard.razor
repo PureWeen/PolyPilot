@@ -2589,7 +2589,7 @@
                 }
                 if (existingPrompt.Source != PromptSource.User)
                 {
-                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{existingPrompt.Name}** is a project prompt and cannot be edited. Only user prompts (`~/.polypilot/prompts/`) can be edited."));
+                    session.History.Add(ChatMessage.ErrorMessage($"Prompt **{existingPrompt.Name}** is a {existingPrompt.SourceLabel} prompt and cannot be edited. Only user prompts (`~/.polypilot/prompts/`) can be edited."));
                     break;
                 }
                 if (editContent != null)
