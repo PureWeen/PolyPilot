@@ -997,35 +997,10 @@ public class RepoManagerTests
     #region CreateWorktreeAsync Path Strategy Tests
 
     [Fact]
-    public void CreateWorktree_WithLocalPath_PlacesWorktreeInsideLocalRepo()
+    public void CreateWorktree_AlwaysPlacesWorktreeInCentralDir()
     {
-        // When localPath is provided, the worktree path should be:
-        // {localPath}/.polypilot/worktrees/{branchName}
-        // This is the "nested strategy" that keeps worktrees inside the user's repo.
-
-        var localRepoPath = Path.Combine(Path.GetTempPath(), "my-local-repo");
-        var branchName = "feature-login";
-        var repoWorktreesDir = Path.Combine(localRepoPath, ".polypilot", "worktrees");
-        var expectedPath = Path.Combine(repoWorktreesDir, branchName);
-        var resolved = Path.GetFullPath(expectedPath);
-        var managedBase = Path.GetFullPath(repoWorktreesDir) + Path.DirectorySeparatorChar;
-
-        // Verify path is inside the managed dir (passes the guard)
-        Assert.True(resolved.StartsWith(managedBase, StringComparison.OrdinalIgnoreCase),
-            $"Expected path '{resolved}' to be inside '{managedBase}'");
-
-        // Verify it is NOT under the centralized worktrees dir
-        var centralDir = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees");
-        Assert.False(resolved.StartsWith(Path.GetFullPath(centralDir), StringComparison.OrdinalIgnoreCase),
-            "Nested worktree path should NOT be under the centralized worktrees dir");
-    }
-
-    [Fact]
-    public void CreateWorktree_WithoutLocalPath_PlacesWorktreeInCentralDir()
-    {
-        // When localPath is null, the worktree path should be:
-        // {WorktreesDir}/{repoId}-{guid8}
-        // This is the "centralized strategy" for URL-based groups.
+        // All worktrees should go to {WorktreesDir}/{repoId}-{guid8}
+        // (centralized strategy — nested strategy was removed).
 
         var testBaseDir = Path.Combine(Path.GetTempPath(), $"central-strategy-{Guid.NewGuid():N}");
         var worktreesDir = Path.Combine(testBaseDir, "worktrees");
@@ -1037,24 +1012,9 @@ public class RepoManagerTests
         Assert.True(expectedPath.StartsWith(worktreesDir, StringComparison.OrdinalIgnoreCase),
             $"Centralized path '{expectedPath}' should be under WorktreesDir '{worktreesDir}'");
 
-        // Verify it does NOT contain .polypilot/worktrees (which would indicate nested)
+        // Verify it does NOT contain .polypilot/worktrees (which would indicate old nested strategy)
         var marker = Path.Combine(".polypilot", "worktrees");
         Assert.DoesNotContain(marker, expectedPath, StringComparison.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public void CreateWorktree_LocalPath_StrategySelectedByNullCheck()
-    {
-        // Regression: the localPath parameter is the SOLE discriminator between nested
-        // and centralized strategy. Verify that an empty/whitespace localPath would NOT
-        // accidentally trigger the nested path (same guard that CreateWorktreeAsync uses).
-
-        // Production code: if (!string.IsNullOrWhiteSpace(localPath)) → nested
-        Assert.True(string.IsNullOrWhiteSpace(null));
-        Assert.True(string.IsNullOrWhiteSpace(""));
-        Assert.True(string.IsNullOrWhiteSpace("   "));
-        Assert.False(string.IsNullOrWhiteSpace("/valid/path"));
-        Assert.False(string.IsNullOrWhiteSpace(@"C:\valid\path"));
     }
 
     #endregion

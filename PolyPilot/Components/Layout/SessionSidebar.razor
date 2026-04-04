@@ -1004,13 +1004,12 @@ else
                                                         </button>
                                                         @if (!string.IsNullOrEmpty(group.RepoId))
                                                         {
-                                                            @* 📁 group backed by a bare clone — offer full branch/worktree features *@
+                                                            @* 📁 group backed by a repo — offer full branch/worktree features *@
                                                             var lfRepoId = group.RepoId!;
-                                                            var lfLocalPath = group.LocalPath!;
-                                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForRepo(lfRepoId, gId, lfLocalPath); }">
+                                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; QuickCreateSessionForRepo(lfRepoId, gId); }">
                                                                 ⚡ Quick Branch + Session
                                                             </button>
-                                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartQuickBranch(lfRepoId, gId, lfLocalPath); }">
+                                                            <button class="group-menu-item" @onclick="() => { openGroupMenuId = null; StartQuickBranch(lfRepoId, gId); }">
                                                                 ⑂ Named Branch + Session
                                                             </button>
                                                         }
@@ -1957,7 +1956,6 @@ else
     // Quick-create inline branch input
     private string? quickBranchRepoId = null;
     private string? quickBranchGroupId = null;
-    private string? quickBranchLocalPath = null;
     private string quickBranchInput = "";
     private bool quickBranchIsCreating = false;
     private string? quickBranchError = null;
@@ -2568,7 +2566,7 @@ else
         }
     }
 
-    private async Task QuickCreateSessionForRepo(string repoId, string? targetGroupId = null, string? localPath = null)
+    private async Task QuickCreateSessionForRepo(string repoId, string? targetGroupId = null)
     {
         if (isCreating) return;
         isCreating = true;
@@ -2580,8 +2578,7 @@ else
             var sessionInfo = await CopilotService.CreateSessionWithWorktreeAsync(
                 repoId: repoId,
                 model: selectedModel,
-                targetGroupId: targetGroupId,
-                localPath: localPath);
+                targetGroupId: targetGroupId);
             CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();
         }
@@ -2598,11 +2595,10 @@ else
         }
     }
 
-    private void StartQuickBranch(string repoId, string? targetGroupId = null, string? localPath = null)
+    private void StartQuickBranch(string repoId, string? targetGroupId = null)
     {
         quickBranchRepoId = repoId;
         quickBranchGroupId = targetGroupId;
-        quickBranchLocalPath = localPath;
         quickBranchInput = "";
         quickBranchError = null;
     }
@@ -2610,7 +2606,7 @@ else
     private async Task HandleQuickBranchKeyDown(KeyboardEventArgs e, string repoId)
     {
         if (e.Key == "Enter") await CommitQuickBranch(repoId);
-        else if (e.Key == "Escape") { quickBranchRepoId = null; quickBranchLocalPath = null; }
+        else if (e.Key == "Escape") { quickBranchRepoId = null; }
     }
 
     private async Task CommitQuickBranch(string repoId)
@@ -2648,12 +2644,10 @@ else
                 branchName: branchName,
                 prNumber: prNumber,
                 model: selectedModel,
-                targetGroupId: quickBranchGroupId,
-                localPath: quickBranchLocalPath);
+                targetGroupId: quickBranchGroupId);
 
             quickBranchRepoId = null;
             quickBranchGroupId = null;
-            quickBranchLocalPath = null;
             quickBranchInput = "";
             CopilotService.SaveUiState(currentPage, selectedModel: selectedModel);
             await OnSessionSelected.InvokeAsync();

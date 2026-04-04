@@ -402,6 +402,12 @@ public class RepoManager
 
     private async Task EnsureRepoCloneInCurrentRootAsync(RepositoryInfo repo, Action<string>? onProgress, CancellationToken ct)
     {
+        // If BareClonePath points at a non-bare repo (added via "Existing Folder"), skip clone management.
+        if (!string.IsNullOrWhiteSpace(repo.BareClonePath)
+            && Directory.Exists(repo.BareClonePath)
+            && (Directory.Exists(Path.Combine(repo.BareClonePath, ".git")) || File.Exists(Path.Combine(repo.BareClonePath, ".git"))))
+            return;
+
         var targetBarePath = GetDesiredBareClonePath(repo.Id);
         if (!string.IsNullOrWhiteSpace(repo.BareClonePath)
             && PathsEqual(repo.BareClonePath, targetBarePath)
@@ -557,8 +563,9 @@ public class RepoManager
 
     /// <summary>
     /// Add a repository from an existing local path (non-bare). Validates the folder is a
-    /// git repository with an 'origin' remote, then registers and bare-clones it the same
-    /// way as <see cref="AddRepositoryAsync(string,Action{string}?,CancellationToken)"/>.
+    /// git repository with an 'origin' remote, then creates a <see cref="RepositoryInfo"/>
+    /// whose <see cref="RepositoryInfo.BareClonePath"/> points directly at the user's local
+    /// repo — no bare clone is created.
     /// The local folder is also registered as an external worktree so it appears in the
     /// "📂 Existing" list when creating sessions.
     /// </summary>
@@ -602,7 +609,35 @@ public class RepoManager
                 $"No 'origin' remote found in '{localPath}'. " +
                 "The folder must have a remote named 'origin' (e.g. a GitHub clone).");
 
-        var repo = await AddRepositoryAsync(remoteUrl, onProgress, localCloneSource: localPath, ct);
+        // Point BareClonePath at the user's existing repo — no bare clone needed.
+        var url = NormalizeRepoUrl(remoteUrl);
+        var id = RepoIdFromUrl(url);
+
+        RepositoryInfo repo;
+        lock (_stateLock)
+        {
+            var existing = _state.Repositories.FirstOrDefault(r => r.Id == id);
+            if (existing != null)
+            {
+                existing.BareClonePath = localPath;
+                BackfillWorktreeClonePaths(existing);
+                repo = existing;
+            }
+            else
+            {
+                repo = new RepositoryInfo
+                {
+                    Id = id,
+                    Name = id.Contains('-') ? id.Split('-').Last() : id,
+                    Url = url,
+                    BareClonePath = localPath,
+                    AddedAt = DateTime.UtcNow
+                };
+                _state.Repositories.Add(repo);
+            }
+        }
+        Save();
+        OnStateChanged?.Invoke();
 
         // Register the local folder as an external worktree so it also appears in the
         // "📂 Existing" picker when creating repo-based sessions.
@@ -687,17 +722,35 @@ public class RepoManager
 
     /// <summary>
     /// Create a new worktree for a repository on a new branch from origin/main.
+    /// If an existing registered worktree is already on the requested branch, it is reused.
+    /// Worktrees are always placed in the centralized <c>~/.polypilot/worktrees/</c> directory.
     /// </summary>
-    /// <param name="localPath">
-    /// Optional path to the user's existing local repo clone (added via "Add Existing Folder").
-    /// When provided, the worktree is created at <c>{localPath}/.polypilot/worktrees/{branchName}/</c>
-    /// (nested inside the user's repo) rather than the centralized <c>~/.polypilot/worktrees/</c>.
-    /// </param>
-    public virtual async Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName, string? baseBranch = null, bool skipFetch = false, string? localPath = null, CancellationToken ct = default)
+    public virtual async Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName, string? baseBranch = null, bool skipFetch = false, CancellationToken ct = default)
     {
         EnsureLoaded();
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
+
+        // Check if an existing registered worktree for this repo is already on the requested branch.
+        // This handles the common case where the user added their repo via "Existing Folder" and
+        // wants to create a session on the same branch — no need to create a duplicate worktree.
+        WorktreeInfo? existingMatch;
+        lock (_stateLock)
+        {
+            existingMatch = _state.Worktrees.FirstOrDefault(w =>
+                w.RepoId == repoId
+                && string.Equals(w.Branch, branchName, StringComparison.OrdinalIgnoreCase)
+                && !string.IsNullOrWhiteSpace(w.Path)
+                && Directory.Exists(w.Path));
+        }
+        if (existingMatch != null)
+        {
+            Console.WriteLine($"[RepoManager] Reusing existing worktree at '{existingMatch.Path}' (branch: {branchName})");
+            repo.LastUsedAt = DateTime.UtcNow;
+            Save();
+            return existingMatch;
+        }
+
         await EnsureRepoCloneInCurrentRootAsync(repo, null, ct);
 
         // Fetch latest from origin (prune to clean up deleted remote branches).
@@ -715,29 +768,9 @@ public class RepoManager
         string worktreePath;
         var worktreeId = Guid.NewGuid().ToString()[..8];
 
-        if (!string.IsNullOrWhiteSpace(localPath))
-        {
-            // Nested strategy: place worktree inside the user's repo at .polypilot/worktrees/{branch}/
-            var repoWorktreesDir = Path.Combine(Path.GetFullPath(localPath), ".polypilot", "worktrees");
-            Directory.CreateDirectory(repoWorktreesDir);
-            EnsureGitExcludeEntry(localPath, ".polypilot/");
-            worktreePath = Path.Combine(repoWorktreesDir, branchName);
-
-            // Guard against path traversal: branch names with ".." or leading "/" could escape
-            // the directory. Equality with repoWorktreesDir itself is also invalid — an empty
-            // branch name or a name that normalises to "." would trigger that case.
-            var resolved = Path.GetFullPath(worktreePath);
-            if (!resolved.StartsWith(Path.GetFullPath(repoWorktreesDir) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                throw new InvalidOperationException(
-                    $"Branch name '{branchName}' would create worktree outside the managed directory. " +
-                    "Use a branch name without '..' or leading path separators.");
-        }
-        else
-        {
-            // Centralized strategy: place worktree in ~/.polypilot/worktrees/{repoId}-{guid8}/
-            Directory.CreateDirectory(WorktreesDir);
-            worktreePath = Path.Combine(WorktreesDir, $"{repoId}-{worktreeId}");
-        }
+        // Centralized: place worktree in ~/.polypilot/worktrees/{repoId}-{guid8}/
+        Directory.CreateDirectory(WorktreesDir);
+        worktreePath = Path.Combine(WorktreesDir, $"{repoId}-{worktreeId}");
 
         try
         {
