@@ -1737,6 +1737,22 @@
     .hamburger-btn:active {
         background: var(--hover-bg);
     }
+
+    .group-header {
+        min-height: 2.75rem;
+    }
+
+    .group-header:active {
+        background: rgba(255,255,255,0.08);
+    }
+
+    .group-more-btn {
+        opacity: 0.8;
+    }
+
+    .unpinned-toggle:active {
+        background: rgba(255,255,255,0.09);
+    }
 }
 
 /* --- Bug Report (sidebar footer) --- */

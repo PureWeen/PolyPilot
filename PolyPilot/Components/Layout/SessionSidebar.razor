@@ -2096,6 +2096,7 @@ else
     private void ToggleGroupCollapsedLocal(string groupId)
     {
         CopilotService.ToggleGroupCollapsed(groupId, notifyStateChange: false);
+        RebuildRenderedGroups();
         StateHasChanged();
     }
 

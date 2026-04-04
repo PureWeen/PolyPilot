@@ -1527,8 +1527,6 @@ public class WsBridgeServer : IDisposable
             }
         }
         // Fall back to PrLinkService cache (uses gh pr view, already cached on desktop)
-        // Lazy-resolve from DI if not explicitly set
-        _prLinkService ??= IPlatformApplication.Current?.Services.GetService<PrLinkService>();
         if (_prLinkService != null && !string.IsNullOrEmpty(session.WorkingDirectory))
         {
             var url = _prLinkService.GetCachedPrUrl(session.WorkingDirectory);
