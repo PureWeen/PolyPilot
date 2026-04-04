@@ -1493,7 +1493,7 @@ public class WsBridgeServer : IDisposable
             ProcessingStartedAt = s.ProcessingStartedAt,
             ToolCallCount = s.ToolCallCount,
             ProcessingPhase = s.ProcessingPhase,
-            PrNumber = s.PrNumber,
+            PrNumber = s.PrNumber ?? ResolvePrNumber(s),
         }).ToList();
 
         return new SessionsListPayload
@@ -1505,6 +1505,15 @@ public class WsBridgeServer : IDisposable
             ServerMachineName = Environment.MachineName,
             AvailableModels = _copilot.AvailableModels.Count > 0 ? _copilot.AvailableModels : null,
         };
+    }
+
+    private int? ResolvePrNumber(AgentSessionInfo session)
+    {
+        if (_repoManager == null || _copilot == null) return null;
+        var wtId = session.WorktreeId ?? _copilot.Organization.Sessions
+            .FirstOrDefault(m => m.SessionName == session.Name)?.WorktreeId;
+        if (wtId == null) return null;
+        return _repoManager.Worktrees.FirstOrDefault(w => w.Id == wtId)?.PrNumber;
     }
 
     private void DebouncedBroadcastState()
