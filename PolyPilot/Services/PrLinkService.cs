@@ -26,6 +26,14 @@ public class PrLinkService
     /// <summary>Invalidates the cached result for a directory so the next call re-queries.</summary>
     public void Invalidate(string workingDirectory) => _cache.TryRemove(workingDirectory, out _);
 
+    /// <summary>Returns the cached PR URL for a directory without fetching. Returns null if not cached or expired.</summary>
+    public string? GetCachedPrUrl(string workingDirectory)
+    {
+        if (string.IsNullOrWhiteSpace(workingDirectory)) return null;
+        return _cache.TryGetValue(workingDirectory, out var entry) && DateTime.UtcNow < entry.ExpiresAt
+            ? entry.Url : null;
+    }
+
     private static async Task<string?> FetchPrUrlAsync(string workingDirectory)
     {
         Process? process = null;

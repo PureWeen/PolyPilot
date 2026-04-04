@@ -31,12 +31,13 @@ public partial class DevTunnelService : IDisposable
 
     public const int BridgePort = 4322;
 
-    public DevTunnelService(WsBridgeServer bridge, CopilotService copilot, RepoManager repoManager, AuditLogService? auditLog = null)
+    public DevTunnelService(WsBridgeServer bridge, CopilotService copilot, RepoManager repoManager, PrLinkService? prLinkService = null, AuditLogService? auditLog = null)
     {
         _bridge = bridge;
         _copilot = copilot;
         _repoManager = repoManager;
         _auditLog = auditLog;
+        if (prLinkService != null) _bridge.SetPrLinkService(prLinkService);
     }
 
     public TunnelState State => _state;

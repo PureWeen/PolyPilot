@@ -25,6 +25,7 @@ public class WsBridgeServer : IDisposable
     private CopilotService? _copilot;
     private FiestaService? _fiestaService;
     private RepoManager? _repoManager;
+    private PrLinkService? _prLinkService;
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
     private long _lastPairRequestAcceptedAtTicks = DateTime.MinValue.Ticks;
@@ -267,6 +268,11 @@ public class WsBridgeServer : IDisposable
     public void SetRepoManager(RepoManager repoManager)
     {
         _repoManager ??= repoManager;
+    }
+
+    public void SetPrLinkService(PrLinkService prLinkService)
+    {
+        _prLinkService ??= prLinkService;
     }
 
     public void Stop()
@@ -1509,11 +1515,31 @@ public class WsBridgeServer : IDisposable
 
     private int? ResolvePrNumber(AgentSessionInfo session)
     {
-        if (_repoManager == null || _copilot == null) return null;
-        var wtId = session.WorktreeId ?? _copilot.Organization.Sessions
-            .FirstOrDefault(m => m.SessionName == session.Name)?.WorktreeId;
-        if (wtId == null) return null;
-        return _repoManager.Worktrees.FirstOrDefault(w => w.Id == wtId)?.PrNumber;
+        // Try worktree lookup first
+        if (_repoManager != null && _copilot != null)
+        {
+            var wtId = session.WorktreeId ?? _copilot.Organization.Sessions
+                .FirstOrDefault(m => m.SessionName == session.Name)?.WorktreeId;
+            if (wtId != null)
+            {
+                var prNum = _repoManager.Worktrees.FirstOrDefault(w => w.Id == wtId)?.PrNumber;
+                if (prNum.HasValue) return prNum;
+            }
+        }
+        // Fall back to PrLinkService cache (uses gh pr view, already cached on desktop)
+        // Lazy-resolve from DI if not explicitly set
+        _prLinkService ??= IPlatformApplication.Current?.Services.GetService<PrLinkService>();
+        if (_prLinkService != null && !string.IsNullOrEmpty(session.WorkingDirectory))
+        {
+            var url = _prLinkService.GetCachedPrUrl(session.WorkingDirectory);
+            if (url != null)
+            {
+                var lastSlash = url.LastIndexOf('/');
+                if (lastSlash >= 0 && lastSlash < url.Length - 1 && int.TryParse(url[(lastSlash + 1)..], out var num))
+                    return num;
+            }
+        }
+        return null;
     }
 
     private void DebouncedBroadcastState()
