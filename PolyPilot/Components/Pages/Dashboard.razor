@@ -2662,7 +2662,7 @@
                     }));
                     session.History.Add(ChatMessage.SystemMessage(
                         $"**{prompts.Count} prompt{(prompts.Count != 1 ? "s" : "")} available:**\n{listing}\n\n" +
-                        "Use: `/prompt use <name>` · Edit: `/prompt edit <name>` · Show: `/prompt show <name>` · Delete: `/prompt delete <name>`"));
+                        "Use: `/prompt use <name> [-- context]` · Edit: `/prompt edit <name>` · Show: `/prompt show <name>` · Delete: `/prompt delete <name>`"));
                 }
                 break;
         }

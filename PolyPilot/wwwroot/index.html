@@ -795,7 +795,7 @@
                 { cmd: '/mcp', usage: '[show|add|edit|delete|disable|enable] [server-name] | reload', desc: 'Manage MCP servers', hasArgs: true },
                 { cmd: '/new', usage: '[name]', desc: 'Create a new session', hasArgs: true },
                 { cmd: '/plugin', usage: '[enable|disable] [plugin-name]', desc: 'Manage installed plugins', hasArgs: true },
-                { cmd: '/prompt', usage: '[use|save|delete] [name]', desc: 'List saved prompts', hasArgs: true },
+                { cmd: '/prompt', usage: 'use <name> [-- context] | save | edit | delete', desc: 'Manage saved prompts', hasArgs: true },
                 { cmd: '/rename', usage: '<name>', desc: 'Rename current session', hasArgs: true },
                 { cmd: '/sessions', desc: 'List all sessions', hasArgs: false },
                 { cmd: '/status', usage: '[path] [--short]', desc: 'Show git status', hasArgs: true },
