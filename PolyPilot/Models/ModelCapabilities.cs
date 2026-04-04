@@ -191,7 +191,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     /// </summary>
     public string?[]? WorkerDisplayNames { get; init; }
 
-    private const string WorkerReviewPrompt = """
+    internal const string WorkerReviewPrompt = """
         You are a PR reviewer. When assigned a PR, do a thorough multi-model code review.
 
         ## 1. Gather Context

@@ -52,7 +52,8 @@ public class PromptLibraryService
     }
 
     /// <summary>
-    /// Discover all available prompts from user-saved prompts and project prompt directories.
+    /// Discover all available prompts from built-in, user-saved, and project prompt directories.
+    /// Built-in prompts are always available. User prompts with the same name override built-ins.
     /// </summary>
     public static List<SavedPrompt> DiscoverPrompts(string? workingDirectory = null)
     {
@@ -61,7 +62,7 @@ public class PromptLibraryService
 
         try
         {
-            // User-saved prompts (~/.polypilot/prompts/)
+            // User-saved prompts (~/.polypilot/prompts/) — added first so they override built-ins
             if (Directory.Exists(UserPromptsDir))
                 ScanPromptDirectory(UserPromptsDir, PromptSource.User, prompts, seen);
         }
@@ -86,6 +87,13 @@ public class PromptLibraryService
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[Prompts] Project prompt discovery failed: {ex.Message}");
+        }
+
+        // Built-in prompts — added last, skipped if user/project already defined one with the same name
+        foreach (var builtin in BuiltInPrompts)
+        {
+            if (seen.Add(builtin.Name))
+                prompts.Add(builtin);
         }
 
         return prompts;
@@ -294,4 +302,19 @@ public class PromptLibraryService
         var result = new string(sanitized).Trim('-');
         return string.IsNullOrEmpty(result) ? "prompt" : result;
     }
+
+    /// <summary>
+    /// Built-in prompts that ship with PolyPilot. Available to all users without any setup.
+    /// Users can override these by saving a prompt with the same name.
+    /// </summary>
+    internal static readonly SavedPrompt[] BuiltInPrompts = new[]
+    {
+        new SavedPrompt
+        {
+            Name = "PR Review",
+            Description = "Multi-model consensus code review — dispatches 3 sub-agents, runs adversarial debate, posts one comment",
+            Content = GroupPreset.WorkerReviewPrompt,
+            Source = PromptSource.BuiltIn,
+        },
+    };
 }

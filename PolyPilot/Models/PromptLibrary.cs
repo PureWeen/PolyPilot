@@ -6,7 +6,8 @@ namespace PolyPilot.Models;
 public enum PromptSource
 {
     User,       // Saved by the user in ~/.polypilot/prompts/
-    Project     // Discovered from project prompt directories
+    Project,    // Discovered from project prompt directories
+    BuiltIn     // Shipped with PolyPilot — available to all users
 }
 
 public class SavedPrompt
@@ -22,5 +23,11 @@ public class SavedPrompt
     public string? FilePath { get; set; }
 
     [JsonIgnore]
-    public string SourceLabel => Source == PromptSource.User ? "user" : "project";
+    public string SourceLabel => Source switch
+    {
+        PromptSource.BuiltIn => "built-in",
+        PromptSource.User => "user",
+        PromptSource.Project => "project",
+        _ => "unknown"
+    };
 }
