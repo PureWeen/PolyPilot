@@ -381,6 +381,15 @@
                         <option value="@m">@PrettifyModel(m)</option>
                     }
                 </select>
+                @if (SupportedReasoningEfforts.Count > 0)
+                {
+                    <select class="inline-effort-select" value="@(Session.ReasoningEffort ?? DefaultReasoningEffort ?? "")" @onchange="OnEffortChanged" disabled="@Session.IsProcessing" title="Reasoning effort">
+                        @foreach (var e in SupportedReasoningEfforts)
+                        {
+                            <option value="@e">@e</option>
+                        }
+                    </select>
+                }
                 <span class="status-extra">
                     @if (headerInputTokens.HasValue || headerOutputTokens.HasValue)
                     {
@@ -442,6 +451,9 @@
     [Parameter] public EventCallback<(string SessionName, int Index)> OnRemovePendingImage { get; set; }
     [Parameter] public EventCallback<string> OnSetInputMode { get; set; }
     [Parameter] public EventCallback<string?> OnSetModel { get; set; }
+    [Parameter] public EventCallback<string?> OnSetReasoningEffort { get; set; }
+    [Parameter] public IReadOnlyList<string> SupportedReasoningEfforts { get; set; } = Array.Empty<string>();
+    [Parameter] public string? DefaultReasoningEffort { get; set; }
 
     [Parameter] public EventCallback<int> OnFontSizeChange { get; set; }
     [Parameter] public EventCallback<string> OnLoadMore { get; set; }
@@ -822,6 +834,13 @@
                 _prLabel = "#" + _prUrl[(lastSlash + 1)..];
         }
         try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
+    }
+
+    private async Task OnEffortChanged(ChangeEventArgs e)
+    {
+        var effort = e.Value?.ToString();
+        if (!string.IsNullOrEmpty(effort))
+            await OnSetReasoningEffort.InvokeAsync(effort);
     }
 
     private void ToggleFiestaPicker()

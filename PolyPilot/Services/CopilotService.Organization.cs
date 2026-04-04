@@ -3570,7 +3570,7 @@ public partial class CopilotService
             currentSlug = Models.ModelHelper.NormalizeToSlug(GetSession(sessionName)?.Model ?? "");
             if (currentSlug == meta.PreferredModel) return;
 
-            await ChangeModelAsync(sessionName, meta.PreferredModel, ct);
+            await ChangeModelAsync(sessionName, meta.PreferredModel, cancellationToken: ct);
             Debug($"Switched '{sessionName}' model to '{meta.PreferredModel}' for multi-agent dispatch");
         }
         catch (Exception ex)

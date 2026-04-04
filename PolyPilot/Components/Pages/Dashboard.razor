@@ -199,6 +199,9 @@
                                      OnRemovePendingImage="RemovePendingImage"
                                      OnSetInputMode="(mode) => SetInputMode(session.Name, mode)"
                                      OnSetModel="(model) => SetExpandedModel(session, model)"
+                                     OnSetReasoningEffort="(effort) => SetReasoningEffort(session, effort)"
+                                     SupportedReasoningEfforts="CopilotService.GetSupportedReasoningEfforts(GetExpandedModel(session))"
+                                     DefaultReasoningEffort="@CopilotService.GetDefaultReasoningEffort(GetExpandedModel(session))"
                                      OnFontSizeChange="HandleFontSizeChange"
                                      OnLoadMore="LoadMoreExpandedMessages"
                                      OnLoadFullHistory="LoadFullRemoteHistory"
@@ -3703,6 +3706,17 @@
     {
         inputModeBySession[sessionName] = IsValidInputMode(mode) ? mode : "chat";
         CopilotService.SaveUiState("/dashboard", inputModes: inputModeBySession);
+    }
+
+    private async Task SetReasoningEffort(AgentSessionInfo session, string? effort)
+    {
+        if (string.IsNullOrEmpty(effort) || session.IsProcessing) return;
+        var success = await CopilotService.ChangeModelAsync(session.Name, session.Model, reasoningEffort: effort);
+        if (success)
+        {
+            sessions = CopilotService.GetAllSessions().ToList();
+            await InvokeAsync(SafeRefreshAsync);
+        }
     }
 
     private void IncreaseFontSize() { if (fontSize < 24) { fontSize += 2; ApplyFontSize(); ShowFontBubble(); } }
