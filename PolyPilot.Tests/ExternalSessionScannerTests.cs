@@ -502,7 +502,8 @@ public class ExternalSessionScannerTests : IDisposable
 
             var myName = System.Diagnostics.Process.GetCurrentProcess().ProcessName.ToLowerInvariant();
             var matchesFilter = myName.Contains("copilot") || myName.Contains("node") ||
-                                myName.Contains("dotnet") || myName.Contains("github");
+                                myName.Contains("dotnet") || myName.Contains("github") ||
+                                myName.Contains("testhost");
 
             var scanner = new ExternalSessionScanner(_sessionStateDir, () => new HashSet<string>());
             var detectedPid = scanner.FindActiveLockPid(testDir);

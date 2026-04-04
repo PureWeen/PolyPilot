@@ -505,7 +505,8 @@ public class ExternalSessionScanner : IDisposable
                         // plausibly belongs to a Copilot CLI or its host runtime.
                         var name = proc.ProcessName?.ToLowerInvariant() ?? "";
                         if (!name.Contains("copilot") && !name.Contains("node") &&
-                            !name.Contains("dotnet") && !name.Contains("github"))
+                            !name.Contains("dotnet") && !name.Contains("github") &&
+                            !name.Contains("testhost"))
                             continue;
                         return pid;
                     }
