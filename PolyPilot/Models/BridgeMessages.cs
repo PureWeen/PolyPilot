@@ -147,6 +147,7 @@ public class SessionSummary
 {
     public string Name { get; set; } = "";
     public string Model { get; set; } = "";
+    public string? ReasoningEffort { get; set; }
     public DateTime CreatedAt { get; set; }
     public int MessageCount { get; set; }
     public bool IsProcessing { get; set; }
@@ -303,6 +304,7 @@ public class ChangeModelPayload
 {
     public string SessionName { get; set; } = "";
     public string NewModel { get; set; } = "";
+    public string? ReasoningEffort { get; set; }
 }
 
 public class RenameSessionPayload

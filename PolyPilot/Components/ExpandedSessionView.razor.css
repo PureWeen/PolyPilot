@@ -725,6 +725,9 @@
 .inline-model-select { all: unset; font-size: var(--type-footnote); color: var(--accent-primary, #7c5cfc); cursor: pointer; background: transparent; border: none; padding: 0.1rem 0; text-align: right; direction: rtl; }
 .inline-model-select:hover { color: var(--accent-primary); }
 .inline-model-select option { background: var(--bg-tertiary); color: var(--text-primary); direction: ltr; }
+.inline-effort-select { all: unset; font-size: var(--type-caption1); color: var(--text-muted); cursor: pointer; background: transparent; border: 1px solid var(--border-subtle); border-radius: 4px; padding: 0.05rem 0.3rem; margin-left: 0.3rem; }
+.inline-effort-select:hover { color: var(--accent-primary); border-color: var(--accent-primary); }
+.inline-effort-select option { background: var(--bg-tertiary); color: var(--text-primary); }
 .status-extra {
     display: inline-flex;
     align-items: center;

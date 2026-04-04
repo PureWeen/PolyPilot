@@ -26,6 +26,7 @@ public partial class CopilotService
                     SessionId = s.Info.SessionId!,
                     DisplayName = s.Info.Name,
                     Model = s.Info.Model,
+                    ReasoningEffort = s.Info.ReasoningEffort,
                     WorkingDirectory = s.Info.WorkingDirectory,
                     GroupId = sessionMetas.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
                     LastPrompt = s.Info.IsProcessing
@@ -73,6 +74,7 @@ public partial class CopilotService
                     DisplayName = s.Info.Name,
                     Model = s.Info.Model,
                     WorkingDirectory = s.Info.WorkingDirectory,
+                    ReasoningEffort = s.Info.ReasoningEffort,
                     GroupId = sessionMetas.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
@@ -633,6 +635,7 @@ public partial class CopilotService
                             {
                                 Name = entry.DisplayName,
                                 Model = lazyModel,
+                                ReasoningEffort = entry.ReasoningEffort,
                                 CreatedAt = DateTime.Now,
                                 SessionId = entry.SessionId,
                                 WorkingDirectory = lazyWorkDir

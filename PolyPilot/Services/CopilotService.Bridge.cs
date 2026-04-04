@@ -501,6 +501,7 @@ public partial class CopilotService
                 {
                     Name = rs.Name,
                     Model = rs.Model,
+                    ReasoningEffort = rs.ReasoningEffort,
                     CreatedAt = rs.CreatedAt,
                     SessionId = rs.SessionId,
                     WorkingDirectory = rs.WorkingDirectory,
@@ -549,6 +550,7 @@ public partial class CopilotService
                 }
                 if (!string.IsNullOrEmpty(rs.Model))
                     state.Info.Model = rs.Model;
+                state.Info.ReasoningEffort = rs.ReasoningEffort;
             }
         }
 

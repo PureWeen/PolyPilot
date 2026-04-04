@@ -274,6 +274,31 @@ public partial class CopilotService : IAsyncDisposable
     /// </summary>
     public Dictionary<string, string> ModelDisplayNames { get; private set; } = new();
 
+    /// <summary>
+    /// Maps model slug → supported reasoning effort levels (e.g., ["low", "medium", "high", "xhigh"]).
+    /// Only populated for models where ModelInfo.SupportedReasoningEfforts is non-null.
+    /// </summary>
+    public Dictionary<string, List<string>> ModelReasoningEfforts { get; private set; } = new();
+
+    /// <summary>
+    /// Maps model slug → default reasoning effort level.
+    /// </summary>
+    public Dictionary<string, string> ModelDefaultReasoningEffort { get; private set; } = new();
+
+    /// <summary>Returns the default reasoning effort for a model, or null if the model doesn't support it.</summary>
+    public string? GetDefaultReasoningEffort(string? modelSlug)
+    {
+        if (string.IsNullOrEmpty(modelSlug)) return null;
+        return ModelDefaultReasoningEffort.TryGetValue(modelSlug, out var effort) ? effort : null;
+    }
+
+    /// <summary>Returns the supported reasoning effort levels for a model, or empty if not supported.</summary>
+    public IReadOnlyList<string> GetSupportedReasoningEfforts(string? modelSlug)
+    {
+        if (string.IsNullOrEmpty(modelSlug)) return Array.Empty<string>();
+        return ModelReasoningEfforts.TryGetValue(modelSlug, out var efforts) ? efforts : Array.Empty<string>();
+    }
+
     private readonly RepoManager _repoManager;
     private readonly CodespaceService _codespaceService;
     
@@ -2587,6 +2612,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // interactive user) can execute tools without getting "Permission denied".
             OnPermissionRequest = AutoApprovePermissions,
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
+            ReasoningEffort = GetDefaultReasoningEffort(sessionModel),
         };
         if (mcpServers != null)
             Debug($"Session config includes {mcpServers.Count} MCP server(s): {string.Join(", ", mcpServers.Keys)}");
@@ -2600,6 +2626,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             Name = name,
             Model = sessionModel,
+            ReasoningEffort = GetDefaultReasoningEffort(sessionModel),
             CreatedAt = DateTime.UtcNow,
             WorkingDirectory = sessionDir,
             GitBranch = GetGitBranch(sessionDir),
@@ -3063,20 +3090,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     /// The session history is preserved server-side (same session ID); we just reconnect
     /// asking for a different model.
     /// </summary>
-    public async Task<bool> ChangeModelAsync(string sessionName, string newModel, CancellationToken cancellationToken = default)
+    public async Task<bool> ChangeModelAsync(string sessionName, string newModel, string? reasoningEffort = null, CancellationToken cancellationToken = default)
     {
         if (IsRemoteMode)
         {
             if (!_bridgeClient.IsConnected) return false;
             var remoteModel = Models.ModelHelper.NormalizeToSlug(newModel);
             if (string.IsNullOrEmpty(remoteModel)) return false;
-            // Guard: don't change model while processing or if already the same
+            // Guard: don't change if both model AND effort are unchanged
             if (!_sessions.TryGetValue(sessionName, out var remoteState)) return false;
             if (remoteState.Info.IsProcessing) return false;
-            if (remoteState.Info.Model == remoteModel) return true;
+            if (remoteState.Info.Model == remoteModel && remoteState.Info.ReasoningEffort == reasoningEffort) return true;
             try
             {
-                await _bridgeClient.ChangeModelAsync(sessionName, remoteModel, cancellationToken);
+                await _bridgeClient.ChangeModelAsync(sessionName, remoteModel, reasoningEffort, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -3085,6 +3112,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             }
             // Update local state optimistically
             remoteState.Info.Model = remoteModel;
+            remoteState.Info.ReasoningEffort = reasoningEffort;
             OnStateChanged?.Invoke();
             return true;
         }
@@ -3095,13 +3123,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var normalizedModel = Models.ModelHelper.NormalizeToSlug(newModel);
         if (string.IsNullOrEmpty(normalizedModel)) return false;
 
-        // Already on this model — no-op
-        if (state.Info.Model == normalizedModel) return true;
+        // Skip if both model AND effort are unchanged
+        if (state.Info.Model == normalizedModel && state.Info.ReasoningEffort == reasoningEffort) return true;
 
-        // Demo mode: just update the model label (no SDK session to resume)
+        // Demo mode: just update locally (no SDK session)
         if (IsDemoMode)
         {
             state.Info.Model = normalizedModel;
+            state.Info.ReasoningEffort = reasoningEffort;
             OnStateChanged?.Invoke();
             return true;
         }
@@ -3118,9 +3147,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // Use the SDK's Model.SwitchToAsync for a lightweight mid-session model switch.
             // This preserves the session, conversation history, and event handlers — no need
             // to dispose/recreate the session or rewire event callbacks.
-            await state.Session.Rpc.Model.SwitchToAsync(normalizedModel, null, cancellationToken);
+            await state.Session.Rpc.Model.SwitchToAsync(normalizedModel, reasoningEffort, cancellationToken);
 
             state.Info.Model = normalizedModel;
+            state.Info.ReasoningEffort = reasoningEffort;
             Debug($"Model switched for '{sessionName}' to {normalizedModel}");
             SaveActiveSessionsToDisk();
             OnStateChanged?.Invoke();
@@ -4962,6 +4992,7 @@ public class ActiveSessionEntry
     public string SessionId { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string Model { get; set; } = "";
+    public string? ReasoningEffort { get; set; }
     public string? WorkingDirectory { get; set; }
     public string? LastPrompt { get; set; }
     public string? GroupId { get; set; }

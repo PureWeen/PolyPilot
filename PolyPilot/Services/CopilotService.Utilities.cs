@@ -895,6 +895,20 @@ public partial class CopilotService
         if (modelList == null || modelList.Count == 0)
             return Array.Empty<string>();
 
+        // Capture reasoning effort info from model metadata
+        var efforts = new Dictionary<string, List<string>>();
+        var defaults = new Dictionary<string, string>();
+        foreach (var m in modelList)
+        {
+            if (string.IsNullOrEmpty(m.Id)) continue;
+            if (m.SupportedReasoningEfforts is { Count: > 0 } supported)
+                efforts[m.Id] = supported.ToList();
+            if (!string.IsNullOrEmpty(m.DefaultReasoningEffort))
+                defaults[m.Id] = m.DefaultReasoningEffort;
+        }
+        ModelReasoningEfforts = efforts;
+        ModelDefaultReasoningEffort = defaults;
+
         return Models.ModelHelper.BuildSelectionList(
             modelList
                 .Where(m => !string.IsNullOrEmpty(m.Id))

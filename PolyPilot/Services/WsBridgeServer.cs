@@ -961,7 +961,7 @@ public class WsBridgeServer : IDisposable
                     if (changeModelReq != null && !string.IsNullOrWhiteSpace(changeModelReq.SessionName))
                     {
                         Console.WriteLine($"[WsBridge] Client changing model for '{changeModelReq.SessionName}' to '{changeModelReq.NewModel}'");
-                        var modelChanged = await _copilot.ChangeModelAsync(changeModelReq.SessionName, changeModelReq.NewModel);
+                        var modelChanged = await _copilot.ChangeModelAsync(changeModelReq.SessionName, changeModelReq.NewModel, changeModelReq.ReasoningEffort);
                         if (!modelChanged)
                         {
                             await SendToClientAsync(clientId, ws,
@@ -1490,6 +1490,7 @@ public class WsBridgeServer : IDisposable
         {
             Name = s.Name,
             Model = s.Model,
+            ReasoningEffort = s.ReasoningEffort,
             CreatedAt = s.CreatedAt,
             MessageCount = s.History.Count,
             IsProcessing = s.IsProcessing,
