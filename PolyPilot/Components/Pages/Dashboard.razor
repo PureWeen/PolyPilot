@@ -3635,6 +3635,7 @@
         if (session.History.Count == 0)
         {
             await CopilotService.RecreateSessionAsync(session.Name, model);
+            CopilotService.SetSessionPreferredModel(session.Name, model);
             sessions = CopilotService.GetAllSessions().ToList();
             await InvokeAsync(SafeRefreshAsync);
             return;
@@ -3644,6 +3645,8 @@
         var success = await CopilotService.ChangeModelAsync(session.Name, model);
         if (success)
         {
+            // Update PreferredModel so multi-agent dispatch respects the user's choice
+            CopilotService.SetSessionPreferredModel(session.Name, model);
             sessions = CopilotService.GetAllSessions().ToList();
             await InvokeAsync(SafeRefreshAsync);
         }
