@@ -229,19 +229,21 @@ When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in
 11. `SessionIdleEvent` → turn complete, response finalized. **Unless** `Data.BackgroundTasks` has active agents/shells — then flushes text, logs `[IDLE-DEFER]`, and keeps `IsProcessing=true` (PR #399).
 
 Additional SDK events (not in the main flow but emitted during sessions):
-- `SubagentStartedEvent` / `SubagentCompletedEvent` / `SubagentFailedEvent` — subagent lifecycle
+- `AssistantUsageEvent` — per-call token usage, cost, latency metrics
+- `AssistantStreamingDeltaEvent` — low-level streaming delta
+- `SubagentStartedEvent` / `SubagentCompletedEvent` / `SubagentFailedEvent` / `SubagentSelectedEvent` / `SubagentDeselectedEvent` — subagent lifecycle
 - `SessionPlanChangedEvent` — plan file created/updated/deleted
 - `SessionModeChangedEvent` — mode switched (interactive/plan/autopilot)
-- `SessionModelChangeEvent` — model switched mid-session (includes `PreviousReasoningEffort` / `ReasoningEffort`)
+- `SessionModelChangeEvent` — model switched mid-session (includes `PreviousModel`/`NewModel` and `PreviousReasoningEffort`/`ReasoningEffort`)
 - `SessionCompactionStartEvent` / `SessionCompactionCompleteEvent` — context compaction
 - `SessionTruncationEvent` — context truncated
-- `SessionHandoffEvent` — session delegated to GitHub (CCA)
+- `SessionHandoffEvent` — session handoff (source, context, repository info)
 - `SkillInvokedEvent` — a skill was invoked
 - `SessionBackgroundTasksChangedEvent` — background task status changed
 - `CapabilitiesChangedEvent` — session capabilities changed (new in v0.2.1)
 - `SamplingRequestedEvent` / `SamplingCompletedEvent` — MCP sampling (new in v0.2.1)
 
-See the `copilot-sdk-reference` skill for the complete list of 76 event types.
+See the `copilot-sdk-reference` skill (PR #486) for the complete list of 76 event types.
 
 ### Processing Status Indicator
 `AgentSessionInfo` tracks three fields for the processing status UI:
@@ -317,10 +319,9 @@ When a user changes the model via the UI dropdown:
 ### SDK Data Types
 - `AssistantUsageData` properties (`InputTokens`, `OutputTokens`, `CacheReadTokens`, `CacheWriteTokens`) are `Double?` not `int?`
 - Use `Convert.ToInt32(value)` for conversion, not `value as int?`
-- `AssistantUsageData` also includes: `Cost` (billing multiplier), `Duration` (ms), `TtftMs` (time to first token), `InterTokenLatencyMs`, `ReasoningEffort`, `Initiator` (e.g., "sub-agent", "mcp-sampling"), `CopilotUsage`
-- `QuotaSnapshots` is `Dictionary<string, object>` with `JsonElement` values
-- Premium quota fields: `EntitlementRequests`, `UsedRequests`, `RemainingPercentage`, `Overage`
-- `SessionIdleData` includes `BackgroundTasks` (agents + shells) and `Aborted` (bool, true when turn was cancelled via abort)
+- `AssistantUsageData` also includes: `Model`, `Cost` (billing multiplier), `Duration` (ms), `TtftMs` (time to first token), `InterTokenLatencyMs`, `ReasoningEffort`, `Initiator` (e.g., "sub-agent", "mcp-sampling"), `CopilotUsage`, `ApiCallId`, `ProviderCallId`, `ParentToolCallId`
+- `QuotaSnapshots` is `Dictionary<string, object>` with `JsonElement` values — the typed fields (`EntitlementRequests`, `UsedRequests`, `RemainingPercentage`, `Overage`, `ResetDate`) are defined on `Rpc.AccountGetQuotaResultQuotaSnapshotsValue`
+- `SessionIdleData` includes `BackgroundTasks` (agents + shells) and `Aborted` (bool?, true when turn was cancelled via abort)
 - `MessageOptions` has 3 properties: `Prompt`, `Attachments`, `Mode` — no `Model` or `ReasoningEffort` (those are session-level via `SwitchToAsync`)
 
 ### Blazor Input Performance
