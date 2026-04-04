@@ -701,7 +701,10 @@ public partial class CopilotService
                         FlushCurrentResponse(state);
 
                         // Background tasks (sub-agents) behave like tool calls — they can run
-                        // for several minutes. Ensure the 600s watchdog timeout is used, not 120s.
+                        // for several minutes. HasUsedToolsThisTurn triggers the 180s watchdog tier
+                        // (not 120s default), which then falls through to Case B with HasDeferredIdle
+                        // extending the freshness window to 1800s. The session survives as long as
+                        // events.jsonl shows activity.
                         if (!state.HasUsedToolsThisTurn)
                         {
                             state.HasUsedToolsThisTurn = true;
