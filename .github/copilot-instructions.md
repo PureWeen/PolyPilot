@@ -320,7 +320,7 @@ When a user changes the model via the UI dropdown:
 - `AssistantUsageData` properties (`InputTokens`, `OutputTokens`, `CacheReadTokens`, `CacheWriteTokens`) are `Double?` not `int?`
 - Use `Convert.ToInt32(value)` for conversion, not `value as int?`
 - `AssistantUsageData` also includes: `Model`, `Cost` (billing multiplier), `Duration` (ms), `TtftMs` (time to first token), `InterTokenLatencyMs`, `ReasoningEffort`, `Initiator` (e.g., "sub-agent", "mcp-sampling"), `CopilotUsage`, `ApiCallId`, `ProviderCallId`, `ParentToolCallId`
-- `QuotaSnapshots` is `Dictionary<string, object>` with `JsonElement` values — the typed fields (`EntitlementRequests`, `UsedRequests`, `RemainingPercentage`, `Overage`, `ResetDate`) are defined on `Rpc.AccountGetQuotaResultQuotaSnapshotsValue`
+- `QuotaSnapshots` is `Dictionary<string, object>` with `JsonElement` values — the typed fields (`EntitlementRequests`, `UsedRequests`, `RemainingPercentage`, `Overage`, `OverageAllowedWithExhaustedQuota`, `ResetDate`) are defined on `Rpc.AccountGetQuotaResultQuotaSnapshotsValue`
 - `SessionIdleData` includes `BackgroundTasks` (agents + shells) and `Aborted` (bool?, true when turn was cancelled via abort)
 - `MessageOptions` has 3 properties: `Prompt`, `Attachments`, `Mode` — no `Model` or `ReasoningEffort` (those are session-level via `SwitchToAsync`)
 
