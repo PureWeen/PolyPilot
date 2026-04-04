@@ -2312,7 +2312,7 @@ The user can also check configured servers with the /mcp command.
         var resumeModel = Models.ModelHelper.NormalizeToSlug(GetSessionModelFromDisk(sessionId) ?? model ?? DefaultModel);
         if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
         Debug($"Resuming session '{displayName}' with model: '{resumeModel}', cwd: '{resumeWorkingDirectory}'");
-        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions };
+        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions, InfiniteSessions = new InfiniteSessionConfig { Enabled = true } };
         var copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
 
         // Detect session ID mismatch: the persistent server may return a different
@@ -2586,6 +2586,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // Auto-approve all tool permission requests so worker sessions (which have no
             // interactive user) can execute tools without getting "Permission denied".
             OnPermissionRequest = AutoApprovePermissions,
+            InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
         };
         if (mcpServers != null)
             Debug($"Session config includes {mcpServers.Count} MCP server(s): {string.Join(", ", mcpServers.Keys)}");
@@ -3964,7 +3965,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Mode = SystemMessageMode.Append,
                 Content = systemContent.ToString()
             },
-            OnPermissionRequest = AutoApprovePermissions
+            OnPermissionRequest = AutoApprovePermissions,
+            InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
         };
         if (mcpServers != null)
             Debug($"[FRESH-CONFIG] Includes {mcpServers.Count} MCP server(s)");
