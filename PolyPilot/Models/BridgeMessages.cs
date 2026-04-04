@@ -156,6 +156,7 @@ public class SessionSummary
     public DateTime? ProcessingStartedAt { get; set; }
     public int ToolCallCount { get; set; }
     public int ProcessingPhase { get; set; }
+    public int? PrNumber { get; set; }
 }
 
 public class SessionHistoryPayload

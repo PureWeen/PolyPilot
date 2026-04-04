@@ -1493,6 +1493,7 @@ public class WsBridgeServer : IDisposable
             ProcessingStartedAt = s.ProcessingStartedAt,
             ToolCallCount = s.ToolCallCount,
             ProcessingPhase = s.ProcessingPhase,
+            PrNumber = s.PrNumber,
         }).ToList();
 
         return new SessionsListPayload

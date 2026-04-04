@@ -3008,6 +3008,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         // Link session to worktree
         sessionInfo.WorktreeId = wt.Id;
+        sessionInfo.PrNumber = wt.PrNumber;
         _repoManager.LinkSessionToWorktree(wt.Id, sessionInfo.Name);
 
         // Organize into repo group
