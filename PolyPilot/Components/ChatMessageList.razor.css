@@ -1292,3 +1292,38 @@
         opacity: 0.78;
     }
 }
+
+/* ── Diff/Editor view toggle ─────────────────────────────────── */
+::deep .diff-view-toggle {
+    display: flex;
+    gap: 2px;
+    padding: 4px 6px 2px;
+}
+
+::deep .diff-toggle-btn {
+    padding: 2px 10px;
+    font-size: var(--type-caption2);
+    border-radius: 4px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: transparent;
+    color: var(--text-secondary, #888);
+    cursor: pointer;
+    transition: background 0.12s, color 0.12s;
+    line-height: 1.6;
+}
+
+::deep .diff-toggle-btn:hover {
+    background: rgba(255,255,255,0.06);
+    color: var(--text-primary, #ddd);
+}
+
+::deep .diff-toggle-btn.active {
+    background: rgba(137,180,250,0.15);
+    border-color: rgba(137,180,250,0.35);
+    color: #89b4fa;
+}
+
+/* Lift the action-output-diff max-height cap when showing the CodeMirror editor */
+::deep .action-output-diff:has(.cm-diff-wrapper) {
+    max-height: none;
+}

@@ -1,0 +1,92 @@
+@using PolyPilot.Models
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@implements IAsyncDisposable
+
+@if (PlatformHelper.IsDesktop)
+{
+    <div class="cm-diff-wrapper">
+        <div class="cm-diff-header">
+            @if (!string.IsNullOrEmpty(FilePath))
+            {
+                <span class="cm-diff-filepath">@FilePath</span>
+            }
+            <div class="cm-diff-labels">
+                <span class="cm-diff-label cm-diff-label-before">@(OriginalLabel ?? "Before")</span>
+                <span class="cm-diff-label cm-diff-label-after">@(ModifiedLabel ?? "After")</span>
+            </div>
+        </div>
+        @if (_loading)
+        {
+            <div class="cm-editor-status">⏳ Loading editor…</div>
+        }
+        @if (_loadError != null)
+        {
+            <div class="cm-editor-status cm-editor-error">⚠️ @_loadError</div>
+        }
+        <div id="@_elementId" class="cm-diff-host @(_loading || _loadError != null ? "cm-hidden" : "")"></div>
+    </div>
+}
+
+@code {
+    /// <summary>Original (before) content — shown on the left.</summary>
+    [Parameter] public string OriginalContent { get; set; } = "";
+
+    /// <summary>Modified (after) content — shown on the right.</summary>
+    [Parameter] public string ModifiedContent { get; set; } = "";
+
+    /// <summary>File path — used for the header and language auto-detection.</summary>
+    [Parameter] public string? FilePath { get; set; }
+
+    /// <summary>
+    /// Explicit language hint (file extension without dot, e.g. "cs", "py", "js").
+    /// If omitted, detected from FilePath extension.
+    /// </summary>
+    [Parameter] public string? Language { get; set; }
+
+    /// <summary>Label shown above the left (original) pane. Defaults to "Before".</summary>
+    [Parameter] public string? OriginalLabel { get; set; } = "Before";
+
+    /// <summary>Label shown above the right (modified) pane. Defaults to "After".</summary>
+    [Parameter] public string? ModifiedLabel { get; set; } = "After";
+
+    private readonly string _elementId = $"cm-diff-{Guid.NewGuid():N}";
+    private bool _loading;
+    private bool _initialized;
+    private string? _loadError;
+
+    private string ResolvedLanguage =>
+        Language ?? (FilePath is { Length: > 0 } fp ? System.IO.Path.GetExtension(fp).TrimStart('.') : "");
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender || !PlatformHelper.IsDesktop) return;
+        _loading = true;
+        StateHasChanged();
+        try
+        {
+            await JS.InvokeVoidAsync("cmInterop.initDiffEditor",
+                _elementId, OriginalContent, ModifiedContent, ResolvedLanguage);
+            _initialized = true;
+        }
+        catch (Exception ex)
+        {
+            _loadError = ex.Message.Contains("net::") || ex.Message.Contains("Failed to fetch")
+                ? "CodeMirror unavailable (internet required for editor)"
+                : ex.Message;
+        }
+        finally
+        {
+            _loading = false;
+            StateHasChanged();
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_initialized)
+        {
+            try { await JS.InvokeVoidAsync("cmInterop.dispose", _elementId); } catch { }
+        }
+    }
+}

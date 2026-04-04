@@ -1,0 +1,70 @@
+/* CodeEditor.razor scoped styles */
+
+.cm-editor-wrapper {
+    display: flex;
+    flex-direction: column;
+    border-radius: 6px;
+    overflow: hidden;
+    background: #1e1e2e;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.cm-editor-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    background: #181825;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    font-size: var(--type-footnote);
+}
+
+.cm-editor-filepath {
+    color: #cdd6f4;
+    font-family: var(--font-mono, monospace);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cm-editor-lang {
+    color: #89b4fa;
+    font-size: var(--type-caption2);
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: rgba(137, 180, 250, 0.12);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    flex-shrink: 0;
+}
+
+.cm-editor-host {
+    flex: 1;
+    overflow: auto;
+    min-height: 120px;
+    max-height: 600px;
+}
+
+.cm-editor-host :deep(.cm-editor) {
+    height: 100%;
+    font-size: var(--type-footnote);
+}
+
+.cm-editor-host :deep(.cm-scroller) {
+    font-family: var(--font-mono, 'JetBrains Mono', 'Fira Code', monospace);
+}
+
+.cm-editor-status {
+    padding: 12px 16px;
+    font-size: var(--type-footnote);
+    color: #a6adc8;
+}
+
+.cm-editor-error {
+    color: #f38ba8;
+}
+
+.cm-hidden {
+    display: none;
+}

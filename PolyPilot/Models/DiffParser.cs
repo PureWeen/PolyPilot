@@ -255,4 +255,47 @@ public static class DiffParser
 
         return rows;
     }
+
+    /// <summary>
+    /// Reconstructs the original (pre-change) and modified (post-change) text from
+    /// a parsed diff file. The result contains only the hunks — not the full file —
+    /// which is enough for side-by-side diff display in the CodeMirror DiffEditor.
+    /// Hunks are separated by a single blank line so the editor can show context gaps.
+    /// </summary>
+    public static (string Original, string Modified) ReconstructFiles(DiffFile file)
+    {
+        var orig = new StringBuilder();
+        var mod  = new StringBuilder();
+        bool firstHunk = true;
+
+        foreach (var hunk in file.Hunks)
+        {
+            if (!firstHunk)
+            {
+                orig.AppendLine();
+                mod.AppendLine();
+            }
+            firstHunk = false;
+
+            foreach (var line in hunk.Lines)
+            {
+                switch (line.Type)
+                {
+                    case DiffLineType.Context:
+                        orig.AppendLine(line.Content);
+                        mod.AppendLine(line.Content);
+                        break;
+                    case DiffLineType.Removed:
+                        orig.AppendLine(line.Content);
+                        break;
+                    case DiffLineType.Added:
+                        mod.AppendLine(line.Content);
+                        break;
+                }
+            }
+        }
+
+        // Trim trailing newline added by AppendLine
+        return (orig.ToString().TrimEnd('\r', '\n'), mod.ToString().TrimEnd('\r', '\n'));
+    }
 }

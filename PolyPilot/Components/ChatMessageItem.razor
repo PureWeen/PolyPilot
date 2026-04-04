@@ -237,7 +237,33 @@
                                 if (_parsedDiff.Count > 0)
                                 {
                                     <div class="action-output-diff">
-                                        <DiffView RawDiff="@Message.Content" />
+                                        @if (PlatformHelper.IsDesktop)
+                                        {
+                                            <div class="diff-view-toggle">
+                                                <button class="diff-toggle-btn @(_showDiffEditor ? "" : "active")"
+                                                        @onclick="() => _showDiffEditor = false"
+                                                        @onclick:stopPropagation="true">Diff</button>
+                                                <button class="diff-toggle-btn @(_showDiffEditor ? "active" : "")"
+                                                        @onclick="() => _showDiffEditor = true"
+                                                        @onclick:stopPropagation="true">Editor</button>
+                                            </div>
+                                        }
+                                        @if (!_showDiffEditor || !PlatformHelper.IsDesktop)
+                                        {
+                                            <DiffView RawDiff="@Message.Content" />
+                                        }
+                                        else
+                                        {
+                                            @foreach (var _df in _parsedDiff)
+                                            {
+                                                var (_orig, _mod) = DiffParser.ReconstructFiles(_df);
+                                                var _fExt = System.IO.Path.GetExtension(_df.FileName).TrimStart('.');
+                                                <DiffEditor OriginalContent="@_orig"
+                                                            ModifiedContent="@_mod"
+                                                            FilePath="@_df.FileName"
+                                                            Language="@_fExt" />
+                                            }
+                                        }
                                     </div>
                                 }
                                 else
@@ -337,7 +363,33 @@
 
     case ChatMessageType.Diff:
         <div class="chat-msg diff-msg">
-            <DiffView RawDiff="@Message.Content" />
+            @if (PlatformHelper.IsDesktop)
+            {
+                <div class="diff-view-toggle">
+                    <button class="diff-toggle-btn @(_showDiffEditor ? "" : "active")"
+                            @onclick="() => _showDiffEditor = false"
+                            @onclick:stopPropagation="true">Diff</button>
+                    <button class="diff-toggle-btn @(_showDiffEditor ? "active" : "")"
+                            @onclick="() => _showDiffEditor = true"
+                            @onclick:stopPropagation="true">Editor</button>
+                </div>
+            }
+            @if (!_showDiffEditor || !PlatformHelper.IsDesktop)
+            {
+                <DiffView RawDiff="@Message.Content" />
+            }
+            else
+            {
+                @foreach (var _df2 in DiffParser.Parse(Message.Content))
+                {
+                    var (_orig2, _mod2) = DiffParser.ReconstructFiles(_df2);
+                    var _fExt2 = System.IO.Path.GetExtension(_df2.FileName).TrimStart('.');
+                    <DiffEditor OriginalContent="@_orig2"
+                                ModifiedContent="@_mod2"
+                                FilePath="@_df2.FileName"
+                                Language="@_fExt2" />
+                }
+            }
         </div>
         break;
 
@@ -416,6 +468,10 @@
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public string? RepoUrl { get; set; }
+
+    // Tracks whether the CodeMirror DiffEditor is shown (vs the table DiffView).
+    // Per-instance state — toggled by the Diff/Editor button pair.
+    private bool _showDiffEditor;
 
     private static string? GetImageSource(ChatMessage msg) =>
         msg.ImageDataUri ?? (!string.IsNullOrEmpty(msg.ImagePath) ? ChatMessageList.FileToDataUri(msg.ImagePath) : null);
