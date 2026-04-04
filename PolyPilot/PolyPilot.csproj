@@ -99,6 +99,28 @@
         <TrimmerRootAssembly Include="CommunityToolkit.Maui.Core" RootMode="All" />
     </ItemGroup>
 
+    <!-- Work around a packaging bug in Microsoft.Maui.DevFlow.Blazor where the PRI
+         references wwwroot assets under lib/ but the NuGet package only ships them
+         under staticwebassets/. Copy the files so the WinUI resource system finds them. -->
+    <Target Name="_FixDevFlowBlazorWwwroot"
+            BeforeTargets="AssignTargetPaths;_CopySourceItemsToOutputDirectory"
+            Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'windows'">
+        <PropertyGroup>
+            <_DevFlowPkgRoot>$([System.IO.Path]::Combine('$(NuGetPackageRoot)', 'microsoft.maui.devflow.blazor', '0.1.0-preview.4.26202.3'))</_DevFlowPkgRoot>
+            <_DevFlowStaticSrc>$(_DevFlowPkgRoot)\staticwebassets</_DevFlowStaticSrc>
+            <_DevFlowWwwrootDest>$(_DevFlowPkgRoot)\lib\net10.0-windows10.0.19041\Microsoft.Maui.DevFlow.Blazor\wwwroot</_DevFlowWwwrootDest>
+        </PropertyGroup>
+        <MakeDir Directories="$(_DevFlowWwwrootDest)" Condition="!Exists('$(_DevFlowWwwrootDest)')" />
+        <Copy SourceFiles="$(_DevFlowStaticSrc)\chobitsu.js"
+              DestinationFolder="$(_DevFlowWwwrootDest)"
+              SkipUnchangedFiles="true"
+              Condition="!Exists('$(_DevFlowWwwrootDest)\chobitsu.js')" />
+        <Copy SourceFiles="$(_DevFlowStaticSrc)\Microsoft.Maui.DevFlow.Blazor.lib.module.js"
+              DestinationFolder="$(_DevFlowWwwrootDest)"
+              SkipUnchangedFiles="true"
+              Condition="!Exists('$(_DevFlowWwwrootDest)\Microsoft.Maui.DevFlow.Blazor.lib.module.js')" />
+    </Target>
+
     <!-- The SDK registers the copilot CLI as ContentWithTargetPath but doesn't set
          PublishFolderType, so MAUI skips it when building the .app bundle.
          Re-register with PublishFolderType=Assembly so it lands in MonoBundle
