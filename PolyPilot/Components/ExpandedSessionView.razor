@@ -776,6 +776,12 @@
             var sessionSwitched = Session.SessionId != _lastExpandedSessionId;
             _lastExpandedSessionId = Session.SessionId;
 
+            if (sessionSwitched)
+            {
+                _prUrl = null;
+                _prLabel = "PR";
+            }
+
             if (!string.IsNullOrEmpty(dir))
             {
                 if (dir != _lastPrCheckedDir)
@@ -794,7 +800,10 @@
 
     private async Task FetchPrUrlAsync(string dir)
     {
-        _prUrl = await PrLinkService.GetPrUrlForDirectoryAsync(dir);
+        var capturedId = Session.SessionId;
+        var url = await PrLinkService.GetPrUrlForDirectoryAsync(dir);
+        if (Session.SessionId != capturedId) return;
+        _prUrl = url;
         if (_prUrl != null)
         {
             var lastSlash = _prUrl.LastIndexOf('/');
