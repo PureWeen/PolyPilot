@@ -1080,7 +1080,7 @@ Before adding or modifying orchestration, dispatch, or worker management code, c
 | Select/deselect agents | `session.Rpc.Agent.SelectAsync()` / `DeselectAsync()` | 🟢 **Adopted** | Used in CopilotService.cs for agent selection |
 | Manage skills per-session | `session.Rpc.Skills.ListAsync()` / `EnableAsync()` / `DisableAsync()` | 🔴 **Not adopted** | PolyPilot has custom `DiscoverAvailableSkills()` |
 | Read/write session plan | `session.Rpc.Plan.ReadAsync()` / `UpdateAsync()` / `DeleteAsync()` | 🔴 **Not adopted** | Could surface plan in UI, enable user editing |
-| Switch session mode | `session.Rpc.Mode.SetAsync("plan"/"autopilot"/"interactive")` | 🟡 **Partially adopted** | Mode set via `MessageOptions.Mode` |
+| Switch session mode | `session.Rpc.Mode.SetAsync(SessionModeGetResultMode.Plan)` | 🔴 **Not adopted** | Per-message mode set via `MessageOptions.Mode` (different API) |
 | Switch model mid-session | `session.Rpc.Model.SwitchToAsync()` | 🔴 **Not adopted** | Available but not used; model changes go through session recreation |
 | Set reasoning effort | `SessionConfig.ReasoningEffort` / `SessionModelSwitchToRequest.ReasoningEffort` | 🔴 **Not adopted** | Levels: "low", "medium", "high", "xhigh" |
 | Restrict worker tools | `SessionConfig.AvailableTools` / `ExcludedTools` | 🔴 **Not adopted** | Could enforce tool restrictions per worker role |

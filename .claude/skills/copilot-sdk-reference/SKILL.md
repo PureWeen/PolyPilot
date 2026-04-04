@@ -86,7 +86,7 @@ Access via `CopilotSession.Rpc` property.
 | Method | Purpose |
 |--------|---------|
 | `GetAsync()` | Get current mode |
-| `SetAsync(mode)` | Set mode: `Plan`, `Autopilot`, `Interactive` |
+| `SetAsync(mode)` | Set mode: `SessionModeGetResultMode.Plan`, `.Autopilot`, `.Interactive` |
 
 ### Model API (`session.Rpc.Model`)
 
