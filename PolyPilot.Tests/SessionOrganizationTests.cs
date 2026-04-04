@@ -2091,9 +2091,9 @@ public class GroupPresetTests
         Assert.NotNull(prSquad.WorkerSystemPrompts);
         Assert.Equal(prSquad.WorkerModels.Length, prSquad.WorkerSystemPrompts!.Length);
 
-        // All 5 workers must be Opus (they dispatch sub-agents internally)
+        // All 5 workers must be Opus 1M (they dispatch sub-agents internally)
         foreach (var model in prSquad.WorkerModels)
-            Assert.Equal("claude-opus-4.6", model);
+            Assert.Equal("claude-opus-4.6-1m", model);
 
         // Worker prompts must instruct multi-model sub-agent dispatch and adversarial consensus
         foreach (var prompt in prSquad.WorkerSystemPrompts)
@@ -2104,6 +2104,7 @@ public class GroupPresetTests
             Assert.Contains("task", prompt); // dispatch via task tool
             Assert.Contains("Adversarial Consensus", prompt);
             Assert.Contains("NEVER post more than one comment", prompt);
+            Assert.Contains("Never mention specific model names", prompt); // in GitHub comment output
         }
 
         // Fix process must use merge, not rebase
@@ -2549,12 +2550,12 @@ public class MultiAgentScenarioTests
         var prReview = presets.First(p => p.Name == "PR Review Squad");
         Assert.Equal("📋", prReview.Emoji);
         Assert.Equal(MultiAgentMode.Orchestrator, prReview.Mode);
-        Assert.Equal("claude-opus-4.6", prReview.OrchestratorModel);
+        Assert.Equal("claude-opus-4.6-1m", prReview.OrchestratorModel);
         Assert.Equal(5, prReview.WorkerModels.Length);
 
         // Step 4: System creates the group - verify the preset structure
         // (CopilotService.CreateGroupFromPresetAsync does the actual creation at runtime)
-        Assert.Equal("claude-opus-4.6", prReview.WorkerModels[0]);
+        Assert.Equal("claude-opus-4.6-1m", prReview.WorkerModels[0]);
 
         // Step 5-6: Each member has appropriate capabilities
         var orchCaps = ModelCapabilities.GetCapabilities(prReview.OrchestratorModel);

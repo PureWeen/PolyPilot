@@ -191,7 +191,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     /// </summary>
     public string?[]? WorkerDisplayNames { get; init; }
 
-    private const string WorkerReviewPrompt = """
+    internal const string WorkerReviewPrompt = """
         You are a PR reviewer. When assigned a PR, do a thorough multi-model code review.
 
         ## 1. Gather Context
@@ -221,6 +221,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         Produce ONE comprehensive report with:
         - Findings ranked by severity: 🔴 CRITICAL, 🟡 MODERATE, 🟢 MINOR
         - For each finding: file path, line numbers, which models flagged it, what's wrong, why it matters
+        - IMPORTANT: Never mention specific model names in the GitHub comment. Refer to each reviewer generically (e.g., "Reviewer 1/2/3", "All 3", "2/3"). The models used are an implementation detail — the posted review should stand on its own merit.
         - CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
         - Note if prior review comments were addressed or still outstanding
         - Assess test coverage: Are there new code paths that lack tests?
@@ -272,7 +273,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         new GroupPreset(
             "PR Review Squad", "5 reviewers — each does multi-model consensus (Opus + Sonnet + Codex)",
             "📋", MultiAgentMode.Orchestrator,
-            "claude-opus-4.6", new[] { "claude-opus-4.6", "claude-opus-4.6", "claude-opus-4.6", "claude-opus-4.6", "claude-opus-4.6" })
+            "claude-opus-4.6-1m", new[] { "claude-opus-4.6-1m", "claude-opus-4.6-1m", "claude-opus-4.6-1m", "claude-opus-4.6-1m", "claude-opus-4.6-1m" })
         {
             WorkerSystemPrompts = new[]
             {
@@ -343,7 +344,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         new GroupPreset(
             "Implement & Challenge", "Implementer builds, challenger reviews — loop until solid",
             "⚔️", MultiAgentMode.OrchestratorReflect,
-            "claude-opus-4.6", new[] { "claude-sonnet-4.6", "claude-opus-4.6" })
+            "claude-opus-4.6-1m", new[] { "claude-opus-4.6-1m", "claude-opus-4.6-1m" })
         {
             WorkerSystemPrompts = new[]
             {
@@ -437,7 +438,7 @@ You are the Challenger. Your job is to find real problems in the Implementer's w
         new GroupPreset(
             "Skill Validator", "Three-phase skill evaluation: generate evals → empirical A/B testing → prompt design review → orchestrator builds consensus",
             "⚖️", MultiAgentMode.OrchestratorReflect,
-            "claude-opus-4.6", new[] { "claude-sonnet-4.6", "claude-sonnet-4.6", "claude-sonnet-4.6" })
+            "claude-opus-4.6-1m", new[] { "claude-opus-4.6-1m", "claude-opus-4.6-1m", "claude-opus-4.6-1m" })
         {
             WorkerSystemPrompts = new[]
             {

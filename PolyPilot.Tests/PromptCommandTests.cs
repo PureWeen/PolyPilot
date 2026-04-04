@@ -199,10 +199,11 @@ public class PromptCommandTests : IDisposable
     }
 
     [Fact]
-    public void Dashboard_EditRejectsProjectPrompts()
+    public void Dashboard_EditRejectsNonUserPrompts()
     {
         var content = ReadDashboard();
-        Assert.Contains("is a project prompt and cannot be edited", content);
+        Assert.Contains("prompt and cannot be edited", content);
+        Assert.Contains("SourceLabel", content); // uses dynamic source label
     }
 
     [Fact]
@@ -217,7 +218,7 @@ public class PromptCommandTests : IDisposable
     {
         var content = ReadDashboard();
         // /help text should mention edit
-        Assert.Contains("use|save|edit|show|delete", content);
+        Assert.Contains("/prompt use <name> [-- context]", content);
     }
 
     [Fact]

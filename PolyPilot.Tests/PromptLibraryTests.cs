@@ -243,6 +243,7 @@ public class PromptLibraryTests : IDisposable
     {
         Assert.Equal(0, (int)PromptSource.User);
         Assert.Equal(1, (int)PromptSource.Project);
+        Assert.Equal(2, (int)PromptSource.BuiltIn);
     }
 
     [Fact]
@@ -465,5 +466,65 @@ public class PromptLibraryTests : IDisposable
     public void Dispose()
     {
         try { Directory.Delete(_testDir, true); } catch { }
+    }
+
+    [Fact]
+    public void BuiltInPrompts_ContainsPRReview()
+    {
+        var builtIns = PromptLibraryService.BuiltInPrompts;
+        Assert.NotEmpty(builtIns);
+
+        var prReview = builtIns.FirstOrDefault(p => p.Name == "PR Review");
+        Assert.NotNull(prReview);
+        Assert.Equal(PromptSource.BuiltIn, prReview!.Source);
+        Assert.Equal("built-in", prReview.SourceLabel);
+        Assert.Contains("PR reviewer", prReview.Content);
+        Assert.NotEmpty(prReview.Description);
+    }
+
+    [Fact]
+    public void DiscoverPrompts_IncludesBuiltIns()
+    {
+        var projectDir = Path.Combine(_testDir, "builtin-test");
+        Directory.CreateDirectory(projectDir);
+
+        var prompts = PromptLibraryService.DiscoverPrompts(projectDir);
+
+        Assert.Contains(prompts, p => p.Source == PromptSource.BuiltIn && p.Name == "PR Review");
+    }
+
+    [Fact]
+    public void DiscoverPrompts_UserOverridesBuiltIn()
+    {
+        var promptDir = Path.Combine(_testDir, "override-prompts");
+        Directory.CreateDirectory(promptDir);
+        PromptLibraryService.SetUserPromptsDirForTesting(promptDir);
+        File.WriteAllText(Path.Combine(promptDir, "PR-Review.md"), "---\nname: PR Review\n---\nMy custom review prompt.");
+
+        var prompts = PromptLibraryService.DiscoverPrompts(null);
+
+        var prReview = prompts.Where(p => p.Name == "PR Review").ToList();
+        Assert.Single(prReview);
+        Assert.Equal(PromptSource.User, prReview[0].Source);
+        Assert.Equal("My custom review prompt.", prReview[0].Content);
+    }
+
+    [Fact]
+    public void BuiltInPrompts_CannotBeSaved_OverUser()
+    {
+        // Built-in prompts use PromptSource.BuiltIn, user saves use PromptSource.User.
+        // Saving with same name creates a user override (different source).
+        var promptDir = Path.Combine(_testDir, "builtin-save");
+        Directory.CreateDirectory(promptDir);
+        PromptLibraryService.SetUserPromptsDirForTesting(promptDir);
+
+        var saved = PromptLibraryService.SavePrompt("PR Review", "My override.");
+        Assert.Equal(PromptSource.User, saved.Source);
+
+        // Discover should return the user version, not the built-in
+        var prompts = PromptLibraryService.DiscoverPrompts(null);
+        var prReview = prompts.Where(p => p.Name == "PR Review").ToList();
+        Assert.Single(prReview);
+        Assert.Equal(PromptSource.User, prReview[0].Source);
     }
 }

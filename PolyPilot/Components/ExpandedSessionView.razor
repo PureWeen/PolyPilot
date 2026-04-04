@@ -979,7 +979,12 @@
         );
         var sessionName = EscapeForJs(Session.Name);
 
+        var prNumber = "";
+        if (_prLabel != null && _prLabel.StartsWith("#"))
+            prNumber = _prLabel[1..]; // "#499" → "499"
+
         await JS.InvokeVoidAsync("eval", $"window.__ppData = {promptJson};");
+        await JS.InvokeVoidAsync("eval", $"window.__ppPrNumber = '{EscapeForJs(prNumber)}';");
         await JS.InvokeVoidAsync("eval", $@"
             (function(){{
                 var old = document.getElementById('skills-popup-overlay');
@@ -1070,8 +1075,13 @@
                                 ov.remove();
                                 var inputEl = document.querySelector('[data-session=""{sessionName}""] textarea');
                                 if(inputEl){{
-                                    inputEl.value = '/prompt use ' + p.name;
-                                    inputEl.dispatchEvent(new Event('input'));
+                                    var ctx = (p.sourceLabel === 'built-in' && window.__ppPrNumber) ? window.__ppPrNumber : '';
+                                    inputEl.value = ctx
+                                        ? '/prompt use ' + p.name + ' -- ' + ctx
+                                        : '/prompt use ' + p.name;
+                                    inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
+                                    inputEl.focus();
+                                    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
                                 }}
                             }};
                             popup.appendChild(row);
