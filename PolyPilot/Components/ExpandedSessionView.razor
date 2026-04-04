@@ -992,6 +992,14 @@
         await JS.InvokeVoidAsync("eval", "window.__ppSetRef = window.__ppSetRef || function(r) { window.__ppRef = r; };");
         await JS.InvokeVoidAsync("__ppSetRef", _promptDotNetRef);
 
+        // Re-validate PR number for current branch (cache may be stale after branch switch)
+        var dir = Session.WorkingDirectory;
+        if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(dir))
+        {
+            PrLinkService.Invalidate(dir);
+            await FetchPrUrlAsync(dir);
+        }
+
         var promptJson = System.Text.Json.JsonSerializer.Serialize(
             (availablePrompts ?? new List<SavedPrompt>()).Select(p => new {
                 name = p.Name,
