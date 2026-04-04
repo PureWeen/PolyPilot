@@ -2626,6 +2626,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         {
             Name = name,
             Model = sessionModel,
+            ReasoningEffort = GetDefaultReasoningEffort(sessionModel),
             CreatedAt = DateTime.UtcNow,
             WorkingDirectory = sessionDir,
             GitBranch = GetGitBranch(sessionDir),
@@ -3121,13 +3122,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var normalizedModel = Models.ModelHelper.NormalizeToSlug(newModel);
         if (string.IsNullOrEmpty(normalizedModel)) return false;
 
-        // Already on this model — no-op
-        if (state.Info.Model == normalizedModel) return true;
+        // Skip if both model AND effort are unchanged
+        if (state.Info.Model == normalizedModel && state.Info.ReasoningEffort == reasoningEffort) return true;
 
-        // Demo mode: just update the model label (no SDK session to resume)
+        // Demo mode: just update locally (no SDK session)
         if (IsDemoMode)
         {
             state.Info.Model = normalizedModel;
+            state.Info.ReasoningEffort = reasoningEffort;
             OnStateChanged?.Invoke();
             return true;
         }
@@ -4989,6 +4991,7 @@ public class ActiveSessionEntry
     public string SessionId { get; set; } = "";
     public string DisplayName { get; set; } = "";
     public string Model { get; set; } = "";
+    public string? ReasoningEffort { get; set; }
     public string? WorkingDirectory { get; set; }
     public string? LastPrompt { get; set; }
     public string? GroupId { get; set; }
