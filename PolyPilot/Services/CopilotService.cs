@@ -3114,45 +3114,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
         try
         {
-            // Dispose old session connection (may already be disposed if disconnected)
-            try { await state.Session.DisposeAsync(); } catch { }
+            // Use the SDK's Model.SwitchToAsync for a lightweight mid-session model switch.
+            // This preserves the session, conversation history, and event handlers — no need
+            // to dispose/recreate the session or rewire event callbacks.
+            await state.Session.Rpc.Model.SwitchToAsync(normalizedModel, null, cancellationToken);
 
-            // Use the correct client (codespace tunnel client for codespace sessions, main client otherwise)
-            var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
-            var client = GetClientForGroup(meta?.GroupId);
-
-            // For codespace sessions, use the codespace working directory instead of the local path
-            var switchWorkDir = state.Info.WorkingDirectory;
-            if (meta?.GroupId != null)
-            {
-                var switchGroup = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
-                if (switchGroup?.IsCodespace == true && switchGroup.CodespaceWorkingDirectory != null)
-                    switchWorkDir = switchGroup.CodespaceWorkingDirectory;
-            }
-
-            // Resume the same session ID with the new model
-            var resumeConfig = new ResumeSessionConfig
-            {
-                Model = normalizedModel,
-                WorkingDirectory = switchWorkDir,
-                Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
-                OnPermissionRequest = AutoApprovePermissions,
-                InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
-            };
-            var newSession = await client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, cancellationToken);
-
-            // Build replacement state, preserving info/history
             state.Info.Model = normalizedModel;
-            var oldState = state;
-            var newState = new SessionState
-            {
-                Session = newSession,
-                Info = state.Info
-            };
-            newSession.On(evt => HandleSessionEvent(newState, evt));
-            _sessions[sessionName] = newState;
-            DisposePrematureIdleSignal(oldState);
-
             Debug($"Model switched for '{sessionName}' to {normalizedModel}");
             SaveActiveSessionsToDisk();
             OnStateChanged?.Invoke();

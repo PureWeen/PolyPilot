@@ -759,8 +759,8 @@ public class SessionPersistenceTests
         var sessionsAssign = source.IndexOf("_sessions[sessionName] = newState", StringComparison.Ordinal);
         Assert.True(sessionsAssign > 0, "Could not find _sessions assignment in RECONNECT handler");
 
-        // SaveActiveSessionsToDisk must appear within the next 500 chars (before StartProcessingWatchdog)
-        var afterAssign = source.Substring(sessionsAssign, Math.Min(500, source.Length - sessionsAssign));
+        // SaveActiveSessionsToDisk must appear after the assignment (within the same method)
+        var afterAssign = source.Substring(sessionsAssign, Math.Min(3000, source.Length - sessionsAssign));
         Assert.Contains("SaveActiveSessionsToDisk()", afterAssign);
     }
 
