@@ -1105,7 +1105,7 @@ public class WsBridgeIntegrationTests : IDisposable
         await WaitForAsync(() => client.Sessions.Count >= 2, cts.Token);
 
         // Desktop active session should NOT have changed (mobile switch is independent)
-        Assert.NotEqual("switch-b", _copilot.GetActiveSession()?.Name ?? "switch-b");
+        Assert.Equal("switch-a", _copilot.GetActiveSession()?.Name);
         client.Stop();
     }
 

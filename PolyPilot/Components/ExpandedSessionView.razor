@@ -341,7 +341,7 @@
                 <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")' title="Plan mode — create a plan before implementing">Plan</button>
                 <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")' title="Autopilot mode — auto-approve tool calls">Autopilot</button>
             </div>
-            <select class="mode-select-mobile" value="@InputMode" @onchange="e => OnSetInputMode.InvokeAsync(e.Value?.ToString())">
+            <select class="mode-select-mobile" value="@InputMode" @onchange="e => OnSetInputMode.InvokeAsync(e.Value?.ToString() ?? InputMode)">
                 <option value="chat">💬 Chat</option>
                 <option value="plan">📋 Plan</option>
                 <option value="autopilot">🤖 Autopilot</option>
