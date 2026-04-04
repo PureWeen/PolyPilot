@@ -2751,7 +2751,8 @@ public partial class CopilotService
             var resumeConfig = new ResumeSessionConfig
             {
                 Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
-                OnPermissionRequest = AutoApprovePermissions
+                OnPermissionRequest = AutoApprovePermissions,
+                InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             };
             if (!string.IsNullOrEmpty(resumeModel))
                 resumeConfig.Model = resumeModel;

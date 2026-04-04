@@ -3137,6 +3137,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 WorkingDirectory = switchWorkDir,
                 Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
                 OnPermissionRequest = AutoApprovePermissions,
+                InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
             };
             var newSession = await client.ResumeSessionAsync(state.Info.SessionId, resumeConfig, cancellationToken);
 
@@ -3535,6 +3536,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                         OnPermissionRequest = AutoApprovePermissions,
                                                         McpServers = mcpServers,
                                                         SkillDirectories = skillDirs,
+                                                        InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
                                                     };
                                                     var m = Models.ModelHelper.NormalizeToSlug(capturedOtherState.Info.Model);
                                                     if (!string.IsNullOrEmpty(m)) cfg.Model = m;
@@ -3650,6 +3652,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     reconnectConfig.OnPermissionRequest = AutoApprovePermissions;
                     reconnectConfig.McpServers = reconnectMcpServers;
                     reconnectConfig.SkillDirectories = reconnectSkillDirs;
+                    reconnectConfig.InfiniteSessions = new InfiniteSessionConfig { Enabled = true };
                     if (!string.IsNullOrEmpty(reconnectModel))
                         reconnectConfig.Model = reconnectModel;
                     if (!string.IsNullOrEmpty(state.Info.WorkingDirectory))
