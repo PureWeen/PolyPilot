@@ -71,7 +71,6 @@
                 defaultKeymap:           cmCommands.defaultKeymap,
                 historyKeymap:           cmCommands.historyKeymap,
                 history:                 cmCommands.history,
-                foldKeymap:              cmCommands.foldKeymap,
                 // Search
                 searchKeymap:            cmSearch.searchKeymap,
                 search:                  cmSearch.search,
@@ -80,6 +79,7 @@
                 syntaxHighlighting:      cmLanguage.syntaxHighlighting,
                 defaultHighlightStyle:   cmLanguage.defaultHighlightStyle,
                 foldGutter:              cmLanguage.foldGutter,
+                foldKeymap:              cmLanguage.foldKeymap,
                 indentOnInput:           cmLanguage.indentOnInput,
                 bracketMatching:         cmLanguage.bracketMatching,
                 StreamLanguage:          cmLanguage.StreamLanguage,
@@ -163,10 +163,10 @@
             cm.syntaxHighlighting(cm.defaultHighlightStyle, { fallback: true }),
             cm.bracketMatching(),
             cm.keymap.of([
-                ...cm.defaultKeymap,
-                ...cm.historyKeymap,
-                ...cm.searchKeymap,
-                ...cm.foldKeymap,
+                ...(cm.defaultKeymap || []),
+                ...(cm.historyKeymap || []),
+                ...(cm.searchKeymap || []),
+                ...(cm.foldKeymap || []),
             ]),
             cm.oneDark,
             cm.EditorView.lineWrapping,
@@ -223,8 +223,8 @@
                 cm.EditorState.readOnly.of(true),
                 cm.EditorView.lineWrapping,
                 cm.keymap.of([
-                    ...cm.defaultKeymap,
-                    ...cm.searchKeymap,
+                    ...(cm.defaultKeymap || []),
+                    ...(cm.searchKeymap || []),
                 ]),
             ];
             const langExt = _langExtension(cm, lang);
