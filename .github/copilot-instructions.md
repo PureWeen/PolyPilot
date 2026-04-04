@@ -2,7 +2,7 @@
 
 ## SDK-First Development
 
-Before implementing new session lifecycle, orchestration, watchdog, or event handling code, check the Copilot SDK (v0.2.0+) API surface in `~/.nuget/packages/github.copilot.sdk/*/lib/*/GitHub.Copilot.SDK.xml`. The `processing-state-safety` and `multi-agent-orchestration` skills each contain an SDK migration matrix showing which APIs are available vs which require custom code. Prefer SDK APIs over custom implementations. When custom code is necessary, add a `// SDK-gap: <reason>` comment explaining why.
+Before implementing new session lifecycle, orchestration, watchdog, or event handling code, check the Copilot SDK API surface. The `copilot-sdk-reference` skill has the complete v0.2.1 API reference (453 types, 76 events, 6 hooks, 16 RPC APIs). The `processing-state-safety` and `multi-agent-orchestration` skills each contain SDK migration matrices for their domains. Prefer SDK APIs over custom implementations. When custom code is necessary, add a `// SDK-gap: <reason>` comment explaining why. When updating the SDK NuGet package, re-evaluate all three skills.
 
 ## Build & Deploy Commands
 
