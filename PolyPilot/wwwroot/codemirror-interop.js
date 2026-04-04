@@ -34,7 +34,6 @@
                 langRust,
                 langSQL,
                 legacyModes,
-                cmStreamParser,
             ] = await Promise.all([
                 import(BASE + '@codemirror/view@6'),
                 import(BASE + '@codemirror/state@6'),
@@ -53,8 +52,7 @@
                 import(BASE + '@codemirror/lang-java@6'),
                 import(BASE + '@codemirror/lang-rust@6'),
                 import(BASE + '@codemirror/lang-sql@6'),
-                import(BASE + '@codemirror/legacy-modes@6/mode/clike'),
-                import(BASE + '@codemirror/stream-parser@6'),
+                import(BASE + '@codemirror/legacy-modes@6.5.0/mode/clike'),
             ]);
 
             _cm = {
@@ -100,15 +98,10 @@
                 java:        langJava.java,
                 rust:        langRust.rust,
                 sql:         langSQL.sql,
-                // C# / Go / Swift via legacy-modes StreamLanguage
+                // C# / Go / Swift via @codemirror/legacy-modes + StreamLanguage
                 _csharp:     legacyModes.csharp,
                 _go:         legacyModes.go,
                 _swift:      legacyModes.swift,
-                _kotlin:     legacyModes.kotlin ?? null,
-                _powershell: legacyModes.powershell ?? null,
-                _yaml:       legacyModes.yaml ?? null,
-                _toml:       legacyModes.toml ?? null,
-                _shell:      legacyModes.shell ?? null,
             };
             return _cm;
         })();
@@ -153,16 +146,6 @@
                 return cm._go ? cm.StreamLanguage.define(cm._go) : null;
             case 'swift':
                 return cm._swift ? cm.StreamLanguage.define(cm._swift) : null;
-            case 'kt': case 'kotlin':
-                return cm._kotlin ? cm.StreamLanguage.define(cm._kotlin) : null;
-            case 'ps1': case 'psm1': case 'powershell':
-                return cm._powershell ? cm.StreamLanguage.define(cm._powershell) : null;
-            case 'yml': case 'yaml':
-                return cm._yaml ? cm.StreamLanguage.define(cm._yaml) : null;
-            case 'toml':
-                return cm._toml ? cm.StreamLanguage.define(cm._toml) : null;
-            case 'sh': case 'bash': case 'zsh':
-                return cm._shell ? cm.StreamLanguage.define(cm._shell) : null;
             default:
                 return null;
         }
