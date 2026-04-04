@@ -277,6 +277,15 @@ public partial class CopilotService
             return;
         }
 
+        // Watchdog health check: if the session is processing but the watchdog isn't running,
+        // restart it. This catches edge cases where the watchdog was cancelled by a stale
+        // CompleteResponse or race condition but IsProcessing wasn't cleared.
+        if (state.Info.IsProcessing && (state.ProcessingWatchdog == null || state.ProcessingWatchdog.IsCancellationRequested))
+        {
+            Debug($"[WATCHDOG-REVIVE] '{sessionName}' IsProcessing=true but watchdog is dead — restarting");
+            StartProcessingWatchdog(state, sessionName);
+        }
+
         void Invoke(Action action)
         {
             if (_syncContext != null)
