@@ -869,7 +869,7 @@
         flex-wrap: wrap;
         align-items: center;
         gap: 0.2rem 0.5rem;
-        padding: 0.14rem 0.5rem calc(0.3rem + var(--nav-bar-height, env(safe-area-inset-bottom, 0px)));
+        padding: 0.14rem 0.5rem 0.3rem;
         overflow: visible;
     }
     .input-status-bar > .status-bar-sep {
@@ -895,7 +895,10 @@
         color: var(--text-primary);
     }
     .input-status-primary {
-        display: none;
+        display: flex;
+        gap: 0.34rem 0.5rem;
+        align-items: center;
+        font-size: var(--type-footnote);
     }
     .input-status-secondary {
         display: flex;
