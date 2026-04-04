@@ -64,12 +64,12 @@ else if (IsFlyoutPanel)
             </div>
         </div>
 
-        <div class="new-session-wrapper sidebar-compose-panel flyout-compose-panel">
+        <div class="new-session-wrapper sidebar-compose-panel flyout-compose-panel" style="position:relative">
             @RenderCompactCreateToolbar
         </div>
 
         <div class="sidebar-divider"></div>
-        <div class="sidebar-organize-shell sidebar-organize-shell-compact flyout-organize-shell">
+        <div class="sidebar-organize-shell flyout-organize-shell" style="position:relative">
             @RenderFilterBar
         </div>
         @RenderSessionList
@@ -516,7 +516,7 @@ else
 
     private RenderFragment RenderCompactCreateToolbar => __builder =>
     {
-        <div class="sidebar-top-tools">
+        <div class="sidebar-top-tools" style="@(IsFlyoutPanel ? "position:static;top:auto;left:auto;right:auto;pointer-events:auto" : "")">
             <div class="sidebar-create-shell">
                 <button class="sidebar-create-btn sidebar-create-btn-primary @(IsDesktopCreatePopoverOpen ? "active" : "")"
                         title="Create something new"

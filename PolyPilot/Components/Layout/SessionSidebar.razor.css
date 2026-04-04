@@ -5743,8 +5743,9 @@
     padding-right: 0.7rem;
 }
 
-/* Mobile flyout: force top-tools into flow so filter bar doesn't overlap session list.
-   Must use !important to win over the multiple position:absolute rules above. */
+/* Mobile flyout: force top-tools and filter bar into normal flow so they don't
+   overlap the session list. Must use !important to win over the multiple
+   position:absolute rules in refinement passes above. */
 .mobile-flyout-sidebar .sidebar-top-tools {
     position: static !important;
     top: auto !important;
@@ -5752,4 +5753,24 @@
     right: auto !important;
     z-index: auto !important;
     pointer-events: auto !important;
+}
+
+.mobile-flyout-sidebar .sidebar-organize-shell-compact .status-filter-bar {
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+}
+
+.mobile-flyout-sidebar .sidebar-organize-shell {
+    position: relative !important;
+}
+
+.mobile-flyout-sidebar .sidebar-compose-panel {
+    position: relative !important;
+}
+
+.mobile-flyout-sidebar .session-list {
+    padding-top: 0.45rem !important;
+    scroll-padding-top: 0.45rem !important;
 }
