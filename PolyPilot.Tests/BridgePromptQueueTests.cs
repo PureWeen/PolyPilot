@@ -50,12 +50,16 @@ public class BridgePromptQueueTests : IDisposable
         _port = GetFreePort();
         _server = new WsBridgeServer();
 
+        var services = new ServiceCollection();
+        services.AddSingleton(_server);
+        var serviceProvider = services.BuildServiceProvider();
+
         _copilot = new CopilotService(
             new StubChatDatabase(),
             new StubServerManager(),
             new StubWsBridgeClient(),
             new RepoManager(),
-            new ServiceCollection().BuildServiceProvider(),
+            serviceProvider,
             new StubDemoService());
 
         _server.SetCopilotService(_copilot);
@@ -179,8 +183,22 @@ public class BridgePromptQueueTests : IDisposable
         _copilot.SetIsRestoringForTesting(false);
         await _server.DrainPendingPromptsAsync();
 
-        // Wait for both messages to be processed
-        await WaitForAsync(() => session().History.Count(m => m.Role == "user") >= 2, cts.Token);
+        // Messages flow through the WebSocket → server path. Two concurrent
+        // SimulateResponseAsync fire-and-forget tasks will mutate the same History list.
+        // Wait for all background activity to settle before asserting.
+        await WaitForAsync(() =>
+        {
+            try
+            {
+                var s = session();
+                return s.History.Count(m => m.Role == "user") >= 2
+                    && s.History.Count(m => m.Role == "assistant") >= 2;
+            }
+            catch { return false; }
+        }, cts.Token);
+
+        // Allow any final List<T> mutations from SimulateResponseAsync to drain
+        await Task.Delay(500);
 
         var userMessages = session().History.Where(m => m.Role == "user").ToList();
         Assert.Equal(2, userMessages.Count);
