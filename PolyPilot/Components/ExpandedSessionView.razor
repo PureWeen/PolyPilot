@@ -341,6 +341,11 @@
                 <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")' title="Plan mode — create a plan before implementing">Plan</button>
                 <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")' title="Autopilot mode — auto-approve tool calls">Autopilot</button>
             </div>
+            <select class="mode-select-mobile" value="@InputMode" @onchange="e => OnSetInputMode.InvokeAsync(e.Value?.ToString())">
+                <option value="chat">💬 Chat</option>
+                <option value="plan">📋 Plan</option>
+                <option value="autopilot">🤖 Autopilot</option>
+            </select>
             <span class="status-bar-sep" aria-hidden="true"></span>
             <div class="input-status-primary">
                 <span class="log-label" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log <span class="log-msg-count" title="Total messages in this session">@Session.History.Count</span></span>
