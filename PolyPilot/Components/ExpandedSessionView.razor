@@ -987,6 +987,9 @@
         var prNumber = "";
         if (_prLabel != null && _prLabel.StartsWith("#"))
             prNumber = _prLabel[1..]; // "#499" → "499"
+        // Mobile fallback: use PR number from bridge session data
+        if (string.IsNullOrEmpty(prNumber) && Session.PrNumber > 0)
+            prNumber = Session.PrNumber.Value.ToString();
 
         await JS.InvokeVoidAsync("eval", $"window.__ppData = {promptJson};");
         await JS.InvokeVoidAsync("eval", $"window.__ppPrNumber = '{EscapeForJs(prNumber)}';");

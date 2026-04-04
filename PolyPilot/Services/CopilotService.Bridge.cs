@@ -535,6 +535,7 @@ public partial class CopilotService
                         state.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
                         state.Info.ToolCallCount = rs.ToolCallCount;
                         state.Info.ProcessingPhase = rs.ProcessingPhase;
+                        state.Info.PrNumber = rs.PrNumber;
                     }
                     else
                     {
@@ -756,6 +757,7 @@ public partial class CopilotService
                     syncState.Info.ProcessingStartedAt = rs.ProcessingStartedAt;
                     syncState.Info.ToolCallCount = rs.ToolCallCount;
                     syncState.Info.ProcessingPhase = rs.ProcessingPhase;
+                    syncState.Info.PrNumber = rs.PrNumber;
                     // Clear stuck streaming guard if server says session is idle
                     if (!rs.IsProcessing)
                         _remoteStreamingSessions.TryRemove(rs.Name, out _);

@@ -28,6 +28,8 @@ public class AgentSessionInfo
     public string? GitBranch { get; set; }
     /// <summary>Worktree ID if this session was created from a worktree.</summary>
     public string? WorktreeId { get; set; }
+    /// <summary>PR number associated with this session's worktree, if any.</summary>
+    public int? PrNumber { get; set; }
     
     // For resumed sessions
     public string? SessionId { get; set; }
