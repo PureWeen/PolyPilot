@@ -167,25 +167,17 @@ public class BridgePromptQueueTests : IDisposable
         await InitDemoMode();
         await _copilot.CreateSessionAsync("order-test", "gpt-4.1");
 
-        // Simulate restore in progress
-        _copilot.SetIsRestoringForTesting(true);
+        // Enqueue messages directly to test drain FIFO ordering
+        // without WebSocket round-trip timing and concurrent List<T> races.
+        _server.EnqueuePendingPromptForTesting("order-test", "First message");
+        _server.EnqueuePendingPromptForTesting("order-test", "Second message");
 
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
-        var client = await ConnectClientAsync(cts.Token);
 
-        // Send multiple messages while restoring
-        await client.SendMessageAsync("order-test", "First message", ct: cts.Token);
-        await Task.Delay(200);
-        await client.SendMessageAsync("order-test", "Second message", ct: cts.Token);
-        await Task.Delay(500);
-
-        // End restore and drain
-        _copilot.SetIsRestoringForTesting(false);
+        // Drain processes items sequentially (FIFO)
         await _server.DrainPendingPromptsAsync();
 
-        // Messages flow through the WebSocket → server path. Two concurrent
-        // SimulateResponseAsync fire-and-forget tasks will mutate the same History list.
-        // Wait for all background activity to settle before asserting.
+        // Wait for both demo responses to complete so List<T> mutations settle
         await WaitForAsync(() =>
         {
             try
@@ -196,9 +188,6 @@ public class BridgePromptQueueTests : IDisposable
             }
             catch { return false; }
         }, cts.Token);
-
-        // Allow any final List<T> mutations from SimulateResponseAsync to drain
-        await Task.Delay(500);
 
         var userMessages = session().History.Where(m => m.Role == "user").ToList();
         Assert.Equal(2, userMessages.Count);
