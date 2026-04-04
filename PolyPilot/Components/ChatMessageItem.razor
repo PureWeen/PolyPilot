@@ -240,7 +240,7 @@
                                         <DiffView RawDiff="@Message.Content" />
                                     </div>
                              }
-                             else if (Message.ToolName == "view" && DiffParser.TryExtractNumberedViewOutput(Message.Content, out var _plainViewOutput))
+                             else if (DiffParser.TryExtractNumberedViewOutput(Message.Content, out var _plainViewOutput))
                              {
                                  <pre>@ChatMessageList.TruncateResult(_plainViewOutput)</pre>
                              }

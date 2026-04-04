@@ -264,6 +264,25 @@ public class DiffParserTests
     }
 
     [Fact]
+    public void TryExtractNumberedViewOutput_RealDiffWithChanges_ReturnsFalse()
+    {
+        var diff = """
+            diff --git a/file.txt b/file.txt
+            index abc123..def456 100644
+            --- a/file.txt
+            +++ b/file.txt
+            @@ -1,2 +1,2 @@
+            -old
+            +new
+             keep
+            """;
+
+        var ok = DiffParser.TryExtractNumberedViewOutput(diff, out _);
+
+        Assert.False(ok);
+    }
+
+    [Fact]
     public void Parse_AngleBracketsInCode_NotEncoded()
     {
         // Verify generic type parameters with <> are preserved as-is

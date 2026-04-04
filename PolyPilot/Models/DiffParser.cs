@@ -34,6 +34,9 @@ public static class DiffParser
 {
     public static bool ShouldRenderDiffView(string? text, string? toolName)
     {
+        if (TryExtractNumberedViewOutput(text, out _))
+            return false;
+
         // `view`/Read tool results should stay as plain file reads even if the
         // content happens to contain unified-diff markers.
         if (string.Equals(toolName, "view", StringComparison.OrdinalIgnoreCase))
@@ -50,6 +53,13 @@ public static class DiffParser
 
         var files = Parse(text!);
         if (files.Count == 0)
+            return false;
+
+        // The broken "Read" payloads are synthetic no-op self-diffs that contain
+        // only context lines (no real additions/removals). Real diffs should keep
+        // using DiffView.
+        var allLines = files.SelectMany(f => f.Hunks).SelectMany(h => h.Lines).ToList();
+        if (allLines.Count == 0 || allLines.Any(l => l.Type != DiffLineType.Context))
             return false;
 
         var sb = new StringBuilder();
