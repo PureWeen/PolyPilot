@@ -256,7 +256,8 @@ public partial class CopilotService : IAsyncDisposable
 
     public string DefaultModel { get; set; } = "claude-opus-4.6";
     public bool IsInitialized { get; private set; }
-    public bool IsRestoring { get; private set; }
+    private volatile bool _isRestoring;
+    public bool IsRestoring { get => _isRestoring; private set => _isRestoring = value; }
     public bool NeedsConfiguration { get; private set; }
     public bool IsRemoteMode { get; private set; }
     public bool IsBridgeConnected => _bridgeClient.IsConnected;

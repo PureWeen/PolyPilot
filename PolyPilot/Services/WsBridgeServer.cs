@@ -854,6 +854,16 @@ public class WsBridgeServer : IDisposable
                         {
                             _pendingBridgePrompts.Enqueue(new PendingBridgePrompt(sendSession, sendMessage, sendAgentMode));
                             Console.WriteLine($"[BRIDGE] Queued prompt for '{sendSession}' during restore ({_pendingBridgePrompts.Count} pending)");
+                            // TOCTOU guard: if restore completed between our check and enqueue,
+                            // DrainPendingPromptsAsync already ran and missed this item. Drain again.
+                            if (!_copilot.IsRestoring)
+                            {
+                                _ = Task.Run(async () =>
+                                {
+                                    try { await DrainPendingPromptsAsync(); }
+                                    catch { /* logged inside drain */ }
+                                });
+                            }
                             break;
                         }
 
