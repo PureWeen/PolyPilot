@@ -378,9 +378,9 @@ public class WsBridgeClient : IWsBridgeClient, IDisposable
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.AbortSession,
             new SessionNamePayload { SessionName = sessionName }), ct);
 
-    public async Task ChangeModelAsync(string sessionName, string newModel, CancellationToken ct = default) =>
+    public async Task ChangeModelAsync(string sessionName, string newModel, string? reasoningEffort = null, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.ChangeModel,
-            new ChangeModelPayload { SessionName = sessionName, NewModel = newModel }), ct);
+            new ChangeModelPayload { SessionName = sessionName, NewModel = newModel, ReasoningEffort = reasoningEffort }), ct);
 
     public async Task RenameSessionAsync(string oldName, string newName, CancellationToken ct = default) =>
         await SendAsync(BridgeMessage.Create(BridgeMessageTypes.RenameSession,

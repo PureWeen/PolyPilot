@@ -3097,13 +3097,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             if (!_bridgeClient.IsConnected) return false;
             var remoteModel = Models.ModelHelper.NormalizeToSlug(newModel);
             if (string.IsNullOrEmpty(remoteModel)) return false;
-            // Guard: don't change model while processing or if already the same
+            // Guard: don't change if both model AND effort are unchanged
             if (!_sessions.TryGetValue(sessionName, out var remoteState)) return false;
             if (remoteState.Info.IsProcessing) return false;
-            if (remoteState.Info.Model == remoteModel) return true;
+            if (remoteState.Info.Model == remoteModel && remoteState.Info.ReasoningEffort == reasoningEffort) return true;
             try
             {
-                await _bridgeClient.ChangeModelAsync(sessionName, remoteModel, cancellationToken);
+                await _bridgeClient.ChangeModelAsync(sessionName, remoteModel, reasoningEffort, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -3112,6 +3112,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             }
             // Update local state optimistically
             remoteState.Info.Model = remoteModel;
+            remoteState.Info.ReasoningEffort = reasoningEffort;
             OnStateChanged?.Invoke();
             return true;
         }

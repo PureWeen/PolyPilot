@@ -137,7 +137,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
     public string? LastChangedModelSession { get; private set; }
     public string? LastChangedModel { get; private set; }
     public int ChangeModelCallCount { get; private set; }
-    public Task ChangeModelAsync(string sessionName, string newModel, CancellationToken ct = default)
+    public Task ChangeModelAsync(string sessionName, string newModel, string? reasoningEffort = null, CancellationToken ct = default)
     {
         LastChangedModelSession = sessionName;
         LastChangedModel = newModel;

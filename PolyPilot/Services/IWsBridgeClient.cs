@@ -51,7 +51,7 @@ public interface IWsBridgeClient
     Task ResumeSessionAsync(string sessionId, string? displayName = null, CancellationToken ct = default);
     Task CloseSessionAsync(string name, CancellationToken ct = default);
     Task AbortSessionAsync(string sessionName, CancellationToken ct = default);
-    Task ChangeModelAsync(string sessionName, string newModel, CancellationToken ct = default);
+    Task ChangeModelAsync(string sessionName, string newModel, string? reasoningEffort = null, CancellationToken ct = default);
     Task RenameSessionAsync(string oldName, string newName, CancellationToken ct = default);
     Task SendOrganizationCommandAsync(OrganizationCommandPayload payload, CancellationToken ct = default);
     Task PushOrganizationAsync(OrganizationState organization, CancellationToken ct = default);
