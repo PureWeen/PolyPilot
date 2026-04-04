@@ -218,13 +218,30 @@ Disabled in `Platforms/MacCatalyst/Entitlements.plist` — required for spawning
 When a prompt is sent, the SDK emits events processed by `HandleSessionEvent` in order:
 1. `SessionUsageInfoEvent` → server acknowledged, sets `ProcessingPhase=1`
 2. `AssistantTurnStartEvent` → model generating, sets `ProcessingPhase=2`
-3. `AssistantMessageDeltaEvent` → streaming content chunks
-4. `AssistantMessageEvent` → full message (may include tool requests)
-5. `ToolExecutionStartEvent` → tool activity starts, sets `ProcessingPhase=3`, increments `ToolCallCount` on complete
-6. `ToolExecutionCompleteEvent` → tool done, increments `ToolCallCount`
-7. `AssistantIntentEvent` → intent/plan updates
-8. `AssistantTurnEndEvent` → end of a sub-turn, tool loop continues. `FlushCurrentResponse` persists accumulated text before the next sub-turn.
-9. `SessionIdleEvent` → turn complete, response finalized. **Unless** `Data.BackgroundTasks` has active agents/shells — then flushes text, logs `[IDLE-DEFER]`, and keeps `IsProcessing=true` (PR #399).
+3. `AssistantReasoningDeltaEvent` → streaming reasoning chunks (if model supports reasoning)
+4. `AssistantReasoningEvent` → complete reasoning content
+5. `AssistantMessageDeltaEvent` → streaming content chunks
+6. `AssistantMessageEvent` → full message (may include tool requests)
+7. `ToolExecutionStartEvent` → tool activity starts, sets `ProcessingPhase=3`, increments `ToolCallCount` on complete
+8. `ToolExecutionCompleteEvent` → tool done, increments `ToolCallCount`
+9. `AssistantIntentEvent` → intent/plan updates
+10. `AssistantTurnEndEvent` → end of a sub-turn, tool loop continues. `FlushCurrentResponse` persists accumulated text before the next sub-turn.
+11. `SessionIdleEvent` → turn complete, response finalized. **Unless** `Data.BackgroundTasks` has active agents/shells — then flushes text, logs `[IDLE-DEFER]`, and keeps `IsProcessing=true` (PR #399).
+
+Additional SDK events (not in the main flow but emitted during sessions):
+- `SubagentStartedEvent` / `SubagentCompletedEvent` / `SubagentFailedEvent` — subagent lifecycle
+- `SessionPlanChangedEvent` — plan file created/updated/deleted
+- `SessionModeChangedEvent` — mode switched (interactive/plan/autopilot)
+- `SessionModelChangeEvent` — model switched mid-session (includes `PreviousReasoningEffort` / `ReasoningEffort`)
+- `SessionCompactionStartEvent` / `SessionCompactionCompleteEvent` — context compaction
+- `SessionTruncationEvent` — context truncated
+- `SessionHandoffEvent` — session delegated to GitHub (CCA)
+- `SkillInvokedEvent` — a skill was invoked
+- `SessionBackgroundTasksChangedEvent` — background task status changed
+- `CapabilitiesChangedEvent` — session capabilities changed (new in v0.2.1)
+- `SamplingRequestedEvent` / `SamplingCompletedEvent` — MCP sampling (new in v0.2.1)
+
+See the `copilot-sdk-reference` skill for the complete list of 76 event types.
 
 ### Processing Status Indicator
 `AgentSessionInfo` tracks three fields for the processing status UI:
@@ -298,10 +315,13 @@ When a user changes the model via the UI dropdown:
 `GetSessionModel` prioritizes: (1) user's explicit choice (`session.Model`), (2) backend-reported model from usage info, (3) `DefaultModel` fallback. `ShouldAcceptObservedModel()` in `ModelHelper.cs` prevents `SessionUsageInfoEvent` and `AssistantUsageEvent` from overwriting an explicit user model selection — the observed model is only accepted if no explicit choice was made or if the observed model matches the explicit choice.
 
 ### SDK Data Types
-- `AssistantUsageData` properties (`InputTokens`, `OutputTokens`, etc.) are `Double?` not `int?`
+- `AssistantUsageData` properties (`InputTokens`, `OutputTokens`, `CacheReadTokens`, `CacheWriteTokens`) are `Double?` not `int?`
 - Use `Convert.ToInt32(value)` for conversion, not `value as int?`
+- `AssistantUsageData` also includes: `Cost` (billing multiplier), `Duration` (ms), `TtftMs` (time to first token), `InterTokenLatencyMs`, `ReasoningEffort`, `Initiator` (e.g., "sub-agent", "mcp-sampling"), `CopilotUsage`
 - `QuotaSnapshots` is `Dictionary<string, object>` with `JsonElement` values
-- Premium quota fields: `isUnlimitedEntitlement`, `entitlementRequests`, `usedRequests`, `remainingPercentage`, `resetDate`
+- Premium quota fields: `EntitlementRequests`, `UsedRequests`, `RemainingPercentage`, `Overage`
+- `SessionIdleData` includes `BackgroundTasks` (agents + shells) and `Aborted` (bool, true when turn was cancelled via abort)
+- `MessageOptions` has 3 properties: `Prompt`, `Attachments`, `Mode` — no `Model` or `ReasoningEffort` (those are session-level via `SwitchToAsync`)
 
 ### Blazor Input Performance
 Avoid `@bind:event="oninput"` — causes round-trip lag per keystroke. Use plain HTML inputs with JS event listeners and read values via `JS.InvokeAsync<string>("eval", "document.getElementById('id')?.value")` on submit.
