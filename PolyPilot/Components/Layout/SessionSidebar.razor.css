@@ -1606,12 +1606,9 @@
     overflow: visible;
 }
 
+/* Mobile flyout sidebar-top-tools: unique layout properties.
+   Position overrides are at end of file with !important. */
 .mobile-flyout-sidebar .sidebar-top-tools {
-    position: static;
-    top: auto;
-    left: auto;
-    right: auto;
-    pointer-events: auto;
     align-items: center;
 }
 
@@ -1639,11 +1636,6 @@
 
 .flyout-organize-shell {
     padding-top: 0.08rem;
-}
-
-.mobile-flyout-sidebar .session-list {
-    padding-top: 0.45rem;
-    scroll-padding-top: 0.45rem;
 }
 
 /* === Mobile responsive === */

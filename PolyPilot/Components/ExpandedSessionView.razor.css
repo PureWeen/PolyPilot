@@ -869,7 +869,7 @@
         flex-wrap: wrap;
         align-items: center;
         gap: 0.2rem 0.5rem;
-        padding: 0.14rem 0.5rem 0.3rem;
+        padding: 0.14rem 0.5rem calc(0.3rem + env(safe-area-inset-bottom, 0px));
         overflow: visible;
     }
     .input-status-bar > .status-bar-sep {
@@ -879,7 +879,6 @@
         display: none;
     }
     .mode-select-mobile {
-        display: block;
         all: unset;
         display: block;
         font-size: var(--type-footnote);
