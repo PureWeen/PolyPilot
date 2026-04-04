@@ -13,11 +13,12 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
+    gap: 8px;
     padding: 6px 12px;
     background: #181825;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     font-size: var(--type-footnote);
+    flex-wrap: wrap;
 }
 
 .cm-diff-filepath {
@@ -27,6 +28,26 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
+    min-width: 0;
+}
+
+.cm-diff-stat {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--type-caption2);
+    font-weight: 600;
+    padding: 1px 5px;
+    border-radius: 3px;
+    flex-shrink: 0;
+}
+
+.cm-diff-stat-added {
+    color: #a6e3a1;
+    background: rgba(166, 227, 161, 0.12);
+}
+
+.cm-diff-stat-removed {
+    color: #f38ba8;
+    background: rgba(243, 139, 168, 0.12);
 }
 
 .cm-diff-labels {
@@ -51,6 +72,26 @@
 .cm-diff-label-after {
     background: rgba(166, 227, 161, 0.15);
     color: #a6e3a1;
+}
+
+.cm-diff-badge {
+    font-size: var(--type-caption2);
+    padding: 2px 10px;
+    letter-spacing: 0.04em;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.cm-diff-badge-new {
+    background: rgba(166, 227, 161, 0.10);
+    color: #a6e3a1;
+    border-bottom: 1px solid rgba(166, 227, 161, 0.15);
+}
+
+.cm-diff-badge-deleted {
+    background: rgba(243, 139, 168, 0.10);
+    color: #f38ba8;
+    border-bottom: 1px solid rgba(243, 139, 168, 0.15);
 }
 
 /* The MergeView host — let CodeMirror control height via its own max-height */

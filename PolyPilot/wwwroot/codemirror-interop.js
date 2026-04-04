@@ -30,6 +30,11 @@
                 langJSON,
                 langMD,
                 langCPP,
+                langJava,
+                langRust,
+                langSQL,
+                legacyModes,
+                cmStreamParser,
             ] = await Promise.all([
                 import(BASE + '@codemirror/view@6'),
                 import(BASE + '@codemirror/state@6'),
@@ -45,6 +50,11 @@
                 import(BASE + '@codemirror/lang-json@6'),
                 import(BASE + '@codemirror/lang-markdown@6'),
                 import(BASE + '@codemirror/lang-cpp@6'),
+                import(BASE + '@codemirror/lang-java@6'),
+                import(BASE + '@codemirror/lang-rust@6'),
+                import(BASE + '@codemirror/lang-sql@6'),
+                import(BASE + '@codemirror/legacy-modes@6/mode/clike'),
+                import(BASE + '@codemirror/stream-parser@6'),
             ]);
 
             _cm = {
@@ -74,18 +84,31 @@
                 foldGutter:              cmLanguage.foldGutter,
                 indentOnInput:           cmLanguage.indentOnInput,
                 bracketMatching:         cmLanguage.bracketMatching,
+                StreamLanguage:          cmLanguage.StreamLanguage,
                 // Merge / diff
                 MergeView:               cmMerge.MergeView,
                 // Theme
                 oneDark:                 cmOneDark.oneDark,
                 // Languages
-                javascript: langJS.javascript,
-                python:     langPy.python,
-                css:        langCSS.css,
-                html:       langHTML.html,
-                json:       langJSON.json,
-                markdown:   langMD.markdown,
-                cpp:        langCPP.cpp,
+                javascript:  langJS.javascript,
+                python:      langPy.python,
+                css:         langCSS.css,
+                html:        langHTML.html,
+                json:        langJSON.json,
+                markdown:    langMD.markdown,
+                cpp:         langCPP.cpp,
+                java:        langJava.java,
+                rust:        langRust.rust,
+                sql:         langSQL.sql,
+                // C# / Go / Swift via legacy-modes StreamLanguage
+                _csharp:     legacyModes.csharp,
+                _go:         legacyModes.go,
+                _swift:      legacyModes.swift,
+                _kotlin:     legacyModes.kotlin ?? null,
+                _powershell: legacyModes.powershell ?? null,
+                _yaml:       legacyModes.yaml ?? null,
+                _toml:       legacyModes.toml ?? null,
+                _shell:      legacyModes.shell ?? null,
             };
             return _cm;
         })();
@@ -101,8 +124,10 @@
                 return cm.javascript();
             case 'jsx':
                 return cm.javascript({ jsx: true });
-            case 'ts': case 'tsx': case 'typescript':
-                return cm.javascript({ typescript: true, jsx: l === 'tsx' });
+            case 'ts': case 'typescript':
+                return cm.javascript({ typescript: true });
+            case 'tsx':
+                return cm.javascript({ typescript: true, jsx: true });
             case 'py': case 'python':
                 return cm.python();
             case 'css': case 'scss': case 'less':
@@ -115,6 +140,29 @@
                 return cm.markdown();
             case 'c': case 'h': case 'cc': case 'cpp': case 'cxx': case 'hh': case 'hpp':
                 return cm.cpp();
+            case 'java':
+                return cm.java();
+            case 'rs': case 'rust':
+                return cm.rust();
+            case 'sql':
+                return cm.sql();
+            // C# and other legacy-mode languages
+            case 'cs': case 'csharp':
+                return cm._csharp ? cm.StreamLanguage.define(cm._csharp) : null;
+            case 'go':
+                return cm._go ? cm.StreamLanguage.define(cm._go) : null;
+            case 'swift':
+                return cm._swift ? cm.StreamLanguage.define(cm._swift) : null;
+            case 'kt': case 'kotlin':
+                return cm._kotlin ? cm.StreamLanguage.define(cm._kotlin) : null;
+            case 'ps1': case 'psm1': case 'powershell':
+                return cm._powershell ? cm.StreamLanguage.define(cm._powershell) : null;
+            case 'yml': case 'yaml':
+                return cm._yaml ? cm.StreamLanguage.define(cm._yaml) : null;
+            case 'toml':
+                return cm._toml ? cm.StreamLanguage.define(cm._toml) : null;
+            case 'sh': case 'bash': case 'zsh':
+                return cm._shell ? cm.StreamLanguage.define(cm._shell) : null;
             default:
                 return null;
         }
@@ -181,12 +229,20 @@
 
             const sharedExts = [
                 cm.lineNumbers(),
+                cm.highlightSpecialChars(),
                 cm.syntaxHighlighting(cm.defaultHighlightStyle, { fallback: true }),
+                cm.bracketMatching(),
+                cm.drawSelection(),
+                cm.highlightSelectionMatches(),
+                cm.search({ top: true }),
                 cm.oneDark,
                 cm.EditorView.editable.of(false),
                 cm.EditorState.readOnly.of(true),
                 cm.EditorView.lineWrapping,
-                cm.drawSelection(),
+                cm.keymap.of([
+                    ...cm.defaultKeymap,
+                    ...cm.searchKeymap,
+                ]),
             ];
             const langExt = _langExtension(cm, lang);
             if (langExt) sharedExts.push(langExt);
@@ -205,7 +261,8 @@
                 revertControls: false,
                 highlightChanges: true,
                 gutter: true,
-                collapseUnchanged: { minSize: 4, margin: 1 },
+                // Don't collapse unchanged — we already only have hunk context, not full file
+                collapseUnchanged: undefined,
             });
         },
 

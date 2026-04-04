@@ -11,11 +11,24 @@
             {
                 <span class="cm-diff-filepath">@FilePath</span>
             }
+            @if (_addedCount > 0 || _removedCount > 0)
+            {
+                <span class="cm-diff-stat cm-diff-stat-added">+@_addedCount</span>
+                <span class="cm-diff-stat cm-diff-stat-removed">-@_removedCount</span>
+            }
             <div class="cm-diff-labels">
                 <span class="cm-diff-label cm-diff-label-before">@(OriginalLabel ?? "Before")</span>
                 <span class="cm-diff-label cm-diff-label-after">@(ModifiedLabel ?? "After")</span>
             </div>
         </div>
+        @if (IsNewFile)
+        {
+            <div class="cm-diff-badge cm-diff-badge-new">New file</div>
+        }
+        else if (IsDeletedFile)
+        {
+            <div class="cm-diff-badge cm-diff-badge-deleted">Deleted file</div>
+        }
         @if (_loading)
         {
             <div class="cm-editor-status">⏳ Loading editor…</div>
@@ -50,13 +63,35 @@
     /// <summary>Label shown above the right (modified) pane. Defaults to "After".</summary>
     [Parameter] public string? ModifiedLabel { get; set; } = "After";
 
+    /// <summary>Whether this diff represents a newly created file.</summary>
+    [Parameter] public bool IsNewFile { get; set; }
+
+    /// <summary>Whether this diff represents a deleted file.</summary>
+    [Parameter] public bool IsDeletedFile { get; set; }
+
+    /// <summary>Number of added lines shown in the stat badge.</summary>
+    [Parameter] public int AddedLines { get; set; }
+
+    /// <summary>Number of removed lines shown in the stat badge.</summary>
+    [Parameter] public int RemovedLines { get; set; }
+
     private readonly string _elementId = $"cm-diff-{Guid.NewGuid():N}";
     private bool _loading;
     private bool _initialized;
     private string? _loadError;
+    private int _addedCount;
+    private int _removedCount;
 
     private string ResolvedLanguage =>
         Language ?? (FilePath is { Length: > 0 } fp ? System.IO.Path.GetExtension(fp).TrimStart('.') : "");
+
+    protected override void OnParametersSet()
+    {
+        _addedCount   = AddedLines  > 0 ? AddedLines  : ModifiedContent.Split('\n').Length - OriginalContent.Split('\n').Length > 0
+            ? ModifiedContent.Split('\n').Length - OriginalContent.Split('\n').Length : 0;
+        _removedCount = RemovedLines > 0 ? RemovedLines : OriginalContent.Split('\n').Length - ModifiedContent.Split('\n').Length > 0
+            ? OriginalContent.Split('\n').Length - ModifiedContent.Split('\n').Length : 0;
+    }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
@@ -72,6 +107,7 @@
         catch (Exception ex)
         {
             _loadError = ex.Message.Contains("net::") || ex.Message.Contains("Failed to fetch")
+                         || ex.Message.Contains("ERR_NAME_NOT_RESOLVED")
                 ? "CodeMirror unavailable (internet required for editor)"
                 : ex.Message;
         }

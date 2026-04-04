@@ -242,10 +242,10 @@
                                             <div class="diff-view-toggle">
                                                 <button class="diff-toggle-btn @(_showDiffEditor ? "" : "active")"
                                                         @onclick="() => _showDiffEditor = false"
-                                                        @onclick:stopPropagation="true">Diff</button>
+                                                        @onclick:stopPropagation="true">Table</button>
                                                 <button class="diff-toggle-btn @(_showDiffEditor ? "active" : "")"
                                                         @onclick="() => _showDiffEditor = true"
-                                                        @onclick:stopPropagation="true">Editor</button>
+                                                        @onclick:stopPropagation="true">Side-by-side</button>
                                             </div>
                                         }
                                         @if (!_showDiffEditor || !PlatformHelper.IsDesktop)
@@ -258,10 +258,16 @@
                                             {
                                                 var (_orig, _mod) = DiffParser.ReconstructFiles(_df);
                                                 var _fExt = System.IO.Path.GetExtension(_df.FileName).TrimStart('.');
+                                                var _added = _df.Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Added);
+                                                var _removed = _df.Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Removed);
                                                 <DiffEditor OriginalContent="@_orig"
                                                             ModifiedContent="@_mod"
                                                             FilePath="@_df.FileName"
-                                                            Language="@_fExt" />
+                                                            Language="@_fExt"
+                                                            IsNewFile="@_df.IsNew"
+                                                            IsDeletedFile="@_df.IsDeleted"
+                                                            AddedLines="@_added"
+                                                            RemovedLines="@_removed" />
                                             }
                                         }
                                     </div>
@@ -368,10 +374,10 @@
                 <div class="diff-view-toggle">
                     <button class="diff-toggle-btn @(_showDiffEditor ? "" : "active")"
                             @onclick="() => _showDiffEditor = false"
-                            @onclick:stopPropagation="true">Diff</button>
+                            @onclick:stopPropagation="true">Table</button>
                     <button class="diff-toggle-btn @(_showDiffEditor ? "active" : "")"
                             @onclick="() => _showDiffEditor = true"
-                            @onclick:stopPropagation="true">Editor</button>
+                            @onclick:stopPropagation="true">Side-by-side</button>
                 </div>
             }
             @if (!_showDiffEditor || !PlatformHelper.IsDesktop)
@@ -384,10 +390,16 @@
                 {
                     var (_orig2, _mod2) = DiffParser.ReconstructFiles(_df2);
                     var _fExt2 = System.IO.Path.GetExtension(_df2.FileName).TrimStart('.');
+                    var _added2 = _df2.Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Added);
+                    var _removed2 = _df2.Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Removed);
                     <DiffEditor OriginalContent="@_orig2"
                                 ModifiedContent="@_mod2"
                                 FilePath="@_df2.FileName"
-                                Language="@_fExt2" />
+                                Language="@_fExt2"
+                                IsNewFile="@_df2.IsNew"
+                                IsDeletedFile="@_df2.IsDeleted"
+                                AddedLines="@_added2"
+                                RemovedLines="@_removed2" />
                 }
             }
         </div>
