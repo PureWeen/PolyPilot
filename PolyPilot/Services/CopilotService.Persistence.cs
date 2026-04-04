@@ -521,7 +521,14 @@ public partial class CopilotService
             {
                 _ = Task.Run(async () =>
                 {
-                    try { await bridgeServer.DrainPendingPromptsAsync(); }
+                    try
+                    {
+                        await bridgeServer.DrainPendingPromptsAsync();
+                        // Second sweep after a short delay catches any prompts enqueued
+                        // in the narrow race window between IsRestoring=false and the first drain.
+                        await Task.Delay(500);
+                        await bridgeServer.DrainPendingPromptsAsync();
+                    }
                     catch (Exception ex) { Console.WriteLine($"[BRIDGE] Error draining pending prompts: {ex.Message}"); }
                 });
             }
