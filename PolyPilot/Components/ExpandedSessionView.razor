@@ -683,6 +683,7 @@
     private string? _prUrl;
     private string _prLabel = "PR";
     private string? _lastPrCheckedDir;
+    private string? _lastExpandedSessionId;
 
     private List<SkillInfo>? availableSkills;
     private List<AgentInfo>? availableAgents;
@@ -772,6 +773,9 @@
         if (PlatformHelper.IsDesktop)
         {
             var dir = Session.WorkingDirectory;
+            var sessionSwitched = Session.SessionId != _lastExpandedSessionId;
+            _lastExpandedSessionId = Session.SessionId;
+
             if (!string.IsNullOrEmpty(dir))
             {
                 if (dir != _lastPrCheckedDir)
@@ -779,10 +783,9 @@
                     _lastPrCheckedDir = dir;
                     _ = FetchPrUrlAsync(dir);
                 }
-                else if (_prUrl == null)
+                else if (sessionSwitched && _prUrl == null)
                 {
-                    // Session switched back or PR may have been created — re-check
-                    PrLinkService.Invalidate(dir);
+                    // Only re-check when user switches to this session, not on every render
                     _ = FetchPrUrlAsync(dir);
                 }
             }
