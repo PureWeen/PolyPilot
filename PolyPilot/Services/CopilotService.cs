@@ -3497,10 +3497,17 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                             if (kvp.Key == sessionName) continue;
                                             var otherState = kvp.Value;
                                             if (string.IsNullOrEmpty(otherState.Info.SessionId)) continue;
-                                            // Skip siblings that are actively processing — re-resuming
-                                            // them would orphan mid-turn state and cause TaskCanceledException
-                                            // in orchestrator workers. Let their existing watchdog handle recovery.
-                                            if (otherState.Info.IsProcessing) continue;
+                                            // INV-O14: IsProcessing siblings have dead event streams —
+                                            // their CopilotSession was tied to the old client which was
+                                            // just disposed. Force-abort so the orchestrator retries
+                                            // immediately instead of waiting 2–5 min for the watchdog.
+                                            if (otherState.Info.IsProcessing)
+                                            {
+                                                Debug($"[RECONNECT] Sibling '{kvp.Key}' is IsProcessing with dead event stream — force-completing before re-resume");
+                                                try { await ForceCompleteProcessingAsync(kvp.Key, otherState, "client-recreated-dead-event-stream"); }
+                                                catch (Exception forceEx) { Debug($"[RECONNECT] Failed to force-complete sibling '{kvp.Key}': {forceEx.Message}"); }
+                                                // Fall through to re-resume the session on the new client
+                                            }
                                             var otherMeta = sessionSnapshots.FirstOrDefault(m => m.SessionName == kvp.Key);
                                             if (otherMeta?.GroupId != null &&
                                                 groupSnapshots.Any(g => g.Id == otherMeta.GroupId && g.IsCodespace))
