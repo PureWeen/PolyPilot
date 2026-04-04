@@ -273,6 +273,12 @@ public class WsBridgeServer : IDisposable
     }
 
     /// <summary>
+    /// Enqueue a bridge prompt directly (test helper).
+    /// </summary>
+    internal void EnqueuePendingPromptForTesting(string sessionName, string message, string? agentMode = null)
+        => _pendingBridgePrompts.Enqueue(new PendingBridgePrompt(sessionName, message, agentMode));
+
+    /// <summary>
     /// Replay bridge prompts that were queued during session restore.
     /// Called by CopilotService after IsRestoring transitions to false.
     /// Serialized via _drainLock to prevent concurrent drains from reordering prompts.
