@@ -217,7 +217,7 @@ public class PromptCommandTests : IDisposable
     {
         var content = ReadDashboard();
         // /help text should mention edit
-        Assert.Contains("use|save|edit|show|delete", content);
+        Assert.Contains("/prompt use <name> [-- context]", content);
     }
 
     [Fact]

@@ -2034,7 +2034,7 @@
                     "- `/version` — Show version info\n" +
                     "- `/diff [args]` — Show git diff\n" +
                     "- `/status` — Show git status\n" +
-                    "- `/prompt` — List saved prompts (`/prompt use|save|edit|show|delete`)\n" +
+                    "- `/prompt` — Manage prompts (`/prompt use <name> [-- context]`, save, edit, show, delete)\n" +
                     "- `/usage` — Show token usage and quota for this session\n" +
                     "- `/agent [name]` — List or select a CLI agent\n" +
                     "- `/fleet <prompt>` — Start fleet mode (parallel subagent execution)\n" +
@@ -2474,19 +2474,58 @@
             case "use":
                 if (string.IsNullOrEmpty(target))
                 {
-                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt use <name>`"));
+                    session.History.Add(ChatMessage.ErrorMessage("Usage: `/prompt use <name> [-- additional context]`"));
                     break;
                 }
-                var prompt = PromptLibraryService.GetPrompt(target, session.WorkingDirectory);
-                if (prompt == null)
+                // Greedy name match + optional " -- " context separator
+                SavedPrompt? usePrompt = null;
+                string? userContext = null;
+                {
+                    var allPrompts = PromptLibraryService.DiscoverPrompts(session.WorkingDirectory);
+                    // First try explicit " -- " separator
+                    var sepIdx = target.IndexOf(" -- ", StringComparison.Ordinal);
+                    if (sepIdx >= 0)
+                    {
+                        var promptName = target[..sepIdx].TrimEnd();
+                        usePrompt = allPrompts.FirstOrDefault(p =>
+                            string.Equals(p.Name, promptName, StringComparison.OrdinalIgnoreCase));
+                        if (usePrompt != null)
+                        {
+                            var notes = target[(sepIdx + 4)..].TrimStart();
+                            userContext = string.IsNullOrWhiteSpace(notes) ? null : notes;
+                        }
+                    }
+                    // Fall back to greedy longest-name-first match (same as edit command)
+                    if (usePrompt == null)
+                    {
+                        var useWords = target.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                        for (var i = useWords.Length; i >= 1; i--)
+                        {
+                            var candidateName = string.Join(' ', useWords[..i]);
+                            var candidate = allPrompts.FirstOrDefault(p =>
+                                string.Equals(p.Name, candidateName, StringComparison.OrdinalIgnoreCase));
+                            if (candidate != null)
+                            {
+                                usePrompt = candidate;
+                                var remainder = string.Join(' ', useWords[i..]).TrimStart('-', ' ');
+                                userContext = string.IsNullOrWhiteSpace(remainder) ? null : remainder;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (usePrompt == null)
                 {
                     session.History.Add(ChatMessage.ErrorMessage($"Prompt **{target}** not found."));
                     break;
                 }
+                var finalContent = userContext != null
+                    ? $"{usePrompt.Content}\n\n---\nAdditional context: {userContext}"
+                    : usePrompt.Content;
                 session.MessageCount = session.History.Count;
                 _needsScrollToBottom = true;
                 await InvokeAsync(SafeRefreshAsync);
-                _ = CopilotService.SendPromptAsync(sessionName, prompt.Content);
+                _ = CopilotService.SendPromptAsync(sessionName, finalContent);
                 return;
 
             case "save":

@@ -1070,8 +1070,10 @@
                                 ov.remove();
                                 var inputEl = document.querySelector('[data-session=""{sessionName}""] textarea');
                                 if(inputEl){{
-                                    inputEl.value = '/prompt use ' + p.name;
-                                    inputEl.dispatchEvent(new Event('input'));
+                                    inputEl.value = '/prompt use ' + p.name + ' -- ';
+                                    inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
+                                    inputEl.focus();
+                                    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
                                 }}
                             }};
                             popup.appendChild(row);
