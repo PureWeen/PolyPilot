@@ -69,11 +69,6 @@ public static class DiffParser
             {
                 foreach (var line in hunk.Lines)
                 {
-                    // For a "read/view" style presentation, show the current file
-                    // content. Skip removed-only lines, prefer the new line number.
-                    if (line.Type == DiffLineType.Removed && line.NewLineNo is null)
-                        continue;
-
                     var lineNo = line.NewLineNo ?? line.OldLineNo;
                     if (lineNo.HasValue)
                         sb.Append(lineNo.Value).Append(". ");

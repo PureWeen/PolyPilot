@@ -231,23 +231,23 @@
                             {
                                 <img src="@toolImgUri" alt="image" />
                             }
-                             else if (_hasDiffOutput)
-                             {
-                                 var _parsedDiff = DiffParser.Parse(Message.Content);
-                                 if (_parsedDiff.Count > 0)
-                                 {
+                            else if (_hasDiffOutput)
+                            {
+                                var _parsedDiff = DiffParser.Parse(Message.Content);
+                                if (_parsedDiff.Count > 0)
+                                {
                                     <div class="action-output-diff">
                                         <DiffView RawDiff="@Message.Content" />
                                     </div>
-                             }
-                             else if (DiffParser.TryExtractNumberedViewOutput(Message.Content, out var _plainViewOutput))
-                             {
-                                 <pre>@ChatMessageList.TruncateResult(_plainViewOutput)</pre>
-                             }
-                             else
-                             {
-                                 <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
-                             }
+                                }
+                                else
+                                {
+                                    <pre>@ChatMessageList.TruncateResult(Message.Content)</pre>
+                                }
+                            }
+                            else if (DiffParser.TryExtractNumberedViewOutput(Message.Content, out var _plainViewOutput))
+                            {
+                                <pre>@ChatMessageList.TruncateResult(_plainViewOutput)</pre>
                             }
                             else
                             {

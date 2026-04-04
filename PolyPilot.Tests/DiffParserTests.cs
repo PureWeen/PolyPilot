@@ -283,6 +283,21 @@ public class DiffParserTests
     }
 
     [Fact]
+    public void Parse_MalformedDiffLikeMarkersSeparated_ReturnsEmptyWhileLookingDiffLike()
+    {
+        var diff = """
+            --- a/file.txt
+            not actually a diff body
+            +++ b/file.txt
+            @@ -1 +1 @@
+            """;
+
+        Assert.True(DiffParser.LooksLikeUnifiedDiff(diff));
+        Assert.Empty(DiffParser.Parse(diff));
+        Assert.False(DiffParser.TryExtractNumberedViewOutput(diff, out _));
+    }
+
+    [Fact]
     public void Parse_AngleBracketsInCode_NotEncoded()
     {
         // Verify generic type parameters with <> are preserved as-is
