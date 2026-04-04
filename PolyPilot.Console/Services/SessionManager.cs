@@ -62,7 +62,8 @@ public class SessionManager : IAsyncDisposable
         var copilotSession = await _client.ResumeSessionAsync(sessionId, new ResumeSessionConfig
         {
             OnPermissionRequest = static (_, _) =>
-                Task.FromResult(new PermissionRequestResult { Kind = PermissionRequestResultKind.Approved })
+                Task.FromResult(new PermissionRequestResult { Kind = PermissionRequestResultKind.Approved }),
+            InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
         }, cancellationToken);
 
         var agentSession = new AgentSession(displayName, "resumed", copilotSession, sessionId, isResumed: true);
@@ -91,7 +92,8 @@ public class SessionManager : IAsyncDisposable
         var sessionModel = model ?? DefaultModel;
         var copilotSession = await _client.CreateSessionAsync(new SessionConfig
         {
-            Model = sessionModel
+            Model = sessionModel,
+            InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
         }, cancellationToken);
 
         var agentSession = new AgentSession(name, sessionModel, copilotSession);
