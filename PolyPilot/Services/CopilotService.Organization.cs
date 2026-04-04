@@ -3464,7 +3464,8 @@ public partial class CopilotService
         }
         try
         {
-            await CreateSessionAsync(orchName, preset.OrchestratorModel, orchWorkDir, ct);
+            var resolvedOrchModel = ModelHelper.ResolvePreferredModel(preset.OrchestratorModel, AvailableModels, "claude-opus-4.6");
+            await CreateSessionAsync(orchName, resolvedOrchModel, orchWorkDir, ct);
         }
         catch (Exception ex)
         {
@@ -3494,7 +3495,7 @@ public partial class CopilotService
               while (_sessions.ContainsKey(workerName) || Organization.Sessions.Any(s => s.SessionName == workerName))
                   workerName = $"{teamName}-{displayName}-{suffix++}";
             }
-            var workerModel = preset.WorkerModels[i];
+            var workerModel = ModelHelper.ResolvePreferredModel(preset.WorkerModels[i], AvailableModels, "claude-opus-4.6");
             var workerWorkDir = workerWorkDirs[i] ?? orchWorkDir ?? workingDirectory;
             Debug($"[WorktreeStrategy] Worker '{workerName}': wtId={workerWtIds[i] ?? "(none)"}, dir={workerWorkDir ?? "(null)"}");
             try
