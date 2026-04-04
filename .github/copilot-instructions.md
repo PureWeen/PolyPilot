@@ -1,5 +1,9 @@
 # PolyPilot — Copilot Instructions
 
+## SDK-First Development
+
+Before implementing new session lifecycle, orchestration, watchdog, or event handling code, check the Copilot SDK (v0.2.0+) API surface in `~/.nuget/packages/github.copilot.sdk/*/lib/*/GitHub.Copilot.SDK.xml`. The `processing-state-safety` and `multi-agent-orchestration` skills each contain an SDK migration matrix showing which APIs are available vs which require custom code. Prefer SDK APIs over custom implementations. When custom code is necessary, add a `// SDK-gap: <reason>` comment explaining why.
+
 ## Build & Deploy Commands
 
 ### Mac Catalyst (primary dev target)

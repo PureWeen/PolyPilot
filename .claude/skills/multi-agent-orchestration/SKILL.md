@@ -1064,3 +1064,45 @@ await service.ReconnectAsync(settings);
 ```
 
 When adding model classes, add `<Compile Include>` to `PolyPilot.Tests.csproj`.
+
+---
+
+## SDK-First Migration Guide
+
+Before adding or modifying orchestration, dispatch, or worker management code, check if the Copilot SDK (v0.2.0+) already provides the capability.
+
+### Migration Matrix
+
+| Need | SDK API | Status | Notes |
+|------|---------|--------|-------|
+| Start parallel workers | `session.Rpc.Fleet.StartAsync()` | 🟢 **Adopted** | Used for fleet mode; custom orchestration uses `SendPromptAsync` for dispatch with persistence |
+| Track subagent lifecycle | `SubagentStartedEvent` / `SubagentCompletedEvent` / `SubagentFailedEvent` | 🟡 **Events received** but not used for orchestration decisions |
+| Select/deselect agents | `session.Rpc.Agent.SelectAsync()` / `DeselectAsync()` | 🟢 **Adopted** | Used in CopilotService.cs for agent selection |
+| Manage skills per-session | `session.Rpc.Skills.ListAsync()` / `EnableAsync()` / `DisableAsync()` | 🔴 **Not adopted** | PolyPilot has custom `DiscoverAvailableSkills()` |
+| Read/write session plan | `session.Rpc.Plan.ReadAsync()` / `UpdateAsync()` / `DeleteAsync()` | 🔴 **Not adopted** | Could surface plan in UI, enable user editing |
+| Switch session mode | `session.Rpc.Mode.SetAsync("plan"/"autopilot"/"interactive")` | 🟡 **Partially adopted** | Mode set via `MessageOptions.Mode` |
+| Switch model mid-session | `session.Rpc.Model.SwitchToAsync()` | 🔴 **Not adopted** | Available but not used; model changes go through session recreation |
+| Set reasoning effort | `SessionConfig.ReasoningEffort` / `SessionModelSwitchToRequest.ReasoningEffort` | 🔴 **Not adopted** | Levels: "low", "medium", "high", "xhigh" |
+| Restrict worker tools | `SessionConfig.AvailableTools` / `ExcludedTools` | 🔴 **Not adopted** | Could enforce tool restrictions per worker role |
+| Register custom agents | `SessionConfig.CustomAgents` | 🔴 **Not adopted** | `CustomAgentConfig` with name, prompt, tools, MCP servers |
+| Request structured user input | `session.Rpc.Ui.ElicitationAsync()` | 🔴 **Not adopted** | Schema-based structured input |
+| Manage MCP servers | `session.Rpc.Mcp.ListAsync()` / `EnableAsync()` / `DisableAsync()` | 🔴 **Not adopted** | Per-session MCP management |
+| Worker system prompt injection | `SessionConfig.SystemMessage` with `SectionOverride` | 🔴 **Not adopted** | Can append/prepend/replace system prompt sections |
+| Handle slash commands | `session.Rpc.Commands.HandlePendingCommandAsync()` | 🔴 **Not adopted** | Programmatic slash command responses |
+| Workspace file management | `session.Rpc.Workspace.ListFiles/ReadFile/CreateFile` | 🔴 **Not adopted** | Session workspace (plan.md, context files) |
+| Hook into tool execution | `SessionConfig.Hooks` (PreToolUse/PostToolUse) | 🔴 **Not adopted** | Could enforce tool permissions per worker |
+| Force agent to continue | `SubagentStop` hook with `decision: "block"` | 🔴 **JS SDK only** | Block completion and force another turn — could prevent workers stopping too early |
+
+### What to Keep Custom (and Why)
+
+| Custom Code | Why SDK Can't Replace It |
+|-------------|-------------------------|
+| **PendingOrchestration persistence** | Restart recovery via JSON — SDK Fleet has no equivalent persistence across app restarts |
+| **@worker: block parsing** | PolyPilot-specific protocol for orchestrator→worker routing — not an SDK concern |
+| **Reflection loop with quality scoring** | Custom evaluation + Jaccard similarity for stall detection — no SDK equivalent |
+| **Worker result collection with timeouts** | Custom retry nudges, premature-idle recovery, partial result tolerance |
+| **Multi-agent group management** | UI concerns: group creation, preset picker, squad integration, organization persistence |
+
+### Rule
+
+> **Before adding new orchestration/dispatch code:** Check this matrix. If the SDK has an API, use it. If not, add a `// SDK-gap: <reason>` comment explaining why custom code is needed. When the SDK ships new versions, re-check this matrix for newly available APIs.

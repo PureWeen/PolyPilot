@@ -369,3 +369,34 @@ When a session shows "Thinking..." indefinitely:
 10 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164 → #276 → #284 → #332.
 Additional safety PRs: #373 (orphaned state guards), #375 (premature idle re-arm), #399 (IDLE-DEFER for background tasks), #472 (poll-then-resume + IDLE-DEFER-REARM + model selection).
 See `references/regression-history.md` for the full timeline with root causes.
+
+---
+
+## SDK-First Migration Guide
+
+Before adding or modifying watchdog, IsProcessing, or stuck-session detection code, check if the Copilot SDK (v0.2.0+) already provides the capability.
+
+### Migration Matrix
+
+| Need | SDK API | Status | Notes |
+|------|---------|--------|-------|
+| Monitor tool execution | `SessionHooks.OnPreToolUse` / `OnPostToolUse` | 🔴 **Not adopted** | Tool-boundary hooks — could supplement ActiveToolCallCount tracking and watchdog event monitoring |
+| Detect when agent turn ends | `AgentStop` hook (JS SDK only) | 🔴 **Not in .NET SDK** | JS SDK can block and force continuation; .NET SDK has `HookStartEvent`/`HookEndEvent` but no stop-gate |
+| Handle errors | `SessionHooks.OnErrorOccurred` | 🔴 **Not adopted** | Has retry count and user notification fields |
+| Session lifecycle | `SessionHooks.OnSessionStart` / `OnSessionEnd` | 🔴 **Not adopted** | Supplementary telemetry only — cannot replace restart/reconnect cleanup logic |
+| Context compaction | `session.Rpc.Compaction.CompactAsync()` | 🔴 **Not adopted** | Manual compaction trigger |
+| Auto-compaction | `SessionConfig.InfiniteSessions` | 🔴 **Not adopted** | Background compaction with configurable thresholds |
+
+### What to Keep Custom (and Why)
+
+| Custom Code | Why SDK Can't Replace It |
+|-------------|-------------------------|
+| **3-tier timeout watchdog** (30s/120s/600s) | SDK hooks fire on completion, not on absence. The watchdog detects "something should have happened but didn't" — fundamentally different from callbacks. |
+| **File-growth dead-connection detection** | SDK has no equivalent to monitoring `events.jsonl` file size to detect dead TCP connections where mtime stays fresh but no new data arrives. |
+| **Multi-agent Case B stale checks** | Custom logic that tracks consecutive deferrals across watchdog cycles for multi-agent sessions — no SDK equivalent. |
+| **IsProcessing 9-field cleanup invariant** | PolyPilot-specific UI state (ProcessingPhase, ToolCallCount, etc.) that the SDK knows nothing about. |
+| **Zero-idle TurnEnd fallback** (INV-10) | Compensates for SDK bug where SessionIdleEvent is never sent. SDK can't fix its own bug via hooks. |
+
+### Rule
+
+> **Before adding new watchdog/stuck-detection code:** Check this matrix. If the SDK has an API, use it. If not, add a `// SDK-gap: <reason>` comment explaining why custom code is needed.
