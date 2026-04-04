@@ -2,14 +2,28 @@
     display: flex;
     flex-direction: column;
     height: 100%;
-    background: linear-gradient(180deg, color-mix(in srgb, var(--bg-secondary) 88%, #0b1020 12%) 0%, var(--bg-secondary) 100%);
+    background: var(--bg-secondary);
     color: var(--text-primary);
     overflow: visible;
 }
 
 .sidebar-header {
     padding: 0.9rem 0.75rem 0.75rem;
-    border-bottom: 1px solid rgba(255,255,255,0.06);
+    border-bottom: none;
+    position: relative;
+    z-index: 3;
+    background: var(--bg-secondary);
+}
+
+.sidebar-header::after {
+    content: "";
+    position: absolute;
+    bottom: -0.3rem;
+    left: 0;
+    right: 0;
+    height: 0.3rem;
+    background: linear-gradient(to bottom, var(--bg-secondary), transparent);
+    pointer-events: none;
 }
 
 .sidebar-divider {
@@ -4490,9 +4504,14 @@
 }
 
 .sidebar-organize-shell-compact {
-    padding-top: 0;
-    padding-bottom: 0;
+    position: relative;
+    height: 0;
     min-height: 0;
+    margin: 0;
+    padding: 0;
+    overflow: visible;
+    z-index: 10;
+    pointer-events: none;
 }
 
 .desktop-expanded-mode .sidebar-compose-panel {
@@ -4512,7 +4531,29 @@
 }
 
 .sidebar-organize-shell-compact .status-filter-bar {
-    padding-top: 0;
+    position: absolute;
+    top: 2.85rem;
+    left: 0;
+    right: 0;
+    padding: 0.15rem 0.5rem 0.5rem;
+    pointer-events: auto;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    border-radius: 0;
+    z-index: 11;
+    gap: 0.3rem;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: visible;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-mask-image: linear-gradient(to right, transparent, black 0.4rem, black calc(100% - 0.4rem), transparent);
+    mask-image: linear-gradient(to right, transparent, black 0.4rem, black calc(100% - 0.4rem), transparent);
+}
+
+.sidebar-organize-shell-compact .status-filter-bar::-webkit-scrollbar {
+    display: none;
 }
 
 .desktop-sidebar .session-list {
@@ -4520,18 +4561,73 @@
     scroll-padding-top: 2.8rem;
 }
 
+.desktop-sidebar:has(.status-filter-bar) .session-list {
+    padding-top: 5.1rem;
+    scroll-padding-top: 5.1rem;
+}
+
 .sidebar-organize-shell-compact .filter-chip {
-    background: transparent;
-    border-color: transparent;
+    flex: 0 0 auto;
+    background: color-mix(in srgb, var(--sidebar-surface) 96%, var(--bg-secondary));
+    border: 1px solid color-mix(in srgb, var(--sidebar-border) 88%, transparent);
+    backdrop-filter: blur(18px) saturate(1.05);
+    -webkit-backdrop-filter: blur(18px) saturate(1.05);
+    border-radius: 999px;
+    padding: 0.22rem 0.55rem;
+    font-size: var(--type-footnote);
+    font-weight: 550;
+    color: var(--text-secondary);
+    box-shadow:
+        0 4px 10px color-mix(in srgb, #020617 10%, transparent),
+        0 1px 2px color-mix(in srgb, #020617 6%, transparent),
+        inset 0 0 0 1px var(--sidebar-border);
+    transition: background 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
 }
 
 .sidebar-organize-shell-compact .filter-chip:hover {
-    background: var(--sidebar-surface);
-    border-color: var(--sidebar-border);
+    background: color-mix(in srgb, var(--sidebar-surface-hover) 96%, var(--bg-secondary));
+    border-color: var(--sidebar-border-strong);
+    color: var(--text-primary);
+    box-shadow:
+        0 5px 12px color-mix(in srgb, #020617 12%, transparent),
+        0 1px 3px color-mix(in srgb, #020617 7%, transparent),
+        inset 0 0 0 1px var(--sidebar-border-strong);
 }
 
 .sidebar-organize-shell-compact .filter-chip.active {
-    background: var(--sidebar-surface-alt);
+    background: color-mix(in srgb, var(--sidebar-surface-hover) 98%, var(--bg-secondary));
+    border-color: var(--sidebar-border-strong);
+    color: var(--text-primary);
+}
+
+.sidebar-organize-shell-compact .filter-chip-all.active {
+    color: var(--accent-primary);
+    border-color: color-mix(in srgb, var(--accent-primary) 40%, var(--sidebar-border));
+    background: color-mix(in srgb, var(--accent-primary) 12%, color-mix(in srgb, var(--sidebar-surface) 96%, var(--bg-secondary)));
+}
+
+.sidebar-organize-shell-compact .filter-chip-processing.active {
+    color: #3b82f6;
+    border-color: color-mix(in srgb, #3b82f6 40%, var(--sidebar-border));
+    background: color-mix(in srgb, #3b82f6 12%, color-mix(in srgb, var(--sidebar-surface) 96%, var(--bg-secondary)));
+}
+
+.sidebar-organize-shell-compact .filter-chip-attention.active {
+    color: #f59e0b;
+    border-color: color-mix(in srgb, #f59e0b 40%, var(--sidebar-border));
+    background: color-mix(in srgb, #f59e0b 12%, color-mix(in srgb, var(--sidebar-surface) 96%, var(--bg-secondary)));
+}
+
+.sidebar-organize-shell-compact .filter-chip-stuck.active {
+    color: #ef4444;
+    border-color: color-mix(in srgb, #ef4444 40%, var(--sidebar-border));
+    background: color-mix(in srgb, #ef4444 12%, color-mix(in srgb, var(--sidebar-surface) 96%, var(--bg-secondary)));
+}
+
+.sidebar-organize-shell-compact .filter-chip-idle.active {
+    color: #6ee7b7;
+    border-color: color-mix(in srgb, #6ee7b7 40%, var(--sidebar-border));
+    background: color-mix(in srgb, #6ee7b7 12%, color-mix(in srgb, var(--sidebar-surface) 96%, var(--bg-secondary)));
 }
 
 .desktop-sidebar.support-open .sidebar-create-popover {

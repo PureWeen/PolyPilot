@@ -341,27 +341,31 @@
                 <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")' title="Plan mode — create a plan before implementing">Plan</button>
                 <button class="mode-btn @(InputMode == "autopilot" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("autopilot")' title="Autopilot mode — auto-approve tool calls">Autopilot</button>
             </div>
+            <span class="status-bar-sep" aria-hidden="true"></span>
             <div class="input-status-primary">
-                <span class="log-label" style="font-size:var(--type-footnote)" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log</span>
-                <span class="status-msgs" title="Total messages in this session">@Session.History.Count msgs</span>
+                <span class="log-label" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log <span class="log-msg-count">@Session.History.Count</span></span>
                 @if (availableSkills?.Count > 0)
                 {
+                    <span class="status-bar-sep" aria-hidden="true"></span>
                     <span class="skills-trigger" data-trigger="skills" @onclick="ShowSkillsPopup" title="View available skills">@availableSkills.Count skills</span>
                 }
                 @if (availableAgents?.Count > 0)
                 {
+                    <span class="status-bar-sep" aria-hidden="true"></span>
                     <span class="skills-trigger" data-trigger="agents" @onclick="ShowAgentsPopup" title="View available agents">@availableAgents.Count agents</span>
+                }
+                @if (availablePrompts != null)
+                {
+                    <span class="status-bar-sep" aria-hidden="true"></span>
+                    <span class="skills-trigger" data-trigger="prompts" @onclick="ShowPromptsPopup" title="Manage saved prompts">@(availablePrompts.Count == 1 ? "1 prompt" : $"{availablePrompts.Count} prompts")</span>
                 }
                 @if (!string.IsNullOrEmpty(Session.ActiveAgentDisplayName ?? Session.ActiveAgentName))
                 {
+                    <span class="status-bar-sep" aria-hidden="true"></span>
                     <span class="active-agent-badge" title="Active CLI agent">🤖 @(Session.ActiveAgentDisplayName ?? Session.ActiveAgentName)</span>
                 }
             </div>
             <div class="input-status-secondary">
-                @if (availablePrompts != null)
-                {
-                    <span class="skills-trigger" data-trigger="prompts" @onclick="ShowPromptsPopup" title="Manage saved prompts">@(availablePrompts.Count == 1 ? "1 prompt" : $"{availablePrompts.Count} prompts")</span>
-                }
                 <select class="inline-model-select" value="@CurrentModel" @onchange="e => OnSetModel.InvokeAsync(e.Value?.ToString())" disabled="@Session.IsProcessing" title="@(Session.IsProcessing ? "Wait for response to complete" : "Switch model")">
                     @if (!AvailableModels.Contains(CurrentModel))
                     {
@@ -375,10 +379,12 @@
                 <span class="status-extra">
                     @if (headerInputTokens.HasValue || headerOutputTokens.HasValue)
                     {
+                        <span class="status-bar-sep" aria-hidden="true"></span>
                         <span class="status-tokens" title="Token usage: ↑ input tokens sent, ↓ output tokens received">↑@FormatTokenCount(headerInputTokens ?? 0) ↓@FormatTokenCount(headerOutputTokens ?? 0)</span>
                     }
                     @if (headerCurrentTokens.HasValue && headerTokenLimit.HasValue && headerTokenLimit.Value > 0)
                     {
+                        <span class="status-bar-sep" aria-hidden="true"></span>
                         var pct = (double)headerCurrentTokens.Value / headerTokenLimit.Value;
                         var ctxColor = pct > 0.9 ? "#ef4444" : pct > 0.75 ? "#fbbf24" : "inherit";
                         var ctxGaugePct = Math.Min(100.0, Math.Max(0.0, pct * 100));
