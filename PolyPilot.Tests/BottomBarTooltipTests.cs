@@ -61,7 +61,7 @@ public class BottomBarTooltipTests
     public void ExpandedSessionView_MessageCount_HasTitle()
     {
         var content = ReadExpandedSessionView();
-        Assert.Matches(@"class=""status-msgs""[^>]*\btitle=""[^""]+""", content);
+        Assert.Matches(@"class=""[^""]*\blog-msg-count\b[^""]*""[^>]*\btitle=""[^""]+""", content);
     }
 
     [Fact]

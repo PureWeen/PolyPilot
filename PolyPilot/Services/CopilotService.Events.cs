@@ -397,7 +397,8 @@ public partial class CopilotService
                 var completeCallId = toolDone.Data.ToolCallId ?? "";
                 var completeToolName = toolDone.Data?.GetType().GetProperty("ToolName")?.GetValue(toolDone.Data)?.ToString();
                 var resultStr = FormatToolResult(toolDone.Data!.Result);
-                if (DiffParser.TryExtractNumberedViewOutput(resultStr, out var normalizedViewOutput))
+                if (DiffParser.IsPlainTextViewTool(completeToolName) &&
+                    DiffParser.TryExtractNumberedViewOutput(resultStr, out var normalizedViewOutput))
                 {
                     resultStr = normalizedViewOutput;
                 }

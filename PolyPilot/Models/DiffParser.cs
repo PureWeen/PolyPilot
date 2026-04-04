@@ -32,6 +32,10 @@ public class DiffLine
 
 public static class DiffParser
 {
+    public static bool IsPlainTextViewTool(string? toolName) =>
+        string.Equals(toolName, "view", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(toolName, "read", StringComparison.OrdinalIgnoreCase);
+
     public static bool ShouldRenderDiffView(string? text, string? toolName)
     {
         if (TryExtractNumberedViewOutput(text, out _))
@@ -39,7 +43,7 @@ public static class DiffParser
 
         // `view`/Read tool results should stay as plain file reads even if the
         // content happens to contain unified-diff markers.
-        if (string.Equals(toolName, "view", StringComparison.OrdinalIgnoreCase))
+        if (IsPlainTextViewTool(toolName))
             return false;
 
         return LooksLikeUnifiedDiff(text);
@@ -128,15 +132,22 @@ public static class DiffParser
                 continue;
             }
 
-            // Handle standard unified diffs (no "diff --git" prefix).
-            // When we see "--- " without an active file, lookahead for "+++ ".
-            if (current == null && line.StartsWith("--- ") && i + 1 < lines.Length)
+            // Handle standard unified diffs (no "diff --git" prefix) and treat
+            // each fresh ---/+++ pair followed by a hunk header as a file boundary.
+            if (line.StartsWith("--- ", StringComparison.Ordinal) &&
+                i + 2 < lines.Length)
             {
                 var nextLine = lines[i + 1].TrimEnd('\r');
-                if (nextLine.StartsWith("+++ "))
+                var afterHeader = lines[i + 2].TrimEnd('\r');
+                if (nextLine.StartsWith("+++ ", StringComparison.Ordinal) &&
+                    afterHeader.StartsWith("@@", StringComparison.Ordinal))
                 {
-                    current = new DiffFile();
-                    files.Add(current);
+                    if (current == null || current.Hunks.Count > 0)
+                    {
+                        current = new DiffFile();
+                        files.Add(current);
+                    }
+
                     hunk = null;
 
                     var oldName = line[4..].Trim();
@@ -189,7 +200,7 @@ public static class DiffParser
                 current.FileName = line[10..];
                 continue;
             }
-            if (line.StartsWith("---") || line.StartsWith("+++") || line.StartsWith("index "))
+            if (line.StartsWith("index ", StringComparison.Ordinal))
                 continue;
 
             if (line.StartsWith("@@"))

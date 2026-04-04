@@ -173,6 +173,54 @@ public class DiffParserTests
     }
 
     [Fact]
+    public void Parse_StandardUnifiedDiff_MultipleFiles_ParsesAll()
+    {
+        var diff = """
+            --- a/a.cs
+            +++ b/a.cs
+            @@ -1 +1 @@
+            -old
+            +new
+            --- a/b.cs
+            +++ b/b.cs
+            @@ -1 +1 @@
+            -x
+            +y
+            """;
+
+        var files = DiffParser.Parse(diff);
+
+        Assert.Equal(2, files.Count);
+        Assert.Equal("a.cs", files[0].FileName);
+        Assert.Equal("b.cs", files[1].FileName);
+        Assert.Single(files[0].Hunks);
+        Assert.Single(files[1].Hunks);
+    }
+
+    [Fact]
+    public void Parse_HunkLinesThatLookLikeFileHeaders_ArePreserved()
+    {
+        var diff = """
+            diff --git a/script.sh b/script.sh
+            --- a/script.sh
+            +++ b/script.sh
+            @@ -1,3 +1,3 @@
+            ---- old flag
+            ++++ new flag
+             keep
+            """;
+
+        var files = DiffParser.Parse(diff);
+        var lines = files[0].Hunks[0].Lines;
+
+        Assert.Equal(3, lines.Count);
+        Assert.Equal(DiffLineType.Removed, lines[0].Type);
+        Assert.Equal("--- old flag", lines[0].Content);
+        Assert.Equal(DiffLineType.Added, lines[1].Type);
+        Assert.Equal("+++ new flag", lines[1].Content);
+    }
+
+    [Fact]
     public void Parse_SpecialHtmlCharacters_PreservedInContent()
     {
         // Verify the parser preserves raw HTML characters as-is.

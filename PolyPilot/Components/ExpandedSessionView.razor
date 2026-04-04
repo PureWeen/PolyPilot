@@ -343,7 +343,7 @@
             </div>
             <span class="status-bar-sep" aria-hidden="true"></span>
             <div class="input-status-primary">
-                <span class="log-label" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log <span class="log-msg-count">@Session.History.Count</span></span>
+                <span class="log-label" data-trigger="log-@EscapeForJs(Session.SessionId ?? "")" title="View session event log" @onclick="ShowLogPopup">Log <span class="log-msg-count" title="Total messages in this session">@Session.History.Count</span></span>
                 @if (availableSkills?.Count > 0)
                 {
                     <span class="status-bar-sep" aria-hidden="true"></span>
