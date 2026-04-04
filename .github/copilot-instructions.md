@@ -2,7 +2,22 @@
 
 ## SDK-First Development
 
-Before implementing new session lifecycle, orchestration, watchdog, or event handling code, check the Copilot SDK API surface. The `copilot-sdk-reference` skill has the complete v0.2.1 API reference (453 types, 76 events, 6 hooks, 16 RPC APIs). The `processing-state-safety` and `multi-agent-orchestration` skills each contain SDK migration matrices for their domains. Prefer SDK APIs over custom implementations. When custom code is necessary, add a `// SDK-gap: <reason>` comment explaining why. When updating the SDK NuGet package, re-evaluate all three skills.
+Before implementing new session lifecycle, orchestration, watchdog, or event handling code, check the Copilot SDK API surface. The `copilot-sdk-reference` skill has the complete v0.2.1 API reference (453 types, 76 events, 6 hooks, 16 RPC APIs). The `processing-state-safety` and `multi-agent-orchestration` skills each contain SDK migration matrices for their domains. Prefer SDK APIs over custom implementations. When custom code is necessary, add a `// SDK-gap: <reason>` comment explaining why.
+
+### SDK Update Audit (run when bumping `GitHub.Copilot.SDK` version)
+
+When the user says **"Run the SDK update audit"** or updates the SDK NuGet package version:
+
+1. **Diff the XML docs** to find new/removed/changed types:
+   ```bash
+   diff <(grep 'member name="T:' ~/.nuget/packages/github.copilot.sdk/OLD_VERSION/lib/net8.0/GitHub.Copilot.SDK.xml | sort) \
+        <(grep 'member name="T:' ~/.nuget/packages/github.copilot.sdk/NEW_VERSION/lib/net8.0/GitHub.Copilot.SDK.xml | sort)
+   ```
+2. **Update `.claude/skills/copilot-sdk-reference/SKILL.md`** — add new types, events, RPC APIs, hooks, SessionConfig properties. Update version number and version history table.
+3. **Re-check migration matrices** in `processing-state-safety` and `multi-agent-orchestration` skills — any "Not adopted" items now have better SDK support? Any new APIs that replace custom code?
+4. **Update `.github/copilot-instructions.md`** — SDK Event Flow, SDK Data Types, and any behavioral claims that changed.
+5. **Check for JS-only features that moved to .NET** — especially `AgentStop`/`SubagentStop` hooks.
+6. **Create a PR** with all changes and run the multi-model review process.
 
 ## Build & Deploy Commands
 
