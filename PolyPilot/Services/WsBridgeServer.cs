@@ -1518,15 +1518,29 @@ public class WsBridgeServer : IDisposable
         // Try worktree lookup first
         if (_repoManager != null && _copilot != null)
         {
-            var wtId = session.WorktreeId ?? _copilot.Organization.Sessions
-                .FirstOrDefault(m => m.SessionName == session.Name)?.WorktreeId;
+            // Snapshot Organization.Sessions — it's a plain List<T> mutated on the UI thread,
+            // but this method runs on ThreadPool threads (timer/WebSocket). ToList() avoids
+            // InvalidOperationException from concurrent modification.
+            var wtId = session.WorktreeId;
+            if (wtId == null)
+            {
+                try
+                {
+                    var sessionMetas = _copilot.Organization.Sessions.ToList();
+                    wtId = sessionMetas.FirstOrDefault(m => m.SessionName == session.Name)?.WorktreeId;
+                }
+                catch (InvalidOperationException) { /* concurrent modification — skip fallback */ }
+            }
             if (wtId != null)
             {
                 var prNum = _repoManager.Worktrees.FirstOrDefault(w => w.Id == wtId)?.PrNumber;
                 if (prNum.HasValue) return prNum;
             }
         }
-        // Fall back to PrLinkService cache (uses gh pr view, already cached on desktop)
+        // Fall back to PrLinkService cache (read-only, no fetch).
+        // Only populated after desktop has viewed the session's ExpandedSessionView,
+        // which calls PrLinkService.GetPrUrlForDirectoryAsync(). Cache TTL is 5 minutes.
+        // Sessions never opened on desktop will have no cached PR URL.
         if (_prLinkService != null && !string.IsNullOrEmpty(session.WorkingDirectory))
         {
             var url = _prLinkService.GetCachedPrUrl(session.WorkingDirectory);
