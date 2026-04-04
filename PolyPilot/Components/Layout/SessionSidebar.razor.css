@@ -5742,3 +5742,14 @@
     padding-left: 0.7rem;
     padding-right: 0.7rem;
 }
+
+/* Mobile flyout: force top-tools into flow so filter bar doesn't overlap session list.
+   Must use !important to win over the multiple position:absolute rules above. */
+.mobile-flyout-sidebar .sidebar-top-tools {
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    z-index: auto !important;
+    pointer-events: auto !important;
+}

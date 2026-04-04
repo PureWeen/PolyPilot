@@ -717,6 +717,7 @@
 }
 
 .mode-switcher { display: flex; background: var(--control-bg); border: 1px solid var(--control-border); border-radius: 6px; overflow: hidden; }
+.mode-select-mobile { display: none; }
 .mode-btn { all: unset; display: flex; align-items: center; gap: 0.2rem; padding: 0.1rem 0.35rem; font-size: var(--type-footnote); color: var(--text-dim); cursor: pointer; transition: all 0.15s ease; }
 .mode-btn:hover { color: var(--text-secondary); background: var(--hover-bg); }
 .mode-btn.active { color: var(--accent-primary); background: var(--hover-bg); }
@@ -836,13 +837,13 @@
     }
     .input-row {
         gap: 0;
-        padding: 0.2rem 0.5rem calc(0.34rem + var(--nav-bar-height, env(safe-area-inset-bottom, 0px)));
+        padding: 0.2rem 0.5rem 0.34rem;
     }
     .expanded-card .input-area textarea {
         font-size: var(--type-callout, 0.8rem);
         max-height: 30dvh;
-        min-height: 2.8rem;
-        padding: calc((2.8rem - 1.35em) / 2) 0.68rem;
+        min-height: 2.2rem;
+        padding: calc((2.2rem - 1.35em) / 2) 0.68rem;
     }
     .attach-btn,
     .mic-btn,
@@ -864,24 +865,43 @@
         height: 17px;
     }
     .input-status-bar {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr);
-        gap: 0.28rem;
-        padding: 0.14rem 0.5rem calc(0.46rem + var(--nav-bar-height, env(safe-area-inset-bottom, 0px)));
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.2rem 0.5rem;
+        padding: 0.14rem 0.5rem calc(0.3rem + var(--nav-bar-height, env(safe-area-inset-bottom, 0px)));
         overflow: visible;
     }
-    .mode-switcher {
-        width: fit-content;
-        max-width: 100%;
+    .input-status-bar > .status-bar-sep {
+        display: none;
     }
-    .input-status-primary,
+    .mode-switcher {
+        display: none;
+    }
+    .mode-select-mobile {
+        display: block;
+        all: unset;
+        display: block;
+        font-size: var(--type-footnote);
+        color: var(--accent-primary, #7c5cfc);
+        background: var(--control-bg);
+        border: 1px solid var(--control-border);
+        border-radius: 6px;
+        padding: 0.15rem 0.3rem;
+        cursor: pointer;
+    }
+    .mode-select-mobile option {
+        background: var(--bg-tertiary);
+        color: var(--text-primary);
+    }
+    .input-status-primary {
+        display: none;
+    }
     .input-status-secondary {
         display: flex;
-        gap: 0.34rem 0.7rem;
+        gap: 0.34rem 0.5rem;
         align-items: center;
-    }
-    .input-status-secondary {
-        justify-content: space-between;
+        margin-left: auto;
     }
     .inline-model-select {
         min-width: 0;
