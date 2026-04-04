@@ -47,6 +47,8 @@ public partial class CopilotService : IAsyncDisposable
         if (active) _recentTurnEndSessions[sessionName] = DateTime.UtcNow;
         else _recentTurnEndSessions.TryRemove(sessionName, out _);
     }
+    /// <summary>Test-only: simulate IsRestoring state for bridge queue tests.</summary>
+    internal void SetIsRestoringForTesting(bool value) => IsRestoring = value;
     // Sessions for which history has already been requested — prevents duplicate request storms
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
     // External session IDs currently being resumed — prevents duplicate SDK connections from rapid double-clicks

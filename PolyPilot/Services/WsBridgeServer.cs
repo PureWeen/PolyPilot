@@ -29,6 +29,8 @@ public class WsBridgeServer : IDisposable
     private readonly ConcurrentDictionary<string, WebSocket> _clients = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _clientSendLocks = new();
     private long _lastPairRequestAcceptedAtTicks = DateTime.MinValue.Ticks;
+    private readonly ConcurrentQueue<PendingBridgePrompt> _pendingBridgePrompts = new();
+    private record PendingBridgePrompt(string SessionName, string Message, string? AgentMode);
 
     // Debounce timers to prevent flooding mobile clients during streaming
     private Timer? _sessionsListDebounce;
@@ -273,6 +275,26 @@ public class WsBridgeServer : IDisposable
     public void SetPrLinkService(PrLinkService prLinkService)
     {
         _prLinkService ??= prLinkService;
+    }
+
+    /// <summary>
+    /// Replay bridge prompts that were queued during session restore.
+    /// Called by CopilotService after IsRestoring transitions to false.
+    /// </summary>
+    public async Task DrainPendingPromptsAsync()
+    {
+        while (_pendingBridgePrompts.TryDequeue(out var pending))
+        {
+            Console.WriteLine($"[BRIDGE] Replaying queued prompt for '{pending.SessionName}'");
+            try
+            {
+                await _copilot!.SendPromptAsync(pending.SessionName, pending.Message, agentMode: pending.AgentMode);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[BRIDGE] Failed to replay prompt for '{pending.SessionName}': {ex.Message}");
+            }
+        }
     }
 
     public void Stop()
@@ -826,6 +848,15 @@ public class WsBridgeServer : IDisposable
                         var sendSession = sendReq.SessionName;
                         var sendMessage = sendReq.Message;
                         var sendAgentMode = sendReq.AgentMode;
+
+                        // Queue prompts that arrive during session restore — they'd hit half-loaded sessions
+                        if (_copilot.IsRestoring)
+                        {
+                            _pendingBridgePrompts.Enqueue(new PendingBridgePrompt(sendSession, sendMessage, sendAgentMode));
+                            Console.WriteLine($"[BRIDGE] Queued prompt for '{sendSession}' during restore ({_pendingBridgePrompts.Count} pending)");
+                            break;
+                        }
+
                         // Check orchestrator routing and dispatch atomically on the UI thread.
                         // GetOrchestratorGroupId and SendToMultiAgentGroupAsync both read
                         // Organization.Sessions/Groups (plain List<T>, UI-thread-only).
