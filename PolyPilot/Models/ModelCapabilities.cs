@@ -272,7 +272,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         new GroupPreset(
             "PR Review Squad", "5 reviewers — each does multi-model consensus (Opus + Sonnet + Codex)",
             "📋", MultiAgentMode.Orchestrator,
-            "claude-opus-4.6", new[] { "claude-opus-4.6", "claude-opus-4.6", "claude-opus-4.6", "claude-opus-4.6", "claude-opus-4.6" })
+            "claude-opus-4.6-1m", new[] { "claude-opus-4.6-1m", "claude-opus-4.6-1m", "claude-opus-4.6-1m", "claude-opus-4.6-1m", "claude-opus-4.6-1m" })
         {
             WorkerSystemPrompts = new[]
             {
@@ -343,7 +343,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         new GroupPreset(
             "Implement & Challenge", "Implementer builds, challenger reviews — loop until solid",
             "⚔️", MultiAgentMode.OrchestratorReflect,
-            "claude-opus-4.6", new[] { "claude-sonnet-4.6", "claude-opus-4.6" })
+            "claude-opus-4.6-1m", new[] { "claude-sonnet-4.6", "claude-opus-4.6-1m" })
         {
             WorkerSystemPrompts = new[]
             {
@@ -437,7 +437,7 @@ You are the Challenger. Your job is to find real problems in the Implementer's w
         new GroupPreset(
             "Skill Validator", "Three-phase skill evaluation: generate evals → empirical A/B testing → prompt design review → orchestrator builds consensus",
             "⚖️", MultiAgentMode.OrchestratorReflect,
-            "claude-opus-4.6", new[] { "claude-sonnet-4.6", "claude-sonnet-4.6", "claude-sonnet-4.6" })
+            "claude-opus-4.6-1m", new[] { "claude-sonnet-4.6", "claude-sonnet-4.6", "claude-sonnet-4.6" })
         {
             WorkerSystemPrompts = new[]
             {

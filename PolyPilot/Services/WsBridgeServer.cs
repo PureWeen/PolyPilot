@@ -880,7 +880,8 @@ public class WsBridgeServer : IDisposable
                     var switchReq = msg.GetPayload<SwitchSessionPayload>();
                     if (switchReq != null)
                     {
-                        _copilot.SetActiveSession(switchReq.SessionName);
+                        // Don't switch the desktop's active session — mobile has its own view.
+                        // Only send history back to the requesting client.
                         BroadcastSessionsList();
                         await SendSessionHistoryToClient(clientId, ws, switchReq.SessionName, CopilotService.HistoryLimitForBridge, ct);
                     }

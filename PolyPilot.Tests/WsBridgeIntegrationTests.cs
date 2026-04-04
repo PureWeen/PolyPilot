@@ -1100,10 +1100,12 @@ public class WsBridgeIntegrationTests : IDisposable
         await WaitForAsync(() => client.Sessions.Count >= 2, cts.Token);
 
         await client.SwitchSessionAsync("switch-b", cts.Token);
-        await WaitForAsync(() => client.ActiveSessionName == "switch-b", cts.Token);
+        // Server should send history for switch-b but NOT change the desktop's active session.
+        // The client receives the sessions list broadcast — active session stays as-is on desktop.
+        await WaitForAsync(() => client.Sessions.Count >= 2, cts.Token);
 
-        // The server should have broadcast session list with updated active session
-        Assert.Equal("switch-b", client.ActiveSessionName);
+        // Desktop active session should NOT have changed (mobile switch is independent)
+        Assert.NotEqual("switch-b", _copilot.GetActiveSession()?.Name ?? "switch-b");
         client.Stop();
     }
 

@@ -130,6 +130,24 @@ public static class ModelHelper
     }
 
     /// <summary>
+    /// Resolves a preferred model against available models, falling back through alternatives.
+    /// For example, "claude-opus-4.6-1m" falls back to "claude-opus-4.6" if unavailable.
+    /// </summary>
+    public static string ResolvePreferredModel(string preferred, IReadOnlyList<string>? availableModels, params string[] fallbacks)
+    {
+        if (availableModels == null || availableModels.Count == 0)
+            return preferred;
+        if (availableModels.Contains(preferred, StringComparer.OrdinalIgnoreCase))
+            return preferred;
+        foreach (var fb in fallbacks)
+        {
+            if (availableModels.Contains(fb, StringComparer.OrdinalIgnoreCase))
+                return fb;
+        }
+        return preferred; // let SDK handle if nothing matches
+    }
+
+    /// <summary>
     /// Decide whether an observed SDK/CLI event model should replace the current session model.
     /// Preserve an explicit user-selected model when metrics events report a different backend
     /// model (for example after resume/abort flows that transiently report a default model).
