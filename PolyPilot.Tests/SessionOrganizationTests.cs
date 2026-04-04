@@ -2096,14 +2096,17 @@ public class GroupPresetTests
             Assert.Equal("claude-opus-4.6-1m", model);
 
         // Worker prompts must instruct multi-model sub-agent dispatch and adversarial consensus
+        // Model names should NOT appear — reviews refer to reviewers generically
         foreach (var prompt in prSquad.WorkerSystemPrompts)
         {
-            Assert.Contains("claude-opus-4.6", prompt);
-            Assert.Contains("claude-sonnet-4.6", prompt);
-            Assert.Contains("gpt-5.3-codex", prompt);
+            Assert.DoesNotContain("claude-opus-4.6", prompt);
+            Assert.DoesNotContain("claude-sonnet-4.6", prompt);
+            Assert.DoesNotContain("gpt-5.3-codex", prompt);
+            Assert.Contains("deep reasoning", prompt); // reviewer role descriptions instead
             Assert.Contains("task", prompt); // dispatch via task tool
             Assert.Contains("Adversarial Consensus", prompt);
             Assert.Contains("NEVER post more than one comment", prompt);
+            Assert.Contains("Never mention specific model names", prompt);
         }
 
         // Fix process must use merge, not rebase

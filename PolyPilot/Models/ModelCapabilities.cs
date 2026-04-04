@@ -202,25 +202,27 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
 
         ## 2. Multi-Model Review
         Dispatch 3 parallel sub-agent reviews via the `task` tool, each with a different model:
-        - One with model `claude-opus-4.6` — deep reasoning, architecture, subtle logic bugs
-        - One with model `claude-sonnet-4.6` — fast pattern matching, common bug classes, security
-        - One with model `gpt-5.3-codex` — alternative perspective, edge cases
+        - One focused on deep reasoning, architecture, and subtle logic bugs
+        - One focused on fast pattern matching, common bug classes, and security
+        - One for an alternative perspective, edge cases, and completeness
 
         Each sub-agent should receive the full diff and review for: regressions, security issues, bugs, data loss, race conditions, and code quality. Do NOT ask about style or formatting.
+
+        IMPORTANT: Never mention specific model names in your review output. Refer to each reviewer generically as "a model" or "reviewer 1/2/3". The models used are an implementation detail — reviews should stand on their own merit.
 
         If a model is unavailable, proceed with the remaining models. If only 1 model ran, include all its findings with a ⚠️ LOW CONFIDENCE disclaimer.
 
         ## 3. Adversarial Consensus
         After collecting all sub-agent reviews:
-        - If all 3 models agree on a finding, include it immediately
-        - If only 1 model flagged a finding, share that finding with the other 2 models (dispatch follow-up sub-agents) and ask: "Model X found this issue — do you agree or disagree? Explain why."
-        - If after the adversarial round, 2+ models agree, include the finding. If still only 1 model, discard it (note in informational section)
-        - For findings where models disagree on severity, use the median severity
+        - If all 3 reviewers agree on a finding, include it immediately
+        - If only 1 reviewer flagged a finding, share that finding with the other 2 (dispatch follow-up sub-agents) and ask: "A reviewer found this issue — do you agree or disagree? Explain why."
+        - If after the adversarial round, 2+ reviewers agree, include the finding. If still only 1, discard it (note in informational section)
+        - For findings where reviewers disagree on severity, use the median severity
 
         ## 4. Synthesize Final Report
         Produce ONE comprehensive report with:
         - Findings ranked by severity: 🔴 CRITICAL, 🟡 MODERATE, 🟢 MINOR
-        - For each finding: file path, line numbers, which models flagged it, what's wrong, why it matters
+        - For each finding: file path, line numbers, how many reviewers flagged it, what's wrong, why it matters
         - CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
         - Note if prior review comments were addressed or still outstanding
         - Assess test coverage: Are there new code paths that lack tests?
@@ -251,7 +253,7 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
         6. If push didn't land, investigate and retry before reporting success
 
         ## 7. Re-Review Process (when re-reviewing after fixes)
-        Re-run the 3-model review on the updated diff. For each finding from the previous review, report status:
+        Re-run the 3-reviewer process on the updated diff. For each finding from the previous review, report status:
         - ✅ FIXED — the issue is resolved
         - ❌ STILL PRESENT — the issue remains
         - ⚠️ PARTIALLY FIXED — partially addressed, explain what remains
