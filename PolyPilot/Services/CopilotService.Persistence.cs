@@ -1,5 +1,6 @@
 using System.Text.Json;
 using GitHub.Copilot.SDK;
+using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Models;
 
 namespace PolyPilot.Services;
@@ -513,6 +514,24 @@ public partial class CopilotService
 
             // Resume any pending orchestration dispatch interrupted by relaunch
             _ = ResumeOrchestrationIfPendingAsync(cancellationToken);
+
+            // Replay any bridge prompts that arrived during restore
+            var bridgeServer = _serviceProvider?.GetService<WsBridgeServer>();
+            if (bridgeServer != null)
+            {
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        await bridgeServer.DrainPendingPromptsAsync();
+                        // Second sweep after a short delay catches any prompts enqueued
+                        // in the narrow race window between IsRestoring=false and the first drain.
+                        await Task.Delay(500);
+                        await bridgeServer.DrainPendingPromptsAsync();
+                    }
+                    catch (Exception ex) { Console.WriteLine($"[BRIDGE] Error draining pending prompts: {ex.Message}"); }
+                });
+            }
         }
     }
 

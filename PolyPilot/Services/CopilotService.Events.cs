@@ -683,6 +683,17 @@ public partial class CopilotService
                         if (state.IsOrphaned) return;
                         FlushCurrentResponse(state);
 
+                        // Background tasks (sub-agents) behave like tool calls — they can run
+                        // for several minutes. HasUsedToolsThisTurn triggers the 180s watchdog tier
+                        // (not 120s default), which then falls through to Case B with HasDeferredIdle
+                        // extending the freshness window to 1800s. The session survives as long as
+                        // events.jsonl shows activity.
+                        if (!state.HasUsedToolsThisTurn)
+                        {
+                            state.HasUsedToolsThisTurn = true;
+                            state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName);
+                        }
+
                         // FIX #403: If IsProcessing was already cleared (by watchdog timeout,
                         // reconnect, or prior EVT-REARM cycle), re-arm it. Without this, the
                         // session appears done but background tasks are still running — the

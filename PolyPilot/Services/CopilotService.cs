@@ -47,6 +47,8 @@ public partial class CopilotService : IAsyncDisposable
         if (active) _recentTurnEndSessions[sessionName] = DateTime.UtcNow;
         else _recentTurnEndSessions.TryRemove(sessionName, out _);
     }
+    /// <summary>Test-only: simulate IsRestoring state for bridge queue tests.</summary>
+    internal void SetIsRestoringForTesting(bool value) => IsRestoring = value;
     // Sessions for which history has already been requested — prevents duplicate request storms
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
     // External session IDs currently being resumed — prevents duplicate SDK connections from rapid double-clicks
@@ -254,7 +256,8 @@ public partial class CopilotService : IAsyncDisposable
 
     public string DefaultModel { get; set; } = "claude-opus-4.6";
     public bool IsInitialized { get; private set; }
-    public bool IsRestoring { get; private set; }
+    private volatile bool _isRestoring;
+    public bool IsRestoring { get => _isRestoring; private set => _isRestoring = value; }
     public bool NeedsConfiguration { get; private set; }
     public bool IsRemoteMode { get; private set; }
     public bool IsBridgeConnected => _bridgeClient.IsConnected;
