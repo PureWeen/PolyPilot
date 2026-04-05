@@ -833,6 +833,10 @@
             if (lastSlash >= 0 && lastSlash < _prUrl.Length - 1)
                 _prLabel = "#" + _prUrl[(lastSlash + 1)..];
         }
+        else
+        {
+            _prLabel = "PR";
+        }
         try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
     }
 
@@ -992,12 +996,15 @@
         await JS.InvokeVoidAsync("eval", "window.__ppSetRef = window.__ppSetRef || function(r) { window.__ppRef = r; };");
         await JS.InvokeVoidAsync("__ppSetRef", _promptDotNetRef);
 
-        // Re-validate PR number for current branch (cache may be stale after branch switch)
+        // Re-validate PR number for current branch (fire-and-forget to avoid blocking popup).
+        // The user may have switched git branches without switching sessions, so the cached
+        // PR number could be stale. Invalidate and re-fetch in the background — the popup
+        // opens instantly with the current _prLabel and updates via StateHasChanged if it changes.
         var dir = Session.WorkingDirectory;
         if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(dir))
         {
             PrLinkService.Invalidate(dir);
-            await FetchPrUrlAsync(dir);
+            _ = FetchPrUrlAsync(dir);
         }
 
         var promptJson = System.Text.Json.JsonSerializer.Serialize(
