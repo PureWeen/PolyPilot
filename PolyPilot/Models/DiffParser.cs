@@ -320,16 +320,29 @@ public static class DiffParser
     /// <summary>
     /// Reconstructs the original (before) content from parsed diff hunks.
     /// Context + Removed lines form the original text.
+    /// Inserts blank placeholder lines for inter-hunk gaps to preserve line numbering.
     /// </summary>
     public static string ReconstructOriginal(DiffFile file)
     {
         var sb = new StringBuilder();
+        int currentLine = 1;
+
         foreach (var hunk in file.Hunks)
         {
+            // Fill gap between current position and hunk start with empty lines
+            while (currentLine < hunk.OldStart)
+            {
+                sb.AppendLine();
+                currentLine++;
+            }
+
             foreach (var line in hunk.Lines)
             {
                 if (line.Type == DiffLineType.Context || line.Type == DiffLineType.Removed)
+                {
                     sb.AppendLine(line.Content);
+                    currentLine++;
+                }
             }
         }
         return sb.ToString().TrimEnd('\r', '\n');
@@ -338,16 +351,29 @@ public static class DiffParser
     /// <summary>
     /// Reconstructs the modified (after) content from parsed diff hunks.
     /// Context + Added lines form the modified text.
+    /// Inserts blank placeholder lines for inter-hunk gaps to preserve line numbering.
     /// </summary>
     public static string ReconstructModified(DiffFile file)
     {
         var sb = new StringBuilder();
+        int currentLine = 1;
+
         foreach (var hunk in file.Hunks)
         {
+            // Fill gap between current position and hunk start with empty lines
+            while (currentLine < hunk.NewStart)
+            {
+                sb.AppendLine();
+                currentLine++;
+            }
+
             foreach (var line in hunk.Lines)
             {
                 if (line.Type == DiffLineType.Context || line.Type == DiffLineType.Added)
+                {
                     sb.AppendLine(line.Content);
+                    currentLine++;
+                }
             }
         }
         return sb.ToString().TrimEnd('\r', '\n');
