@@ -138,7 +138,8 @@ public partial class CopilotService
 
             // session.idle is ephemeral (never on disk). session.start can also be the only
             // on-disk event for a never-used session, so treat it as terminal on restore.
-            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown", "session.start" };
+            // "abort" means the user explicitly cancelled — the session is definitively not processing.
+            var terminalEvents = new[] { "session.idle", "session.error", "session.shutdown", "session.start", "abort" };
             if (terminalEvents.Contains(type)) return false;
 
             // Smart completion for assistant.message / assistant.turn_end: session.idle is not

@@ -155,6 +155,9 @@ public partial class CopilotService
     /// Merge active (in-memory) session entries with persisted (on-disk) entries.
     /// Persisted entries are kept if they aren't already active, weren't explicitly
     /// closed (by ID or display name), and their session directory still exists.
+    /// When a persisted entry has a name collision with an active entry that has a
+    /// DIFFERENT session ID, the persisted entry is kept under a renamed display
+    /// name to prevent data loss from session replacement.
     /// </summary>
     internal static List<ActiveSessionEntry> MergeSessionEntries(
         List<ActiveSessionEntry> active,
@@ -169,17 +172,52 @@ public partial class CopilotService
         // This stops persisted entries from shadowing active sessions after reconnect.
         // Persisted entries may still share names with each other.
         var activeNames = new HashSet<string>(active.Select(e => e.DisplayName).Where(n => n != null), StringComparer.OrdinalIgnoreCase);
+        // Track all merged display names to avoid collisions when renaming recovered entries
+        var allMergedNames = new HashSet<string>(activeNames, StringComparer.OrdinalIgnoreCase);
 
         foreach (var existing in persisted)
         {
             if (activeIds.Contains(existing.SessionId)) continue;
-            if (activeNames.Contains(existing.DisplayName)) continue;
             if (closedIds.Contains(existing.SessionId)) continue;
             if (closedNames.Contains(existing.DisplayName)) continue;
             if (!sessionDirExists(existing.SessionId)) continue;
 
-            merged.Add(existing);
-            activeIds.Add(existing.SessionId);
+            // Name collision: an active session has the same display name but a different
+            // session ID. This happens when a session is replaced (reconnect, lazy-resume
+            // fallback, etc.). Instead of silently dropping the persisted entry (losing its
+            // history), keep it under a unique name so the user can find it.
+            // NOTE: We clone the entry to avoid mutating the caller's persisted list.
+            var entryToAdd = existing;
+            if (activeNames.Contains(existing.DisplayName))
+            {
+                entryToAdd = new ActiveSessionEntry
+                {
+                    SessionId = existing.SessionId,
+                    DisplayName = existing.DisplayName,
+                    Model = existing.Model,
+                    ReasoningEffort = existing.ReasoningEffort,
+                    WorkingDirectory = existing.WorkingDirectory,
+                    LastPrompt = existing.LastPrompt,
+                    GroupId = existing.GroupId,
+                    TotalInputTokens = existing.TotalInputTokens,
+                    TotalOutputTokens = existing.TotalOutputTokens,
+                    ContextCurrentTokens = existing.ContextCurrentTokens,
+                    ContextTokenLimit = existing.ContextTokenLimit,
+                    PremiumRequestsUsed = existing.PremiumRequestsUsed,
+                    TotalApiTimeSeconds = existing.TotalApiTimeSeconds,
+                    CreatedAt = existing.CreatedAt,
+                    LastUpdatedAt = existing.LastUpdatedAt,
+                };
+                var recoveredName = $"{existing.DisplayName} (previous)";
+                var suffix = 2;
+                while (allMergedNames.Contains(recoveredName))
+                    recoveredName = $"{existing.DisplayName} (previous {suffix++})";
+                entryToAdd.DisplayName = recoveredName;
+            }
+
+            merged.Add(entryToAdd);
+            activeIds.Add(entryToAdd.SessionId);
+            allMergedNames.Add(entryToAdd.DisplayName);
         }
 
         return merged;
