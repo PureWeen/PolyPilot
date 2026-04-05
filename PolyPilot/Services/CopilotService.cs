@@ -3248,12 +3248,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             throw new InvalidOperationException("This session is waiting for its codespace to connect. Please wait for the green status dot.");
 
         if (state.Info.IsProcessing)
-            throw new InvalidOperationException("Session is already processing a request.");
+            throw new SessionBusyException(sessionName);
 
         // Atomic check-and-set to prevent TOCTOU race: two callers could both see
         // IsProcessing=false and both enter without this guard.
         if (Interlocked.CompareExchange(ref state.SendingFlag, 1, 0) != 0)
-            throw new InvalidOperationException("Session is already processing a request.");
+            throw new SessionBusyException(sessionName);
 
         // Lazy resume INSIDE the SendingFlag guard to prevent double-resume race:
         // without this, two rapid sends could both see Session==null and both call
@@ -5057,3 +5057,17 @@ public record QuotaInfo(
 
 public record SkillInfo(string Name, string Description, string Source);
 public record AgentInfo(string Name, string Description, string Source);
+
+/// <summary>
+/// Thrown when a session is already processing a request and cannot accept a new one.
+/// Typed exception allows callers to catch busy-session errors without fragile string matching.
+/// </summary>
+public class SessionBusyException : InvalidOperationException
+{
+    public SessionBusyException(string sessionName)
+        : base($"Session '{sessionName}' is already processing a request.")
+    {
+        SessionName = sessionName;
+    }
+    public string SessionName { get; }
+}

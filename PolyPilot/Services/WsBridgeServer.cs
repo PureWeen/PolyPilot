@@ -338,11 +338,21 @@ public class WsBridgeServer : IDisposable
                 }
             });
         }
-        catch (InvalidOperationException ex) when (ex.Message.Contains("already processing"))
+        catch (SessionBusyException)
         {
-            // Session is mid-turn — queue the message so it runs when the current turn completes
-            Console.WriteLine($"[WsBridge] '{sessionName}' busy, queuing mobile message for next turn");
-            _copilot!.EnqueueMessage(sessionName, message, agentMode: agentMode);
+            // Session is mid-turn — only queue for direct (non-orchestrated) sessions.
+            // Orchestrated sessions route through SendToMultiAgentGroupAsync which has
+            // its own busy handling; blindly queuing would bypass the orchestration pipeline.
+            var orchGroupId = _copilot.GetOrchestratorGroupId(sessionName);
+            if (orchGroupId != null)
+            {
+                Console.WriteLine($"[WsBridge] Orchestrator '{sessionName}' busy, dropping mobile message (retry manually)");
+            }
+            else
+            {
+                Console.WriteLine($"[WsBridge] '{sessionName}' busy, queuing mobile message for next turn");
+                _copilot!.EnqueueMessage(sessionName, message, agentMode: agentMode);
+            }
         }
     }
 

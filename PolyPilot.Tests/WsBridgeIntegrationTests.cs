@@ -322,7 +322,7 @@ public class WsBridgeIntegrationTests : IDisposable
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var client = await ConnectClientAsync(cts.Token);
 
-        await client.ChangeModelAsync("model-switch", "claude-sonnet-4-5", cts.Token);
+        await client.ChangeModelAsync("model-switch", "claude-sonnet-4-5", null, cts.Token);
         await WaitForAsync(() => _copilot.GetSession("model-switch")?.Model == "claude-sonnet-4-5", cts.Token);
 
         Assert.Equal("claude-sonnet-4-5", _copilot.GetSession("model-switch")!.Model);
@@ -337,7 +337,7 @@ public class WsBridgeIntegrationTests : IDisposable
         var client = await ConnectClientAsync(cts.Token);
 
         // Should not throw — server should handle gracefully
-        await client.ChangeModelAsync("no-such-session", "gpt-4.1", cts.Token);
+        await client.ChangeModelAsync("no-such-session", "gpt-4.1", null, cts.Token);
         await WaitForAsync(() => true, cts.Token, maxMs: 300);
         client.Stop();
     }
@@ -895,7 +895,7 @@ public class WsBridgeIntegrationTests : IDisposable
         string? errorMsg = null;
         client.OnError += (s, e) => errorMsg = e;
 
-        await client.ChangeModelAsync("model-busy", "claude-opus-4.6", cts.Token);
+        await client.ChangeModelAsync("model-busy", "claude-opus-4.6", null, cts.Token);
         await WaitForAsync(() => errorMsg != null, cts.Token);
 
         Assert.NotNull(errorMsg);
