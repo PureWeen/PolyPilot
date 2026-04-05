@@ -209,8 +209,9 @@ public partial class CopilotService
                     LastUpdatedAt = existing.LastUpdatedAt,
                 };
                 var recoveredName = $"{existing.DisplayName} (previous)";
+                var suffix = 2;
                 while (allMergedNames.Contains(recoveredName))
-                    recoveredName = $"{existing.DisplayName} ({existing.SessionId[..Math.Min(8, existing.SessionId.Length)]}-{allMergedNames.Count})";
+                    recoveredName = $"{existing.DisplayName} (previous {suffix++})";
                 entryToAdd.DisplayName = recoveredName;
             }
 
