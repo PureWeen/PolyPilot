@@ -19,12 +19,10 @@ public class AppDelegate : MauiUIApplicationDelegate
 		// held) and suspends the WebSocket bridge, causing mobile clients to see connection
 		// refused for the duration of the sleep window.
 		//
-		// Flags (per Apple NSProcessInfo.h, not in .NET Catalyst bindings):
-		//   0x00FFFFFF = NSActivityUserInitiated (prevents App Nap + user idle sleep)
-		//   0xFF00000000 = NSActivityLatencyCritical (prevents Maintenance Sleep / deep idle)
-		// Combined: 0xFF00FFFFFF
+		// UserInitiated   — prevents App Nap and user-idle system sleep
+		// LatencyCritical — prevents Maintenance Sleep and all deep-idle states
 		_activityToken = NSProcessInfo.ProcessInfo.BeginActivity(
-			(NSActivityOptions)0xFF00FFFFFF,
+			NSActivityOptions.UserInitiated | NSActivityOptions.LatencyCritical,
 			"PolyPilot manages Copilot CLI sessions and serves remote clients via WebSocket");
 
 		return result;
