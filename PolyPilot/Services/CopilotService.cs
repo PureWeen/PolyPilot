@@ -695,6 +695,15 @@ public partial class CopilotService : IAsyncDisposable
         /// session to restart processing on its own ("continued without me sending a message").
         /// Cleared by SendPromptAsync at the start of each new turn.</summary>
         public volatile bool WasUserAborted;
+        /// <summary>
+        /// UTC timestamp when IDLE-DEFER was first entered for the current turn (i.e., the first
+        /// SessionIdleEvent with active background tasks). Null until the first deferral.
+        /// Used by HasActiveBackgroundTasks to detect zombie subagents: if the session has been
+        /// stuck in IDLE-DEFER longer than SubagentZombieTimeoutMinutes, all reported background
+        /// agents are treated as zombies and the session is allowed to complete normally.
+        /// Cleared in CompleteResponse alongside HasDeferredIdle.
+        /// </summary>
+        public DateTime? SubagentDeferStartedAt;
     }
 
     private static void DisposePrematureIdleSignal(SessionState? state)

@@ -688,7 +688,10 @@ public partial class CopilotService
                 // KEY FIX: Check if the server reports active background tasks (sub-agents, shells).
                 // session.idle with background tasks means "foreground quiesced, background still running."
                 // Do NOT treat this as terminal — flush text and wait for the real idle.
-                if (HasActiveBackgroundTasks(idle))
+                // Record when we first entered IDLE-DEFER for this turn (used for zombie expiry).
+                state.SubagentDeferStartedAt ??= DateTime.UtcNow;
+
+                if (HasActiveBackgroundTasks(idle, state.SubagentDeferStartedAt))
                 {
                     state.HasDeferredIdle = true; // Track for watchdog freshness window
                     Debug($"[IDLE-DEFER] '{sessionName}' session.idle received with active background tasks — " +
@@ -1240,6 +1243,7 @@ public partial class CopilotService
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         state.HasDeferredIdle = false;
+        state.SubagentDeferStartedAt = null;
         state.IsReconnectedSend = false; // Clear reconnect flag on turn completion (defense-in-depth)
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -2129,15 +2133,48 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// How long a session can be stuck in IDLE-DEFER (background agents reported but never completing)
+    /// before all background agents are treated as zombies and the session is allowed to complete.
+    /// The Copilot CLI has no per-agent timeout, so a crashed or orphaned subagent blocks
+    /// IDLE-DEFER indefinitely. After this threshold PolyPilot expires the stale block.
+    /// Shells are never expired — they are managed at the OS level.
+    /// </summary>
+    internal const int SubagentZombieTimeoutMinutes = 20;
+
+    /// <summary>
     /// Check if a SessionIdleEvent reports active background tasks (agents or shells).
     /// When background tasks are active, session.idle means "foreground quiesced, background
     /// still running" — NOT true completion.
+    ///
+    /// When <paramref name="idleDeferStartedAt"/> is provided, background agents are treated as
+    /// zombies if the session has been in IDLE-DEFER longer than <see cref="SubagentZombieTimeoutMinutes"/>.
+    /// This allows the session to complete even if the CLI never fires SubagentCompleted for
+    /// a crashed or orphaned subagent.
+    /// Shells are never expired — their lifecycle is managed by the OS.
     /// </summary>
-    internal static bool HasActiveBackgroundTasks(SessionIdleEvent idle)
+    internal static bool HasActiveBackgroundTasks(
+        SessionIdleEvent idle,
+        DateTime? idleDeferStartedAt = null)
     {
         var bt = idle.Data?.BackgroundTasks;
         if (bt == null) return false;
-        return (bt.Agents is { Length: > 0 }) || (bt.Shells is { Length: > 0 });
+
+        bool hasAgents = bt.Agents is { Length: > 0 };
+
+        if (hasAgents && idleDeferStartedAt.HasValue)
+        {
+            var elapsed = DateTime.UtcNow - idleDeferStartedAt.Value;
+            if (elapsed.TotalMinutes >= SubagentZombieTimeoutMinutes)
+            {
+                Console.WriteLine(
+                    $"[IDLE-DEFER] Zombie expiry: {bt.Agents!.Length} background agent(s) still " +
+                    $"reported after {elapsed.TotalMinutes:F0}min in IDLE-DEFER " +
+                    $"(threshold={SubagentZombieTimeoutMinutes}min) — allowing session to complete");
+                hasAgents = false;
+            }
+        }
+
+        return hasAgents || (bt.Shells is { Length: > 0 });
     }
 
     private void StartProcessingWatchdog(SessionState state, string sessionName)
