@@ -19,41 +19,15 @@ import { markdown } from "@codemirror/lang-markdown";
 import { python } from "@codemirror/lang-python";
 import { xml } from "@codemirror/lang-xml";
 import { StreamLanguage } from "@codemirror/language";
-import { clike } from "@codemirror/legacy-modes/mode/clike";
+import { csharp as csharpMode } from "@codemirror/legacy-modes/mode/clike";
+import { shell as shellMode } from "@codemirror/legacy-modes/mode/shell";
 
-// C# language support via clike legacy mode
-const csharpLanguage = StreamLanguage.define(clike({
-  name: "csharp",
-  keywords: ("abstract as base break case catch checked class const continue " +
-    "default delegate do else enum event explicit extern finally fixed for " +
-    "foreach goto if implicit in interface internal is lock namespace new " +
-    "operator out override params private protected public readonly ref " +
-    "return sealed sizeof stackalloc static struct switch this throw try " +
-    "typeof unchecked unsafe using virtual void volatile while add get " +
-    "partial remove set value yield async await").split(" "),
-  types: ("Action Boolean Byte Char DateTime DateTimeOffset Decimal Double " +
-    "Func Guid Int16 Int32 Int64 Object SByte Single String Task TimeSpan " +
-    "UInt16 UInt32 UInt64 bool byte char decimal double dynamic float int " +
-    "long nint nuint object sbyte short string uint ulong ushort var").split(" "),
-  blockKeywords: ("catch class do else finally for foreach if struct switch try while").split(" "),
-  defKeywords: ("class interface namespace struct enum record").split(" "),
-  typeFirstDefinitions: true,
-  atoms: ("true false null").split(" "),
-  hooks: {
-    "@": function(stream) {
-      if (stream.eat('"')) {
-        stream.match(/^[^"]*"?/);
-        return "string";
-      }
-      stream.eatWhile(/[\w\$_]/);
-      return "meta";
-    }
-  }
-}));
+// Language support via legacy modes
+const csharpLanguage = StreamLanguage.define(csharpMode);
+const shellLanguage = StreamLanguage.define(shellMode);
 
-function csharp() {
-  return csharpLanguage;
-}
+function csharp() { return csharpLanguage; }
+function shell() { return shellLanguage; }
 
 // Map file extensions to language support
 function getLanguageForFile(filename) {
@@ -70,6 +44,7 @@ function getLanguageForFile(filename) {
     case 'md': case 'markdown': return [markdown()];
     case 'py': return [python()];
     case 'xml': case 'xaml': case 'csproj': case 'props': case 'targets': case 'sln': case 'slnx': return [xml()];
+    case 'sh': case 'bash': case 'zsh': return [shell()];
     default: return [];
   }
 }
