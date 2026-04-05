@@ -118,6 +118,34 @@ public class StuckSessionRecoveryTests
     }
 
     [Fact]
+    public void IsSessionStillProcessing_RecentFile_AbortEvent_ReturnsFalse()
+    {
+        var svc = CreateService();
+        var tmpDir = Path.Combine(Path.GetTempPath(), "polypilot-test-" + Guid.NewGuid().ToString("N"));
+        var sessionId = Guid.NewGuid().ToString();
+        var sessionDir = Path.Combine(tmpDir, sessionId);
+        Directory.CreateDirectory(sessionDir);
+        var eventsFile = Path.Combine(sessionDir, "events.jsonl");
+
+        try
+        {
+            File.WriteAllText(eventsFile,
+                """{"type":"session.resume","data":{}}""" + "\n" +
+                """{"type":"user.message","data":{"content":"test"}}""" + "\n" +
+                """{"type":"assistant.turn_start","data":{}}""" + "\n" +
+                """{"type":"abort","data":{"reason":"user initiated"}}""");
+
+            var result = svc.IsSessionStillProcessing(sessionId, tmpDir);
+
+            Assert.False(result, "events.jsonl ending with abort should not report still processing — user explicitly cancelled");
+        }
+        finally
+        {
+            Directory.Delete(tmpDir, true);
+        }
+    }
+
+    [Fact]
     public void IsSessionStillProcessing_MissingFile_ReturnsFalse()
     {
         var svc = CreateService();
