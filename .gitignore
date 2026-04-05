@@ -50,3 +50,6 @@ screenshot_*.png
 *.bmp
 *.tiff
 app.db
+
+# CodeMirror build artifacts
+PolyPilot/codemirror-src/node_modules/

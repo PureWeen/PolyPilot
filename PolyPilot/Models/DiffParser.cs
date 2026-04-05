@@ -316,4 +316,40 @@ public static class DiffParser
 
         return rows;
     }
+
+    /// <summary>
+    /// Reconstructs the original (before) content from parsed diff hunks.
+    /// Context + Removed lines form the original text.
+    /// </summary>
+    public static string ReconstructOriginal(DiffFile file)
+    {
+        var sb = new StringBuilder();
+        foreach (var hunk in file.Hunks)
+        {
+            foreach (var line in hunk.Lines)
+            {
+                if (line.Type == DiffLineType.Context || line.Type == DiffLineType.Removed)
+                    sb.AppendLine(line.Content);
+            }
+        }
+        return sb.ToString().TrimEnd('\r', '\n');
+    }
+
+    /// <summary>
+    /// Reconstructs the modified (after) content from parsed diff hunks.
+    /// Context + Added lines form the modified text.
+    /// </summary>
+    public static string ReconstructModified(DiffFile file)
+    {
+        var sb = new StringBuilder();
+        foreach (var hunk in file.Hunks)
+        {
+            foreach (var line in hunk.Lines)
+            {
+                if (line.Type == DiffLineType.Context || line.Type == DiffLineType.Added)
+                    sb.AppendLine(line.Content);
+            }
+        }
+        return sb.ToString().TrimEnd('\r', '\n');
+    }
 }

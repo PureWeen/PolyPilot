@@ -1,4 +1,7 @@
 @using PolyPilot.Models
+@using Microsoft.JSInterop
+@inject IJSRuntime JS
+@implements IAsyncDisposable
 
 @if (Files.Count == 0)
 {
@@ -9,6 +12,7 @@ else
     <div class="diff-viewer">
         @foreach (var file in Files)
         {
+            var fileIdx = Files.IndexOf(file);
             <div class="diff-file">
                 <div class="diff-file-header">
                     <span class="diff-file-badge @(file.IsNew ? "new" : file.IsDeleted ? "deleted" : file.IsRenamed ? "renamed" : "modified")">
@@ -30,37 +34,52 @@ else
                         @if (added > 0) { <span class="stat-add">+@added</span> }
                         @if (removed > 0) { <span class="stat-del">-@removed</span> }
                     </span>
+                    <span class="diff-view-toggle">
+                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(fileIdx, DiffViewMode.Table) == DiffViewMode.Table ? "active" : "")"
+                                @onclick="() => SetViewMode(fileIdx, DiffViewMode.Table)"
+                                title="Table view">Table</button>
+                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(fileIdx, DiffViewMode.Table) == DiffViewMode.Editor ? "active" : "")"
+                                @onclick="() => SetViewMode(fileIdx, DiffViewMode.Editor)"
+                                title="Editor view with syntax highlighting">Editor</button>
+                    </span>
                 </div>
                 @if (!file.IsDeleted || file.Hunks.Count > 0)
-                 {
-                     <div class="diff-panes">
-                         <table class="diff-table">
-                            <colgroup>
-                                <col class="diff-col-ln" />
-                                <col class="diff-col-code" />
-                                <col class="diff-col-ln" />
-                                <col class="diff-col-code" />
-                            </colgroup>
-                             @foreach (var hunk in file.Hunks)
-                             {
-                                 @if (!string.IsNullOrEmpty(hunk.Header))
-                                 {
-                                     <tr class="diff-hunk-header">
-                                        <td colspan="4" class="hunk-label">@hunk.Header</td>
-                                    </tr>
-                                 }
-                                 @foreach (var row in DiffParser.PairLines(hunk))
-                                 {
-                                    <tr class="diff-row">
-                                         <td class="diff-ln @(row.Left?.Type == DiffLineType.Removed ? "ln-del" : "")">@(row.Left?.OldLineNo?.ToString() ?? "")</td>
-                                         <td class="diff-code @(row.Left == null ? "diff-blank" : row.Left.Type == DiffLineType.Removed ? "diff-del" : "diff-ctx")"><pre>@(row.Left?.Content ?? "")</pre></td>
-                                         <td class="diff-ln @(row.Right?.Type == DiffLineType.Added ? "ln-add" : "")">@(row.Right?.NewLineNo?.ToString() ?? "")</td>
-                                         <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right?.Content ?? "")</pre></td>
-                                    </tr>
+                {
+                    @if (_viewModes.GetValueOrDefault(fileIdx, DiffViewMode.Table) == DiffViewMode.Editor)
+                    {
+                        <div class="diff-cm-container" id="cm-diff-@_instancePrefix-@fileIdx"></div>
+                    }
+                    else
+                    {
+                        <div class="diff-panes">
+                            <table class="diff-table">
+                                <colgroup>
+                                    <col class="diff-col-ln" />
+                                    <col class="diff-col-code" />
+                                    <col class="diff-col-ln" />
+                                    <col class="diff-col-code" />
+                                </colgroup>
+                                @foreach (var hunk in file.Hunks)
+                                {
+                                    @if (!string.IsNullOrEmpty(hunk.Header))
+                                    {
+                                        <tr class="diff-hunk-header">
+                                            <td colspan="4" class="hunk-label">@hunk.Header</td>
+                                        </tr>
+                                    }
+                                    @foreach (var row in DiffParser.PairLines(hunk))
+                                    {
+                                        <tr class="diff-row">
+                                            <td class="diff-ln @(row.Left?.Type == DiffLineType.Removed ? "ln-del" : "")">@(row.Left?.OldLineNo?.ToString() ?? "")</td>
+                                            <td class="diff-code @(row.Left == null ? "diff-blank" : row.Left.Type == DiffLineType.Removed ? "diff-del" : "diff-ctx")"><pre>@(row.Left?.Content ?? "")</pre></td>
+                                            <td class="diff-ln @(row.Right?.Type == DiffLineType.Added ? "ln-add" : "")">@(row.Right?.NewLineNo?.ToString() ?? "")</td>
+                                            <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right?.Content ?? "")</pre></td>
+                                        </tr>
+                                    }
                                 }
-                            }
-                        </table>
-                    </div>
+                            </table>
+                        </div>
+                    }
                 }
             </div>
         }
@@ -71,6 +90,11 @@ else
     [Parameter] public string RawDiff { get; set; } = "";
     private List<DiffFile> Files { get; set; } = new();
     private string? _lastRawDiff;
+    private readonly Dictionary<int, DiffViewMode> _viewModes = new();
+    private readonly Dictionary<int, int> _cmInstances = new();
+    private readonly string _instancePrefix = Guid.NewGuid().ToString("N")[..8];
+
+    private enum DiffViewMode { Table, Editor }
 
     protected override void OnParametersSet()
     {
@@ -78,7 +102,71 @@ else
         {
             _lastRawDiff = RawDiff;
             Files = DiffParser.Parse(RawDiff);
+            _ = DisposeAllCmInstancesAsync();
+            _viewModes.Clear();
+            _cmInstances.Clear();
         }
     }
 
+    private async void SetViewMode(int fileIdx, DiffViewMode mode)
+    {
+        _viewModes[fileIdx] = mode;
+        StateHasChanged();
+
+        if (mode == DiffViewMode.Editor)
+        {
+            await Task.Delay(50);
+            await InitCodeMirrorForFile(fileIdx);
+        }
+        else
+        {
+            await DisposeCmInstance(fileIdx);
+        }
+    }
+
+    private async Task InitCodeMirrorForFile(int fileIdx)
+    {
+        if (fileIdx >= Files.Count) return;
+        var file = Files[fileIdx];
+        var containerId = $"cm-diff-{_instancePrefix}-{fileIdx}";
+        var original = DiffParser.ReconstructOriginal(file);
+        var modified = DiffParser.ReconstructModified(file);
+
+        try
+        {
+            var instanceId = await JS.InvokeAsync<int>(
+                "PolyPilotCodeMirror.createMergeView",
+                containerId, original, modified, file.FileName);
+
+            if (instanceId >= 0)
+                _cmInstances[fileIdx] = instanceId;
+        }
+        catch
+        {
+            // CodeMirror bundle may not be loaded — fall back silently
+        }
+    }
+
+    private async Task DisposeCmInstance(int fileIdx)
+    {
+        if (_cmInstances.TryGetValue(fileIdx, out var instanceId))
+        {
+            try { await JS.InvokeVoidAsync("PolyPilotCodeMirror.dispose", instanceId); } catch { }
+            _cmInstances.Remove(fileIdx);
+        }
+    }
+
+    private async Task DisposeAllCmInstancesAsync()
+    {
+        foreach (var instanceId in _cmInstances.Values)
+        {
+            try { await JS.InvokeVoidAsync("PolyPilotCodeMirror.dispose", instanceId); } catch { }
+        }
+        _cmInstances.Clear();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await DisposeAllCmInstancesAsync();
+    }
 }
