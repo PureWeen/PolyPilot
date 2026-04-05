@@ -340,19 +340,28 @@ public class WsBridgeServer : IDisposable
         }
         catch (SessionBusyException)
         {
-            // Session is mid-turn — only queue for direct (non-orchestrated) sessions.
-            // Orchestrated sessions route through SendToMultiAgentGroupAsync which has
-            // its own busy handling; blindly queuing would bypass the orchestration pipeline.
-            var orchGroupId = _copilot.GetOrchestratorGroupId(sessionName);
-            if (orchGroupId != null)
+            // Session is mid-turn — route the busy-handling on the UI thread because
+            // GetOrchestratorGroupId reads Organization.Sessions/Groups (plain List<T>,
+            // UI-thread-only). EnqueueMessage itself is thread-safe but we keep the
+            // entire decision + action atomic on one thread.
+            await _copilot!.InvokeOnUIAsync(() =>
             {
-                Console.WriteLine($"[WsBridge] Orchestrator '{sessionName}' busy, dropping mobile message (retry manually)");
-            }
-            else
-            {
-                Console.WriteLine($"[WsBridge] '{sessionName}' busy, queuing mobile message for next turn");
-                _copilot!.EnqueueMessage(sessionName, message, agentMode: agentMode);
-            }
+                var orchGroupId = _copilot.GetOrchestratorGroupId(sessionName);
+                if (orchGroupId != null)
+                {
+                    // Orchestrated sessions route through SendToMultiAgentGroupAsync which has
+                    // its own busy handling; blindly queuing would bypass the orchestration pipeline.
+                    Console.WriteLine($"[WsBridge] Orchestrator '{sessionName}' busy, dropping mobile message (retry manually)");
+                    Broadcast(BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
+                        new ErrorPayload { SessionName = sessionName, Error = "Session is busy processing a request. Please retry when the current turn completes." }));
+                }
+                else
+                {
+                    Console.WriteLine($"[WsBridge] '{sessionName}' busy, queuing mobile message for next turn");
+                    _copilot.EnqueueMessage(sessionName, message, agentMode: agentMode);
+                }
+                return Task.CompletedTask;
+            });
         }
     }
 

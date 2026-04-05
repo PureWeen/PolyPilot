@@ -227,4 +227,51 @@ public class BridgePromptQueueTests : IDisposable
 
         Assert.Contains(session!.History, m => m.Role == "user" && m.Content.Contains("Normal message"));
     }
+
+    // ========== BUSY SESSION QUEUEING ==========
+
+    [Fact]
+    public async Task SendMessage_WhenSessionBusy_DirectSessionQueuesMessage()
+    {
+        // Demo mode bypasses IsProcessing checks (early return in SendPromptAsync),
+        // so we test the busy-queueing logic directly: EnqueueMessage is safe and works
+        // when a session is in processing state.
+        await InitDemoMode();
+        await _copilot.CreateSessionAsync("busy-test", "gpt-4.1");
+
+        var session = _copilot.GetSession("busy-test")!;
+        session.IsProcessing = true;
+
+        // EnqueueMessage should work regardless of IsProcessing state
+        _copilot.EnqueueMessage("busy-test", "Queued while busy", agentMode: "agent");
+
+        Assert.Equal(1, session.MessageQueue.Count);
+        var queued = session.MessageQueue.TryDequeue();
+        Assert.Equal("Queued while busy", queued);
+    }
+
+    [Fact]
+    public void SessionBusyException_InheritsFromInvalidOperationException()
+    {
+        var ex = new SessionBusyException("test-session");
+        Assert.IsAssignableFrom<InvalidOperationException>(ex);
+        Assert.Equal("test-session", ex.SessionName);
+        Assert.Contains("test-session", ex.Message);
+        Assert.Contains("already processing", ex.Message);
+    }
+
+    [Fact]
+    public void SessionBusyException_CaughtByInvalidOperationExceptionHandler()
+    {
+        // Verify backward compatibility: existing catch(InvalidOperationException) still works
+        try
+        {
+            throw new SessionBusyException("compat-test");
+        }
+        catch (InvalidOperationException ex)
+        {
+            Assert.IsType<SessionBusyException>(ex);
+            Assert.Contains("compat-test", ex.Message);
+        }
+    }
 }
