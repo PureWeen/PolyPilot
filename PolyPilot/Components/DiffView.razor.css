@@ -155,3 +155,55 @@
     border-top: 1px solid var(--control-border, rgba(255,255,255,0.06));
     border-bottom: 1px solid var(--control-border, rgba(255,255,255,0.06));
 }
+
+/* Toggle buttons for Table/Editor view */
+.diff-view-toggle {
+    display: flex;
+    gap: 1px;
+    margin-left: auto;
+    background: var(--control-border, rgba(255,255,255,0.1));
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.toggle-btn {
+    background: var(--bg-secondary, rgba(255,255,255,0.03));
+    color: var(--text-dim, rgba(200,216,240,0.5));
+    border: none;
+    padding: 0.15rem 0.5rem;
+    font-size: var(--type-caption1, 0.6rem);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: var(--font-base);
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.toggle-btn:hover {
+    color: var(--text-primary, #c8d8f0);
+    background: rgba(255,255,255,0.06);
+}
+
+.toggle-btn.active {
+    background: var(--accent-primary, #4ea8d1);
+    color: #fff;
+}
+
+/* CodeMirror merge view container */
+.diff-cm-container {
+    min-height: 100px;
+    max-height: 600px;
+    overflow: auto;
+}
+
+::deep .diff-cm-container .cm-mergeView {
+    border-radius: 0 0 8px 8px;
+}
+
+::deep .diff-cm-container .cm-editor {
+    max-height: 600px;
+}
+
+::deep .diff-cm-container .cm-scroller {
+    overflow: auto;
+}

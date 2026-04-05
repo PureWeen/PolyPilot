@@ -363,4 +363,71 @@ public class DiffParserTests
         Assert.Equal("List<string> items = new List<string>();", lines[0].Content);
         Assert.Equal("Dictionary<string, int> items = new Dictionary<string, int>();", lines[1].Content);
     }
+
+    [Fact]
+    public void ReconstructOriginal_ReturnsContextAndRemovedLines()
+    {
+        var diff = """
+            diff --git a/test.cs b/test.cs
+            --- a/test.cs
+            +++ b/test.cs
+            @@ -1,4 +1,4 @@
+             using System;
+            -Console.WriteLine("Hello");
+            +Console.WriteLine("World");
+             return 0;
+            """;
+        var files = DiffParser.Parse(diff);
+        var original = DiffParser.ReconstructOriginal(files[0]);
+
+        Assert.Contains("using System;", original);
+        Assert.Contains("Console.WriteLine(\"Hello\")", original);
+        Assert.DoesNotContain("Console.WriteLine(\"World\")", original);
+        Assert.Contains("return 0;", original);
+    }
+
+    [Fact]
+    public void ReconstructModified_ReturnsContextAndAddedLines()
+    {
+        var diff = """
+            diff --git a/test.cs b/test.cs
+            --- a/test.cs
+            +++ b/test.cs
+            @@ -1,4 +1,4 @@
+             using System;
+            -Console.WriteLine("Hello");
+            +Console.WriteLine("World");
+             return 0;
+            """;
+        var files = DiffParser.Parse(diff);
+        var modified = DiffParser.ReconstructModified(files[0]);
+
+        Assert.Contains("using System;", modified);
+        Assert.DoesNotContain("Console.WriteLine(\"Hello\")", modified);
+        Assert.Contains("Console.WriteLine(\"World\")", modified);
+        Assert.Contains("return 0;", modified);
+    }
+
+    [Fact]
+    public void ReconstructOriginalAndModified_NewFile_ModifiedHasAllLines()
+    {
+        var diff = """
+            diff --git a/new.txt b/new.txt
+            new file mode 100644
+            --- /dev/null
+            +++ b/new.txt
+            @@ -0,0 +1,3 @@
+            +line 1
+            +line 2
+            +line 3
+            """;
+        var files = DiffParser.Parse(diff);
+        var original = DiffParser.ReconstructOriginal(files[0]);
+        var modified = DiffParser.ReconstructModified(files[0]);
+
+        Assert.Equal("", original);
+        Assert.Contains("line 1", modified);
+        Assert.Contains("line 2", modified);
+        Assert.Contains("line 3", modified);
+    }
 }
