@@ -688,7 +688,27 @@ public partial class CopilotService
                 // KEY FIX: Check if the server reports active background tasks (sub-agents, shells).
                 // session.idle with background tasks means "foreground quiesced, background still running."
                 // Do NOT treat this as terminal — flush text and wait for the real idle.
-                if (HasActiveBackgroundTasks(idle))
+                // Record when we first entered IDLE-DEFER for this turn (used for zombie expiry).
+                // CompareExchange(0 → now): sets only on the first IDLE-DEFER; subsequent ones
+                // for the same turn preserve the original timestamp so elapsed time is cumulative.
+                Interlocked.CompareExchange(
+                    ref state.SubagentDeferStartedAtTicks,
+                    DateTime.UtcNow.Ticks,
+                    0L);
+
+                var deferTicks = Interlocked.Read(ref state.SubagentDeferStartedAtTicks);
+                var hasActiveTasks = HasActiveBackgroundTasks(idle, deferTicks);
+
+                // Log zombie expiry here where Debug() is available (HasActiveBackgroundTasks is static)
+                if (!hasActiveTasks && deferTicks != 0 && (idle.Data?.BackgroundTasks?.Agents?.Length ?? 0) > 0)
+                {
+                    var expiredMinutes = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - deferTicks).TotalMinutes;
+                    Debug($"[IDLE-DEFER-ZOMBIE] '{sessionName}' {idle.Data!.BackgroundTasks!.Agents!.Length} " +
+                          $"background agent(s) expired after {expiredMinutes:F0}min " +
+                          $"(threshold={SubagentZombieTimeoutMinutes}min) — allowing session to complete");
+                }
+
+                if (hasActiveTasks)
                 {
                     state.HasDeferredIdle = true; // Track for watchdog freshness window
                     Debug($"[IDLE-DEFER] '{sessionName}' session.idle received with active background tasks — " +
@@ -885,6 +905,7 @@ public partial class CopilotService
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 state.HasDeferredIdle = false;
+                Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
                 Interlocked.Exchange(ref state.EventCountThisTurn, 0);
@@ -1240,6 +1261,7 @@ public partial class CopilotService
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
         state.HasDeferredIdle = false;
+        Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
         state.IsReconnectedSend = false; // Clear reconnect flag on turn completion (defense-in-depth)
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -1989,6 +2011,7 @@ public partial class CopilotService
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
             state.HasUsedToolsThisTurn = false;
             state.HasDeferredIdle = false;
+            Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
             state.FallbackCanceledByTurnStart = false;
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
@@ -2129,15 +2152,43 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// How long a session can be stuck in IDLE-DEFER (background agents reported but never completing)
+    /// before all background agents are treated as zombies and the session is allowed to complete.
+    /// The Copilot CLI has no per-agent timeout, so a crashed or orphaned subagent blocks
+    /// IDLE-DEFER indefinitely. After this threshold PolyPilot expires the stale block.
+    /// Shells are never expired — they are managed at the OS level.
+    /// </summary>
+    internal const int SubagentZombieTimeoutMinutes = 20;
+
+    /// <summary>
     /// Check if a SessionIdleEvent reports active background tasks (agents or shells).
     /// When background tasks are active, session.idle means "foreground quiesced, background
     /// still running" — NOT true completion.
+    ///
+    /// When <paramref name="idleDeferStartedAtTicks"/> is non-zero, background agents are treated
+    /// as zombies if the session has been in IDLE-DEFER longer than
+    /// <see cref="SubagentZombieTimeoutMinutes"/>. This allows the session to complete even if
+    /// the CLI never fires SubagentCompleted for a crashed or orphaned subagent.
+    /// The caller is responsible for logging the zombie expiry via <c>Debug()</c>.
+    /// Shells are never expired — their lifecycle is managed by the OS.
     /// </summary>
-    internal static bool HasActiveBackgroundTasks(SessionIdleEvent idle)
+    internal static bool HasActiveBackgroundTasks(
+        SessionIdleEvent idle,
+        long idleDeferStartedAtTicks = 0)
     {
         var bt = idle.Data?.BackgroundTasks;
         if (bt == null) return false;
-        return (bt.Agents is { Length: > 0 }) || (bt.Shells is { Length: > 0 });
+
+        bool hasAgents = bt.Agents is { Length: > 0 };
+
+        if (hasAgents && idleDeferStartedAtTicks != 0)
+        {
+            var elapsed = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - idleDeferStartedAtTicks);
+            if (elapsed.TotalMinutes >= SubagentZombieTimeoutMinutes)
+                hasAgents = false;
+        }
+
+        return hasAgents || (bt.Shells is { Length: > 0 });
     }
 
     private void StartProcessingWatchdog(SessionState state, string sessionName)
@@ -2563,6 +2614,7 @@ public partial class CopilotService
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
                         state.HasDeferredIdle = false;
+                        Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                         Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
                         Interlocked.Exchange(ref state.EventCountThisTurn, 0);
@@ -2662,6 +2714,7 @@ public partial class CopilotService
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                     state.HasUsedToolsThisTurn = false;
                     state.HasDeferredIdle = false;
+                    Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
                     Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                     Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
                     Interlocked.Exchange(ref state.EventCountThisTurn, 0);
@@ -2718,6 +2771,7 @@ public partial class CopilotService
             state.Info.IsResumed = false;
             state.HasUsedToolsThisTurn = false;
             state.HasDeferredIdle = false;
+            Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
             Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
@@ -2818,6 +2872,7 @@ public partial class CopilotService
             // Clear stale tool flag so watchdog uses normal timeout if resend is skipped
             newState.HasUsedToolsThisTurn = false;
             newState.HasDeferredIdle = false;
+            newState.SubagentDeferStartedAtTicks = 0L; // redundant (default), but explicit companion pair
 
             // Replace in sessions dictionary BEFORE registering event handler
             // so HandleSessionEvent's isCurrentState check passes for the new state.
@@ -2856,6 +2911,7 @@ public partial class CopilotService
                 state.Info.IsResumed = false;
                 state.HasUsedToolsThisTurn = false;
                 state.HasDeferredIdle = false;
+                Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
