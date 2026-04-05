@@ -186,44 +186,40 @@ public partial class CopilotService
             // session ID. This happens when a session is replaced (reconnect, lazy-resume
             // fallback, etc.). Instead of silently dropping the persisted entry (losing its
             // history), keep it under a unique name so the user can find it.
+            // NOTE: We clone the entry to avoid mutating the caller's persisted list.
+            var entryToAdd = existing;
             if (activeNames.Contains(existing.DisplayName))
             {
+                entryToAdd = new ActiveSessionEntry
+                {
+                    SessionId = existing.SessionId,
+                    DisplayName = existing.DisplayName,
+                    Model = existing.Model,
+                    ReasoningEffort = existing.ReasoningEffort,
+                    WorkingDirectory = existing.WorkingDirectory,
+                    LastPrompt = existing.LastPrompt,
+                    GroupId = existing.GroupId,
+                    TotalInputTokens = existing.TotalInputTokens,
+                    TotalOutputTokens = existing.TotalOutputTokens,
+                    ContextCurrentTokens = existing.ContextCurrentTokens,
+                    ContextTokenLimit = existing.ContextTokenLimit,
+                    PremiumRequestsUsed = existing.PremiumRequestsUsed,
+                    TotalApiTimeSeconds = existing.TotalApiTimeSeconds,
+                    CreatedAt = existing.CreatedAt,
+                    LastUpdatedAt = existing.LastUpdatedAt,
+                };
                 var recoveredName = $"{existing.DisplayName} (previous)";
-                if (allMergedNames.Contains(recoveredName))
-                    recoveredName = $"{existing.DisplayName} ({existing.SessionId[..Math.Min(8, existing.SessionId.Length)]})";
-                existing.DisplayName = recoveredName;
+                while (allMergedNames.Contains(recoveredName))
+                    recoveredName = $"{existing.DisplayName} ({existing.SessionId[..Math.Min(8, existing.SessionId.Length)]}-{allMergedNames.Count})";
+                entryToAdd.DisplayName = recoveredName;
             }
 
-            merged.Add(existing);
-            activeIds.Add(existing.SessionId);
-            allMergedNames.Add(existing.DisplayName);
+            merged.Add(entryToAdd);
+            activeIds.Add(entryToAdd.SessionId);
+            allMergedNames.Add(entryToAdd.DisplayName);
         }
 
         return merged;
-    }
-
-    /// <summary>
-    /// Heuristic to detect orchestrated worker/evaluator sessions that shouldn't
-    /// be auto-recovered (they're meaningless without their parent orchestration).
-    /// </summary>
-    internal static bool IsLikelyWorkerSession(string? branch, string? summary)
-    {
-        if (!string.IsNullOrEmpty(branch))
-        {
-            if (branch.Contains("-worker-", StringComparison.OrdinalIgnoreCase) ||
-                branch.Contains("-orchestrator-", StringComparison.OrdinalIgnoreCase) ||
-                branch.Contains("evaluator", StringComparison.OrdinalIgnoreCase) ||
-                branch.StartsWith("Skill-Validator", StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        if (!string.IsNullOrEmpty(summary))
-        {
-            if (summary.StartsWith("You are the Implementer", StringComparison.OrdinalIgnoreCase) ||
-                summary.StartsWith("You are the Challenger", StringComparison.OrdinalIgnoreCase) ||
-                summary.StartsWith("You are a PR reviewer", StringComparison.OrdinalIgnoreCase))
-                return true;
-        }
-        return false;
     }
 
     /// <summary>

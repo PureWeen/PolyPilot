@@ -1671,42 +1671,4 @@ public class SessionPersistenceTests
         Assert.Single(result);
         Assert.Equal("new-id", result[0].SessionId);
     }
-
-    // --- IsLikelyWorkerSession ---
-
-    [Fact]
-    public void IsLikelyWorkerSession_WorkerBranch_ReturnsTrue()
-    {
-        Assert.True(CopilotService.IsLikelyWorkerSession("Implement---Challenge-worker-1-abc1", null));
-        Assert.True(CopilotService.IsLikelyWorkerSession("Implement---Challenge-orchestrator-5b44", null));
-        Assert.True(CopilotService.IsLikelyWorkerSession("Skill-Validator-worker-2-9671", null));
-    }
-
-    [Fact]
-    public void IsLikelyWorkerSession_EvaluatorBranch_ReturnsTrue()
-    {
-        Assert.True(CopilotService.IsLikelyWorkerSession("evaluator-session-1", null));
-    }
-
-    [Fact]
-    public void IsLikelyWorkerSession_OrchestratorSummary_ReturnsTrue()
-    {
-        Assert.True(CopilotService.IsLikelyWorkerSession(null, "You are the Implementer. Your job is to write correct code."));
-        Assert.True(CopilotService.IsLikelyWorkerSession(null, "You are the Challenger. Your job is to find bugs."));
-        Assert.True(CopilotService.IsLikelyWorkerSession(null, "You are a PR reviewer. When assigned a PR..."));
-    }
-
-    [Fact]
-    public void IsLikelyWorkerSession_NormalSession_ReturnsFalse()
-    {
-        Assert.False(CopilotService.IsLikelyWorkerSession("fix/model-1m-slug", "fix the PR number display"));
-        Assert.False(CopilotService.IsLikelyWorkerSession("main", "can you analyze the copilot cli?"));
-        Assert.False(CopilotService.IsLikelyWorkerSession(null, null));
-    }
-
-    [Fact]
-    public void IsLikelyWorkerSession_SkillValidatorBranch_ReturnsTrue()
-    {
-        Assert.True(CopilotService.IsLikelyWorkerSession("Skill-Validator-worker-3-78c9", null));
-    }
 }
