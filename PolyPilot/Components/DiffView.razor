@@ -10,9 +10,10 @@
 else
 {
     <div class="diff-viewer">
-        @foreach (var file in Files)
+        @for (var fileIdx = 0; fileIdx < Files.Count; fileIdx++)
         {
-            var fileIdx = Files.IndexOf(file);
+            var file = Files[fileIdx];
+            var capturedIdx = fileIdx;
             <div class="diff-file">
                 <div class="diff-file-header">
                     <span class="diff-file-badge @(file.IsNew ? "new" : file.IsDeleted ? "deleted" : file.IsRenamed ? "renamed" : "modified")">
@@ -35,19 +36,19 @@ else
                         @if (removed > 0) { <span class="stat-del">-@removed</span> }
                     </span>
                     <span class="diff-view-toggle">
-                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(fileIdx, DiffViewMode.Table) == DiffViewMode.Table ? "active" : "")"
-                                @onclick="() => SetViewMode(fileIdx, DiffViewMode.Table)"
+                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(capturedIdx, DiffViewMode.Table) == DiffViewMode.Table ? "active" : "")"
+                                @onclick="() => SetViewMode(capturedIdx, DiffViewMode.Table)"
                                 title="Table view">Table</button>
-                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(fileIdx, DiffViewMode.Table) == DiffViewMode.Editor ? "active" : "")"
-                                @onclick="() => SetViewMode(fileIdx, DiffViewMode.Editor)"
+                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(capturedIdx, DiffViewMode.Table) == DiffViewMode.Editor ? "active" : "")"
+                                @onclick="() => SetViewMode(capturedIdx, DiffViewMode.Editor)"
                                 title="Editor view with syntax highlighting">Editor</button>
                     </span>
                 </div>
                 @if (!file.IsDeleted || file.Hunks.Count > 0)
                 {
-                    @if (_viewModes.GetValueOrDefault(fileIdx, DiffViewMode.Table) == DiffViewMode.Editor)
+                    @if (_viewModes.GetValueOrDefault(capturedIdx, DiffViewMode.Table) == DiffViewMode.Editor)
                     {
-                        <div class="diff-cm-container" id="cm-diff-@_instancePrefix-@fileIdx"></div>
+                        <div class="diff-cm-container" id="cm-diff-@_instancePrefix-@capturedIdx"></div>
                     }
                     else
                     {
@@ -94,6 +95,8 @@ else
     private readonly Dictionary<int, int> _cmInstances = new();
     private readonly HashSet<int> _pendingEditorInit = new();
     private readonly string _instancePrefix = Guid.NewGuid().ToString("N")[..8];
+    private int _generation;
+    private bool _disposed;
 
     private enum DiffViewMode { Table, Editor }
 
@@ -103,10 +106,15 @@ else
         {
             _lastRawDiff = RawDiff;
             Files = DiffParser.Parse(RawDiff);
-            _ = DisposeAllCmInstancesAsync();
+            _generation++;
+
+            // Snapshot IDs before clearing so fire-and-forget only disposes these exact instances
+            var idsToDispose = _cmInstances.Values.ToArray();
             _viewModes.Clear();
             _cmInstances.Clear();
             _pendingEditorInit.Clear();
+
+            _ = DisposeJsInstancesByIdAsync(idsToDispose);
         }
     }
 
@@ -116,12 +124,17 @@ else
         {
             _viewModes[fileIdx] = mode;
             _pendingEditorInit.Add(fileIdx);
-            // StateHasChanged triggers OnAfterRenderAsync where we init CM
         }
         else
         {
             _viewModes[fileIdx] = mode;
-            _ = DisposeCmInstance(fileIdx);
+            _pendingEditorInit.Remove(fileIdx);
+
+            // Snapshot and remove before the async JS call
+            if (_cmInstances.Remove(fileIdx, out var instanceId))
+            {
+                _ = DisposeJsInstancesByIdAsync(new[] { instanceId });
+            }
         }
     }
 
@@ -142,6 +155,11 @@ else
     private async Task InitCodeMirrorForFile(int fileIdx)
     {
         if (fileIdx >= Files.Count) return;
+
+        // Double-init guard: if an instance already exists for this file, skip
+        if (_cmInstances.ContainsKey(fileIdx)) return;
+
+        var gen = _generation;
         var file = Files[fileIdx];
         var containerId = $"cm-diff-{_instancePrefix}-{fileIdx}";
         var original = DiffParser.ReconstructOriginal(file);
@@ -153,35 +171,49 @@ else
                 "PolyPilotCodeMirror.createMergeView",
                 containerId, original, modified, file.FileName);
 
+            // Stale init guard: if generation changed during await, discard the orphan
+            if (_generation != gen || _disposed)
+            {
+                try { await JS.InvokeVoidAsync("PolyPilotCodeMirror.dispose", instanceId); }
+                catch (Exception ex) { Console.Error.WriteLine($"[DiffView] Failed to dispose stale CM instance {instanceId}: {ex.Message}"); }
+                return;
+            }
+
             if (instanceId >= 0)
                 _cmInstances[fileIdx] = instanceId;
         }
-        catch
+        catch (Exception ex)
         {
-            // CodeMirror bundle may not be loaded — fall back silently
+            Console.Error.WriteLine($"[DiffView] Failed to create CM merge view for {file.FileName}: {ex.Message}");
         }
     }
 
-    private async Task DisposeCmInstance(int fileIdx)
+    /// <summary>
+    /// Disposes specific JS CodeMirror instances by their IDs. Does not touch _cmInstances dictionary.
+    /// Callers must snapshot and remove IDs from _cmInstances before calling.
+    /// </summary>
+    private async Task DisposeJsInstancesByIdAsync(int[] instanceIds)
     {
-        if (_cmInstances.TryGetValue(fileIdx, out var instanceId))
+        foreach (var instanceId in instanceIds)
         {
-            try { await JS.InvokeVoidAsync("PolyPilotCodeMirror.dispose", instanceId); } catch { }
-            _cmInstances.Remove(fileIdx);
+            try
+            {
+                await JS.InvokeVoidAsync("PolyPilotCodeMirror.dispose", instanceId);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[DiffView] Failed to dispose CM instance {instanceId}: {ex.Message}");
+            }
         }
-    }
-
-    private async Task DisposeAllCmInstancesAsync()
-    {
-        foreach (var instanceId in _cmInstances.Values)
-        {
-            try { await JS.InvokeVoidAsync("PolyPilotCodeMirror.dispose", instanceId); } catch { }
-        }
-        _cmInstances.Clear();
     }
 
     public async ValueTask DisposeAsync()
     {
-        await DisposeAllCmInstancesAsync();
+        if (_disposed) return;
+        _disposed = true;
+
+        var idsToDispose = _cmInstances.Values.ToArray();
+        _cmInstances.Clear();
+        await DisposeJsInstancesByIdAsync(idsToDispose);
     }
 }
