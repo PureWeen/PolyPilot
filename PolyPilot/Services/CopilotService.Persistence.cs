@@ -155,6 +155,9 @@ public partial class CopilotService
     /// Merge active (in-memory) session entries with persisted (on-disk) entries.
     /// Persisted entries are kept if they aren't already active, weren't explicitly
     /// closed (by ID or display name), and their session directory still exists.
+    /// When a persisted entry has a name collision with an active entry that has a
+    /// DIFFERENT session ID, the persisted entry is kept under a renamed display
+    /// name to prevent data loss from session replacement.
     /// </summary>
     internal static List<ActiveSessionEntry> MergeSessionEntries(
         List<ActiveSessionEntry> active,
@@ -169,20 +172,58 @@ public partial class CopilotService
         // This stops persisted entries from shadowing active sessions after reconnect.
         // Persisted entries may still share names with each other.
         var activeNames = new HashSet<string>(active.Select(e => e.DisplayName).Where(n => n != null), StringComparer.OrdinalIgnoreCase);
+        // Track all merged display names to avoid collisions when renaming recovered entries
+        var allMergedNames = new HashSet<string>(activeNames, StringComparer.OrdinalIgnoreCase);
 
         foreach (var existing in persisted)
         {
             if (activeIds.Contains(existing.SessionId)) continue;
-            if (activeNames.Contains(existing.DisplayName)) continue;
             if (closedIds.Contains(existing.SessionId)) continue;
             if (closedNames.Contains(existing.DisplayName)) continue;
             if (!sessionDirExists(existing.SessionId)) continue;
 
+            // Name collision: an active session has the same display name but a different
+            // session ID. This happens when a session is replaced (reconnect, lazy-resume
+            // fallback, etc.). Instead of silently dropping the persisted entry (losing its
+            // history), keep it under a unique name so the user can find it.
+            if (activeNames.Contains(existing.DisplayName))
+            {
+                var recoveredName = $"{existing.DisplayName} (previous)";
+                if (allMergedNames.Contains(recoveredName))
+                    recoveredName = $"{existing.DisplayName} ({existing.SessionId[..Math.Min(8, existing.SessionId.Length)]})";
+                existing.DisplayName = recoveredName;
+            }
+
             merged.Add(existing);
             activeIds.Add(existing.SessionId);
+            allMergedNames.Add(existing.DisplayName);
         }
 
         return merged;
+    }
+
+    /// <summary>
+    /// Heuristic to detect orchestrated worker/evaluator sessions that shouldn't
+    /// be auto-recovered (they're meaningless without their parent orchestration).
+    /// </summary>
+    internal static bool IsLikelyWorkerSession(string? branch, string? summary)
+    {
+        if (!string.IsNullOrEmpty(branch))
+        {
+            if (branch.Contains("-worker-", StringComparison.OrdinalIgnoreCase) ||
+                branch.Contains("-orchestrator-", StringComparison.OrdinalIgnoreCase) ||
+                branch.Contains("evaluator", StringComparison.OrdinalIgnoreCase) ||
+                branch.StartsWith("Skill-Validator", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        if (!string.IsNullOrEmpty(summary))
+        {
+            if (summary.StartsWith("You are the Implementer", StringComparison.OrdinalIgnoreCase) ||
+                summary.StartsWith("You are the Challenger", StringComparison.OrdinalIgnoreCase) ||
+                summary.StartsWith("You are a PR reviewer", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>

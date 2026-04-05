@@ -206,19 +206,22 @@ public class SessionPersistenceTests
     // --- MergeSessionEntries: display name deduplication ---
 
     [Fact]
-    public void Merge_DuplicateDisplayName_ActiveWins_PersistedDropped()
+    public void Merge_DuplicateDisplayName_ActiveWins_PersistedRecoveredWithNewName()
     {
         // Active session "MyChat" has ID "new-id" (from reconnect).
         // Persisted has old entry with stale ID "old-id" but same display name.
-        // Only the active entry should survive — no ghost duplicates.
+        // Both entries should survive — the persisted one gets renamed to prevent data loss.
         var active = new List<ActiveSessionEntry> { Entry("new-id", "MyChat") };
         var persisted = new List<ActiveSessionEntry> { Entry("old-id", "MyChat") };
         var closed = new HashSet<string>();
 
         var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
-        Assert.Single(result);
+        Assert.Equal(2, result.Count);
         Assert.Equal("new-id", result[0].SessionId);
+        Assert.Equal("MyChat", result[0].DisplayName);
+        Assert.Equal("old-id", result[1].SessionId);
+        Assert.Equal("MyChat (previous)", result[1].DisplayName);
     }
 
     [Fact]
@@ -1114,17 +1117,19 @@ public class SessionPersistenceTests
 
         var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
 
-        // Only the active (new ID) entry should survive — persisted entry has same display name
-        Assert.Single(result);
+        // Active entry keeps original name; persisted entry is recovered with "(previous)" suffix
+        Assert.Equal(2, result.Count);
         Assert.Equal("new-id-after-recreate", result[0].SessionId);
         Assert.Equal("AndroidShellHandler", result[0].DisplayName);
+        Assert.Equal("old-stale-id", result[1].SessionId);
+        Assert.Equal("AndroidShellHandler (previous)", result[1].DisplayName);
     }
 
     [Fact]
     public void Merge_RecreatedSessionNewId_OldIdNotResurrected()
     {
         // Even if the old session directory still exists, the persisted entry with a
-        // matching display name must not be re-added (it has a stale SessionId).
+        // matching display name is kept under a renamed display name to prevent data loss.
         var active = new List<ActiveSessionEntry> { Entry("recreated-id", "MySession") };
         var persisted = new List<ActiveSessionEntry> { Entry("original-id", "MySession") };
         var closed = new HashSet<string>();
@@ -1132,8 +1137,11 @@ public class SessionPersistenceTests
         var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(),
             sessionId => true); // All dirs exist
 
-        Assert.Single(result);
+        Assert.Equal(2, result.Count);
         Assert.Equal("recreated-id", result[0].SessionId);
+        Assert.Equal("MySession", result[0].DisplayName);
+        Assert.Equal("original-id", result[1].SessionId);
+        Assert.Equal("MySession (previous)", result[1].DisplayName);
     }
 
     // --- Regression: events.jsonl copy when new file already exists ---
@@ -1614,5 +1622,91 @@ public class SessionPersistenceTests
         Assert.Contains("string? tmpFile = null;", persistenceFile);
         Assert.Contains("tmpFile = null; // Move succeeded", persistenceFile);
         Assert.Contains("File.Delete(tmpFile)", persistenceFile);
+    }
+
+    // --- MergeSessionEntries: name collision recovery ---
+
+    [Fact]
+    public void Merge_NameCollision_MultiplePersisted_AllRecoveredWithUniqueNames()
+    {
+        var active = new List<ActiveSessionEntry> { Entry("new-id", "MyChat") };
+        var persisted = new List<ActiveSessionEntry>
+        {
+            Entry("old-id-1", "MyChat"),
+            Entry("old-id-2", "MyChat")
+        };
+        var closed = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closed, new HashSet<string>(), _ => true);
+
+        Assert.Equal(3, result.Count);
+        Assert.Equal("MyChat", result[0].DisplayName);
+        Assert.Contains(result, e => e.SessionId == "old-id-1");
+        Assert.Contains(result, e => e.SessionId == "old-id-2");
+        var names = result.Select(e => e.DisplayName).ToList();
+        Assert.Equal(names.Count, names.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+    }
+
+    [Fact]
+    public void Merge_NameCollision_ClosedPersistedStillExcluded()
+    {
+        var active = new List<ActiveSessionEntry> { Entry("new-id", "MyChat") };
+        var persisted = new List<ActiveSessionEntry> { Entry("closed-old", "MyChat") };
+        var closedIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "closed-old" };
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, new HashSet<string>(), _ => true);
+
+        Assert.Single(result);
+        Assert.Equal("new-id", result[0].SessionId);
+    }
+
+    [Fact]
+    public void Merge_NameCollision_MissingDirStillExcluded()
+    {
+        var active = new List<ActiveSessionEntry> { Entry("new-id", "MyChat") };
+        var persisted = new List<ActiveSessionEntry> { Entry("old-id", "MyChat") };
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, new HashSet<string>(), new HashSet<string>(), _ => false);
+
+        Assert.Single(result);
+        Assert.Equal("new-id", result[0].SessionId);
+    }
+
+    // --- IsLikelyWorkerSession ---
+
+    [Fact]
+    public void IsLikelyWorkerSession_WorkerBranch_ReturnsTrue()
+    {
+        Assert.True(CopilotService.IsLikelyWorkerSession("Implement---Challenge-worker-1-abc1", null));
+        Assert.True(CopilotService.IsLikelyWorkerSession("Implement---Challenge-orchestrator-5b44", null));
+        Assert.True(CopilotService.IsLikelyWorkerSession("Skill-Validator-worker-2-9671", null));
+    }
+
+    [Fact]
+    public void IsLikelyWorkerSession_EvaluatorBranch_ReturnsTrue()
+    {
+        Assert.True(CopilotService.IsLikelyWorkerSession("evaluator-session-1", null));
+    }
+
+    [Fact]
+    public void IsLikelyWorkerSession_OrchestratorSummary_ReturnsTrue()
+    {
+        Assert.True(CopilotService.IsLikelyWorkerSession(null, "You are the Implementer. Your job is to write correct code."));
+        Assert.True(CopilotService.IsLikelyWorkerSession(null, "You are the Challenger. Your job is to find bugs."));
+        Assert.True(CopilotService.IsLikelyWorkerSession(null, "You are a PR reviewer. When assigned a PR..."));
+    }
+
+    [Fact]
+    public void IsLikelyWorkerSession_NormalSession_ReturnsFalse()
+    {
+        Assert.False(CopilotService.IsLikelyWorkerSession("fix/model-1m-slug", "fix the PR number display"));
+        Assert.False(CopilotService.IsLikelyWorkerSession("main", "can you analyze the copilot cli?"));
+        Assert.False(CopilotService.IsLikelyWorkerSession(null, null));
+    }
+
+    [Fact]
+    public void IsLikelyWorkerSession_SkillValidatorBranch_ReturnsTrue()
+    {
+        Assert.True(CopilotService.IsLikelyWorkerSession("Skill-Validator-worker-3-78c9", null));
     }
 }
