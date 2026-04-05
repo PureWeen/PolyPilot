@@ -319,22 +319,31 @@ public class WsBridgeServer : IDisposable
     /// </summary>
     private async Task DispatchBridgePromptAsync(string sessionName, string message, string? agentMode, CancellationToken ct = default)
     {
-        await _copilot!.InvokeOnUIAsync(async () =>
+        try
         {
-            var orchGroupId = _copilot.GetOrchestratorGroupId(sessionName);
-            if (orchGroupId != null)
+            await _copilot!.InvokeOnUIAsync(async () =>
             {
-                var orchGroup = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == orchGroupId);
-                if (orchGroup?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
-                    _copilot.StartGroupReflection(orchGroupId, message, orchGroup.MaxReflectIterations ?? 5);
-                Console.WriteLine($"[WsBridge] Routing '{sessionName}' through orchestration pipeline (group={orchGroupId})");
-                await _copilot.SendToMultiAgentGroupAsync(orchGroupId, message, ct);
-            }
-            else
-            {
-                await _copilot.SendPromptAsync(sessionName, message, cancellationToken: ct, agentMode: agentMode);
-            }
-        });
+                var orchGroupId = _copilot.GetOrchestratorGroupId(sessionName);
+                if (orchGroupId != null)
+                {
+                    var orchGroup = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == orchGroupId);
+                    if (orchGroup?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
+                        _copilot.StartGroupReflection(orchGroupId, message, orchGroup.MaxReflectIterations ?? 5);
+                    Console.WriteLine($"[WsBridge] Routing '{sessionName}' through orchestration pipeline (group={orchGroupId})");
+                    await _copilot.SendToMultiAgentGroupAsync(orchGroupId, message, ct);
+                }
+                else
+                {
+                    await _copilot.SendPromptAsync(sessionName, message, cancellationToken: ct, agentMode: agentMode);
+                }
+            });
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("already processing"))
+        {
+            // Session is mid-turn — queue the message so it runs when the current turn completes
+            Console.WriteLine($"[WsBridge] '{sessionName}' busy, queuing mobile message for next turn");
+            _copilot!.EnqueueMessage(sessionName, message, agentMode: agentMode);
+        }
     }
 
     public void Stop()
