@@ -9,13 +9,10 @@
 
   <ItemGroup>
     <PackageReference Include="coverlet.collector" Version="8.0.1" />
+    <!-- Direct SDK reference to get the bundled copilot CLI binary (Core skips the download) -->
     <PackageReference Include="GitHub.Copilot.SDK" Version="0.2.1" />
-    <PackageReference Include="Markdig" Version="1.1.2" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.5" />
-    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.3.0" />
-    <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
-    <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
     <PackageReference Include="xunit" Version="2.9.3" />
     <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
@@ -24,85 +21,15 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
-  <!-- Include source files from main project that are testable without MAUI -->
+  <!-- Source files from projects that can't be referenced directly -->
   <ItemGroup>
-    <Compile Include="../PolyPilot/Models/ChatMessage.cs" Link="Shared/ChatMessage.cs" />
-    <Compile Include="../PolyPilot/Models/ChatCopyPayloads.cs" Link="Shared/ChatCopyPayloads.cs" />
-    <Compile Include="../PolyPilot/Models/AgentSessionInfo.cs" Link="Shared/AgentSessionInfo.cs" />
-    <Compile Include="../PolyPilot/Models/SynchronizedMessageQueue.cs" Link="Shared/SynchronizedMessageQueue.cs" />
-    <Compile Include="../PolyPilot/Models/AuditLogEntry.cs" Link="Shared/AuditLogEntry.cs" />
-    <Compile Include="../PolyPilot/Models/BridgeMessages.cs" Link="Shared/BridgeMessages.cs" />
-    <Compile Include="../PolyPilot/Models/ConnectionSettings.cs" Link="Shared/ConnectionSettings.cs" />
-    <Compile Include="../PolyPilot/Models/PlatformHelper.cs" Link="Shared/PlatformHelper.cs" />
-    <Compile Include="../PolyPilot/Models/SessionOrganization.cs" Link="Shared/SessionOrganization.cs" />
-    <Compile Include="../PolyPilot/Models/FiestaModels.cs" Link="Shared/FiestaModels.cs" />
-    <Compile Include="../PolyPilot/Models/ModelHelper.cs" Link="Shared/ModelHelper.cs" />
-    <Compile Include="../PolyPilot/Models/CommandHistory.cs" Link="Shared/CommandHistory.cs" />
-    <Compile Include="../PolyPilot/Models/RepositoryInfo.cs" Link="Shared/RepositoryInfo.cs" />
-    <Compile Include="../PolyPilot/Models/RenderThrottle.cs" Link="Shared/RenderThrottle.cs" />
-    <Compile Include="../PolyPilot/Models/DiffParser.cs" Link="Shared/DiffParser.cs" />
-    <Compile Include="../PolyPilot/Models/PromptLibrary.cs" Link="Shared/PromptLibrary.cs" />
-    <Compile Include="../PolyPilot/Models/UsageStatistics.cs" Link="Shared/UsageStatistics.cs" />
-    <Compile Include="../PolyPilot/Services/PromptLibraryService.cs" Link="Shared/PromptLibraryService.cs" />
-    <Compile Include="../PolyPilot/Services/UsageStatsService.cs" Link="Shared/UsageStatsService.cs" />
-    <Compile Include="../PolyPilot/Services/NotificationMessageBuilder.cs" Link="Shared/NotificationMessageBuilder.cs" />
-    <Compile Include="../PolyPilot/Services/IChatDatabase.cs" Link="Shared/IChatDatabase.cs" />
-    <Compile Include="../PolyPilot/Services/ChatDatabase.cs" Link="Shared/ChatDatabase.cs" />
-    <Compile Include="../PolyPilot/Services/IServerManager.cs" Link="Shared/IServerManager.cs" />
-    <Compile Include="../PolyPilot/Services/ServerManager.cs" Link="Shared/ServerManager.cs" />
-    <Compile Include="../PolyPilot/Services/IWsBridgeClient.cs" Link="Shared/IWsBridgeClient.cs" />
-    <Compile Include="../PolyPilot/Services/IDemoService.cs" Link="Shared/IDemoService.cs" />
-    <Compile Include="../PolyPilot/Services/INotificationManagerService.cs" Link="Shared/INotificationManagerService.cs" />
-    <Compile Include="../PolyPilot/Services/RepoManager.cs" Link="Shared/RepoManager.cs" />
-    <Compile Include="../PolyPilot/Services/DemoService.cs" Link="Shared/DemoService.cs" />
-    <Compile Include="../PolyPilot/Services/CopilotService.cs" Link="Shared/CopilotService.cs" />
-    <Compile Include="../PolyPilot/Services/CopilotService.Events.cs" Link="Shared/CopilotService.Events.cs" />
-    <Compile Include="../PolyPilot/Services/CopilotService.Bridge.cs" Link="Shared/CopilotService.Bridge.cs" />
-    <Compile Include="../PolyPilot/Services/CopilotService.Organization.cs" Link="Shared/CopilotService.Organization.cs" />
-    <Compile Include="../PolyPilot/Services/CopilotService.Persistence.cs" Link="Shared/CopilotService.Persistence.cs" />
-    <Compile Include="../PolyPilot/Services/CopilotService.Codespace.cs" Link="Shared/CopilotService.Codespace.cs" />
-    <Compile Include="../PolyPilot/Services/CopilotService.Utilities.cs" Link="Shared/CopilotService.Utilities.cs" />
-    <Compile Include="../PolyPilot/Services/CopilotService.Continuation.cs" Link="Shared/CopilotService.Continuation.cs" />
-    <Compile Include="../PolyPilot/Services/CodespaceService.cs" Link="Shared/CodespaceService.cs" />
-    <Compile Include="../PolyPilot/Services/CodespaceService.Diagnostics.cs" Link="Shared/CodespaceService.Diagnostics.cs" />
-    <Compile Include="../PolyPilot/Services/CodespaceService.Lifecycle.cs" Link="Shared/CodespaceService.Lifecycle.cs" />
-    <Compile Include="../PolyPilot/Services/AuditLogService.cs" Link="Shared/AuditLogService.cs" />
-    <Compile Include="../PolyPilot/Services/ShowImageTool.cs" Link="Shared/ShowImageTool.cs" />
-    <Compile Include="../PolyPilot/Services/WsBridgeServer.cs" Link="Shared/WsBridgeServer.cs" />
-    <Compile Include="../PolyPilot/Services/WsBridgeClient.cs" Link="Shared/WsBridgeClient.cs" />
-    <Compile Include="../PolyPilot/Services/DevTunnelService.cs" Link="Shared/DevTunnelService.cs" />
-    <Compile Include="../PolyPilot/Services/PrLinkService.cs" Link="Shared/PrLinkService.cs" />
-    <Compile Include="../PolyPilot/Services/FiestaService.cs" Link="Shared/FiestaService.cs" />
-    <Compile Include="../PolyPilot/Services/TailscaleService.cs" Link="Shared/TailscaleService.cs" />
-    <Compile Include="../PolyPilot/Services/GitHubReferenceLinker.cs" Link="Shared/GitHubReferenceLinker.cs" />
-    <Compile Include="../PolyPilot/Models/ReflectionCycle.cs" Link="Shared/ReflectionCycle.cs" />
     <Compile Include="../PolyPilot.Console/Services/CommandParser.cs" Link="Shared/CommandParser.cs" />
-    <Compile Include="../PolyPilot/Models/ModelCapabilities.cs" Link="Shared/ModelCapabilities.cs" />
-    <Compile Include="../PolyPilot/Models/SquadDiscovery.cs" Link="Shared/SquadDiscovery.cs" />
-    <Compile Include="../PolyPilot/Models/SquadWriter.cs" Link="Shared/SquadWriter.cs" />
-    <Compile Include="../PolyPilot/Models/LinkHelper.cs" Link="Shared/LinkHelper.cs" />
-    <Compile Include="../PolyPilot/Models/ErrorMessageHelper.cs" Link="Shared/ErrorMessageHelper.cs" />
-    <Compile Include="../PolyPilot/Models/SmartPunctuationNormalizer.cs" Link="Shared/SmartPunctuationNormalizer.cs" />
-    <Compile Include="../PolyPilot/Models/TutorialStep.cs" Link="Shared/TutorialStep.cs" />
     <Compile Include="../PolyPilot/Services/TutorialService.cs" Link="Shared/TutorialService.cs" />
-    <Compile Include="../PolyPilot/Services/SessionMetricsExtractor.cs" Link="Shared/SessionMetricsExtractor.cs" />
     <Compile Include="../PolyPilot/BuildInfo.cs" Link="Shared/BuildInfo.cs" />
-    <Compile Include="../PolyPilot/Models/SettingDescriptor.cs" Link="Shared/SettingDescriptor.cs" />
-    <Compile Include="../PolyPilot/Services/SettingsRegistry.cs" Link="Shared/SettingsRegistry.cs" />
-    <Compile Include="../PolyPilot/Services/HolidayThemeHelper.cs" Link="Shared/HolidayThemeHelper.cs" />
-    <Compile Include="../PolyPilot/Services/MarkdownRenderer.cs" Link="Shared/MarkdownRenderer.cs" />
-    <Compile Include="../PolyPilot/Services/CopilotService.Providers.cs" Link="Shared/CopilotService.Providers.cs" />
-    <Compile Include="../PolyPilot/Services/PluginLoader.cs" Link="Shared/PluginLoader.cs" />
-    <Compile Include="../PolyPilot/Services/PluginFileLogger.cs" Link="Shared/PluginFileLogger.cs" />
-    <Compile Include="../PolyPilot/Services/ProviderHostContext.cs" Link="Shared/ProviderHostContext.cs" />
-    <Compile Include="../PolyPilot/Services/ProcessHelper.cs" Link="Shared/ProcessHelper.cs" />
-    <Compile Include="../PolyPilot/Models/PluginSettings.cs" Link="Shared/PluginSettings.cs" />
-    <Compile Include="../PolyPilot/Models/ExternalSessionInfo.cs" Link="Shared/ExternalSessionInfo.cs" />
-    <Compile Include="../PolyPilot/Services/ExternalSessionScanner.cs" Link="Shared/ExternalSessionScanner.cs" />
-    <Compile Include="../PolyPilot/Services/WindowFocusHelper.cs" Link="Shared/WindowFocusHelper.cs" />
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\PolyPilot.Core\PolyPilot.Core.csproj" />
     <ProjectReference Include="..\PolyPilot.Provider.Abstractions\PolyPilot.Provider.Abstractions.csproj" />
   </ItemGroup>
 

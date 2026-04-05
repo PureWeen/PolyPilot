@@ -71,7 +71,7 @@ public class LongRunningSessionSafetyTests
     private static class TestPaths
     {
         private static readonly string ProjectRoot = Path.GetFullPath(
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PolyPilot"));
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PolyPilot.Core"));
 
         public static string CopilotServiceCs => Path.Combine(ProjectRoot, "Services", "CopilotService.cs");
         public static string EventsCs => Path.Combine(ProjectRoot, "Services", "CopilotService.Events.cs");

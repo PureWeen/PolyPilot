@@ -2196,7 +2196,7 @@ public class ProcessingWatchdogTests
         // the watchdog must reset the inactivity timer rather than killing the session.
         // This is verified via source-code assertion (since SessionState is private).
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
         // Find the end of the method dynamically (next top-level member after RunProcessingWatchdogAsync)
@@ -2230,7 +2230,7 @@ public class ProcessingWatchdogTests
         // the watchdog must complete the session CLEANLY (call CompleteResponse, no error msg).
         // This is the "SessionIdleEvent lost" scenario — response is done, just terminal event missed.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
         var methodEndIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
@@ -2264,7 +2264,7 @@ public class ProcessingWatchdogTests
         // When total processing time exceeds WatchdogMaxProcessingTimeSeconds, the watchdog
         // must kill regardless of server liveness or tool state — no session runs forever.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var elapsedIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
         var methodEndIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
@@ -2287,7 +2287,7 @@ public class ProcessingWatchdogTests
         // validate it inside the lambda — preventing stale watchdog ticks from flushing
         // new-turn content into old-turn history if the user aborts + resends.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var flushCommentIdx = source.IndexOf("Periodic mid-watchdog flush", methodIdx);
         Assert.True(flushCommentIdx > 0, "Periodic flush comment must exist in RunProcessingWatchdogAsync");
@@ -2313,7 +2313,7 @@ public class ProcessingWatchdogTests
         // ExternalToolRequestedEvent was arriving as "Unhandled" in logs, causing spam
         // and incorrectly updating LastEventAtTicks. It must be explicitly classified.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         Assert.True(source.Contains("ExternalToolRequestedEvent"),
             "ExternalToolRequestedEvent must be explicitly listed in SdkEventMatrix to prevent 'Unhandled' log spam");
     }
@@ -2324,7 +2324,7 @@ public class ProcessingWatchdogTests
         // Must be TimelineOnly — it doesn't need chat projection but should not suppress
         // LastEventAtTicks updates (it does represent live activity on the session).
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var idx = source.IndexOf("ExternalToolRequestedEvent");
         Assert.True(idx >= 0);
         var context = source.Substring(idx, 80);
@@ -2340,7 +2340,7 @@ public class ProcessingWatchdogTests
         // The watchdog must flush CurrentResponse to History periodically so partial
         // responses are visible even while IsProcessing=true (e.g., stuck mid-stream).
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         // The flush must be inside the watchdog method
         var watchdogBody = source.Substring(methodIdx, 6000);
@@ -2356,7 +2356,7 @@ public class ProcessingWatchdogTests
         // The periodic flush must run BEFORE the elapsed >= effectiveTimeout check,
         // so content is visible even before the session is declared stuck.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var flushIdx = source.IndexOf("Periodic mid-watchdog flush", methodIdx);
         var elapsedCheckIdx = source.IndexOf("elapsed >= effectiveTimeout", methodIdx);
@@ -2376,7 +2376,7 @@ public class ProcessingWatchdogTests
         // follow-on sub-turn. Without this, the 120s watchdog fires Case C (error kill) instead
         // of Case B (clean complete), showing an unnecessary error message.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
@@ -2419,7 +2419,7 @@ public class ProcessingWatchdogTests
         // event-diagnostics.log shows a gap with no explanation — making stuck-session
         // forensics impossible (root cause of the PR #332 debug session bug).
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var evtLogIdx = source.IndexOf("[EVT]");
         Assert.True(evtLogIdx >= 0, "[EVT] log must exist in event handler");
         // The EVT filter block must include AssistantTurnStartEvent
@@ -2475,7 +2475,7 @@ public class ProcessingWatchdogTests
         // This is the core fix for the stuck-session bug where a dead session's tool
         // appears active but no events ever arrive.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         Assert.True(methodIdx >= 0, "RunProcessingWatchdogAsync must exist");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
@@ -2496,7 +2496,7 @@ public class ProcessingWatchdogTests
         // must be cleared. This proves the session's connection is alive, so future
         // Case A resets should be fresh (not counting against the cap).
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var handlerIdx = source.IndexOf("private void HandleSessionEvent");
         Assert.True(handlerIdx >= 0, "HandleSessionEvent must exist");
         // Find the block that resets LastEventAtTicks (only for real events)
@@ -2515,7 +2515,7 @@ public class ProcessingWatchdogTests
         // StartProcessingWatchdog must reset WatchdogCaseAResets to 0 so each new
         // watchdog instance starts with a clean reset counter.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var startIdx = source.IndexOf("private void StartProcessingWatchdog");
         Assert.True(startIdx >= 0, "StartProcessingWatchdog must exist");
         var methodEnd = source.IndexOf("_ = RunProcessingWatchdogAsync", startIdx);
@@ -2531,7 +2531,7 @@ public class ProcessingWatchdogTests
         // exceededMaxTime must be true. Without this, Case A can reset forever
         // because totalProcessingSeconds=0 makes exceededMaxTime always false.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         Assert.True(methodIdx >= 0, "RunProcessingWatchdogAsync must exist");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
@@ -2558,7 +2558,7 @@ public class ProcessingWatchdogTests
         // uses the 120s inactivity timeout, not the 600s tool timeout inherited from
         // the dead connection. Without this, reconnected sessions wait 5x longer.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
         var reconnectIdx = source.IndexOf("[RECONNECT] '{sessionName}' replacing state");
         Assert.True(reconnectIdx >= 0, "Reconnect block must exist");
         // Find StartProcessingWatchdog in the reconnect block (marks the end of state setup)
@@ -2579,7 +2579,7 @@ public class ProcessingWatchdogTests
         // so the watchdog's max-time safety net measures from the reconnect time,
         // not the original send time.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
         var reconnectIdx = source.IndexOf("[RECONNECT] '{sessionName}' replacing state");
         Assert.True(reconnectIdx >= 0, "Reconnect block must exist");
         var watchdogIdx = source.IndexOf("StartProcessingWatchdog(state, sessionName)", reconnectIdx);
@@ -2596,7 +2596,7 @@ public class ProcessingWatchdogTests
         // After reconnect, ActiveToolCallCount must be 0. No tools have started
         // on the new connection. A stale count > 0 would trigger Case A resets.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
         var reconnectIdx = source.IndexOf("[RECONNECT] '{sessionName}' replacing state");
         Assert.True(reconnectIdx >= 0, "Reconnect block must exist");
         var watchdogIdx = source.IndexOf("StartProcessingWatchdog(state, sessionName)", reconnectIdx);
@@ -2641,7 +2641,7 @@ public class ProcessingWatchdogTests
         // Case B freshness check must select threshold based on isMultiAgentSession.
         // This prevents premature force-completion of worker sessions (issue #365).
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
@@ -2665,7 +2665,7 @@ public class ProcessingWatchdogTests
         // Verify that the freshness threshold is selected based on isMultiAgentSession
         // using a ternary before the events.jsonl check.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
@@ -2686,7 +2686,7 @@ public class ProcessingWatchdogTests
         // MUST clear IsProcessing — otherwise the session is permanently stuck.
         // Regression test for: sessions stuck at "Sending..." forever after watchdog crash.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
@@ -2719,7 +2719,7 @@ public class ProcessingWatchdogTests
         // The crash recovery must complete the TCS so callers (e.g., orchestrators)
         // waiting on SendPromptAsync aren't blocked forever.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
@@ -2746,7 +2746,7 @@ public class ProcessingWatchdogTests
         // wrapped in try-catch within the kill callback.
         // Regression test for: sessions permanently stuck after FlushCurrentResponse failure.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
@@ -2927,7 +2927,7 @@ public class ProcessingWatchdogTests
         // window (especially the 1800s multi-agent window). Without a growth check,
         // multi-agent sessions stay stuck for up to 30 minutes.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
@@ -2955,7 +2955,7 @@ public class ProcessingWatchdogTests
         // When stale checks exceed the max, caseBEventsActive must be set to false
         // so the deferral is skipped and the session is force-completed.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
@@ -2975,7 +2975,7 @@ public class ProcessingWatchdogTests
         // When events.jsonl grows between Case B checks, the stale counter must reset.
         // This prevents false positives when the CLI is actively writing but slowly.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
@@ -3011,7 +3011,7 @@ public class ProcessingWatchdogTests
         // When real SDK events arrive, the Case B stale tracking must reset alongside
         // WatchdogCaseBResets. This ensures a revived connection clears stale state.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
 
         // Find the event handler section where CaseBResets is reset on real event arrival
         var handlerSection = source.Substring(0, source.IndexOf("private async Task RunProcessingWatchdogAsync"));
@@ -3029,7 +3029,7 @@ public class ProcessingWatchdogTests
         // StartProcessingWatchdog must reset the new stale tracking fields
         // alongside the existing WatchdogCaseBResets reset.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
 
         // Find the StartProcessingWatchdog method
         var startIdx = source.IndexOf("private void StartProcessingWatchdog(");
@@ -3049,7 +3049,7 @@ public class ProcessingWatchdogTests
         // filesystem call, avoiding a TOCTOU race between separate File.GetLastWriteTimeUtc
         // and FileInfo.Length calls.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
         var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
         var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);

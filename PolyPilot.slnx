@@ -2,6 +2,7 @@
   <Folder Name="/PolyPilot.Console/">
     <Project Path="PolyPilot.Console/PolyPilot.csproj" />
   </Folder>
+  <Project Path="PolyPilot.Core/PolyPilot.Core.csproj" />
   <Project Path="PolyPilot.Gtk/PolyPilot.Gtk.csproj" />
   <Project Path="PolyPilot.Provider.Abstractions/PolyPilot.Provider.Abstractions.csproj" />
   <Project Path="PolyPilot.Tests/PolyPilot.Tests.csproj" />

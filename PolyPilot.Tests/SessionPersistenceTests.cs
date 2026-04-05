@@ -458,7 +458,7 @@ public class SessionPersistenceTests
     public void RestorePreviousSessionsAsync_QueuesEagerResumeForInterruptedSessions()
     {
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var placeholderIdx = source.IndexOf("Loaded session placeholder", StringComparison.Ordinal);
         Assert.True(placeholderIdx > 0, "Placeholder restore block not found");
@@ -472,7 +472,7 @@ public class SessionPersistenceTests
     public void RestorePreviousSessionsAsync_RunsInterruptedSessionResumesAfterPlaceholderLoad()
     {
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var loadIdx = source.IndexOf("Loaded session placeholder", StringComparison.Ordinal);
         var eagerResumeIdx = source.IndexOf("await EnsureSessionConnectedAsync(pendingResume.SessionName, pendingResume.State, cancellationToken)", StringComparison.Ordinal);
@@ -551,7 +551,7 @@ public class SessionPersistenceTests
         // RestorePreviousSessionsAsync must call LoadHistoryFromDisk(entry.SessionId)
         // before CreateSessionAsync so conversation history is recovered.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0, "Could not find fallback path in RestorePreviousSessionsAsync");
@@ -569,7 +569,7 @@ public class SessionPersistenceTests
         // STRUCTURAL REGRESSION GUARD: After CreateSessionAsync, the fallback must
         // inject the recovered history into the new session's Info.History.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
@@ -585,7 +585,7 @@ public class SessionPersistenceTests
         // STRUCTURAL REGRESSION GUARD: The fallback must call RestoreUsageStats(entry)
         // to preserve token counts, CreatedAt, and other stats from the old session.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
@@ -600,7 +600,7 @@ public class SessionPersistenceTests
         // STRUCTURAL REGRESSION GUARD: The fallback must sync recovered history
         // to the chat database under the new session ID so it persists.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
@@ -616,7 +616,7 @@ public class SessionPersistenceTests
         // events.jsonl into the recreated session directory so a later restart
         // can reload history from the new session ID.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         if (fallbackIdx < 0)
@@ -635,7 +635,7 @@ public class SessionPersistenceTests
         // STRUCTURAL REGRESSION GUARD: The fallback must mark stale incomplete
         // tool-call and reasoning entries complete, matching ResumeSessionAsync.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
@@ -653,7 +653,7 @@ public class SessionPersistenceTests
         // indicating the session was recreated with recovered history, so the
         // user knows the session state was reconstructed.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
@@ -671,7 +671,7 @@ public class SessionPersistenceTests
         // message ("🔄 Session recreated") isn't counted, and the unread indicator
         // doesn't trigger for it.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var fallbackIdx = source.IndexOf("Falling back to CreateSessionAsync", StringComparison.Ordinal);
         Assert.True(fallbackIdx > 0);
@@ -705,7 +705,7 @@ public class SessionPersistenceTests
         // Without this, active-sessions.json retains stale IDs and the next restart
         // reads the wrong events.jsonl, causing history loss.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         // Find the RestorePreviousSessionsAsync call in InitializeAsync
         var restoreCallIdx = source.IndexOf("await RestorePreviousSessionsAsync(cancellationToken);", StringComparison.Ordinal);
@@ -722,7 +722,7 @@ public class SessionPersistenceTests
         // STRUCTURAL REGRESSION GUARD: Same as InitializeAsync — the ReconnectAsync
         // path must also flush after restore to persist recreated session IDs.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         // Find all RestorePreviousSessionsAsync calls
         var indices = new List<int>();
@@ -756,7 +756,7 @@ public class SessionPersistenceTests
         // and _sessions[sessionName] = newState, SaveActiveSessionsToDisk() must be
         // called so the new session ID is persisted immediately.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         // Find the specific assignment where the new state replaces the old one
         var sessionsAssign = source.IndexOf("_sessions[sessionName] = newState", StringComparison.Ordinal);
@@ -776,7 +776,7 @@ public class SessionPersistenceTests
         // short-circuit on missing events.jsonl before the existing fallback path
         // can recreate legitimate never-used sessions.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var restoreIdx = source.IndexOf("RestorePreviousSessionsAsync", StringComparison.Ordinal);
         Assert.True(restoreIdx > 0);
@@ -792,7 +792,7 @@ public class SessionPersistenceTests
         // WriteActiveSessionsFile/SaveActiveSessionsToDisk must keep used sessions
         // via events.jsonl and also preserve newly created directories briefly.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         var mergeCallIdx = source.IndexOf("MergeSessionEntries(entries", StringComparison.Ordinal);
         Assert.True(mergeCallIdx > 0);
@@ -1415,7 +1415,7 @@ public class SessionPersistenceTests
         // Structural test verifying that ResumeSessionAsync uses
         // copilotSession.SessionId (actual) instead of sessionId (input).
         var serviceFile = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         // Verify the session ID mismatch detection block exists
         Assert.Contains("[RESUME-REMAP] Session ID changed", serviceFile);
@@ -1432,7 +1432,7 @@ public class SessionPersistenceTests
     {
         // Structural test verifying the reconnect path also detects ID mismatch
         var serviceFile = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         Assert.Contains("[RECONNECT] Session ID changed on resume", serviceFile);
         Assert.Contains("CopyEventsToNewSession(state.Info.SessionId, actualId)", serviceFile);
@@ -1444,7 +1444,7 @@ public class SessionPersistenceTests
         // Structural test verifying the fallback restore path uses FindBestEventsSource
         // instead of always loading from the stale entry.SessionId
         var persistenceFile = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         Assert.Contains("FindBestEventsSource(entry.SessionId, entry.WorkingDirectory)", persistenceFile);
         Assert.Contains("LoadBestHistoryAsync(bestSourceId)", persistenceFile);
@@ -1455,7 +1455,7 @@ public class SessionPersistenceTests
     {
         // Structural test verifying CopyEventsToNewSession is a reusable helper
         var persistenceFile = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         // Should be a private method (not inlined copy logic)
         Assert.Contains("private void CopyEventsToNewSession(string oldSessionId, string newSessionId)", persistenceFile);
@@ -1604,7 +1604,7 @@ public class SessionPersistenceTests
     {
         // Structural test: verify MaxSessionDirsToScan constant exists for performance bounding
         var persistenceFile = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         Assert.Contains("MaxSessionDirsToScan", persistenceFile);
         Assert.Contains(".Take(MaxSessionDirsToScan)", persistenceFile);
@@ -1616,7 +1616,7 @@ public class SessionPersistenceTests
     {
         // Structural test: verify temp file cleanup in catch block
         var persistenceFile = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         // Verify tmpFile is declared outside try and cleaned in catch
         Assert.Contains("string? tmpFile = null;", persistenceFile);

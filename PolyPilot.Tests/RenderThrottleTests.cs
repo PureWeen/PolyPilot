@@ -205,7 +205,7 @@ public class RenderThrottleTests
         // to bypass throttle. If order is reversed, throttle drops the render.
         var eventsPath = Path.Combine(
             AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..",
-            "PolyPilot", "Services", "CopilotService.Events.cs");
+            "PolyPilot.Core", "Services", "CopilotService.Events.cs");
         Assert.True(File.Exists(eventsPath), $"CopilotService.Events.cs not found at {eventsPath}");
 
         var source = File.ReadAllText(eventsPath);

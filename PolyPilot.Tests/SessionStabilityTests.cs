@@ -368,12 +368,14 @@ public class SessionStabilityTests
     /// </summary>
     private static class TestPaths
     {
-        private static readonly string ProjectRoot = Path.GetFullPath(
+        private static readonly string CoreRoot = Path.GetFullPath(
+            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PolyPilot.Core"));
+        private static readonly string UiRoot = Path.GetFullPath(
             Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "PolyPilot"));
 
-        public static string CopilotServiceCs => Path.Combine(ProjectRoot, "Services", "CopilotService.cs");
-        public static string EventsCs => Path.Combine(ProjectRoot, "Services", "CopilotService.Events.cs");
-        public static string OrganizationCs => Path.Combine(ProjectRoot, "Services", "CopilotService.Organization.cs");
-        public static string SessionSidebarRazor => Path.Combine(ProjectRoot, "Components", "Layout", "SessionSidebar.razor");
+        public static string CopilotServiceCs => Path.Combine(CoreRoot, "Services", "CopilotService.cs");
+        public static string EventsCs => Path.Combine(CoreRoot, "Services", "CopilotService.Events.cs");
+        public static string OrganizationCs => Path.Combine(CoreRoot, "Services", "CopilotService.Organization.cs");
+        public static string SessionSidebarRazor => Path.Combine(UiRoot, "Components", "Layout", "SessionSidebar.razor");
     }
 }

@@ -155,7 +155,7 @@ public class ConsecutiveStuckSessionTests
         // Verify the watchdog timeout path increments ConsecutiveStuckCount.
         // This is a structural guard — if someone removes the increment, this test fails.
         var repoRoot = GetRepoRoot();
-        var eventsSource = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var eventsSource = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
 
         Assert.Contains("ConsecutiveStuckCount++", eventsSource);
     }
@@ -166,7 +166,7 @@ public class ConsecutiveStuckSessionTests
         // Verify the watchdog conditionally skips adding system messages to history
         // when ConsecutiveStuckCount >= 3 to break the positive feedback loop.
         var repoRoot = GetRepoRoot();
-        var eventsSource = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var eventsSource = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
 
         Assert.Contains("ConsecutiveStuckCount < 3", eventsSource);
     }
@@ -177,7 +177,7 @@ public class ConsecutiveStuckSessionTests
         // Verify that after 3+ consecutive stucks, the message queue is cleared
         // to prevent auto-dispatch from immediately re-sending into a stuck session.
         var repoRoot = GetRepoRoot();
-        var eventsSource = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var eventsSource = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
 
         // The else branch (ConsecutiveStuckCount >= 3) must clear the queue
         Assert.Contains("MessageQueue.Clear()", eventsSource);
@@ -188,7 +188,7 @@ public class ConsecutiveStuckSessionTests
     {
         // Verify CompleteResponse resets the stuck counter on success.
         var repoRoot = GetRepoRoot();
-        var eventsSource = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var eventsSource = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
 
         Assert.Contains("ConsecutiveStuckCount = 0", eventsSource);
     }
@@ -287,7 +287,7 @@ public class ConsecutiveStuckSessionTests
         // Verify that SendAsync is wrapped with Task.WhenAny for timeout detection.
         // The CancellationToken.None workaround remains, but we have a client-side timeout.
         var repoRoot = GetRepoRoot();
-        var source = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         Assert.Contains("Task.WhenAny(sendTask", source);
         Assert.Contains("SendAsyncTimeoutMs", source);
@@ -299,7 +299,7 @@ public class ConsecutiveStuckSessionTests
         // Verify that the reconnect+retry SendAsync path ALSO has the timeout wrapper.
         // Without this, the retry could hang indefinitely just like the primary send.
         var repoRoot = GetRepoRoot();
-        var source = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         Assert.Contains("Task.WhenAny(retryTask", source);
     }
