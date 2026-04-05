@@ -819,7 +819,7 @@ public class ChatExperienceSafetyTests
     public void WatchdogCallback_HasGenerationGuard()
     {
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
 
         // Find the watchdog callback inside InvokeOnUI
         var watchdogIdx = source.IndexOf("watchdogGeneration != currentGen", StringComparison.Ordinal);
@@ -835,7 +835,7 @@ public class ChatExperienceSafetyTests
     public void CompleteResponse_Source_ClearsSendingFlag()
     {
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
 
         // Find CompleteResponse method
         var crIdx = source.IndexOf("private void CompleteResponse(", StringComparison.Ordinal);
@@ -854,7 +854,7 @@ public class ChatExperienceSafetyTests
     public void ReconnectPath_IncludesMcpServersAndSkills()
     {
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         // After extraction to BuildFreshSessionConfig, verify the reconnect path calls the helper
         var sessionNotFoundIdx = source.IndexOf("resumeEx.Message.Contains(\"Session not found\"", StringComparison.Ordinal);

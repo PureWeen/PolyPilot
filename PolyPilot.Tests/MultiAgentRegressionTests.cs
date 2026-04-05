@@ -1448,7 +1448,7 @@ public class MultiAgentRegressionTests
         // The Debug() method's file filter must include [DISPATCH] so orchestration
         // events are written to event-diagnostics.log for post-mortem analysis.
         // This was a bug: [DISPATCH] was written to Console but not persisted.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
         Assert.Contains("[DISPATCH", source.Substring(source.IndexOf("message.StartsWith(\"[EVT")));
     }
 
@@ -1458,7 +1458,7 @@ public class MultiAgentRegressionTests
         // After reconnect in SendPromptAsync, the new SessionState must carry forward
         // IsMultiAgentSession from the old state. Without this, the watchdog uses the
         // 120s inactivity timeout instead of 600s, killing long-running worker tasks.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
         
         // Find the reconnect block where state is replaced
         var marker = "[RECONNECT] '{sessionName}' replacing state";
@@ -1479,7 +1479,7 @@ public class MultiAgentRegressionTests
         // MonitorAndSynthesizeAsync must filter worker results by dispatch timestamp
         // to avoid picking up stale pre-dispatch assistant messages from prior conversations.
         // This was a 3/3 consensus finding from multi-model review.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs"));
 
         // Find the result collection section in MonitorAndSynthesizeAsync
         var monitorSection = source.Substring(source.IndexOf("Collect worker results from their chat history"));
@@ -1497,7 +1497,7 @@ public class MultiAgentRegressionTests
         // ClearPendingOrchestration must be in a finally block so it's cleaned up
         // even on cancellation/error. Otherwise stale pending files cause spurious
         // resume on next launch. Opus review finding.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs"));
 
         // Non-reflect path: must have finally { ClearPendingOrchestration }
         var nonReflectDispatch = source.Substring(source.IndexOf("Phase 3: Dispatch tasks to workers"));
@@ -1525,7 +1525,7 @@ public class MultiAgentRegressionTests
         // When the app restarts and workers never started (TaskCanceledException killed dispatch),
         // MonitorAndSynthesizeAsync should detect idle workers with no post-dispatch response
         // and re-dispatch them instead of reporting "no response found".
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs"));
 
         var startIdx = source.IndexOf("private async Task MonitorAndSynthesizeAsync");
         Assert.True(startIdx >= 0, "MonitorAndSynthesizeAsync method not found in source");
@@ -1566,7 +1566,7 @@ public class MultiAgentRegressionTests
     {
         // RetryOrchestrationAsync should reset the reflect state so the loop can re-enter.
         // If ReflectionState.IsActive is false (loop completed), retry should re-activate it.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs"));
 
         var startIdx = source.IndexOf("public async Task RetryOrchestrationAsync");
         Assert.True(startIdx >= 0, "RetryOrchestrationAsync method not found in source");
@@ -1588,7 +1588,7 @@ public class MultiAgentRegressionTests
     {
         // When no explicit prompt is given and no user message found in history,
         // RetryOrchestrationAsync should use a fallback resume instruction.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs"));
 
         var startIdx = source.IndexOf("public async Task RetryOrchestrationAsync");
         Assert.True(startIdx >= 0, "RetryOrchestrationAsync method not found in source");
@@ -2391,7 +2391,7 @@ public class MultiAgentRegressionTests
     public void PrematureIdleSignal_SetInRearmPath()
     {
         // Structural: the EVT-REARM path must call PrematureIdleSignal.Set()
-        var eventsPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs");
+        var eventsPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs");
         var source = File.ReadAllText(eventsPath);
 
         // Find the EVT-REARM block
@@ -2407,7 +2407,7 @@ public class MultiAgentRegressionTests
     public void PrematureIdleSignal_ResetInSendPromptAsync()
     {
         // Structural: SendPromptAsync must reset PrematureIdleSignal on each new turn
-        var servicePath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var servicePath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs");
         var source = File.ReadAllText(servicePath);
 
         // Find SendPromptAsync method
@@ -2422,7 +2422,7 @@ public class MultiAgentRegressionTests
     public void RecoverFromPrematureIdleIfNeededAsync_ExistsInOrganization()
     {
         // Structural: the recovery method must exist and be called from ExecuteWorkerAsync
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         Assert.Contains("RecoverFromPrematureIdleIfNeededAsync", source);
@@ -2439,7 +2439,7 @@ public class MultiAgentRegressionTests
     {
         // Structural: the recovery check must be guarded by IsMultiAgentSession
         // to avoid adding latency to normal single-session completions
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         var execIdx = source.IndexOf("private async Task<WorkerResult> ExecuteWorkerAsync", StringComparison.Ordinal);
@@ -2458,7 +2458,7 @@ public class MultiAgentRegressionTests
     {
         // Structural: the recovery method must subscribe to OnSessionComplete to detect
         // the worker's real completion (after premature idle re-arm)
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         // Find the method definition (not a call site)
@@ -2474,7 +2474,7 @@ public class MultiAgentRegressionTests
     public void RecoverFromPrematureIdleIfNeededAsync_HasDiskFallback()
     {
         // Structural: if History doesn't have full content, fall back to LoadHistoryFromDisk
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         // Find the method definition (not a call site)
@@ -2489,7 +2489,7 @@ public class MultiAgentRegressionTests
     public void RecoverFromPrematureIdleIfNeededAsync_HasDiagnosticLogging()
     {
         // Every recovery path must have diagnostic log entries
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         // Find the method definition (not a call site)
@@ -2505,7 +2505,7 @@ public class MultiAgentRegressionTests
     {
         // Structural: SessionId must be set AFTER TryUpdate succeeds, not before.
         // This prevents mutating shared Info on a path that might discard the state.
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         // Find the revival block in ExecuteWorkerAsync
@@ -2529,7 +2529,7 @@ public class MultiAgentRegressionTests
         // Structural: recovery must check events.jsonl freshness as a parallel detection
         // signal alongside WasPrematurelyIdled flag. This catches cases where EVT-REARM
         // takes 30-60s to fire but the CLI is still writing events.
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
@@ -2543,7 +2543,7 @@ public class MultiAgentRegressionTests
     public void IsEventsFileActive_HelperExists()
     {
         // Structural: IsEventsFileActive must exist as a helper for events.jsonl freshness checks
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         var helperIdx = source.IndexOf("private bool IsEventsFileActive(", StringComparison.Ordinal);
@@ -2560,7 +2560,7 @@ public class MultiAgentRegressionTests
         // Structural: recovery must loop to handle repeated premature idle (observed: 4x in a row).
         // After each OnSessionComplete, it checks if events.jsonl is still active before deciding
         // the worker is truly done.
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
@@ -2578,7 +2578,7 @@ public class MultiAgentRegressionTests
     public void PrematureIdleEventsFileFreshnessSeconds_ConstantExists()
     {
         // The freshness threshold constant must exist and be reasonable (10-60s range)
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         Assert.Contains("PrematureIdleEventsFileFreshnessSeconds", source);
@@ -2598,7 +2598,7 @@ public class MultiAgentRegressionTests
         Assert.True(CopilotService.PrematureIdleEventsGracePeriodMs <= 5000,
             "Grace period must be <= 5s to not delay normal completions excessively");
 
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
         var constIdx = source.IndexOf("internal const int PrematureIdleEventsGracePeriodMs", StringComparison.Ordinal);
         Assert.True(constIdx >= 0, "PrematureIdleEventsGracePeriodMs must be an internal const int");
@@ -2609,7 +2609,7 @@ public class MultiAgentRegressionTests
     {
         // GetEventsFileMtime must exist as an internal helper returning DateTime?
         // Used by RecoverFromPrematureIdleIfNeededAsync for mtime-comparison detection.
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         var helperIdx = source.IndexOf("internal DateTime? GetEventsFileMtime(", StringComparison.Ordinal);
@@ -2626,7 +2626,7 @@ public class MultiAgentRegressionTests
         // Structural: instead of raw IsEventsFileActive (which sees the idle event's own write
         // as "fresh" and false-positives), the method must snapshot mtime, wait the grace period,
         // then compare mtimes. Only a changed mtime proves the CLI is still writing.
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
@@ -2651,7 +2651,7 @@ public class MultiAgentRegressionTests
         // Structural: the secondary polling loop must also use mtime comparison (not raw
         // IsEventsFileActive) so that a stale-but-fresh file doesn't trigger false detection
         // in subsequent poll cycles.
-        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);

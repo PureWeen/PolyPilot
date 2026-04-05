@@ -236,7 +236,7 @@ public class PermissionDenialDetectionTests
         // STRUCTURAL REGRESSION GUARD: isRecoverableError must include isMcpFailure
         // so that repeated MCP errors trigger auto-recovery (session reconnect).
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         Assert.Contains("var isRecoverableError = isPermissionDenial || isShellFailure || isMcpFailure;", source);
     }
 
@@ -245,7 +245,7 @@ public class PermissionDenialDetectionTests
     {
         // When MCP recovery triggers, the user message must mention /mcp reload
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
         Assert.Contains("/mcp reload", source);
     }
 
@@ -270,7 +270,7 @@ public class PermissionDenialDetectionTests
         // in-place using _sessions.TryUpdate (preserving AgentSessionInfo/history).
         // It must NOT call CreateSessionAsync with a renamed session (which loses history).
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
         Assert.Contains("_sessions.TryUpdate(sessionName, newState, state)", source);
         Assert.Contains("Info = state.Info", source);
     }
@@ -281,7 +281,7 @@ public class PermissionDenialDetectionTests
         // STRUCTURAL: Concurrent reload must throw (not silently succeed) so the Dashboard
         // can display an honest error message instead of a false "✅ reloaded" confirmation.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
         // The guard must throw, not return silently
         Assert.Contains("throw new InvalidOperationException(\"MCP reload is already in progress", source);
     }
@@ -299,7 +299,7 @@ public class PermissionDenialDetectionTests
         // accompanies the out-of-if-block call. If ClearPermissionDenials() were moved back
         // inside the if-block, this comment would not be present and the test would fail.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         // The unconditional call is preceded by a comment that is unique to that call site.
         Assert.Contains("Always clear the sliding-window denial queue regardless of processing state", source);
@@ -379,7 +379,7 @@ public class InitializationErrorDetectionTests
         // The helper is internal — verify it's accessible from tests (InternalsVisibleTo).
         // Also verify the helper exists in CopilotService.Utilities.cs at the right location.
         var repoRoot = GetRepoRoot();
-        var source = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.Utilities.cs"));
+        var source = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot.Core", "Services", "CopilotService.Utilities.cs"));
         Assert.Contains("internal static bool IsInitializationError(Exception ex)", source);
         Assert.Contains("not initialized", source);
     }
@@ -390,7 +390,7 @@ public class InitializationErrorDetectionTests
         // Structural: the retry catch in ExecuteWorkerAsync must check IsInitializationError
         // so "Service not initialized" triggers a retry with lazy re-init, not an immediate fail.
         var repoRoot = GetRepoRoot();
-        var source = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.Organization.cs"));
+        var source = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot.Core", "Services", "CopilotService.Organization.cs"));
         Assert.Contains("IsInitializationError(ex)", source);
         // The retry gate must combine both checks
         Assert.Contains("IsConnectionError(ex) || IsInitializationError(ex)", source);

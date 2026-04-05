@@ -47,6 +47,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="../PolyPilot.Core/PolyPilot.Core.csproj" />
     <ProjectReference Include="../PolyPilot.Provider.Abstractions/PolyPilot.Provider.Abstractions.csproj" />
   </ItemGroup>
 
@@ -55,8 +56,8 @@
     <PackageReference Include="Platform.Maui.Linux.Gtk4" Version="0.6.0" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4.Essentials" Version="0.6.0" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4.BlazorWebView" Version="0.6.0" />
-    <PackageReference Include="GitHub.Copilot.SDK" Version="0.2.0" />
-    <PackageReference Include="Markdig" Version="1.1.1" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="0.2.1" />
+    <PackageReference Include="Markdig" Version="1.1.2" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView" Version="10.0.5" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
     <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />

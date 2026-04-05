@@ -233,7 +233,7 @@ public class ConnectionRecoveryTests
         // SendPromptAsync, the local `client` variable is refreshed after `_client`
         // is recreated. Without this, ResumeSessionAsync/CreateSessionAsync operate
         // on the old disposed CopilotClient, throwing "Client not connected".
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         // Find the reconnect block where _client is recreated
         var recreateIndex = source.IndexOf("_client = CreateClient(connSettings);");
@@ -255,7 +255,7 @@ public class ConnectionRecoveryTests
     {
         // STRUCTURAL REGRESSION GUARD: The stale reference also affects the
         // "Session not found" fallback where client.CreateSessionAsync is called.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         var recreateIndex = source.IndexOf("_client = CreateClient(connSettings);");
         var refreshIndex = source.IndexOf("client = _client", recreateIndex);
@@ -277,7 +277,7 @@ public class ConnectionRecoveryTests
         // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must assign
         // McpServers in the freshConfig so MCP tools survive reconnection.
         // After extraction to BuildFreshSessionConfig helper, verify the helper contains it.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         // Verify the reconnect path calls the helper
         var sessionNotFoundIdx = source.IndexOf("resumeEx.Message.Contains(\"Session not found\"", StringComparison.Ordinal);
@@ -297,7 +297,7 @@ public class ConnectionRecoveryTests
     {
         // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must assign
         // SkillDirectories in the freshConfig so skills survive reconnection.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
         Assert.True(helperIdx > 0, "Could not find BuildFreshSessionConfig helper");
@@ -310,7 +310,7 @@ public class ConnectionRecoveryTests
     {
         // STRUCTURAL REGRESSION GUARD: The "Session not found" fallback must include
         // SystemMessage so the session retains its system prompt after reconnection.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
         Assert.True(helperIdx > 0, "Could not find BuildFreshSessionConfig helper");
@@ -324,7 +324,7 @@ public class ConnectionRecoveryTests
     {
         // STRUCTURAL REGRESSION GUARD: The BuildFreshSessionConfig helper must
         // set the same critical fields as the original CreateSessionAsync config.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         var helperIdx = source.IndexOf("BuildFreshSessionConfig(SessionState state");
         Assert.True(helperIdx > 0);
@@ -451,7 +451,7 @@ public class ConnectionRecoveryTests
         // STRUCTURAL REGRESSION GUARD: RestorePreviousSessionsAsync must include
         // IsProcessError in the fallback condition so worker sessions with stale CLI
         // server process handles get recreated instead of silently dropped.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Persistence.cs"));
 
         // Find the fallback condition that checks ex.Message for "Session not found"
         var conditionIndex = source.IndexOf("ex.Message.Contains(\"Session not found\"");
@@ -586,7 +586,7 @@ public class ConnectionRecoveryTests
         // must check for a dead client (!IsInitialized || _client == null) before
         // calling GetClientForGroup. Without this, a previous reconnect failure
         // that nulled _client makes ALL sessions permanently dead.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         // Find the reconnect block (inside the SendAsync catch)
         var reconnectIndex = source.IndexOf("attempting reconnect...");
@@ -607,7 +607,7 @@ public class ConnectionRecoveryTests
     {
         // STRUCTURAL REGRESSION GUARD: The lazy re-init path must attempt to restart
         // the persistent server (via _serverManager) before creating a new client.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         var reinitIndex = source.IndexOf("lazy re-initialization so the session can self-heal");
         Assert.True(reinitIndex > 0);
@@ -624,7 +624,7 @@ public class ConnectionRecoveryTests
     {
         // STRUCTURAL REGRESSION GUARD: Lazy re-init should NOT run for codespace
         // sessions (they have their own health check reconnection mechanism).
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         var reinitIndex = source.IndexOf("lazy re-initialization so the session can self-heal");
         Assert.True(reinitIndex > 0);
@@ -713,7 +713,7 @@ public class ConnectionRecoveryTests
         // STRUCTURAL REGRESSION GUARD: ResumeSessionAsync must de-duplicate
         // display names instead of throwing on collision.
         var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+            Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         var methodIndex = source.IndexOf("public async Task<AgentSessionInfo> ResumeSessionAsync");
         Assert.True(methodIndex > 0, "Could not find ResumeSessionAsync method");
@@ -755,7 +755,7 @@ public class ConnectionRecoveryTests
         // STRUCTURAL REGRESSION GUARD: AddMessageAsync must use `catch (Exception`
         // not a narrow filter like `catch (SQLiteException)`. Historical regression
         // used narrow catch → uncaught exceptions became UnobservedTaskException.
-        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "ChatDatabase.cs"));
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "ChatDatabase.cs"));
 
         // Find the AddMessageAsync method
         var methodIndex = source.IndexOf("public async Task<int> AddMessageAsync");
@@ -773,8 +773,8 @@ public class ConnectionRecoveryTests
     {
         // STRUCTURAL REGRESSION GUARD: All fire-and-forget _chatDb calls in
         // CopilotService must use SafeFireAndForget, not bare `_ = ...`.
-        var csFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
-        var eventsFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var csFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.cs"));
+        var eventsFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot.Core", "Services", "CopilotService.Events.cs"));
 
         // No bare fire-and-forget patterns should exist
         Assert.DoesNotContain("_ = _chatDb.", csFile);

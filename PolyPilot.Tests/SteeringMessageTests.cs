@@ -341,7 +341,7 @@ public class SteeringMessageTests
             System.IO.Path.Combine(
                 System.IO.Path.GetDirectoryName(typeof(CopilotService).Assembly.Location)!
                     .Replace("PolyPilot.Tests", "PolyPilot"),
-                "..", "..", "..", "..", "PolyPilot", "Services", "CopilotService.cs"));
+                "..", "..", "..", "..", "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         // Find the soft steer block (between "[STEER]" debug log and hard steer comment)
         var softSteerStart = source.IndexOf("[STEER] '{sessionName}' soft steer");
@@ -366,7 +366,7 @@ public class SteeringMessageTests
             System.IO.Path.Combine(
                 System.IO.Path.GetDirectoryName(typeof(CopilotService).Assembly.Location)!
                     .Replace("PolyPilot.Tests", "PolyPilot"),
-                "..", "..", "..", "..", "PolyPilot", "Services", "CopilotService.cs"));
+                "..", "..", "..", "..", "PolyPilot.Core", "Services", "CopilotService.cs"));
 
         var softSteerStart = source.IndexOf("[STEER] '{sessionName}' soft steer");
         Assert.True(softSteerStart >= 0, "Soft steer debug log not found");
