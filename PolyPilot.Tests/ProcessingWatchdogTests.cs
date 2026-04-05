@@ -2332,6 +2332,44 @@ public class ProcessingWatchdogTests
             "ExternalToolRequestedEvent must be classified as TimelineOnly");
     }
 
+    // ===== Background task event handling =====
+
+    [Fact]
+    public void SessionBackgroundTasksChangedEvent_IsInEventMatrix()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        Assert.Contains("SessionBackgroundTasksChangedEvent", source);
+        var idx = source.IndexOf("[\"SessionBackgroundTasksChangedEvent\"]");
+        Assert.True(idx >= 0, "SessionBackgroundTasksChangedEvent must be in SdkEventMatrix");
+        var context = source.Substring(idx, 100);
+        Assert.Contains("TimelineOnly", context);
+    }
+
+    [Fact]
+    public void SystemNotificationEvent_IsInEventMatrix()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        Assert.Contains("SystemNotificationEvent", source);
+        var idx = source.IndexOf("[\"SystemNotificationEvent\"]");
+        Assert.True(idx >= 0, "SystemNotificationEvent must be in SdkEventMatrix");
+        var context = source.Substring(idx, 100);
+        Assert.Contains("ChatVisible", context);
+    }
+
+    [Fact]
+    public void SystemNotificationEvent_HandlerCoversAllKindVariants()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        // Must handle all 4 SystemNotificationDataKind variants
+        Assert.Contains("SystemNotificationDataKindAgentCompleted", source);
+        Assert.Contains("SystemNotificationDataKindAgentIdle", source);
+        Assert.Contains("SystemNotificationDataKindShellCompleted", source);
+        Assert.Contains("SystemNotificationDataKindShellDetachedCompleted", source);
+    }
+
     // ===== Periodic mid-watchdog flush =====
 
     [Fact]

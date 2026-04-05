@@ -62,6 +62,10 @@ public partial class CopilotService
         ["SubagentFailedEvent"] = EventVisibility.ChatVisible,
         ["CommandsChangedEvent"] = EventVisibility.TimelineOnly,
 
+        // Background task lifecycle — used for real-time agent/shell tracking
+        ["SessionBackgroundTasksChangedEvent"] = EventVisibility.TimelineOnly,
+        ["SystemNotificationEvent"] = EventVisibility.ChatVisible,
+
         // Currently noisy internal events
         ["SessionLifecycleEvent"] = EventVisibility.Ignore,
         ["HookStartEvent"] = EventVisibility.Ignore,
@@ -1057,6 +1061,52 @@ public partial class CopilotService
                         state.Info.History.Add(ChatMessage.SystemMessage($"⚡ Skill: **{label}**"));
                         NotifyStateChangedCoalesced();
                     });
+                }
+                break;
+            }
+
+            case SessionBackgroundTasksChangedEvent bgTasksChanged:
+            {
+                // Real-time background task status update — fires when agents/shells start or stop.
+                // Provides proactive awareness without waiting for session.idle.
+                Debug($"[BG-TASKS] '{sessionName}' background tasks changed");
+                Invoke(() =>
+                {
+                    state.Info.LastUpdatedAt = DateTime.Now;
+                    NotifyStateChangedCoalesced();
+                });
+                break;
+            }
+
+            case SystemNotificationEvent sysNotification:
+            {
+                var kind = sysNotification.Data?.Kind;
+                switch (kind)
+                {
+                    case SystemNotificationDataKindAgentCompleted agentDone:
+                        Debug($"[SYS-NOTIFY] '{sessionName}' agent completed: {agentDone.AgentId} ({agentDone.AgentType}) status={agentDone.Status}");
+                        Invoke(() =>
+                        {
+                            state.Info.LastUpdatedAt = DateTime.Now;
+                            NotifyStateChangedCoalesced();
+                        });
+                        break;
+
+                    case SystemNotificationDataKindAgentIdle agentIdle:
+                        Debug($"[SYS-NOTIFY] '{sessionName}' agent idle: {agentIdle.AgentId} ({agentIdle.AgentType})");
+                        break;
+
+                    case SystemNotificationDataKindShellCompleted shellDone:
+                        Debug($"[SYS-NOTIFY] '{sessionName}' shell completed: {shellDone.ShellId} exit={shellDone.ExitCode}");
+                        break;
+
+                    case SystemNotificationDataKindShellDetachedCompleted shellDetached:
+                        Debug($"[SYS-NOTIFY] '{sessionName}' detached shell completed: {shellDetached.ShellId}");
+                        break;
+
+                    default:
+                        Debug($"[SYS-NOTIFY] '{sessionName}' unknown notification kind: {kind?.Type}");
+                        break;
                 }
                 break;
             }
