@@ -430,4 +430,104 @@ public class DiffParserTests
         Assert.Contains("line 2", modified);
         Assert.Contains("line 3", modified);
     }
+
+    [Fact]
+    public void ReconstructOriginalAndModified_DeletedFile_OriginalHasAllLines()
+    {
+        var diff = """
+            diff --git a/old.txt b/old.txt
+            deleted file mode 100644
+            --- a/old.txt
+            +++ /dev/null
+            @@ -1,3 +0,0 @@
+            -line A
+            -line B
+            -line C
+            """;
+        var files = DiffParser.Parse(diff);
+        var original = DiffParser.ReconstructOriginal(files[0]);
+        var modified = DiffParser.ReconstructModified(files[0]);
+
+        Assert.Contains("line A", original);
+        Assert.Contains("line B", original);
+        Assert.Contains("line C", original);
+        Assert.Equal("", modified);
+    }
+
+    [Fact]
+    public void ReconstructOriginalAndModified_EmptyHunks_ReturnsEmpty()
+    {
+        var file = new DiffFile { FileName = "empty.txt", Hunks = new List<DiffHunk>() };
+        var original = DiffParser.ReconstructOriginal(file);
+        var modified = DiffParser.ReconstructModified(file);
+
+        Assert.Equal("", original);
+        Assert.Equal("", modified);
+    }
+
+    [Fact]
+    public void ReconstructOriginalAndModified_MultipleHunks_CombinesAll()
+    {
+        var diff = """
+            diff --git a/multi.cs b/multi.cs
+            --- a/multi.cs
+            +++ b/multi.cs
+            @@ -1,3 +1,3 @@
+             using System;
+            -using Old;
+            +using New;
+             class A {}
+            @@ -10,3 +10,4 @@
+             void Foo() {
+            -    Bar();
+            +    Baz();
+            +    Qux();
+             }
+            """;
+        var files = DiffParser.Parse(diff);
+        var original = DiffParser.ReconstructOriginal(files[0]);
+        var modified = DiffParser.ReconstructModified(files[0]);
+
+        // Original should have both hunks' context+removed lines
+        Assert.Contains("using Old;", original);
+        Assert.Contains("Bar();", original);
+        Assert.DoesNotContain("using New;", original);
+        Assert.DoesNotContain("Baz();", original);
+        Assert.DoesNotContain("Qux();", original);
+
+        // Modified should have both hunks' context+added lines
+        Assert.Contains("using New;", modified);
+        Assert.Contains("Baz();", modified);
+        Assert.Contains("Qux();", modified);
+        Assert.DoesNotContain("using Old;", modified);
+        Assert.DoesNotContain("Bar();", modified);
+    }
+
+    [Fact]
+    public void ReconstructOriginalAndModified_ContextOnly_BothIdentical()
+    {
+        // A diff with only context lines (no real changes) — e.g., a self-diff view
+        var file = new DiffFile
+        {
+            FileName = "ctx.txt",
+            Hunks = new List<DiffHunk>
+            {
+                new()
+                {
+                    Lines = new List<DiffLine>
+                    {
+                        new() { Type = DiffLineType.Context, Content = "line 1" },
+                        new() { Type = DiffLineType.Context, Content = "line 2" },
+                        new() { Type = DiffLineType.Context, Content = "line 3" },
+                    }
+                }
+            }
+        };
+        var original = DiffParser.ReconstructOriginal(file);
+        var modified = DiffParser.ReconstructModified(file);
+
+        Assert.Equal(original, modified);
+        Assert.Contains("line 1", original);
+        Assert.Contains("line 3", original);
+    }
 }

@@ -92,6 +92,7 @@ else
     private string? _lastRawDiff;
     private readonly Dictionary<int, DiffViewMode> _viewModes = new();
     private readonly Dictionary<int, int> _cmInstances = new();
+    private readonly HashSet<int> _pendingEditorInit = new();
     private readonly string _instancePrefix = Guid.NewGuid().ToString("N")[..8];
 
     private enum DiffViewMode { Table, Editor }
@@ -105,22 +106,36 @@ else
             _ = DisposeAllCmInstancesAsync();
             _viewModes.Clear();
             _cmInstances.Clear();
+            _pendingEditorInit.Clear();
         }
     }
 
-    private async void SetViewMode(int fileIdx, DiffViewMode mode)
+    private void SetViewMode(int fileIdx, DiffViewMode mode)
     {
-        _viewModes[fileIdx] = mode;
-        StateHasChanged();
-
         if (mode == DiffViewMode.Editor)
         {
-            await Task.Delay(50);
-            await InitCodeMirrorForFile(fileIdx);
+            _viewModes[fileIdx] = mode;
+            _pendingEditorInit.Add(fileIdx);
+            // StateHasChanged triggers OnAfterRenderAsync where we init CM
         }
         else
         {
-            await DisposeCmInstance(fileIdx);
+            _viewModes[fileIdx] = mode;
+            _ = DisposeCmInstance(fileIdx);
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (_pendingEditorInit.Count > 0)
+        {
+            var pending = _pendingEditorInit.ToArray();
+            _pendingEditorInit.Clear();
+
+            foreach (var fileIdx in pending)
+            {
+                await InitCodeMirrorForFile(fileIdx);
+            }
         }
     }
 
