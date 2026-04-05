@@ -1065,7 +1065,7 @@ public partial class CopilotService
                 break;
             }
 
-            case SessionBackgroundTasksChangedEvent bgTasksChanged:
+            case SessionBackgroundTasksChangedEvent:
             {
                 // Real-time background task status update — fires when agents/shells start or stop.
                 // Provides proactive awareness without waiting for session.idle.
@@ -1098,10 +1098,20 @@ public partial class CopilotService
 
                     case SystemNotificationDataKindShellCompleted shellDone:
                         Debug($"[SYS-NOTIFY] '{sessionName}' shell completed: {shellDone.ShellId} exit={shellDone.ExitCode}");
+                        Invoke(() =>
+                        {
+                            state.Info.LastUpdatedAt = DateTime.Now;
+                            NotifyStateChangedCoalesced();
+                        });
                         break;
 
                     case SystemNotificationDataKindShellDetachedCompleted shellDetached:
                         Debug($"[SYS-NOTIFY] '{sessionName}' detached shell completed: {shellDetached.ShellId}");
+                        Invoke(() =>
+                        {
+                            state.Info.LastUpdatedAt = DateTime.Now;
+                            NotifyStateChangedCoalesced();
+                        });
                         break;
 
                     default:
