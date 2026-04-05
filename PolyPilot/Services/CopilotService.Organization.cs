@@ -2213,6 +2213,7 @@ public partial class CopilotService
                 Interlocked.Exchange(ref state.WatchdogCaseBStaleCount, 0);
                 state.HasUsedToolsThisTurn = false;
                 state.HasDeferredIdle = false;
+                Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
                 state.FallbackCanceledByTurnStart = false;
                 state.Info.IsResumed = false;
                 state.Info.ProcessingStartedAt = null;
