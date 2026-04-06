@@ -2195,6 +2195,14 @@ public partial class CopilotService
         CancelTurnEndFallback(state);
         CancelToolHealthCheck(state);
 
+        // Capture whether a tool call is in-flight BEFORE we reset ActiveToolCallCount below.
+        // If true we must abort the SDK session after the UI-thread cleanup so the CLI clears
+        // its pending tool expectations. Without this, the next SendAsync is silently dropped —
+        // the SDK queues the message but the CLI is blocked waiting for a tool result that will
+        // never arrive (e.g., a bash tool whose process was killed externally).
+        // This mirrors the RESUME-QUIESCE abort in CopilotService.Persistence.cs.
+        var hadActiveTool = Volatile.Read(ref state.ActiveToolCallCount) > 0;
+
         var tcs = new TaskCompletionSource<bool>();
         InvokeOnUI(() =>
         {
@@ -2243,6 +2251,28 @@ public partial class CopilotService
             catch (Exception ex) { tcs.TrySetException(ex); }
         });
         try { await tcs.Task; } catch { }
+
+        // If a tool call was in-flight when we force-completed, abort the SDK session to clear
+        // the CLI's pending tool expectations. Without this, the next SendAsync succeeds at the
+        // transport level but the CLI never processes it — it's stuck waiting for tool results
+        // that will never arrive. Non-fatal: if AbortAsync fails the session will still accept
+        // new messages on the next reconnect (lazy-resume clears SDK state independently).
+        if (hadActiveTool)
+        {
+            var session = state.Session;
+            if (session != null)
+            {
+                try
+                {
+                    await session.AbortAsync(CancellationToken.None);
+                    Debug($"[DISPATCH] ForceCompleteProcessing '{sessionName}': abort sent to clear pending tool state");
+                }
+                catch (Exception abortEx)
+                {
+                    Debug($"[DISPATCH] ForceCompleteProcessing '{sessionName}': abort failed (non-fatal): {abortEx.Message}");
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -3837,8 +3867,51 @@ public partial class CopilotService
 
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.WaitingForWorkers, iterDetail));
 
-            var workerTasks = assignments.Select(a => ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, ct));
-            var results = await Task.WhenAll(workerTasks);
+            var workerTasks = assignments.Select(a => ExecuteWorkerAsync(a.WorkerName, a.Task, prompt, ct)).ToList();
+
+            // Bounded wait — mirrors the non-reflect path (SendViaOrchestratorAsync).
+            // Without a timeout a stuck worker (e.g., a bash tool whose process hangs)
+            // blocks the reflect loop indefinitely, starves the orchestrator's CLI session
+            // of activity until the server's ~35-min idle timer kills it, and leaves
+            // everything stuck with no recovery path for hours.
+            var allDone = Task.WhenAll(workerTasks);
+            // Use CancellationToken.None for the delay — if the caller's token is cancelled,
+            // Task.WhenAny returns the cancelled allDone and the OCE propagates cleanly.
+            var timeoutTask = Task.Delay(OrchestratorCollectionTimeout, CancellationToken.None);
+            WorkerResult[] results;
+            if (await Task.WhenAny(allDone, timeoutTask) != allDone)
+            {
+                Debug($"[DISPATCH] Reflect iteration {reflectState.CurrentIteration}: collection timeout ({OrchestratorCollectionTimeout.TotalMinutes}m) — force-completing stuck workers");
+                foreach (var a in assignments)
+                {
+                    if (_sessions.TryGetValue(a.WorkerName, out var ws))
+                    {
+                        if (ws.Info.IsProcessing)
+                        {
+                            Debug($"[DISPATCH] Reflect: force-completing stuck worker '{a.WorkerName}'");
+                            AddOrchestratorSystemMessage(a.WorkerName,
+                                "⚠️ Worker timed out — orchestrator is proceeding with partial results.");
+                            await ForceCompleteProcessingAsync(a.WorkerName, ws, $"reflect collection timeout ({OrchestratorCollectionTimeout.TotalMinutes}m)");
+                        }
+                        else if (ws.ResponseCompletion?.Task.IsCompleted == false)
+                        {
+                            Debug($"[DISPATCH] Reflect: resolving TCS for non-processing worker '{a.WorkerName}'");
+                            ws.ResponseCompletion?.TrySetResult("(worker timed out — never started processing)");
+                        }
+                    }
+                }
+                var partialResults = new List<WorkerResult>();
+                foreach (var t in workerTasks)
+                {
+                    try { partialResults.Add(await t); }
+                    catch (Exception ex) { partialResults.Add(new WorkerResult("unknown", null, false, $"Error: {ex.Message}", TimeSpan.Zero)); }
+                }
+                results = partialResults.ToArray();
+            }
+            else
+            {
+                results = await allDone;
+            }
 
             // Track both attempted and successful workers across all iterations
             foreach (var a in assignments)
