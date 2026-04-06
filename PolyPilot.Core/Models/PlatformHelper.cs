@@ -5,11 +5,12 @@ namespace PolyPilot.Models;
 public static class PlatformHelper
 {
     public static bool IsDesktop =>
-        // Runtime detection — works correctly across all platforms including net10.0 Core
-        !OperatingSystem.IsIOS() && !OperatingSystem.IsAndroid();
+        // Runtime detection — OperatingSystem.IsIOS() returns true on Mac Catalyst,
+        // so we must exclude it explicitly to correctly identify Mac Catalyst as desktop.
+        OperatingSystem.IsMacCatalyst() || (!OperatingSystem.IsIOS() && !OperatingSystem.IsAndroid());
 
     public static bool IsMobile =>
-        OperatingSystem.IsIOS() || OperatingSystem.IsAndroid();
+        (OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst()) || OperatingSystem.IsAndroid();
 
     public static string PlatformName =>
         OperatingSystem.IsMacCatalyst() ? "maccatalyst" :

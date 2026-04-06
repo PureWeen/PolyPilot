@@ -4865,7 +4865,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     private void StartExternalSessionScannerIfNeeded()
     {
-        if (OperatingSystem.IsAndroid() || OperatingSystem.IsIOS())
+        if (OperatingSystem.IsAndroid() || (OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst()))
         {
             // No local filesystem access on mobile
             return;
