@@ -187,6 +187,26 @@ When switching between Embedded and Persistent modes (via Settings → Save & Re
 
 ## Critical Conventions
 
+### Explore Before Implementing
+Before implementing any new feature that touches session state, multi-agent orchestration, or event handling:
+1. **Grep the codebase for existing patterns** — check for enums (`MultiAgentRole`), existing timestamp fields, helper methods, and utility functions that already solve your problem. Spend 5 minutes exploring before writing a single line.
+2. **Check the skills** — `processing-state-safety`, `multi-agent-orchestration`, and `copilot-sdk-reference` contain domain knowledge that prevents common mistakes. Read the relevant skill BEFORE designing your approach.
+3. **Use existing data over new fields** — derive state from timestamps, History contents, event logs, or existing model properties. Adding new state fields creates maintenance burden.
+
+### No New Companion-Pair State Fields
+**AVOID** adding new fields to `SessionState` or `SessionGroup` that must be maintained across multiple code paths. The 13-PR `IsProcessing` regression history proves this pattern is the #1 source of bugs — every new field that requires set/clear across N paths will eventually have a path that forgets.
+
+Instead:
+- **Derive state from existing data** (compare timestamps, check History contents, read events.jsonl)
+- **Use SDK events** rather than tracking state manually
+- If you MUST add a new field, document every set/clear site and add a test that verifies the site count matches
+
+### Behavioral Tests Over Structural Tests
+When adding new detection, diagnostic, or business logic:
+- **Write behavioral tests** — inject real objects (sessions, groups, state), execute the method, verify actual outputs (messages added, return values, state changes)
+- **Do NOT rely on structural tests** (grep source code for string patterns) as primary coverage — they verify code exists, not that it works correctly
+- Structural tests are acceptable as **supplementary** invariant guards (e.g., "method X must be called after method Y"), but never as the only tests for logic
+
 ### Build & Launch
 - **NEVER use `--no-build`** when running the app (`dotnet run`). Always do a full build to catch and fix compile errors before launching. Using `--no-build` can cause silent crashes from stale binaries.
 
