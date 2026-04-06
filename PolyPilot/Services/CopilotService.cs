@@ -5060,6 +5060,7 @@ public class ActiveSessionEntry
     public string? WorkingDirectory { get; set; }
     public string? LastPrompt { get; set; }
     public string? GroupId { get; set; }
+    public string? RecoveredFromSessionId { get; set; }
     // Usage stats persisted across reconnects
     public int TotalInputTokens { get; set; }
     public int TotalOutputTokens { get; set; }

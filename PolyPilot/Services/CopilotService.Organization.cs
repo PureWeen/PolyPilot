@@ -2183,6 +2183,12 @@ public partial class CopilotService
     private record WorkerResult(string WorkerName, string? Response, bool Success, string? Error, TimeSpan Duration);
 
     /// <summary>
+    /// Upper bound for AbortAsync during force-complete cleanup. The cleanup path exists to
+    /// recover from stuck workers; it must stay bounded even if the SDK RPC is half-open.
+    /// </summary>
+    internal const int ForceCompleteAbortTimeoutSeconds = 15;
+
+    /// <summary>
     /// Full INV-1-compliant force-completion of a session's processing state.
     /// Clears all 9+ companion fields, resolves the ResponseCompletion TCS,
     /// fires OnSessionComplete, and cancels background timers.
@@ -2262,10 +2268,15 @@ public partial class CopilotService
             var session = state.Session;
             if (session != null)
             {
+                using var abortCts = new CancellationTokenSource(TimeSpan.FromSeconds(ForceCompleteAbortTimeoutSeconds));
                 try
                 {
-                    await session.AbortAsync(CancellationToken.None);
+                    await session.AbortAsync(abortCts.Token);
                     Debug($"[DISPATCH] ForceCompleteProcessing '{sessionName}': abort sent to clear pending tool state");
+                }
+                catch (OperationCanceledException) when (abortCts.IsCancellationRequested)
+                {
+                    Debug($"[DISPATCH] ForceCompleteProcessing '{sessionName}': abort timed out after {ForceCompleteAbortTimeoutSeconds}s — proceeding anyway");
                 }
                 catch (Exception abortEx)
                 {

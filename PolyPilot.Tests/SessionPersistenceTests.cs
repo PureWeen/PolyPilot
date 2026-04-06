@@ -1673,15 +1673,16 @@ public class SessionPersistenceTests
     }
 
     [Fact]
-    public void Merge_NameCollision_DifferentGroupId_DropsPersistedEntry()
+    public void Merge_NameCollision_DifferentGroupId_WithExplicitRecovery_DropsPersistedEntry()
     {
         // When a session is moved to a new group during scattered team reconstruction
         // and then recreated with a new SessionId, the persisted entry from the old group
-        // should be silently dropped — not renamed to "(previous)".
+        // should be silently dropped only if the replacement explicitly records that it
+        // recovered history from the old session.
         var active = new List<ActiveSessionEntry>
         {
             new() { SessionId = "new-id", DisplayName = "Copilot Cli-worker-1", Model = "m",
-                     WorkingDirectory = "/w", GroupId = "new-group-id" }
+                     WorkingDirectory = "/w", GroupId = "new-group-id", RecoveredFromSessionId = "old-id" }
         };
         var persisted = new List<ActiveSessionEntry>
         {
@@ -1695,6 +1696,28 @@ public class SessionPersistenceTests
         Assert.Single(result);
         Assert.Equal("new-id", result[0].SessionId);
         Assert.Equal("Copilot Cli-worker-1", result[0].DisplayName);
+    }
+
+    [Fact]
+    public void Merge_NameCollision_DifferentGroupId_WithoutRecoveryMarker_KeepsPrevious()
+    {
+        var active = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "new-id", DisplayName = "Copilot Cli-worker-1", Model = "m",
+                     WorkingDirectory = "/w", GroupId = "new-group-id" }
+        };
+        var persisted = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "old-id", DisplayName = "Copilot Cli-worker-1", Model = "m",
+                     WorkingDirectory = "/w", GroupId = "old-group-id" }
+        };
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, new HashSet<string>(), new HashSet<string>(), _ => true);
+
+        Assert.Equal(2, result.Count);
+        Assert.Equal("Copilot Cli-worker-1", result[0].DisplayName);
+        Assert.Equal("Copilot Cli-worker-1 (previous)", result[1].DisplayName);
+        Assert.Equal("old-id", result[1].SessionId);
     }
 
     [Fact]
