@@ -190,6 +190,21 @@ public partial class CopilotService
             var entryToAdd = existing;
             if (activeNames.Contains(existing.DisplayName))
             {
+                // If the active session moved to a different group (e.g., scattered team
+                // reconstruction created a new multi-agent group and the session was recreated
+                // there), the persisted entry is the obsolete predecessor — its history was
+                // already recovered via CopyEventsToNewSession. Drop it silently instead of
+                // creating a confusing "(previous)" duplicate.
+                var activeCounterpart = active.FirstOrDefault(a =>
+                    string.Equals(a.DisplayName, existing.DisplayName, StringComparison.OrdinalIgnoreCase));
+                if (activeCounterpart != null
+                    && !string.IsNullOrEmpty(existing.GroupId)
+                    && !string.IsNullOrEmpty(activeCounterpart.GroupId)
+                    && !string.Equals(existing.GroupId, activeCounterpart.GroupId, StringComparison.OrdinalIgnoreCase))
+                {
+                    continue; // Superseded by group move — history already migrated
+                }
+
                 entryToAdd = new ActiveSessionEntry
                 {
                     SessionId = existing.SessionId,
