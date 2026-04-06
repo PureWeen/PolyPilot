@@ -592,15 +592,24 @@ public partial class CopilotService
     {
         try
         {
+            // Skip if a PendingOrchestration exists — ResumeOrchestrationIfPendingAsync is handling it
+            var pending = LoadPendingOrchestration();
+
             var groups = SnapshotGroups();
             var metas = SnapshotSessionMetas();
 
             foreach (var group in groups.Where(g => g.IsMultiAgent))
             {
+                // Skip groups with active pending orchestration — resume is handling them
+                if (pending?.GroupId == group.Id) continue;
+
+                // Skip groups where synthesis already completed — no orphans possible
+                if (group.LastSynthesisCompletedAt != null) continue;
+
                 var groupSessions = metas.Where(m => m.GroupId == group.Id).ToList();
                 if (groupSessions.Count < 2) continue; // Need at least orchestrator + 1 worker
 
-                // Find orchestrator (naming convention: ends with "-orchestrator")
+                // Find orchestrator (naming convention: contains "-orchestrator")
                 var orchMeta = groupSessions.FirstOrDefault(m =>
                     m.SessionName.Contains("-orchestrator", StringComparison.OrdinalIgnoreCase));
                 if (orchMeta == null) continue;
@@ -616,26 +625,30 @@ public partial class CopilotService
                 {
                     if (!_sessions.TryGetValue(wm.SessionName, out var ws)) continue;
                     if (ws.Info.IsProcessing) continue; // Worker still processing — not orphaned
-                    if (ws.Info.History.Count == 0) continue; // Worker never used
 
-                    var lastMsg = ws.Info.History.LastOrDefault();
-                    if (lastMsg == null || lastMsg.IsUser) continue;
-                    // Worker has a completed assistant response as its last message
+                    // Thread-safe History read via snapshot
+                    int historyCount;
+                    ChatMessage? lastMsg;
+                    lock (ws.Info.HistoryLock)
+                    {
+                        historyCount = ws.Info.History.Count;
+                        lastMsg = historyCount > 0 ? ws.Info.History[historyCount - 1] : null;
+                    }
+                    if (historyCount == 0 || lastMsg == null || lastMsg.IsUser) continue;
                     orphanedWorkers.Add(wm.SessionName);
                 }
 
                 if (orphanedWorkers.Count == 0) continue;
 
-                // Check if this looks like a genuine orphan: orchestrator is idle and has
-                // fewer recent messages than workers (suggesting it didn't collect results)
-                Debug($"[ORPHAN-WORKER] Group '{group.Name}': orchestrator '{orchMeta.SessionName}' is idle " +
-                      $"but {orphanedWorkers.Count} worker(s) have uncollected responses: {string.Join(", ", orphanedWorkers)}");
+                Debug($"[ORPHAN-WORKER] Group '{group.Name}': orchestrator '{orchMeta.SessionName}' is idle, " +
+                      $"synthesis never completed, and {orphanedWorkers.Count} worker(s) have responses: " +
+                      $"{string.Join(", ", orphanedWorkers)}");
 
                 InvokeOnUI(() =>
                 {
                     orchState.Info.History.Add(ChatMessage.SystemMessage(
-                        $"⚠️ {orphanedWorkers.Count} worker(s) completed during restart but results may not have been synthesized. " +
-                        $"Send a message to re-trigger collection."));
+                        $"⚠️ {orphanedWorkers.Count} worker(s) completed during a previous restart but synthesis " +
+                        $"never ran. Worker results may need manual review."));
                     orchState.Info.MessageCount = orchState.Info.History.Count;
                     NotifyStateChanged();
                 });

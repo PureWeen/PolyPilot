@@ -1990,6 +1990,12 @@ public partial class CopilotService
         finally
         {
             ClearPendingOrchestration();
+            // Mark synthesis as completed so DetectOrphanedWorkers doesn't false-alarm
+            if (group != null)
+            {
+                group.LastSynthesisCompletedAt = DateTime.UtcNow;
+                SaveOrganization();
+            }
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
             var spGroupName = group?.Name ?? groupId;
             var spOrchSessionId = _sessions.TryGetValue(orchestratorName!, out var spOrchState)
@@ -3197,6 +3203,13 @@ public partial class CopilotService
         }
 
         ClearPendingOrchestration();
+        // Mark synthesis as completed so DetectOrphanedWorkers doesn't false-alarm
+        var synthGroup = Organization.Groups.FirstOrDefault(g => g.Id == pending.GroupId);
+        if (synthGroup != null)
+        {
+            synthGroup.LastSynthesisCompletedAt = DateTime.UtcNow;
+            SaveOrganization();
+        }
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
     }
 

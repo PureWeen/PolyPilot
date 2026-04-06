@@ -104,6 +104,13 @@ public class SessionGroup
     public ReflectionCycle? ReflectionState { get; set; }
 
     /// <summary>
+    /// UTC timestamp of the last successful synthesis completion for this group.
+    /// Set by MonitorAndSynthesizeAsync / SendViaOrchestratorAsync after results are collected.
+    /// Used by DetectOrphanedWorkers to distinguish "synthesis completed" from "synthesis never ran."
+    /// </summary>
+    public DateTime? LastSynthesisCompletedAt { get; set; }
+
+    /// <summary>
     /// Shared context from Squad decisions.md or similar, prepended to all worker prompts.
     /// </summary>
     public string? SharedContext { get; set; }

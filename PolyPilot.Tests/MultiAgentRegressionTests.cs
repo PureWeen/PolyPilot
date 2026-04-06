@@ -2054,6 +2054,38 @@ public class MultiAgentRegressionTests
 
         // Must contain the diagnostic log tag
         Assert.Contains("[ORPHAN-WORKER]", methodBody);
+
+        // Must check PendingOrchestration to avoid false alarms during active resume
+        Assert.Contains("LoadPendingOrchestration", methodBody);
+
+        // Must check LastSynthesisCompletedAt to avoid false positives on completed groups
+        Assert.Contains("LastSynthesisCompletedAt", methodBody);
+
+        // Must use thread-safe History access
+        Assert.Contains("HistoryLock", methodBody);
+
+        // Must NOT suggest a broken action
+        Assert.DoesNotContain("re-trigger collection", methodBody);
+    }
+
+    [Fact]
+    public void SynthesisCompletionMarker_SetInBothDispatchPaths()
+    {
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+
+        // Must be set in SendViaOrchestratorAsync (normal dispatch)
+        var dispatchIdx = source.IndexOf("async Task SendViaOrchestratorAsync");
+        Assert.True(dispatchIdx >= 0);
+        var dispatchEnd = source.IndexOf("async Task SendViaOrchestratorReflectAsync", dispatchIdx);
+        var dispatchBody = source.Substring(dispatchIdx, dispatchEnd - dispatchIdx);
+        Assert.Contains("LastSynthesisCompletedAt", dispatchBody);
+
+        // Must be set in MonitorAndSynthesizeAsync (resume after relaunch)
+        var monitorIdx = source.IndexOf("private async Task MonitorAndSynthesizeAsync");
+        Assert.True(monitorIdx >= 0);
+        // Search from MonitorAndSynthesizeAsync to end of file — method is long
+        var monitorBody = source.Substring(monitorIdx);
+        Assert.Contains("LastSynthesisCompletedAt", monitorBody);
     }
 
     #endregion
