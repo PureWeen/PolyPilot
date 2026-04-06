@@ -215,12 +215,13 @@ public class UsageStatsService : IAsyncDisposable
                     PreallocationSize = json.Length
                 };
 
-#if !ANDROID && !IOS && !MACCATALYST
-                if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+                if (!OperatingSystem.IsAndroid() && !OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst())
                 {
-                    options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                    if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
+                    {
+                        options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
+                    }
                 }
-#endif
 
                 using var stream = new FileStream(StatsPath, options);
                 using var writer = new StreamWriter(stream);

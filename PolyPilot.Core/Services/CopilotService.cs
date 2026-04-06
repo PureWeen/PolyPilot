@@ -974,16 +974,17 @@ public partial class CopilotService : IAsyncDisposable
             return;
         }
 
-#if ANDROID
-        // Android can't run Copilot CLI locally — must connect to remote server
-        settings.Mode = ConnectionMode.Persistent;
-        CurrentMode = ConnectionMode.Persistent;
-        if (settings.Host == "localhost" || settings.Host == "127.0.0.1")
+        if (OperatingSystem.IsAndroid())
         {
-            Debug("Android detected with localhost — update Host in settings to your Mac's IP");
+            // Android can't run Copilot CLI locally — must connect to remote server
+            settings.Mode = ConnectionMode.Persistent;
+            CurrentMode = ConnectionMode.Persistent;
+            if (settings.Host == "localhost" || settings.Host == "127.0.0.1")
+            {
+                Debug("Android detected with localhost — update Host in settings to your Mac's IP");
+            }
+            Debug($"Android: connecting to remote server at {settings.CliUrl}");
         }
-        Debug($"Android: connecting to remote server at {settings.CliUrl}");
-#endif
         // In Persistent mode, auto-start the server if not already running
         if (settings.Mode == ConnectionMode.Persistent)
         {
@@ -4864,11 +4865,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
     private void StartExternalSessionScannerIfNeeded()
     {
-#if ANDROID || IOS
-        // No local filesystem access on mobile
-        return;
-#else
-    // UI-thread only -- callers are InitializeAsync, InitializeDemo, and ReconnectAsync
+        if (OperatingSystem.IsAndroid() || OperatingSystem.IsIOS())
+        {
+            // No local filesystem access on mobile
+            return;
+        }
+
+        // UI-thread only -- callers are InitializeAsync, InitializeDemo, and ReconnectAsync
         if (_externalSessionScanner != null) return; // already running
 
         // CWD-based exclusion: sessions whose CWD is inside ~/.polypilot/ are typically PolyPilot's own
@@ -4890,7 +4893,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         _externalSessionScanner.OnChanged += () => NotifyStateChangedCoalesced();
         _externalSessionScanner.Start();
         Debug("External session scanner started");
-#endif
     }
 
     private void StopExternalSessionScanner()

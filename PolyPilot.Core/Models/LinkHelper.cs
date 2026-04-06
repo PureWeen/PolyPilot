@@ -23,15 +23,16 @@ public static class LinkHelper
     {
         if (!IsValidExternalUrl(url)) return;
 
-#if MACCATALYST
-        try
+        if (OperatingSystem.IsMacOS() || OperatingSystem.IsMacCatalyst())
         {
-            var psi = new ProcessStartInfo("open") { UseShellExecute = false };
-            psi.ArgumentList.Add("-g");
-            psi.ArgumentList.Add(url);
-            Process.Start(psi)?.Dispose();
+            try
+            {
+                var psi = new ProcessStartInfo("open") { UseShellExecute = false };
+                psi.ArgumentList.Add("-g");
+                psi.ArgumentList.Add(url);
+                Process.Start(psi)?.Dispose();
+            }
+            catch { }
         }
-        catch { }
-#endif
     }
 }

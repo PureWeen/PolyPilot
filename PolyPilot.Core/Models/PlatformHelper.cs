@@ -5,34 +5,18 @@ namespace PolyPilot.Models;
 public static class PlatformHelper
 {
     public static bool IsDesktop =>
-#if MACCATALYST || WINDOWS
-        true;
-#elif IOS || ANDROID
-        false;
-#else
-        // Linux GTK and other non-mobile platforms are desktop
+        // Runtime detection — works correctly across all platforms including net10.0 Core
         !OperatingSystem.IsIOS() && !OperatingSystem.IsAndroid();
-#endif
 
     public static bool IsMobile =>
-#if IOS || ANDROID
-        true;
-#else
-        false;
-#endif
+        OperatingSystem.IsIOS() || OperatingSystem.IsAndroid();
 
     public static string PlatformName =>
-#if MACCATALYST
-        "maccatalyst";
-#elif WINDOWS
-        "windows";
-#elif IOS
-        "ios";
-#elif ANDROID
-        "android";
-#else
+        OperatingSystem.IsMacCatalyst() ? "maccatalyst" :
+        OperatingSystem.IsWindows() ? "windows" :
+        OperatingSystem.IsIOS() ? "ios" :
+        OperatingSystem.IsAndroid() ? "android" :
         OperatingSystem.IsLinux() ? "linux" : "unknown";
-#endif
 
     public static ConnectionMode[] AvailableModes => IsDesktop
         ? [ConnectionMode.Embedded, ConnectionMode.Persistent, ConnectionMode.Remote]

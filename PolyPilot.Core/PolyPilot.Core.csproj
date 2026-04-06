@@ -1,11 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
-    <TargetFramework>net10.0</TargetFramework>
+    <!-- Multi-target to preserve platform #if blocks (ANDROID, IOS, MACCATALYST, WINDOWS) -->
+    <TargetFrameworks>net10.0;net10.0-android</TargetFrameworks>
+    <TargetFrameworks Condition="!$([MSBuild]::IsOSPlatform('linux'))">$(TargetFrameworks);net10.0-ios;net10.0-maccatalyst</TargetFrameworks>
+    <TargetFrameworks Condition="$([MSBuild]::IsOSPlatform('windows'))">$(TargetFrameworks);net10.0-windows10.0.19041.0</TargetFrameworks>
     <RootNamespace>PolyPilot</RootNamespace>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UseMaui>true</UseMaui>
+    <SingleProject>true</SingleProject>
     <!-- Skip the CLI binary download — Core is a library, not an app -->
     <CopilotSkipCliDownload>true</CopilotSkipCliDownload>
+    <!-- Suppress MAUI head targets — Core is a library, not an app -->
+    <OutputType>Library</OutputType>
   </PropertyGroup>
   <ItemGroup>
     <!-- Allow the MAUI app, GTK app, and tests to access internal members -->
