@@ -3238,7 +3238,8 @@ public partial class CopilotService
                 // @worker dispatch is silently dropped and the loop stalls indefinitely.
                 // Wait for the response and, if new assignments are found, execute one more
                 // collect+synthesize round so the loop can complete or continue naturally.
-                var availableWorkers = GetMultiAgentGroupMembers(pending.GroupId);
+                var availableWorkers = GetMultiAgentGroupMembers(pending.GroupId)
+                    .Where(m => m != pending.OrchestratorName).ToList();
                 var orchestratorResponse = await SendPromptAndWaitAsync(
                     pending.OrchestratorName, synthesisPrompt, ct, originalPrompt: pending.OriginalPrompt);
                 Debug($"[DISPATCH] Resume reflect: orchestrator response received from '{pending.OrchestratorName}'");
