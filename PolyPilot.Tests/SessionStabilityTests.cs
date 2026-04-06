@@ -321,6 +321,81 @@ public class SessionStabilityTests
         Assert.Contains("pending-orchestration", source); // Pending state
     }
 
+    // ─── IsOrphaned Reset on Lazy-Resume (PR #522) ───
+
+    [Fact]
+    public void EnsureSessionConnected_ClearsIsOrphaned()
+    {
+        // The lazy-resume path (EnsureSessionConnectedAsync) must reset IsOrphaned = false
+        // when it creates/resumes a fresh SDK session. Without this, a sibling reconnect
+        // failure can permanently orphan a SessionState, causing HandleSessionEvent to
+        // silently drop all events and leaving the session stuck.
+        var source = File.ReadAllText(TestPaths.PersistenceCs);
+        var method = ExtractMethod(source, "Task EnsureSessionConnectedAsync");
+        Assert.Contains("IsOrphaned = false", method);
+    }
+
+    [Fact]
+    public void EnsureSessionConnected_ClearsIsOrphaned_BeforeHandlerRegistration()
+    {
+        // IsOrphaned must be cleared BEFORE copilotSession.On(HandleSessionEvent) —
+        // if cleared after, early SDK replay events (session.resume, buffered idle) would
+        // be silently dropped by the IsOrphaned guard, causing the exact stuck-session
+        // symptom this fix addresses.
+        var source = File.ReadAllText(TestPaths.PersistenceCs);
+        var method = ExtractMethod(source, "Task EnsureSessionConnectedAsync");
+
+        var orphanResetIdx = method.IndexOf("IsOrphaned = false", StringComparison.Ordinal);
+        var handlerIdx = method.IndexOf("HandleSessionEvent(state", StringComparison.Ordinal);
+        Assert.True(orphanResetIdx >= 0, "EnsureSessionConnectedAsync must contain 'IsOrphaned = false'");
+        Assert.True(handlerIdx >= 0, "EnsureSessionConnectedAsync must register HandleSessionEvent");
+        Assert.True(orphanResetIdx < handlerIdx,
+            "IsOrphaned = false must appear BEFORE HandleSessionEvent registration to prevent event-drop window");
+    }
+
+    // ─── StartLanBridge Tunnel Fallback (PR #522) ───
+
+    [Fact]
+    public void StartLanBridge_DoesNotCheckDirectSharingEnabled()
+    {
+        // StartLanBridge intentionally bypasses DirectSharingEnabled — when the user
+        // enabled AutoStartTunnel they opted into network access, so a failed tunnel
+        // should degrade to LAN rather than leaving the bridge unreachable.
+        var source = File.ReadAllText(TestPaths.DashboardRazor);
+        var method = ExtractMethod(source, "void StartLanBridge");
+        Assert.DoesNotContain("DirectSharingEnabled", method);
+    }
+
+    [Fact]
+    public void StartLanBridge_RequiresServerPassword()
+    {
+        // Even though DirectSharingEnabled is bypassed, ServerPassword is still required
+        // for security — the bridge must always be password-protected.
+        var source = File.ReadAllText(TestPaths.DashboardRazor);
+        var method = ExtractMethod(source, "void StartLanBridge");
+        Assert.Contains("ServerPassword", method);
+    }
+
+    [Fact]
+    public void TunnelFailureFallback_CallsStartLanBridge_NotDirectSharing()
+    {
+        // After tunnel failure, the fallback must call StartLanBridge (unconditional LAN),
+        // not StartDirectSharingIfEnabled (which checks DirectSharingEnabled flag).
+        var source = File.ReadAllText(TestPaths.DashboardRazor);
+
+        // Find the tunnel failure handler (the !success branch inside the Task.Run)
+        var tunnelFailIdx = source.IndexOf("Tunnel failed, falling back to LAN bridge", StringComparison.Ordinal);
+        Assert.True(tunnelFailIdx >= 0, "Tunnel failure log message must exist");
+
+        // The next method call after the log should be StartLanBridge, not StartDirectSharingIfEnabled
+        var afterFail = source[tunnelFailIdx..];
+        var lanBridgeIdx = afterFail.IndexOf("StartLanBridge", StringComparison.Ordinal);
+        var directSharingIdx = afterFail.IndexOf("StartDirectSharingIfEnabled", StringComparison.Ordinal);
+        Assert.True(lanBridgeIdx >= 0, "StartLanBridge must be called after tunnel failure");
+        Assert.True(lanBridgeIdx < directSharingIdx,
+            "StartLanBridge must be called (not StartDirectSharingIfEnabled) on tunnel failure path");
+    }
+
     // ─── Helpers ───
 
     private static string ExtractMethod(string source, string methodSignature)
@@ -374,6 +449,8 @@ public class SessionStabilityTests
         public static string CopilotServiceCs => Path.Combine(ProjectRoot, "Services", "CopilotService.cs");
         public static string EventsCs => Path.Combine(ProjectRoot, "Services", "CopilotService.Events.cs");
         public static string OrganizationCs => Path.Combine(ProjectRoot, "Services", "CopilotService.Organization.cs");
+        public static string PersistenceCs => Path.Combine(ProjectRoot, "Services", "CopilotService.Persistence.cs");
         public static string SessionSidebarRazor => Path.Combine(ProjectRoot, "Components", "Layout", "SessionSidebar.razor");
+        public static string DashboardRazor => Path.Combine(ProjectRoot, "Components", "Pages", "Dashboard.razor");
     }
 }
