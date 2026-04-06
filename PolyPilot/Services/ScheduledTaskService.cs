@@ -33,6 +33,7 @@ public class ScheduledTaskService : IDisposable
 
     /// <summary>Interval between schedule evaluations.</summary>
     internal const int EvaluationIntervalSeconds = 30;
+    private static readonly TimeSpan SessionCompletionTimeout = TimeSpan.FromMinutes(11);
 
     public ScheduledTaskService(CopilotService copilotService)
     {
@@ -283,11 +284,14 @@ public class ScheduledTaskService : IDisposable
                 }
 
                 run.SessionName = sessionName;
+                var completionTask = WaitForSessionCompletionAsync(sessionName);
                 await RunOnUiThreadAsync(() =>
                     _copilotService.SendPromptAsync(sessionName, snapshot.Prompt));
+                var completionSummary = await completionTask;
 
                 run.CompletedAt = DateTime.UtcNow;
-                run.Success = true;
+                run.Success = IsSuccessfulCompletionSummary(completionSummary);
+                run.Error = run.Success ? null : completionSummary;
             }
             catch (Exception ex)
             {
@@ -417,6 +421,52 @@ public class ScheduledTaskService : IDisposable
         }, null);
 
         return tcs.Task;
+    }
+
+    private async Task<string> WaitForSessionCompletionAsync(string sessionName)
+    {
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        void Handler(string completedSessionName, string summary)
+        {
+            if (string.Equals(completedSessionName, sessionName, StringComparison.Ordinal))
+                tcs.TrySetResult(summary);
+        }
+
+        _copilotService.OnSessionComplete += Handler;
+        try
+        {
+            var deadline = DateTime.UtcNow + SessionCompletionTimeout;
+            while (DateTime.UtcNow < deadline)
+            {
+                if (tcs.Task.IsCompleted)
+                    return await tcs.Task;
+
+                var session = _copilotService.GetSession(sessionName);
+                if (session != null && !session.IsProcessing)
+                    return tcs.Task.IsCompleted ? await tcs.Task : string.Empty;
+
+                await Task.Delay(250);
+            }
+
+            throw new TimeoutException($"Timed out waiting for session '{sessionName}' to complete");
+        }
+        finally
+        {
+            _copilotService.OnSessionComplete -= Handler;
+        }
+    }
+
+    private static bool IsSuccessfulCompletionSummary(string? summary)
+    {
+        if (string.IsNullOrWhiteSpace(summary))
+            return true;
+
+        return !summary.StartsWith("[Error]", StringComparison.OrdinalIgnoreCase)
+            && !summary.StartsWith("[Abort]", StringComparison.OrdinalIgnoreCase)
+            && !summary.StartsWith("[Watchdog]", StringComparison.OrdinalIgnoreCase)
+            && !summary.StartsWith("[Recovery] failed", StringComparison.OrdinalIgnoreCase)
+            && !summary.StartsWith("[SteerError]", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string GetPolyPilotDir()
