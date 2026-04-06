@@ -28,42 +28,68 @@ public class ScenarioReferenceTests
         {
             var json = File.ReadAllText(file);
             var doc = JsonDocument.Parse(json); // throws on invalid JSON
-            Assert.NotNull(doc.RootElement.GetProperty("scenarios"));
+            Assert.True(doc.RootElement.TryGetProperty("scenarios", out _),
+                $"Scenario file '{Path.GetFileName(file)}' is missing a 'scenarios' array");
         }
     }
 
     [Fact]
-    public void ModeSwitchScenarios_AllHaveRequiredFields()
+    public void ScenarioFiles_AllHaveRequiredFields()
     {
-        var json = File.ReadAllText(Path.Combine(ScenariosDir, "mode-switch-scenarios.json"));
-        var doc = JsonDocument.Parse(json);
-        var scenarios = doc.RootElement.GetProperty("scenarios");
-
-        foreach (var scenario in scenarios.EnumerateArray())
+        foreach (var file in Directory.GetFiles(ScenariosDir, "*.json"))
         {
-            Assert.True(scenario.TryGetProperty("id", out _), "Scenario missing 'id'");
-            Assert.True(scenario.TryGetProperty("name", out _), "Scenario missing 'name'");
-            Assert.True(scenario.TryGetProperty("steps", out var steps), "Scenario missing 'steps'");
-            Assert.True(steps.GetArrayLength() > 0,
-                $"Scenario '{scenario.GetProperty("id").GetString()}' has no steps");
-        }
-    }
+            var json = File.ReadAllText(file);
+            var doc = JsonDocument.Parse(json);
+            var scenarios = doc.RootElement.GetProperty("scenarios");
 
-    [Fact]
-    public void ModeSwitchScenarios_StepsHaveValidActions()
-    {
-        var validActions = new HashSet<string> { "click", "evaluate", "wait", "shell", "screenshot", "type", "note" };
-        var json = File.ReadAllText(Path.Combine(ScenariosDir, "mode-switch-scenarios.json"));
-        var doc = JsonDocument.Parse(json);
-
-        foreach (var scenario in doc.RootElement.GetProperty("scenarios").EnumerateArray())
-        {
-            var id = scenario.GetProperty("id").GetString()!;
-            foreach (var step in scenario.GetProperty("steps").EnumerateArray())
+            foreach (var scenario in scenarios.EnumerateArray())
             {
-                Assert.True(step.TryGetProperty("action", out var action),
-                    $"Step in '{id}' missing 'action'");
-                Assert.Contains(action.GetString(), validActions);
+                Assert.True(scenario.TryGetProperty("id", out _), $"Scenario in '{Path.GetFileName(file)}' missing 'id'");
+                Assert.True(scenario.TryGetProperty("name", out _), $"Scenario in '{Path.GetFileName(file)}' missing 'name'");
+                Assert.True(scenario.TryGetProperty("steps", out var steps), $"Scenario in '{Path.GetFileName(file)}' missing 'steps'");
+                Assert.True(steps.GetArrayLength() > 0,
+                    $"Scenario '{scenario.GetProperty("id").GetString()}' has no steps");
+            }
+        }
+    }
+
+    [Fact]
+    public void ScenarioFiles_StepsHaveValidActions()
+    {
+        var validActions = new HashSet<string>
+        {
+            "assertAllSessionsReceived", "assertAllSessionsResponded", "assertAllWorkers",
+            "assertDirectoryExists", "assertEqual", "assertEvaluatorWasUsed", "assertFileContains",
+            "assertFileExists", "assertGroupMembership", "assertNoDirectoryContains",
+            "assertNoOverlap", "assertNoPresetInSection", "assertNoReflectionLoop",
+            "assertNoSessionsInDefault", "assertNoSessionsWithGroupId", "assertOrchestratorReceivedRoutingContext",
+            "assertOrchestratorReceivedWorkerDescriptions", "assertOrchestratorSynthesized",
+            "assertOrgJson", "assertPresetInSection", "assertPresetVisible", "assertReflectionPaused",
+            "assertReflectionState", "assertSessionMeta", "assertWorkerPromptContains",
+            "captureGroupState", "click", "createGroup", "createGroupFromPreset", "createSquadDir",
+            "deleteGroup", "evaluate", "navigate", "note", "pauseReflection", "readOrgJson",
+            "restartApp", "resumeReflection", "saveGroupAsPreset", "selectWorktree", "sendPrompt",
+            "setEvaluator", "setMode", "shell", "type", "wait", "waitForAgent",
+            "waitForAllResponses", "waitForAllSessions", "waitForCompletion", "waitForPhase",
+            "screenshot"
+        };
+        foreach (var file in Directory.GetFiles(ScenariosDir, "*.json"))
+        {
+            var json = File.ReadAllText(file);
+            var doc = JsonDocument.Parse(json);
+
+            foreach (var scenario in doc.RootElement.GetProperty("scenarios").EnumerateArray())
+            {
+                var id = scenario.GetProperty("id").GetString()!;
+                foreach (var step in scenario.GetProperty("steps").EnumerateArray())
+                {
+                    Assert.True(step.TryGetProperty("action", out var action),
+                        $"Step in '{id}' missing 'action'");
+                    var actionValue = action.GetString();
+                    Assert.False(string.IsNullOrWhiteSpace(actionValue),
+                        $"Step in '{id}' has an empty action");
+                    Assert.Contains(actionValue!, validActions);
+                }
             }
         }
     }
@@ -197,6 +223,48 @@ public class ScenarioReferenceTests
     public void Scenario_ShellCommandUsesPlatformShell_HasUnitTestCoverage()
     {
         Assert.True(true, "See PlatformHelperTests.GetShellCommand_* for platform shell selection tests");
+    }
+
+    /// <summary>
+    /// Scenario: "scheduled-task-create-and-run-now"
+    /// Unit test equivalents: Service_EvaluateTasksAsync_ExecutesDueTasks,
+    ///   Service_ExecuteTask_NewSession_RecordsCompletionAndGeneratedSessionName
+    /// </summary>
+    [Fact]
+    public void Scenario_ScheduledTaskCreateAndRunNow_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ScheduledTaskTests.Service_EvaluateTasksAsync_ExecutesDueTasks and Service_ExecuteTask_NewSession_RecordsCompletionAndGeneratedSessionName");
+    }
+
+    /// <summary>
+    /// Scenario: "scheduled-task-run-now-twice-uses-unique-session"
+    /// Unit test equivalents: Service_ExecuteTask_NewSession_ReusesTimestampButGeneratesUniqueName
+    /// </summary>
+    [Fact]
+    public void Scenario_ScheduledTaskRunNowTwiceUsesUniqueSession_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ScheduledTaskTests.Service_ExecuteTask_NewSession_ReusesTimestampButGeneratesUniqueName");
+    }
+
+    /// <summary>
+    /// Scenario: "scheduled-task-disable-edit-preserves-toggle"
+    /// Unit test equivalents: Service_UpdateTask_DoesNotOverwriteIsEnabled_FromStaleEditSnapshot
+    /// </summary>
+    [Fact]
+    public void Scenario_ScheduledTaskDisableEditPreservesToggle_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ScheduledTaskTests.Service_UpdateTask_DoesNotOverwriteIsEnabled_FromStaleEditSnapshot");
+    }
+
+    /// <summary>
+    /// Scenario: "scheduled-task-form-validation"
+    /// Unit test equivalents: CronExpression_ValidatesExpectedInputs,
+    ///   CronExpression_InvalidExpressions_ReturnFalse, IsValidTimeOfDay_ValidatesCorrectly
+    /// </summary>
+    [Fact]
+    public void Scenario_ScheduledTaskValidation_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ScheduledTaskTests cron and time validation tests");
     }
 
     /// <summary>

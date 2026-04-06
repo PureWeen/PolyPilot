@@ -35,5 +35,6 @@ internal static class TestSetup
         PromptLibraryService.SetUserPromptsDirForTesting(Path.Combine(TestBaseDir, "prompts"));
         FiestaService.SetStateFilePathForTesting(Path.Combine(TestBaseDir, "fiesta.json"));
         ConnectionSettings.SetSettingsFilePathForTesting(Path.Combine(TestBaseDir, "settings.json"));
+        ScheduledTaskService.SetTasksFilePathForTesting(Path.Combine(TestBaseDir, "scheduled-tasks.json"));
     }
 }

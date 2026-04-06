@@ -121,6 +121,18 @@ else
                                         <span class="header-overflow-action-subtitle">Tips, walkthroughs, and onboarding</span>
                                     </span>
                                 </a>
+                                <a href="/scheduled-tasks"
+                                   class="header-overflow-action @(currentPage == "/scheduled-tasks" ? "active" : "")"
+                                   title="Scheduled Tasks"
+                                   @onclick='() => { CopilotService.SaveUiState("/scheduled-tasks"); currentPage = "/scheduled-tasks"; }'>
+                                    <span class="header-overflow-action-icon" aria-hidden="true">
+                                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                                    </span>
+                                    <span class="header-overflow-action-copy">
+                                        <span class="header-overflow-action-title">Scheduled Tasks</span>
+                                        <span class="header-overflow-action-subtitle">Run recurring prompts on a schedule</span>
+                                    </span>
+                                </a>
                                 <button class="header-overflow-action"
                                         type="button"
                                         title="Statistics"

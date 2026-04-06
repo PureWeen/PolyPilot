@@ -1,0 +1,100 @@
+{
+  "description": "UI scenario tests for the scheduled tasks feature. Execute against a running PolyPilot app using MauiDevFlow/CDP and the stable selectors on the /scheduled-tasks page.",
+  "prerequisites": {
+    "build": "cd PolyPilot && ./relaunch.sh",
+    "waitForAgent": "maui devflow wait",
+    "initialRoute": "/scheduled-tasks"
+  },
+  "scenarios": [
+    {
+      "id": "scheduled-task-create-and-run-now",
+      "name": "Create an interval task and run it immediately",
+      "steps": [
+        { "action": "click", "selector": "a[href='/scheduled-tasks']" },
+        { "action": "wait", "ms": 1000 },
+        { "action": "click", "selector": "#scheduled-task-new" },
+        { "action": "type", "selector": "#scheduled-task-name", "text": "Integration Task" },
+        { "action": "type", "selector": "#scheduled-task-prompt", "text": "Say hello from the scheduled task integration test." },
+        {
+          "action": "evaluate",
+          "script": "const sel = document.querySelector('#scheduled-task-schedule'); sel.value = 'Interval'; sel.dispatchEvent(new Event('change', { bubbles: true })); 'interval';"
+        },
+        { "action": "type", "selector": "#scheduled-task-interval", "text": "1" },
+        { "action": "click", "selector": "#scheduled-task-save" },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.task-card[data-task-name=\"Integration Task\"] .task-schedule')?.textContent?.trim()",
+          "expect": { "contains": "Every 1 minute" }
+        },
+        { "action": "click", "selector": ".task-card[data-task-name='Integration Task'] [data-task-action='run-now']" },
+        { "action": "wait", "ms": 5000 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.task-card[data-task-name=\"Integration Task\"] .run-status.success, .task-card[data-task-name=\"Integration Task\"] .run-status-icon')?.textContent?.trim()",
+          "expect": { "contains": "✓" }
+        }
+      ]
+    },
+    {
+      "id": "scheduled-task-run-now-twice-uses-unique-session",
+      "name": "Running the same task twice quickly records two distinct successful sessions",
+      "steps": [
+        { "action": "click", "selector": ".task-card[data-task-name='Integration Task'] [data-task-action='run-now']" },
+        { "action": "wait", "ms": 5000 },
+        { "action": "click", "selector": ".task-card[data-task-name='Integration Task'] [data-task-action='run-now']" },
+        { "action": "wait", "ms": 5000 },
+        { "action": "click", "selector": ".task-card[data-task-name='Integration Task'] .history-toggle" },
+        {
+          "action": "evaluate",
+          "script": "const card = document.querySelector('.task-card[data-task-name=\"Integration Task\"]'); const sessions = [...card.querySelectorAll('.run-session')].map(x => x.textContent?.trim()).filter(Boolean); const errors = [...card.querySelectorAll('.run-error')].map(x => x.textContent?.trim()).filter(Boolean); JSON.stringify({ sessions, uniqueSessions: [...new Set(sessions)].length, errors });",
+          "expect": { "contains": "\"uniqueSessions\":2" }
+        }
+      ]
+    },
+    {
+      "id": "scheduled-task-disable-edit-preserves-toggle",
+      "name": "Disable a task, edit it, and verify it stays disabled",
+      "steps": [
+        { "action": "click", "selector": ".task-card[data-task-name='Integration Task'] [data-task-action='toggle-enabled']" },
+        { "action": "wait", "ms": 500 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.task-card[data-task-name=\"Integration Task\"]')?.className",
+          "expect": { "contains": "disabled" }
+        },
+        { "action": "click", "selector": ".task-card[data-task-name='Integration Task'] [data-task-action='edit']" },
+        { "action": "wait", "ms": 500 },
+        { "action": "type", "selector": "#scheduled-task-name", "text": "Integration Task Edited" },
+        { "action": "click", "selector": "#scheduled-task-save" },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "evaluate",
+          "script": "const card = document.querySelector('.task-card[data-task-name=\"Integration Task Edited\"]'); ({ exists: !!card, disabled: card?.classList.contains('disabled') ?? false });",
+          "expect": { "contains": "\"disabled\":true" }
+        }
+      ]
+    },
+    {
+      "id": "scheduled-task-form-validation",
+      "name": "Invalid cron input shows a validation error instead of creating a task",
+      "steps": [
+        { "action": "click", "selector": "#scheduled-task-new" },
+        { "action": "wait", "ms": 500 },
+        { "action": "type", "selector": "#scheduled-task-name", "text": "Broken Cron Task" },
+        { "action": "type", "selector": "#scheduled-task-prompt", "text": "This should not save." },
+        {
+          "action": "evaluate",
+          "script": "const sel = document.querySelector('#scheduled-task-schedule'); sel.value = 'Cron'; sel.dispatchEvent(new Event('change', { bubbles: true })); 'cron';"
+        },
+        { "action": "type", "selector": "#scheduled-task-cron", "text": "not a cron" },
+        { "action": "click", "selector": "#scheduled-task-save" },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('#scheduled-task-form-error')?.textContent?.trim()",
+          "expect": { "contains": "Invalid cron expression" }
+        }
+      ]
+    }
+  ]
+}

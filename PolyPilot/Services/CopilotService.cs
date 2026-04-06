@@ -90,6 +90,9 @@ public partial class CopilotService : IAsyncDisposable
     private CodespaceService.DotfilesStatus? _dotfilesStatus;
     private ConnectionSettings? _currentSettings;
     private volatile string? _activeSessionName;
+    // Dock icon badge: count of non-worker session completions since last app foreground.
+    // Only accessed on the UI thread (same as IsProcessing mutations).
+    private int _pendingCompletionCount;
     private SynchronizationContext? _syncContext;
     // Serializes the IsConnectionError reconnect path so concurrent workers
     // don't destroy each other's freshly-created client (thundering herd fix).
@@ -541,6 +544,7 @@ public partial class CopilotService : IAsyncDisposable
     public event Action<string, string>? OnContentReceived; // sessionName, content
     public event Action<string, string>? OnError; // sessionName, error
     public event Action<string, string>? OnSessionComplete; // sessionName, summary
+    public event Action<string>? OnSessionClosed; // sessionName
     public event Action<string, string>? OnActivity; // sessionName, activity description
     public event Action<string>? OnDebug; // debug messages
 
@@ -4578,8 +4582,39 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             _ = _bridgeClient.SwitchSessionAsync(name)
                 .ContinueWith(t => Console.WriteLine($"[CopilotService] SwitchSession bridge error: {t.Exception?.InnerException?.Message}"),
                     TaskContinuationOptions.OnlyOnFaulted);
+        ClearPendingCompletions();
         OnStateChanged?.Invoke();
         return true;
+    }
+
+    /// <summary>
+    /// Increments the dock icon badge count when a non-worker session finishes.
+    /// Must be called on the UI thread (same as IsProcessing mutations).
+    /// </summary>
+    internal void IncrementPendingCompletions(string sessionName)
+    {
+        // Don't badge for the currently active session (user is already looking at it)
+        if (sessionName == _activeSessionName) return;
+        // Don't badge for worker sessions in multi-agent groups
+        if (IsWorkerInMultiAgentGroup(sessionName)) return;
+        _pendingCompletionCount++;
+        UpdateBadge();
+    }
+
+    /// <summary>
+    /// Clears the dock icon badge. Call when the user brings the app to the foreground.
+    /// </summary>
+    public void ClearPendingCompletions()
+    {
+        _pendingCompletionCount = 0;
+        UpdateBadge();
+    }
+
+    private void UpdateBadge()
+    {
+#if MACCATALYST
+        PolyPilot.Platforms.MacCatalyst.BadgeHelper.SetBadge(_pendingCompletionCount);
+#endif
     }
 
     /// <summary>
@@ -4775,6 +4810,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Blazor with "r.parentNode.removeChild" on null (render batch ordering race).
         // Instead, directly remove from Organization.Sessions so the deletion persists across restarts.
         RemoveSessionMetasWhere(m => m.SessionName == name);
+        OnSessionClosed?.Invoke(name);
         if (notifyUi)
             OnStateChanged?.Invoke();
         if (!IsRemoteMode)

@@ -143,9 +143,10 @@ public class DiagnosticsLogTests
         Assert.Contains("[SEND] first message", content);
         Assert.Contains("[SEND] second message", content);
 
-        // Verify the file is small (nowhere near 10 MB rotation threshold)
+        // Verify the file is small (nowhere near 10 MB rotation threshold).
+        // Other tests may write to the same log file concurrently, so allow up to 10 KB.
         var fi = new FileInfo(DiagnosticsLogPath);
-        Assert.True(fi.Length < 1024, "Log file should be tiny for two messages");
+        Assert.True(fi.Length < 10_240, $"Log file should be tiny, was {fi.Length} bytes");
     }
 
     /// <summary>

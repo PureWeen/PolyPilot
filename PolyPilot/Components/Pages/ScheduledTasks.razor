@@ -1,0 +1,458 @@
+@page "/scheduled-tasks"
+@using PolyPilot.Services
+@using PolyPilot.Models
+@inject CopilotService CopilotService
+@inject ScheduledTaskService TaskService
+@inject NavigationManager Nav
+@implements IDisposable
+
+<div class="scheduled-tasks-page" id="scheduled-tasks-page" data-testid="scheduled-tasks-page">
+    <div class="scheduled-tasks-header">
+        <div class="header-row">
+            <h2>⏰ Scheduled Tasks</h2>
+            <button id="scheduled-task-new"
+                    data-testid="scheduled-task-new"
+                    class="add-task-btn"
+                    @onclick="ShowCreateForm">+ New Task</button>
+        </div>
+        <p class="header-subtitle">Create recurring tasks that automatically send prompts on a schedule — ideal for daily stand-ups, periodic reviews, and repetitive executions.</p>
+    </div>
+
+    <div class="scheduled-tasks-body">
+        @if (showForm)
+        {
+            <div class="task-form-card" id="scheduled-task-form" data-testid="scheduled-task-form">
+                <div class="form-header">
+                    <h3>@(editingTask != null ? "Edit Task" : "New Scheduled Task")</h3>
+                    <button id="scheduled-task-close"
+                            data-testid="scheduled-task-close"
+                            class="form-close-btn"
+                            @onclick="CancelForm">✕</button>
+                </div>
+
+                <div class="form-group">
+                    <label for="scheduled-task-name">Name</label>
+                    <input id="scheduled-task-name" data-testid="scheduled-task-name" type="text" class="form-input" @bind="formName" placeholder="e.g., Daily Stand-up" />
+                </div>
+
+                <div class="form-group">
+                    <label for="scheduled-task-prompt">Prompt</label>
+                    <textarea id="scheduled-task-prompt" data-testid="scheduled-task-prompt" class="form-textarea" @bind="formPrompt" rows="4" placeholder="The prompt to send when this task runs..."></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="scheduled-task-schedule">Schedule</label>
+                    <select id="scheduled-task-schedule" data-testid="scheduled-task-schedule" class="form-select" @bind="formSchedule">
+                        <option value="@ScheduleType.Interval">Interval (every N minutes)</option>
+                        <option value="@ScheduleType.Daily">Daily</option>
+                        <option value="@ScheduleType.Weekly">Weekly</option>
+                        <option value="@ScheduleType.Cron">Cron expression</option>
+                    </select>
+                </div>
+
+                @if (formSchedule == ScheduleType.Interval)
+                {
+                    <div class="form-group">
+                        <label for="scheduled-task-interval">Every (minutes)</label>
+                        <input id="scheduled-task-interval" data-testid="scheduled-task-interval" type="number" class="form-input short-input" @bind="formIntervalMinutes" min="1" max="10080" />
+                    </div>
+                }
+                else if (formSchedule == ScheduleType.Cron)
+                {
+                    <div class="form-group">
+                        <label for="scheduled-task-cron">Cron expression <span class="form-hint">(min hour dom month dow)</span></label>
+                        <input id="scheduled-task-cron" data-testid="scheduled-task-cron" type="text" class="form-input" placeholder="e.g., 0 9 * * 1-5 (weekdays at 9am)" value="@formCronExpression" @onchange="@(e => formCronExpression = e.Value?.ToString() ?? "")" />
+                        <span class="form-hint">Examples: <code>*/30 * * * *</code> every 30min · <code>0 9 * * 1-5</code> weekdays 9am · <code>0 0 1 * *</code> 1st of month</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="form-group">
+                        <label for="scheduled-task-time">Time of day</label>
+                        <input id="scheduled-task-time" data-testid="scheduled-task-time" type="text" class="form-input short-input" placeholder="HH:mm" pattern="[0-9]{2}:[0-9]{2}" value="@formTimeOfDay" @onchange="@(e => formTimeOfDay = e.Value?.ToString() ?? formTimeOfDay)" />
+                    </div>
+                }
+
+                @if (formSchedule == ScheduleType.Weekly)
+                {
+                    <div class="form-group">
+                        <label>Days</label>
+                        <div class="day-picker">
+                            @foreach (var (idx, name) in dayNames)
+                            {
+                                <button class="day-btn @(formDays.Contains(idx) ? "selected" : "")"
+                                        @onclick="() => ToggleDay(idx)">@name</button>
+                            }
+                        </div>
+                    </div>
+                }
+
+                <div class="form-group">
+                        <label for="scheduled-task-session">Target Session (optional)</label>
+                    <select id="scheduled-task-session" data-testid="scheduled-task-session" class="form-select" @bind="formSessionName">
+                        <option value="">Create new session each run</option>
+                        @foreach (var s in CopilotService.GetAllSessions())
+                        {
+                            <option value="@s.Name">@s.Name</option>
+                        }
+                    </select>
+                </div>
+
+                @if (string.IsNullOrEmpty(formSessionName))
+                {
+                    <div class="form-group">
+                        <label for="scheduled-task-model">Model (for new sessions)</label>
+                        <input id="scheduled-task-model" data-testid="scheduled-task-model" type="text" class="form-input" @bind="formModel" placeholder="e.g., claude-opus-4.6 (leave empty for default)" />
+                    </div>
+                }
+
+                @if (!string.IsNullOrEmpty(formError))
+                {
+                    <div id="scheduled-task-form-error" data-testid="scheduled-task-form-error" class="form-error">@formError</div>
+                }
+
+                <div class="form-actions">
+                    <button id="scheduled-task-cancel" data-testid="scheduled-task-cancel" class="btn-secondary" @onclick="CancelForm">Cancel</button>
+                    <button id="scheduled-task-save" data-testid="scheduled-task-save" class="btn-primary" @onclick="SaveTask">@(editingTask != null ? "Save Changes" : "Create Task")</button>
+                </div>
+            </div>
+        }
+
+        @if (!tasks.Any() && !showForm)
+        {
+            <div class="empty-state">
+                <div class="empty-icon">⏰</div>
+                <p class="empty-title">No scheduled tasks yet</p>
+                <p class="empty-desc">Create a recurring task to automatically send prompts on a schedule.</p>
+                <button class="btn-primary" @onclick="ShowCreateForm">Create Your First Task</button>
+            </div>
+        }
+        else if (tasks.Any())
+        {
+            <div class="task-list">
+                @foreach (var task in tasks)
+                {
+                    var nextRunTime = task.IsEnabled ? task.GetNextRunTimeUtc(DateTime.UtcNow) : null;
+                    <div class="task-card @(!task.IsEnabled ? "disabled" : "")"
+                         data-testid="scheduled-task-card"
+                         data-task-id="@task.Id"
+                         data-task-name="@task.Name">
+                        <div class="task-card-header">
+                            <div class="task-info">
+                                <span class="task-name">@task.Name</span>
+                                <span class="task-schedule">@task.ScheduleDescription</span>
+                            </div>
+                            <div class="task-actions">
+                                <label class="toggle-switch" title="@(task.IsEnabled ? "Disable" : "Enable")">
+                                    <input type="checkbox"
+                                           data-task-action="toggle-enabled"
+                                           checked="@task.IsEnabled"
+                                           @onchange="e => ToggleEnabled(task, e)" />
+                                    <span class="toggle-slider"></span>
+                                </label>
+                                <button class="icon-btn" title="Edit" data-task-action="edit" @onclick="() => EditTask(task)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                                </button>
+                                <button class="icon-btn" title="Run now" data-task-action="run-now" @onclick="() => RunNow(task)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                                </button>
+                                <button class="icon-btn danger" title="Delete" data-task-action="delete" @onclick="() => ConfirmDelete(task)">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="task-card-body">
+                            <div class="task-prompt-preview">@TruncatePrompt(task.Prompt, 120)</div>
+                            @if (!string.IsNullOrEmpty(task.SessionName))
+                            {
+                                <span class="task-tag">Session: @task.SessionName</span>
+                            }
+                            else
+                            {
+                                <span class="task-tag">New session each run</span>
+                            }
+                        </div>
+                        @if (deletingTaskId == task.Id)
+                        {
+                            <div class="delete-confirm-bar">
+                                <span>Delete "<strong>@task.Name</strong>"?</span>
+                                <button class="btn-danger-sm" data-task-action="confirm-delete" @onclick="() => DeleteTask(task)">Delete</button>
+                                <button class="btn-secondary-sm" data-task-action="cancel-delete" @onclick="() => deletingTaskId = null">Cancel</button>
+                            </div>
+                        }
+                        @if (task.RecentRuns.Any())
+                        {
+                            <div class="task-card-footer">
+                                <span class="last-run">
+                                    Last run: @FormatTimeAgo(task.RecentRuns.Last().StartedAt)
+                                    @if (task.RecentRuns.Last().Success)
+                                    {
+                                        <span class="run-status success">✓</span>
+                                    }
+                                    else
+                                    {
+                                        <span class="run-status error" title="@task.RecentRuns.Last().Error">✗</span>
+                                    }
+                                </span>
+                                @if (nextRunTime != null)
+                                {
+                                    <span class="next-run">Next: @FormatTimeAgo(nextRunTime.Value)</span>
+                                }
+                                @if (task.RecentRuns.Count > 1)
+                                {
+                                    <button class="history-toggle" @onclick="() => ToggleHistory(task.Id)">
+                                        @(expandedHistoryIds.Contains(task.Id) ? "▾ Hide history" : "▸ Show history")
+                                    </button>
+                                }
+                            </div>
+                            @if (expandedHistoryIds.Contains(task.Id))
+                            {
+                                <div class="run-history">
+                                    @foreach (var run in task.RecentRuns.AsEnumerable().Reverse())
+                                    {
+                                        <div class="run-entry @(run.Success ? "" : "failed")">
+                                            <span class="run-time">@run.StartedAt.ToLocalTime().ToString("MMM d, HH:mm")</span>
+                                            <span class="run-status-icon">@(run.Success ? "✓" : "✗")</span>
+                                            @if (!string.IsNullOrEmpty(run.SessionName))
+                                            {
+                                                <span class="run-session">@run.SessionName</span>
+                                            }
+                                            @if (!string.IsNullOrEmpty(run.Error))
+                                            {
+                                                <span class="run-error">@run.Error</span>
+                                            }
+                                        </div>
+                                    }
+                                </div>
+                            }
+                        }
+                        else if (nextRunTime != null)
+                        {
+                            <div class="task-card-footer">
+                                <span class="next-run">Next: @FormatTimeAgo(nextRunTime.Value)</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<ScheduledTask> tasks = new();
+    private bool showForm;
+    private ScheduledTask? editingTask;
+    private string? deletingTaskId;
+    private HashSet<string> expandedHistoryIds = new();
+
+    // Form fields
+    private string formName = "";
+    private string formPrompt = "";
+    private ScheduleType formSchedule = ScheduleType.Daily;
+    private int formIntervalMinutes = 60;
+    private string formTimeOfDay = "09:00";
+    private List<int> formDays = new() { 1, 2, 3, 4, 5 };
+    private string formSessionName = "";
+    private string formModel = "";
+    private string formCronExpression = "";
+    private string? formError;
+
+    private static readonly (int idx, string name)[] dayNames = new[]
+    {
+        (0, "Sun"), (1, "Mon"), (2, "Tue"), (3, "Wed"), (4, "Thu"), (5, "Fri"), (6, "Sat")
+    };
+
+    protected override void OnInitialized()
+    {
+        tasks = TaskService.GetTasks().ToList();
+        TaskService.OnTasksChanged += RefreshTasks;
+    }
+
+    private void RefreshTasks()
+    {
+        tasks = TaskService.GetTasks().ToList();
+        InvokeAsync(StateHasChanged);
+    }
+
+    private void ShowCreateForm()
+    {
+        editingTask = null;
+        formName = "";
+        formPrompt = "";
+        formSchedule = ScheduleType.Daily;
+        formIntervalMinutes = 60;
+        formTimeOfDay = "09:00";
+        formDays = new List<int> { 1, 2, 3, 4, 5 };
+        formSessionName = "";
+        formModel = "";
+        formCronExpression = "";
+        formError = null;
+        showForm = true;
+    }
+
+    private void EditTask(ScheduledTask task)
+    {
+        editingTask = task;
+        formName = task.Name;
+        formPrompt = task.Prompt;
+        formSchedule = task.Schedule;
+        formIntervalMinutes = task.IntervalMinutes;
+        formTimeOfDay = task.TimeOfDay;
+        formDays = task.DaysOfWeek.ToList();
+        formSessionName = task.SessionName ?? "";
+        formModel = task.Model ?? "";
+        formCronExpression = task.CronExpression ?? "";
+        formError = null;
+        showForm = true;
+    }
+
+    private void CancelForm()
+    {
+        showForm = false;
+        editingTask = null;
+        formError = null;
+    }
+
+    private void SaveTask()
+    {
+        formError = null;
+
+        if (string.IsNullOrWhiteSpace(formName))
+        {
+            formError = "Name is required.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(formPrompt))
+        {
+            formError = "Prompt is required.";
+            return;
+        }
+        if (formSchedule == ScheduleType.Interval && (formIntervalMinutes < 1 || formIntervalMinutes > 10080))
+        {
+            formError = "Interval must be between 1 and 10,080 minutes (1 week).";
+            return;
+        }
+        if (formSchedule == ScheduleType.Weekly && !formDays.Any())
+        {
+            formError = "Select at least one day.";
+            return;
+        }
+        if ((formSchedule == ScheduleType.Daily || formSchedule == ScheduleType.Weekly)
+            && !ScheduledTask.IsValidTimeOfDay(formTimeOfDay))
+        {
+            formError = "Time of day must be in HH:mm format (e.g., 09:00, 14:30).";
+            return;
+        }
+        if (formSchedule == ScheduleType.Cron && !ScheduledTask.IsValidCronExpression(formCronExpression))
+        {
+            formError = "Invalid cron expression. Use 5 fields: minute hour day-of-month month day-of-week.";
+            return;
+        }
+
+        if (editingTask != null)
+        {
+            editingTask.Name = formName.Trim();
+            editingTask.Prompt = formPrompt.Trim();
+            editingTask.Schedule = formSchedule;
+            editingTask.IntervalMinutes = formIntervalMinutes;
+            editingTask.TimeOfDay = formTimeOfDay;
+            editingTask.DaysOfWeek = formDays.ToList();
+            editingTask.SessionName = string.IsNullOrWhiteSpace(formSessionName) ? null : formSessionName;
+            editingTask.Model = string.IsNullOrWhiteSpace(formModel) ? null : formModel;
+            editingTask.CronExpression = formSchedule == ScheduleType.Cron ? formCronExpression.Trim() : null;
+            TaskService.UpdateTask(editingTask);
+        }
+        else
+        {
+            var task = new ScheduledTask
+            {
+                Name = formName.Trim(),
+                Prompt = formPrompt.Trim(),
+                Schedule = formSchedule,
+                IntervalMinutes = formIntervalMinutes,
+                TimeOfDay = formTimeOfDay,
+                DaysOfWeek = formDays.ToList(),
+                SessionName = string.IsNullOrWhiteSpace(formSessionName) ? null : formSessionName,
+                Model = string.IsNullOrWhiteSpace(formModel) ? null : formModel,
+                CronExpression = formSchedule == ScheduleType.Cron ? formCronExpression.Trim() : null
+            };
+            TaskService.AddTask(task);
+        }
+
+        showForm = false;
+        editingTask = null;
+        tasks = TaskService.GetTasks().ToList();
+    }
+
+    private void ConfirmDelete(ScheduledTask task)
+    {
+        deletingTaskId = task.Id;
+    }
+
+    private void DeleteTask(ScheduledTask task)
+    {
+        TaskService.DeleteTask(task.Id);
+        deletingTaskId = null;
+        tasks = TaskService.GetTasks().ToList();
+    }
+
+    private void ToggleEnabled(ScheduledTask task, ChangeEventArgs e)
+    {
+        var enabled = (bool)(e.Value ?? false);
+        TaskService.SetEnabled(task.Id, enabled);
+        tasks = TaskService.GetTasks().ToList();
+    }
+
+    private void ToggleDay(int day)
+    {
+        if (formDays.Contains(day))
+            formDays.Remove(day);
+        else
+            formDays.Add(day);
+    }
+
+    private async Task RunNow(ScheduledTask task)
+    {
+        await TaskService.ExecuteTaskAsync(task, DateTime.UtcNow);
+        tasks = TaskService.GetTasks().ToList();
+    }
+
+    private void ToggleHistory(string taskId)
+    {
+        if (!expandedHistoryIds.Remove(taskId))
+            expandedHistoryIds.Add(taskId);
+    }
+
+    private static string TruncatePrompt(string prompt, int maxLen)
+    {
+        if (string.IsNullOrEmpty(prompt)) return "";
+        return prompt.Length <= maxLen ? prompt : prompt[..maxLen] + "…";
+    }
+
+    private static string FormatTimeAgo(DateTime utcTime)
+    {
+        var now = DateTime.UtcNow;
+        if (utcTime > now)
+        {
+            var diff = utcTime - now;
+            if (diff.TotalMinutes < 1) return "in <1 min";
+            if (diff.TotalMinutes < 60) return $"in {(int)diff.TotalMinutes} min";
+            if (diff.TotalHours < 24) return $"in {(int)diff.TotalHours}h {diff.Minutes}m";
+            return utcTime.ToLocalTime().ToString("MMM d, h:mm tt");
+        }
+        else
+        {
+            var diff = now - utcTime;
+            if (diff.TotalMinutes < 1) return "<1 min ago";
+            if (diff.TotalMinutes < 60) return $"{(int)diff.TotalMinutes} min ago";
+            if (diff.TotalHours < 24) return $"{(int)diff.TotalHours}h ago";
+            return utcTime.ToLocalTime().ToString("MMM d, h:mm tt");
+        }
+    }
+
+    public void Dispose()
+    {
+        TaskService.OnTasksChanged -= RefreshTasks;
+    }
+}

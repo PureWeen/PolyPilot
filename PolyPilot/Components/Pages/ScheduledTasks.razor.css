@@ -1,0 +1,513 @@
+.scheduled-tasks-page {
+    padding: 1.5rem;
+    color: var(--text-primary);
+    background: var(--bg-primary);
+    height: 100%;
+    overflow-y: auto;
+    max-width: 800px;
+    box-sizing: border-box;
+}
+
+.scheduled-tasks-header {
+    margin-bottom: 1.5rem;
+}
+
+.scheduled-tasks-header h2 {
+    margin: 0;
+    font-size: var(--type-title2);
+}
+
+.header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+}
+
+.header-subtitle {
+    margin: 0.5rem 0 0;
+    color: var(--text-dim);
+    font-size: var(--type-callout);
+}
+
+.add-task-btn {
+    padding: 0.5rem 1rem;
+    background: var(--accent-primary, #7c5cfc);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: var(--type-callout);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.15s;
+}
+
+.add-task-btn:hover {
+    opacity: 0.9;
+}
+
+/* ── Form ─────────────────────────────────────────── */
+
+.task-form-card {
+    background: var(--bg-secondary, var(--bg-primary));
+    border: 1px solid var(--control-border);
+    border-radius: 10px;
+    padding: 1.25rem;
+    margin-bottom: 1.5rem;
+}
+
+.form-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.form-header h3 {
+    margin: 0;
+    font-size: var(--type-title3);
+}
+
+.form-close-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    font-size: var(--type-title3);
+    cursor: pointer;
+    padding: 0.2rem 0.4rem;
+}
+
+.form-group {
+    margin-bottom: 0.9rem;
+}
+
+.form-group label {
+    display: block;
+    margin-bottom: 0.3rem;
+    font-size: var(--type-callout);
+    color: var(--text-dim);
+    font-weight: 500;
+}
+
+.form-input,
+.form-select,
+.form-textarea {
+    width: 100%;
+    padding: 0.5rem 0.65rem;
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    background: var(--bg-input, var(--bg-primary));
+    color: var(--text-primary);
+    font-size: var(--type-body);
+    box-sizing: border-box;
+    outline: none;
+    transition: border-color 0.2s;
+}
+
+.form-input:focus,
+.form-select:focus,
+.form-textarea:focus {
+    border-color: var(--accent-primary, #7c5cfc);
+}
+
+.short-input {
+    max-width: 200px;
+}
+
+.form-textarea {
+    resize: vertical;
+    font-family: inherit;
+    min-height: 80px;
+}
+
+.form-error {
+    color: #e74c3c;
+    font-size: var(--type-callout);
+    margin-bottom: 0.75rem;
+    padding: 0.4rem 0.6rem;
+    background: rgba(231, 76, 60, 0.08);
+    border-radius: 6px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    margin-top: 0.5rem;
+}
+
+.btn-primary {
+    padding: 0.5rem 1rem;
+    background: var(--accent-primary, #7c5cfc);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: var(--type-callout);
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.btn-primary:hover {
+    opacity: 0.9;
+}
+
+.btn-secondary {
+    padding: 0.5rem 1rem;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    font-size: var(--type-callout);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.btn-secondary:hover {
+    background: var(--hover-bg);
+}
+
+/* ── Day picker ───────────────────────────────────── */
+
+.day-picker {
+    display: flex;
+    gap: 0.35rem;
+}
+
+.day-btn {
+    padding: 0.35rem 0.55rem;
+    border: 1px solid var(--control-border);
+    background: transparent;
+    color: var(--text-dim);
+    border-radius: 6px;
+    font-size: var(--type-callout);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.day-btn.selected {
+    background: var(--accent-primary, #7c5cfc);
+    color: #fff;
+    border-color: var(--accent-primary, #7c5cfc);
+}
+
+.day-btn:hover:not(.selected) {
+    background: var(--hover-bg);
+}
+
+/* ── Task list ────────────────────────────────────── */
+
+.task-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.task-card {
+    background: var(--bg-secondary, var(--bg-primary));
+    border: 1px solid var(--control-border);
+    border-radius: 10px;
+    padding: 1rem;
+    transition: border-color 0.15s;
+}
+
+.task-card:hover {
+    border-color: var(--accent-primary, #7c5cfc);
+}
+
+.task-card.disabled {
+    opacity: 0.55;
+}
+
+.task-card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.task-info {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+.task-name {
+    font-weight: 600;
+    font-size: var(--type-body);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.task-schedule {
+    font-size: var(--type-callout);
+    color: var(--text-dim);
+    margin-top: 0.15rem;
+}
+
+.task-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    flex-shrink: 0;
+}
+
+.icon-btn {
+    background: none;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    padding: 0.3rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, background 0.15s;
+}
+
+.icon-btn:hover {
+    color: var(--text-primary);
+    background: var(--hover-bg);
+}
+
+.icon-btn.danger:hover {
+    color: #e74c3c;
+}
+
+/* ── Toggle switch ────────────────────────────────── */
+
+.toggle-switch {
+    position: relative;
+    display: inline-block;
+    width: 36px;
+    height: 20px;
+    cursor: pointer;
+}
+
+.toggle-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.toggle-slider {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--control-border);
+    border-radius: 10px;
+    transition: background 0.2s;
+}
+
+.toggle-slider::before {
+    content: "";
+    position: absolute;
+    height: 14px;
+    width: 14px;
+    left: 3px;
+    bottom: 3px;
+    background: #fff;
+    border-radius: 50%;
+    transition: transform 0.2s;
+}
+
+.toggle-switch input:checked + .toggle-slider {
+    background: var(--accent-primary, #7c5cfc);
+}
+
+.toggle-switch input:checked + .toggle-slider::before {
+    transform: translateX(16px);
+}
+
+/* ── Task card body/footer ────────────────────────── */
+
+.task-card-body {
+    margin-top: 0.6rem;
+    padding-top: 0.6rem;
+    border-top: 1px solid var(--control-border);
+}
+
+.task-prompt-preview {
+    font-size: var(--type-callout);
+    color: var(--text-dim);
+    line-height: 1.4;
+    word-break: break-word;
+}
+
+.task-tag {
+    display: inline-block;
+    margin-top: 0.4rem;
+    padding: 0.15rem 0.5rem;
+    font-size: var(--type-callout);
+    background: var(--hover-bg, rgba(124, 92, 252, 0.1));
+    border-radius: 4px;
+    color: var(--text-dim);
+}
+
+.task-card-footer {
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid var(--control-border);
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--type-callout);
+    color: var(--text-dim);
+}
+
+.last-run,
+.next-run {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+}
+
+.run-status.success {
+    color: #2ecc71;
+}
+
+.run-status.error {
+    color: #e74c3c;
+}
+
+/* ── Empty state ──────────────────────────────────── */
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 3rem 1rem;
+}
+
+.empty-icon {
+    font-size: var(--type-title1);
+    margin-bottom: 1rem;
+}
+
+.empty-title {
+    font-size: var(--type-title3);
+    margin: 0 0 0.5rem;
+}
+
+.empty-desc {
+    color: var(--text-dim);
+    font-size: var(--type-callout);
+    margin: 0 0 1.5rem;
+    max-width: 360px;
+}
+
+/* ── Responsive ───────────────────────────────────── */
+
+@media (max-width: 600px) {
+    .scheduled-tasks-page {
+        padding: 1rem;
+    }
+    .header-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .task-card-header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .task-actions {
+        margin-top: 0.5rem;
+    }
+}
+
+/* Delete confirmation bar */
+.delete-confirm-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: rgba(255, 50, 50, 0.08);
+    border-top: 1px solid rgba(255, 50, 50, 0.2);
+    font-size: var(--type-callout);
+}
+.btn-danger-sm {
+    padding: 0.2rem 0.5rem;
+    background: #e53e3e;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: var(--type-callout);
+}
+.btn-secondary-sm {
+    padding: 0.2rem 0.5rem;
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border-primary);
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: var(--type-callout);
+}
+
+/* History toggle button */
+.history-toggle {
+    background: none;
+    border: none;
+    color: var(--accent-primary);
+    cursor: pointer;
+    font-size: var(--type-callout);
+    padding: 0;
+    margin-left: auto;
+}
+.history-toggle:hover {
+    text-decoration: underline;
+}
+
+/* Run history */
+.run-history {
+    padding: 0.5rem 0.75rem;
+    border-top: 1px solid var(--border-primary);
+    max-height: 200px;
+    overflow-y: auto;
+}
+.run-entry {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    font-size: var(--type-callout);
+    color: var(--text-secondary);
+}
+.run-entry.failed {
+    color: #e53e3e;
+}
+.run-time {
+    min-width: 100px;
+}
+.run-status-icon {
+    font-weight: bold;
+}
+.run-session {
+    color: var(--text-dim);
+    font-style: italic;
+}
+.run-error {
+    color: #e53e3e;
+    font-size: var(--type-callout);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 300px;
+}
+
+/* Form hints for cron */
+.form-hint {
+    color: var(--text-dim);
+    font-size: var(--type-callout);
+    display: block;
+    margin-top: 0.25rem;
+}
+.form-hint code {
+    background: var(--bg-secondary);
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    font-family: var(--font-mono);
+}
