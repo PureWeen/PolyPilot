@@ -4039,6 +4039,14 @@ public partial class CopilotService
             reflectState.IsCancelled = true;
             AddOrchestratorSystemMessage(orchestratorName, $"⏱️ {reflectState.BuildCompletionSummary()}");
         }
+        else
+        {
+            // Reflect loop completed with goal met or stalled — mark synthesis as done
+            if (group != null)
+            {
+                group.LastSynthesisCompletedAt = DateTime.UtcNow;
+            }
+        }
         }
         finally
         {
@@ -4058,12 +4066,6 @@ public partial class CopilotService
             }
 
             SaveOrganization();
-            // Mark synthesis as completed for the reflect path
-            if (group != null)
-            {
-                group.LastSynthesisCompletedAt = DateTime.UtcNow;
-                SaveOrganization();
-            }
             var completionSummary = reflectState.BuildCompletionSummary();
             InvokeOnUI(() =>
             {
