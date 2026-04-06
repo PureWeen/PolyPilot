@@ -1229,7 +1229,6 @@ public partial class CopilotService
         {
             Debug($"[DEDUP] FlushCurrentResponse skipped duplicate content ({text.Length} chars) for session '{state.Info.Name}'");
             state.CurrentResponse.Clear();
-            state.HasReceivedDeltasThisTurn = false;
             return;
         }
         
@@ -1251,7 +1250,10 @@ public partial class CopilotService
         state.FlushedResponse.Append(text);
         
         state.CurrentResponse.Clear();
-        state.HasReceivedDeltasThisTurn = false;
+        // NOTE: Do NOT reset HasReceivedDeltasThisTurn here — that flag gates whether
+        // AssistantMessageEvent (full content) is accepted. Resetting it mid-turn causes
+        // the next full-message event to re-add content already flushed to History.
+        // HasReceivedDeltasThisTurn is only reset at turn boundaries (AssistantTurnStartEvent).
         
         // Early dispatch: if the orchestrator wrote @worker blocks in an intermediate sub-turn,
         // resolve the TCS now so ParseTaskAssignments can run immediately. Without this, the
