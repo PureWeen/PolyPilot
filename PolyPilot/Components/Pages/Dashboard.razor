@@ -737,13 +737,13 @@
                         var success = await DevTunnelService.HostAsync(connSettings.Port);
                         if (!success)
                         {
-                            Console.WriteLine("[AutoStart] Tunnel failed, falling back to direct sharing");
+                            Console.WriteLine("[AutoStart] Tunnel failed, falling back to LAN bridge");
                             StartLanBridge(connSettings);
                         }
                     }
                     catch (Exception ex)
                     {
-                        Console.WriteLine($"[AutoStart] Tunnel error: {ex.Message}");
+                        Console.WriteLine($"[AutoStart] Tunnel error: {ex.Message}, falling back to LAN bridge");
                         StartLanBridge(connSettings);
                     }
                 });
