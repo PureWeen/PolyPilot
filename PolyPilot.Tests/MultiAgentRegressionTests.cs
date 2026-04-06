@@ -2016,6 +2016,46 @@ public class MultiAgentRegressionTests
         Assert.Contains("client-recreated-dead-event-stream", loopBlock);
     }
 
+    /// <summary>
+    /// Verify that DetectOrphanedWorkers exists in RestoreSessionsInBackgroundAsync
+    /// and runs after ResumeOrchestrationIfPendingAsync. This diagnostic catches
+    /// workers that completed during restart but whose results were never synthesized.
+    /// </summary>
+    [Fact]
+    public void RestoreFlow_DetectOrphanedWorkers_PresentAfterResume()
+    {
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        var resumeIdx = source.IndexOf("ResumeOrchestrationIfPendingAsync");
+        Assert.True(resumeIdx >= 0, "ResumeOrchestrationIfPendingAsync must exist in Persistence.cs");
+
+        var detectIdx = source.IndexOf("DetectOrphanedWorkers()", resumeIdx);
+        Assert.True(detectIdx > resumeIdx, "DetectOrphanedWorkers must be called AFTER ResumeOrchestrationIfPendingAsync");
+    }
+
+    [Fact]
+    public void DetectOrphanedWorkers_IsReadOnly_NoIsProcessingMutation()
+    {
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        // Find the method body
+        var methodIdx = source.IndexOf("private void DetectOrphanedWorkers()");
+        Assert.True(methodIdx >= 0, "DetectOrphanedWorkers method must exist");
+
+        var nextMethod = source.IndexOf("/// <summary>", methodIdx + 50);
+        var methodBody = source.Substring(methodIdx, nextMethod - methodIdx);
+
+        // Must NOT mutate IsProcessing — this is a read-only diagnostic
+        Assert.DoesNotContain("IsProcessing =", methodBody);
+        Assert.DoesNotContain("IsProcessing=", methodBody);
+        // Must NOT call ForceCompleteProcessingAsync or CompleteResponse
+        Assert.DoesNotContain("ForceCompleteProcessingAsync", methodBody);
+        Assert.DoesNotContain("CompleteResponse", methodBody);
+
+        // Must contain the diagnostic log tag
+        Assert.Contains("[ORPHAN-WORKER]", methodBody);
+    }
+
     #endregion
 
     #region PendingOrchestration Persistence Tests

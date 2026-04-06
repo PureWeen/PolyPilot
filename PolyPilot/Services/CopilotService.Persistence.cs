@@ -557,6 +557,12 @@ public partial class CopilotService
             // Resume any pending orchestration dispatch interrupted by relaunch
             _ = ResumeOrchestrationIfPendingAsync(cancellationToken);
 
+            // Diagnostic: detect orphaned workers whose results were never synthesized.
+            // This catches the case where PendingOrchestration was cleared (app crash after
+            // finally block) but workers completed without the orchestrator collecting results.
+            // Read-only — logs warnings and adds system messages, never mutates IsProcessing.
+            DetectOrphanedWorkers();
+
             // Replay any bridge prompts that arrived during restore
             var bridgeServer = _serviceProvider?.GetService<WsBridgeServer>();
             if (bridgeServer != null)
@@ -574,6 +580,70 @@ public partial class CopilotService
                     catch (Exception ex) { Console.WriteLine($"[BRIDGE] Error draining pending prompts: {ex.Message}"); }
                 });
             }
+        }
+    }
+
+    /// <summary>
+    /// Detect multi-agent workers that completed during a restart but whose results
+    /// were never collected by the orchestrator (PendingOrchestration was already cleared).
+    /// Read-only diagnostic — logs warnings and adds system messages, never mutates IsProcessing.
+    /// </summary>
+    private void DetectOrphanedWorkers()
+    {
+        try
+        {
+            var groups = SnapshotGroups();
+            var metas = SnapshotSessionMetas();
+
+            foreach (var group in groups.Where(g => g.IsMultiAgent))
+            {
+                var groupSessions = metas.Where(m => m.GroupId == group.Id).ToList();
+                if (groupSessions.Count < 2) continue; // Need at least orchestrator + 1 worker
+
+                // Find orchestrator (naming convention: ends with "-orchestrator")
+                var orchMeta = groupSessions.FirstOrDefault(m =>
+                    m.SessionName.Contains("-orchestrator", StringComparison.OrdinalIgnoreCase));
+                if (orchMeta == null) continue;
+
+                if (!_sessions.TryGetValue(orchMeta.SessionName, out var orchState)) continue;
+                if (orchState.Info.IsProcessing) continue; // Orchestrator is busy — not orphaned
+
+                // Check workers: any idle workers with responses that look uncollected?
+                var workerMetas = groupSessions.Where(m => m.SessionName != orchMeta.SessionName).ToList();
+                var orphanedWorkers = new List<string>();
+
+                foreach (var wm in workerMetas)
+                {
+                    if (!_sessions.TryGetValue(wm.SessionName, out var ws)) continue;
+                    if (ws.Info.IsProcessing) continue; // Worker still processing — not orphaned
+                    if (ws.Info.History.Count == 0) continue; // Worker never used
+
+                    var lastMsg = ws.Info.History.LastOrDefault();
+                    if (lastMsg == null || lastMsg.IsUser) continue;
+                    // Worker has a completed assistant response as its last message
+                    orphanedWorkers.Add(wm.SessionName);
+                }
+
+                if (orphanedWorkers.Count == 0) continue;
+
+                // Check if this looks like a genuine orphan: orchestrator is idle and has
+                // fewer recent messages than workers (suggesting it didn't collect results)
+                Debug($"[ORPHAN-WORKER] Group '{group.Name}': orchestrator '{orchMeta.SessionName}' is idle " +
+                      $"but {orphanedWorkers.Count} worker(s) have uncollected responses: {string.Join(", ", orphanedWorkers)}");
+
+                InvokeOnUI(() =>
+                {
+                    orchState.Info.History.Add(ChatMessage.SystemMessage(
+                        $"⚠️ {orphanedWorkers.Count} worker(s) completed during restart but results may not have been synthesized. " +
+                        $"Send a message to re-trigger collection."));
+                    orchState.Info.MessageCount = orchState.Info.History.Count;
+                    NotifyStateChanged();
+                });
+            }
+        }
+        catch (Exception ex)
+        {
+            Debug($"[ORPHAN-WORKER] Diagnostic scan failed: {ex.Message}");
         }
     }
 
