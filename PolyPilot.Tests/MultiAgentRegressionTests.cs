@@ -1532,8 +1532,8 @@ public class MultiAgentRegressionTests
         Assert.True(reflectMethod >= 0, "SendViaOrchestratorReflectAsync method definition not found");
         var reflectSave = source.IndexOf("SavePendingOrchestration", reflectMethod);
         Assert.True(reflectSave >= 0, "SavePendingOrchestration not found in reflect path");
-        var reflectWhenAll = source.IndexOf("Task.WhenAll(workerTasks)", reflectSave);
-        Assert.True(reflectWhenAll >= 0, "Task.WhenAll(workerTasks) not found after SavePendingOrchestration in reflect path");
+        var reflectWhenAll = source.IndexOf("Task.WhenAll(workerTasks)", reflectMethod);
+        Assert.True(reflectWhenAll >= 0, "Task.WhenAll(workerTasks) not found in reflect path");
         Assert.True(reflectSave < reflectWhenAll,
             $"SavePendingOrchestration (pos {reflectSave}) must appear before Task.WhenAll (pos {reflectWhenAll}) in reflect dispatch path");
     }
