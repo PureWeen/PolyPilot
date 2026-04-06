@@ -1344,19 +1344,32 @@ public partial class CopilotService
         var response = state.CurrentResponse.ToString();
         if (!string.IsNullOrWhiteSpace(response))
         {
-            var msg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
-            state.Info.History.Add(msg);
-            state.Info.MessageCount = state.Info.History.Count;
-            // If user is viewing this session, keep it read
-            if (state.Info.Name == _activeSessionName)
-                state.Info.LastReadMessageCount = state.Info.History.Count;
+            // Dedup guard: FlushCurrentResponse (called on TurnEnd and IDLE-DEFER) may have
+            // already added this exact text to History. If the SDK replayed deltas after a
+            // flush (e.g., IDLE-DEFER re-arm, reconnect replay), CurrentResponse can accumulate
+            // the same content again. Without this check, the same message appears twice.
+            var lastAssistant = state.Info.History.LastOrDefault(m =>
+                m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
+            if (lastAssistant?.Content != response)
+            {
+                var msg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
+                state.Info.History.Add(msg);
+                state.Info.MessageCount = state.Info.History.Count;
+                // If user is viewing this session, keep it read
+                if (state.Info.Name == _activeSessionName)
+                    state.Info.LastReadMessageCount = state.Info.History.Count;
 
-            // Write-through to DB
-            if (!string.IsNullOrEmpty(state.Info.SessionId))
-                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
-            
-            // Track code suggestions from final response segment
-            _usageStats?.TrackCodeSuggestion(response);
+                // Write-through to DB
+                if (!string.IsNullOrEmpty(state.Info.SessionId))
+                    SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
+
+                // Track code suggestions from final response segment
+                _usageStats?.TrackCodeSuggestion(response);
+            }
+            else
+            {
+                Debug($"[DEDUP] CompleteResponse skipped duplicate content ({response.Length} chars) for '{state.Info.Name}'");
+            }
         }
         // Build full turn response for TCS: include text flushed mid-turn (e.g., on TurnEnd)
         // plus any remaining text in CurrentResponse. Without this, orchestrator dispatch
