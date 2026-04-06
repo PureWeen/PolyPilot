@@ -738,13 +738,13 @@
                         if (!success)
                         {
                             Console.WriteLine("[AutoStart] Tunnel failed, falling back to direct sharing");
-                            StartDirectSharingIfEnabled(connSettings);
+                            StartLanBridge(connSettings);
                         }
                     }
                     catch (Exception ex)
                     {
                         Console.WriteLine($"[AutoStart] Tunnel error: {ex.Message}");
-                        StartDirectSharingIfEnabled(connSettings);
+                        StartLanBridge(connSettings);
                     }
                 });
             }
@@ -766,6 +766,29 @@
         }
 
         RefreshState();
+    }
+
+    /// <summary>
+    /// Start the WsBridge for LAN access unconditionally after a tunnel failure.
+    /// When the user enabled AutoStartTunnel they opted into network access — a failed
+    /// tunnel should degrade to local-network (port 4322) rather than leaving the bridge
+    /// completely unreachable. DirectSharingEnabled is intentionally NOT checked here;
+    /// that flag controls explicit user-initiated direct sharing, not the tunnel fallback.
+    /// </summary>
+    private void StartLanBridge(ConnectionSettings connSettings)
+    {
+        if (!string.IsNullOrEmpty(connSettings.ServerPassword)
+            && !WsBridgeServer.IsRunning && DevTunnelService.State != TunnelState.Running)
+        {
+            WsBridgeServer.ServerPassword = connSettings.ServerPassword;
+            WsBridgeServer.SetCopilotService(CopilotService);
+            WsBridgeServer.Start(DevTunnelService.BridgePort, connSettings.Port);
+            if (WsBridgeServer.IsRunning && !WsBridgeServer.SupportsRemoteConnections)
+            {
+                Console.WriteLine("[AutoStart] LAN bridge bound to localhost only; stopping so the app doesn't advertise an unusable LAN endpoint.");
+                WsBridgeServer.Stop();
+            }
+        }
     }
 
     private void StartDirectSharingIfEnabled(ConnectionSettings connSettings)
