@@ -614,11 +614,21 @@ public class RepoManager
         var id = RepoIdFromUrl(url);
 
         RepositoryInfo repo;
+        string? oldBareClonePath = null;
         lock (_stateLock)
         {
             var existing = _state.Repositories.FirstOrDefault(r => r.Id == id);
             if (existing != null)
             {
+                // If the old BareClonePath was a managed bare clone, remember it for cleanup.
+                if (!string.IsNullOrWhiteSpace(existing.BareClonePath)
+                    && !PathsEqual(existing.BareClonePath, localPath))
+                {
+                    var fullOld = Path.GetFullPath(existing.BareClonePath);
+                    var managedPrefix = Path.GetFullPath(ReposDir) + Path.DirectorySeparatorChar;
+                    if (fullOld.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase))
+                        oldBareClonePath = existing.BareClonePath;
+                }
                 existing.BareClonePath = localPath;
                 BackfillWorktreeClonePaths(existing);
                 repo = existing;
@@ -638,6 +648,13 @@ public class RepoManager
         }
         Save();
         OnStateChanged?.Invoke();
+
+        // Clean up orphaned managed bare clone (if any) after state is saved.
+        if (oldBareClonePath != null && Directory.Exists(oldBareClonePath))
+        {
+            try { Directory.Delete(oldBareClonePath, recursive: true); }
+            catch (Exception ex) { Console.WriteLine($"[RepoManager] Failed to clean up old bare clone at '{oldBareClonePath}': {ex.Message}"); }
+        }
 
         // Register the local folder as an external worktree so it also appears in the
         // "📂 Existing" picker when creating repo-based sessions.
@@ -731,16 +748,18 @@ public class RepoManager
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
 
-        // Check if an existing registered worktree for this repo is already on the requested branch.
-        // This handles the common case where the user added their repo via "Existing Folder" and
-        // wants to create a session on the same branch — no need to create a duplicate worktree.
+        // Check if an existing PolyPilot-managed worktree for this repo is already on the requested branch.
+        // Only reuse worktrees under the centralized WorktreesDir — never return the user's own
+        // checkout (registered as an external worktree) to avoid multiple sessions sharing it.
         WorktreeInfo? existingMatch;
+        var managedWorktreePrefix = Path.GetFullPath(WorktreesDir) + Path.DirectorySeparatorChar;
         lock (_stateLock)
         {
             existingMatch = _state.Worktrees.FirstOrDefault(w =>
                 w.RepoId == repoId
                 && string.Equals(w.Branch, branchName, StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(w.Path)
+                && Path.GetFullPath(w.Path).StartsWith(managedWorktreePrefix, StringComparison.OrdinalIgnoreCase)
                 && Directory.Exists(w.Path));
         }
         if (existingMatch != null)
@@ -1116,7 +1135,15 @@ public class RepoManager
 
         if (deleteFromDisk && Directory.Exists(repo.BareClonePath))
         {
-            try { Directory.Delete(repo.BareClonePath, recursive: true); } catch { }
+            // Only delete if BareClonePath is under the managed ReposDir.
+            // Repos added via "Existing Folder" have BareClonePath pointing at the user's
+            // real project directory — we must NEVER delete that.
+            var fullClonePath = Path.GetFullPath(repo.BareClonePath);
+            var managedPrefix = Path.GetFullPath(ReposDir) + Path.DirectorySeparatorChar;
+            if (fullClonePath.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase))
+            {
+                try { Directory.Delete(repo.BareClonePath, recursive: true); } catch { }
+            }
         }
 
         OnStateChanged?.Invoke();
@@ -1179,7 +1206,20 @@ public class RepoManager
     {
         try
         {
-            // Get the default branch name (e.g. "main")
+            // Prefer origin/HEAD which points at the canonical default branch regardless
+            // of which branch is currently checked out (important for non-bare repos).
+            try
+            {
+                var originHead = (await RunGitAsync(barePath, ct, "rev-parse", "--abbrev-ref", "origin/HEAD")).Trim();
+                if (!string.IsNullOrWhiteSpace(originHead) && originHead != "origin/HEAD")
+                {
+                    Console.WriteLine($"[RepoManager] Using origin/HEAD: {originHead}");
+                    return $"refs/remotes/{originHead}";
+                }
+            }
+            catch { /* origin/HEAD not set — fall through */ }
+
+            // Fallback: use symbolic-ref HEAD (correct for bare repos, may be wrong for non-bare)
             var headRef = await RunGitAsync(barePath, ct, "symbolic-ref", "HEAD");
             var branchName = headRef.Trim().Replace("refs/heads/", "");
 
@@ -1233,7 +1273,9 @@ public class RepoManager
         if (workDir != null)
         {
             psi.WorkingDirectory = workDir;
-            // Bare repos need GIT_DIR set explicitly for gh to find the remote
+            // Bare repos (paths ending in .git) need GIT_DIR set explicitly for gh
+            // to find the remote. Non-bare repos (including those added via "Existing Folder")
+            // don't need this — gh discovers the remote from the working directory.
             if (workDir.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
                 psi.Environment["GIT_DIR"] = workDir;
         }
