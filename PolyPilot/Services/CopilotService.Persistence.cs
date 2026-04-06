@@ -444,6 +444,13 @@ public partial class CopilotService
             // (Organization.cs:1547).
             copilotSession.On(evt => HandleSessionEvent(state, evt));
             state.Session = copilotSession;
+            // Clear IsOrphaned — the state may have been marked orphaned by a sibling
+            // reconnect failure (e.g., corrupted session file caused re-resume to fail,
+            // setting IsOrphaned=true on this state). Now that we have a fresh SDK session
+            // with a newly registered event handler, the orphaned flag no longer applies.
+            // Without this reset, HandleSessionEvent silently drops all events and the
+            // session appears stuck to mobile clients despite the CLI responding normally.
+            state.IsOrphaned = false;
             state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName);
 
             // After resume, if events.jsonl shows unmatched tool_execution_start events,
