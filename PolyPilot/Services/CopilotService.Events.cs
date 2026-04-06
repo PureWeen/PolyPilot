@@ -1215,33 +1215,50 @@ public partial class CopilotService
         }
     }
 
+    private static string? GetLastFlushedSegmentThisTurn(SessionState state)
+    {
+        if (state.FlushedResponse.Length == 0) return null;
+
+        var flushed = state.FlushedResponse.ToString();
+        var separatorIndex = flushed.LastIndexOf("\n\n", StringComparison.Ordinal);
+        return separatorIndex >= 0 ? flushed[(separatorIndex + 2)..] : flushed;
+    }
+
+    private static bool WasResponseAlreadyFlushedThisTurn(SessionState state, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return false;
+
+        var lastSegment = GetLastFlushedSegmentThisTurn(state);
+        return !string.IsNullOrEmpty(lastSegment) &&
+               string.Equals(lastSegment, text, StringComparison.Ordinal);
+    }
+
     /// <summary>Flush accumulated assistant text to history without ending the turn.</summary>
     private void FlushCurrentResponse(SessionState state)
     {
         var text = state.CurrentResponse.ToString();
         if (string.IsNullOrWhiteSpace(text)) return;
-        
-        // Dedup guard: if this exact text was already flushed (e.g., SDK replayed events
-        // after resume and content was re-appended to CurrentResponse), don't duplicate.
-        var lastAssistant = state.Info.History.LastOrDefault(m => 
-            m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
-        if (lastAssistant?.Content == text)
+
+        // Dedup only within the CURRENT turn. SDK replay after a flush can re-append the
+        // same sub-turn text to CurrentResponse, but identical replies across different
+        // turns are legitimate and must still be preserved in History.
+        if (WasResponseAlreadyFlushedThisTurn(state, text))
         {
-            Debug($"[DEDUP] FlushCurrentResponse skipped duplicate content ({text.Length} chars) for session '{state.Info.Name}'");
+            Debug($"[DEDUP] FlushCurrentResponse skipped same-turn replay ({text.Length} chars) for session '{state.Info.Name}'");
             state.CurrentResponse.Clear();
             return;
         }
-        
+
         var msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
         state.Info.History.Add(msg);
         state.Info.MessageCount = state.Info.History.Count;
-        
+
         if (!string.IsNullOrEmpty(state.Info.SessionId))
             SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
-        
+
         // Track code suggestions from accumulated response segment
         _usageStats?.TrackCodeSuggestion(text);
-        
+
         // Accumulate flushed text so CompleteResponse can include it in the TCS result.
         // Without this, orchestrator dispatch gets "" because TurnEnd flush clears
         // CurrentResponse before SessionIdle fires CompleteResponse.
@@ -1345,15 +1362,13 @@ public partial class CopilotService
         Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
+        var responseAlreadyFlushedThisTurn = WasResponseAlreadyFlushedThisTurn(state, response);
         if (!string.IsNullOrWhiteSpace(response))
         {
-            // Dedup guard: FlushCurrentResponse (called on TurnEnd and IDLE-DEFER) may have
-            // already added this exact text to History. If the SDK replayed deltas after a
-            // flush (e.g., IDLE-DEFER re-arm, reconnect replay), CurrentResponse can accumulate
-            // the same content again. Without this check, the same message appears twice.
-            var lastAssistant = state.Info.History.LastOrDefault(m =>
-                m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
-            if (lastAssistant?.Content != response)
+            // Dedup only within the current turn. FlushCurrentResponse may have already
+            // committed this exact segment when SessionIdle replays after IDLE-DEFER, but
+            // identical assistant replies on different turns are legitimate and must persist.
+            if (!responseAlreadyFlushedThisTurn)
             {
                 var msg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
                 state.Info.History.Add(msg);
@@ -1371,18 +1386,19 @@ public partial class CopilotService
             }
             else
             {
-                Debug($"[DEDUP] CompleteResponse skipped duplicate content ({response.Length} chars) for '{state.Info.Name}'");
+                Debug($"[DEDUP] CompleteResponse skipped same-turn replay ({response.Length} chars) for '{state.Info.Name}'");
             }
         }
         // Build full turn response for TCS: include text flushed mid-turn (e.g., on TurnEnd)
         // plus any remaining text in CurrentResponse. Without this, orchestrator dispatch
         // gets "" because FlushCurrentResponse on TurnEnd clears CurrentResponse before
         // SessionIdle fires CompleteResponse.
+        var responseForCompletion = responseAlreadyFlushedThisTurn ? string.Empty : response;
         var fullResponse = state.FlushedResponse.Length > 0
-            ? (string.IsNullOrEmpty(response)
+            ? (string.IsNullOrEmpty(responseForCompletion)
                 ? state.FlushedResponse.ToString()
-                : state.FlushedResponse + "\n\n" + response)
-            : response;
+                : state.FlushedResponse + "\n\n" + responseForCompletion)
+            : responseForCompletion;
         // Track one message per completed turn regardless of trailing text
         _usageStats?.TrackMessage();
         // Reset permission recovery attempts on successful turn completion
@@ -2249,21 +2265,25 @@ public partial class CopilotService
     /// before all background agents are treated as zombies and the session is allowed to complete.
     /// The Copilot CLI has no per-agent timeout, so a crashed or orphaned subagent blocks
     /// IDLE-DEFER indefinitely. After this threshold PolyPilot expires the stale block.
-    /// The same timeout applies to shells — stale/detached shells that the CLI never
-    /// reports as completed should not block the session indefinitely.
     /// </summary>
     internal const int SubagentZombieTimeoutMinutes = 20;
+    /// <summary>
+    /// Shells get a longer zombie window than subagents because legitimate build/test
+    /// processes can run for much longer than the agent orchestration rounds that spawned them.
+    /// This still bounds leaked shells, but avoids truncating healthy long-running work.
+    /// </summary>
+    internal const int ShellZombieTimeoutMinutes = 60;
 
     /// <summary>
     /// Check if a SessionIdleEvent reports active background tasks (agents or shells).
     /// When background tasks are active, session.idle means "foreground quiesced, background
     /// still running" — NOT true completion.
     ///
-    /// When <paramref name="idleDeferStartedAtTicks"/> is non-zero, background tasks (both
-    /// agents AND shells) are treated as zombies if the session has been in IDLE-DEFER longer
-    /// than <see cref="SubagentZombieTimeoutMinutes"/>. This allows the session to complete
-    /// even if the CLI never fires SubagentCompleted/ShellCompleted for crashed or orphaned
-    /// background tasks. The caller is responsible for logging the zombie expiry via <c>Debug()</c>.
+    /// When <paramref name="idleDeferStartedAtTicks"/> is non-zero, agents and shells get
+    /// separate zombie windows. Agents expire after <see cref="SubagentZombieTimeoutMinutes"/>;
+    /// shells expire after the longer <see cref="ShellZombieTimeoutMinutes"/>. This allows
+    /// the session to recover from leaked background tasks without prematurely truncating
+    /// legitimate long-running shell work.
     /// </summary>
     internal static bool HasActiveBackgroundTasks(
         SessionIdleEvent idle,
@@ -2278,11 +2298,11 @@ public partial class CopilotService
         if ((hasAgents || hasShells) && idleDeferStartedAtTicks != 0)
         {
             var elapsed = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - idleDeferStartedAtTicks);
-            if (elapsed.TotalMinutes >= SubagentZombieTimeoutMinutes)
-            {
+            if (hasAgents && elapsed.TotalMinutes >= SubagentZombieTimeoutMinutes)
                 hasAgents = false;
+
+            if (hasShells && elapsed.TotalMinutes >= ShellZombieTimeoutMinutes)
                 hasShells = false;
-            }
         }
 
         return hasAgents || hasShells;

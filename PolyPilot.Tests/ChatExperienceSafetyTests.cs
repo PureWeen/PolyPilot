@@ -319,6 +319,38 @@ public class ChatExperienceSafetyTests
     }
 
     /// <summary>
+    /// Identical assistant text across DIFFERENT turns must still be persisted.
+    /// The replay dedup guard should only suppress content already flushed in the
+    /// current turn, not a legitimate repeated reply like "Done." in a later turn.
+    /// </summary>
+    [Fact]
+    public async Task CompleteResponse_IdenticalCrossTurnReply_IsStillPersisted()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("cross-turn-complete-test");
+
+        var state = GetSessionState(svc, "cross-turn-complete-test");
+        session.IsProcessing = true;
+        SetField(state, "SendingFlag", 1);
+
+        session.History.Add(ChatMessage.AssistantMessage("Done."));
+        var historyBefore = session.History.Count;
+
+        GetCurrentResponse(state).Append("Done.");
+
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        SetResponseCompletion(state, tcs);
+
+        InvokeCompleteResponse(svc, state, null);
+
+        Assert.Equal(historyBefore + 1, session.History.Count);
+        Assert.Equal("Done.", session.History.Last().Content);
+        Assert.True(tcs.Task.IsCompleted);
+        Assert.Equal("Done.", tcs.Task.Result);
+    }
+
+    /// <summary>
     /// CompleteResponse must include FlushedResponse (from mid-turn flushes on TurnEnd)
     /// in the TCS result. Without this, orchestrator dispatch gets empty string.
     /// This was the root cause of "orchestrator didn't respond to worker" bugs.
@@ -353,6 +385,37 @@ public class ChatExperienceSafetyTests
         var result = tcs.Task.Result;
         Assert.Contains("First sub-turn response text", result);
         Assert.Contains("Second sub-turn continuation", result);
+    }
+
+    /// <summary>
+    /// If the SDK replays the exact text that was already flushed earlier in the SAME turn,
+    /// CompleteResponse must not duplicate it in either History or the TCS result.
+    /// </summary>
+    [Fact]
+    public async Task CompleteResponse_SameTurnReplay_DoesNotDuplicateHistoryOrTcs()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("same-turn-replay-test");
+
+        var state = GetSessionState(svc, "same-turn-replay-test");
+        session.IsProcessing = true;
+        SetField(state, "SendingFlag", 1);
+
+        GetFlushedResponse(state).Append("Already flushed content");
+        session.History.Add(ChatMessage.AssistantMessage("Already flushed content"));
+        var historyBefore = session.History.Count;
+
+        GetCurrentResponse(state).Append("Already flushed content");
+
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        SetResponseCompletion(state, tcs);
+
+        InvokeCompleteResponse(svc, state, null);
+
+        Assert.Equal(historyBefore, session.History.Count);
+        Assert.True(tcs.Task.IsCompleted);
+        Assert.Equal("Already flushed content", tcs.Task.Result);
     }
 
     /// <summary>
@@ -712,8 +775,8 @@ public class ChatExperienceSafetyTests
     }
 
     /// <summary>
-    /// FlushCurrentResponse dedup guard: if the last assistant message has identical content,
-    /// the flush is skipped to prevent duplicates on session resume.
+    /// FlushCurrentResponse dedup guard: if the exact same segment was already flushed in
+    /// the CURRENT turn, the replay is skipped to prevent duplicates on resume/IDLE-DEFER.
     /// </summary>
     [Fact]
     public async Task FlushCurrentResponse_DedupGuard_SkipsDuplicate()
@@ -724,11 +787,12 @@ public class ChatExperienceSafetyTests
 
         var state = GetSessionState(svc, "dedup-test");
 
-        // Add a message that looks like it was already flushed
+        // Simulate the current turn already flushing this exact segment once.
+        GetFlushedResponse(state).Append("Already flushed content");
         session.History.Add(ChatMessage.AssistantMessage("Already flushed content"));
         var historyCountAfterFirst = session.History.Count;
 
-        // Simulate the same content appearing in CurrentResponse (SDK replay on resume)
+        // Simulate the same content appearing in CurrentResponse again (SDK replay)
         GetCurrentResponse(state).Append("Already flushed content");
 
         // Act
@@ -736,6 +800,28 @@ public class ChatExperienceSafetyTests
 
         // Assert: no duplicate added
         Assert.Equal(historyCountAfterFirst, session.History.Count);
+    }
+
+    /// <summary>
+    /// A brand-new turn that happens to produce the same assistant text as the prior turn
+    /// must still be preserved. Dedup is same-turn only.
+    /// </summary>
+    [Fact]
+    public async Task FlushCurrentResponse_IdenticalCrossTurnReply_IsStillPersisted()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("cross-turn-flush-test");
+
+        var state = GetSessionState(svc, "cross-turn-flush-test");
+        session.History.Add(ChatMessage.AssistantMessage("Done."));
+        var historyBefore = session.History.Count;
+
+        GetCurrentResponse(state).Append("Done.");
+        InvokeFlushCurrentResponse(svc, state);
+
+        Assert.Equal(historyBefore + 1, session.History.Count);
+        Assert.Equal("Done.", session.History.Last().Content);
     }
 
     /// <summary>

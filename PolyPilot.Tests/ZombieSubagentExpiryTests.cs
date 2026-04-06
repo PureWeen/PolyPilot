@@ -122,13 +122,13 @@ public class ZombieSubagentExpiryTests
             idle, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes)));
     }
 
-    // --- Shells are expired after zombie timeout (same as agents) ---
+    // --- Shells get a longer zombie timeout than agents ---
 
     [Fact]
-    public void ZombieThresholdExceeded_WithShells_ReturnsFalse()
+    public void AfterAgentThreshold_MixedShellsStillKeepSessionActive()
     {
-        // When both agents and shells are present but the zombie threshold is exceeded,
-        // everything is treated as expired — stale shells should not block completion.
+        // At 30 minutes, agents should have expired but shells should still keep the
+        // session deferred. This protects legitimate long-running build/test shells.
         var idle = new SessionIdleEvent
         {
             Data = new SessionIdleData
@@ -152,16 +152,17 @@ public class ZombieSubagentExpiryTests
                 }
             }
         };
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle, TicksAgo(30)));
+        Assert.True(CopilotService.HasActiveBackgroundTasks(
+            idle, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes + 10)));
     }
 
     [Fact]
     public void ZombieThresholdExceeded_ShellsOnly_ReturnsFalse()
     {
-        // Shells alone should also be expired after the zombie timeout —
-        // stale/orphaned shells reported by the CLI should not block completion forever.
+        // Shells alone should eventually expire too — just with a longer threshold than agents.
         var idle = MakeIdleWithShells();
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle, TicksAgo(60)));
+        Assert.False(CopilotService.HasActiveBackgroundTasks(
+            idle, TicksAgo(CopilotService.ShellZombieTimeoutMinutes + 1)));
     }
 
     [Fact]
@@ -169,6 +170,16 @@ public class ZombieSubagentExpiryTests
     {
         var idle = MakeIdleWithShells();
         Assert.True(CopilotService.HasActiveBackgroundTasks(idle, TicksAgo(1)));
+    }
+
+    [Fact]
+    public void AfterAgentThreshold_ShellsOnly_StillReturnsTrue()
+    {
+        // Shells should survive past the 20-minute agent timeout so legitimate long-running
+        // commands do not get truncated just because they're shell-backed instead of subagents.
+        var idle = MakeIdleWithShells();
+        Assert.True(CopilotService.HasActiveBackgroundTasks(
+            idle, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes + 5)));
     }
 
     // --- Cross-turn stale timestamp: the critical lifecycle bug this PR fixes ---
