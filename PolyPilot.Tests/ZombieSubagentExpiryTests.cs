@@ -122,13 +122,13 @@ public class ZombieSubagentExpiryTests
             idle, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes)));
     }
 
-    // --- Shells are never expired ---
+    // --- Shells are expired after zombie timeout (same as agents) ---
 
     [Fact]
-    public void ZombieThresholdExceeded_WithShells_ReturnsTrue()
+    public void ZombieThresholdExceeded_WithShells_ReturnsFalse()
     {
-        // Even if all background agents are expired, an active shell keeps IDLE-DEFER alive.
-        // Shells are managed at the OS level — PolyPilot never force-expires them.
+        // When both agents and shells are present but the zombie threshold is exceeded,
+        // everything is treated as expired — stale shells should not block completion.
         var idle = new SessionIdleEvent
         {
             Data = new SessionIdleData
@@ -152,15 +152,16 @@ public class ZombieSubagentExpiryTests
                 }
             }
         };
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle, TicksAgo(30)));
+        Assert.False(CopilotService.HasActiveBackgroundTasks(idle, TicksAgo(30)));
     }
 
     [Fact]
-    public void ZombieThresholdExceeded_ShellsOnly_ReturnsTrue()
+    public void ZombieThresholdExceeded_ShellsOnly_ReturnsFalse()
     {
-        // Shells alone always block completion — they are never zombie-expired.
+        // Shells alone should also be expired after the zombie timeout —
+        // stale/orphaned shells reported by the CLI should not block completion forever.
         var idle = MakeIdleWithShells();
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle, TicksAgo(60)));
+        Assert.False(CopilotService.HasActiveBackgroundTasks(idle, TicksAgo(60)));
     }
 
     [Fact]

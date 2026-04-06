@@ -704,11 +704,14 @@ public partial class CopilotService
                 var hasActiveTasks = HasActiveBackgroundTasks(idle, deferTicks);
 
                 // Log zombie expiry here where Debug() is available (HasActiveBackgroundTasks is static)
-                if (!hasActiveTasks && deferTicks != 0 && (idle.Data?.BackgroundTasks?.Agents?.Length ?? 0) > 0)
+                var zombieBt = idle.Data?.BackgroundTasks;
+                var zombieAgentCount = zombieBt?.Agents?.Length ?? 0;
+                var zombieShellCount = zombieBt?.Shells?.Length ?? 0;
+                if (!hasActiveTasks && deferTicks != 0 && (zombieAgentCount > 0 || zombieShellCount > 0))
                 {
                     var expiredMinutes = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - deferTicks).TotalMinutes;
-                    Debug($"[IDLE-DEFER-ZOMBIE] '{sessionName}' {idle.Data!.BackgroundTasks!.Agents!.Length} " +
-                          $"background agent(s) expired after {expiredMinutes:F0}min " +
+                    Debug($"[IDLE-DEFER-ZOMBIE] '{sessionName}' {zombieAgentCount} agent(s) + {zombieShellCount} shell(s) " +
+                          $"expired after {expiredMinutes:F0}min " +
                           $"(threshold={SubagentZombieTimeoutMinutes}min) — allowing session to complete");
                 }
 
@@ -2230,7 +2233,8 @@ public partial class CopilotService
     /// before all background agents are treated as zombies and the session is allowed to complete.
     /// The Copilot CLI has no per-agent timeout, so a crashed or orphaned subagent blocks
     /// IDLE-DEFER indefinitely. After this threshold PolyPilot expires the stale block.
-    /// Shells are never expired — they are managed at the OS level.
+    /// The same timeout applies to shells — stale/detached shells that the CLI never
+    /// reports as completed should not block the session indefinitely.
     /// </summary>
     internal const int SubagentZombieTimeoutMinutes = 20;
 
@@ -2239,12 +2243,11 @@ public partial class CopilotService
     /// When background tasks are active, session.idle means "foreground quiesced, background
     /// still running" — NOT true completion.
     ///
-    /// When <paramref name="idleDeferStartedAtTicks"/> is non-zero, background agents are treated
-    /// as zombies if the session has been in IDLE-DEFER longer than
-    /// <see cref="SubagentZombieTimeoutMinutes"/>. This allows the session to complete even if
-    /// the CLI never fires SubagentCompleted for a crashed or orphaned subagent.
-    /// The caller is responsible for logging the zombie expiry via <c>Debug()</c>.
-    /// Shells are never expired — their lifecycle is managed by the OS.
+    /// When <paramref name="idleDeferStartedAtTicks"/> is non-zero, background tasks (both
+    /// agents AND shells) are treated as zombies if the session has been in IDLE-DEFER longer
+    /// than <see cref="SubagentZombieTimeoutMinutes"/>. This allows the session to complete
+    /// even if the CLI never fires SubagentCompleted/ShellCompleted for crashed or orphaned
+    /// background tasks. The caller is responsible for logging the zombie expiry via <c>Debug()</c>.
     /// </summary>
     internal static bool HasActiveBackgroundTasks(
         SessionIdleEvent idle,
@@ -2254,15 +2257,19 @@ public partial class CopilotService
         if (bt == null) return false;
 
         bool hasAgents = bt.Agents is { Length: > 0 };
+        bool hasShells = bt.Shells is { Length: > 0 };
 
-        if (hasAgents && idleDeferStartedAtTicks != 0)
+        if ((hasAgents || hasShells) && idleDeferStartedAtTicks != 0)
         {
             var elapsed = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - idleDeferStartedAtTicks);
             if (elapsed.TotalMinutes >= SubagentZombieTimeoutMinutes)
+            {
                 hasAgents = false;
+                hasShells = false;
+            }
         }
 
-        return hasAgents || (bt.Shells is { Length: > 0 });
+        return hasAgents || hasShells;
     }
 
     private void StartProcessingWatchdog(SessionState state, string sessionName)
