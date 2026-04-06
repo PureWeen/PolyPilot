@@ -104,6 +104,33 @@ that crash the app. The DB is a write-through cache; `events.jsonl` is the sourc
 and replays on session resume via `BulkInsertAsync`. DB write failures are self-healing.
 **NEVER narrow the ChatDatabase catch filters** — use `catch (Exception ex)` always.
 
+### Dead Event Stream Recovery via `LoadHistoryFromDiskAsync`
+
+When the SDK event callback stops firing (common after session revival or reconnect), in-memory
+`History` stays empty even though the server process is writing responses to `events.jsonl`. This
+creates a "dead event stream" — the file has the full response, but the UI never sees it.
+
+**Method**: `CopilotService.Utilities.cs` → `LoadHistoryFromDiskAsync(sessionId)`
+
+Parses `events.jsonl` directly from disk, reconstructing `ChatMessage` objects from raw JSON events
+(`user.message`, `assistant.message`, `tool.execution_start`, `tool.execution_complete`). Opens the
+file with `FileShare.ReadWrite` to allow concurrent reads while the server is still writing.
+
+**Three recovery call sites** (all in `CopilotService.Organization.cs`):
+
+| Caller | Trigger | Context |
+|--------|---------|---------|
+| `ExecuteWorkerAsync` (~line 2456) | Worker response is empty after TCS completes | Normal dispatch — 3rd fallback after in-memory History and last-assistant scan |
+| Synthesis fallback (~line 2752) | In-memory History has less content than disk | Result collection before orchestrator synthesis |
+| Resume fallback (~line 3049) | App restarted while workers were processing | `ResumeOrchestrationIfPendingAsync` collecting worker results |
+
+**Timestamp filtering**: All three sites filter messages with `m.Timestamp >= dispatchTime` to
+avoid picking up stale messages from previous dispatches. See the multi-agent-orchestration skill
+for the local-time timestamp convention.
+
+**Also called by**: `LoadBestHistoryAsync` (`Utilities.cs:795`) — a wrapper that compares
+events.jsonl history with ChatDatabase history and returns whichever is more complete.
+
 ## 18 Invariants
 
 ### INV-1: Complete state cleanup
