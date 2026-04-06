@@ -1834,6 +1834,10 @@ public partial class CopilotService
     private async Task SendViaOrchestratorAsync(string groupId, List<string> members, string prompt, CancellationToken cancellationToken)
     {
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
+        // Reset synthesis marker — new dispatch cycle begins. DetectOrphanedWorkers
+        // should fire if THIS dispatch fails without completing synthesis.
+        if (group != null)
+            group.LastSynthesisCompletedAt = null;
         var orchestratorName = GetOrchestratorSession(groupId);
         if (orchestratorName == null)
         {
@@ -1986,16 +1990,18 @@ public partial class CopilotService
 
             var synthesisPrompt = BuildSynthesisPrompt(prompt, results.ToList());
             await SendPromptAsync(orchestratorName, synthesisPrompt, cancellationToken: cancellationToken, originalPrompt: prompt);
-        }
-        finally
-        {
-            ClearPendingOrchestration();
-            // Mark synthesis as completed so DetectOrphanedWorkers doesn't false-alarm
+
+            // Mark synthesis as completed ONLY on success — DetectOrphanedWorkers
+            // should still fire if synthesis failed (e.g., exception, cancellation)
             if (group != null)
             {
                 group.LastSynthesisCompletedAt = DateTime.UtcNow;
                 SaveOrganization();
             }
+        }
+        finally
+        {
+            ClearPendingOrchestration();
             InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(groupId, OrchestratorPhase.Complete, null));
             var spGroupName = group?.Name ?? groupId;
             var spOrchSessionId = _sessions.TryGetValue(orchestratorName!, out var spOrchState)
@@ -3194,6 +3200,14 @@ public partial class CopilotService
 
             await SendPromptAsync(pending.OrchestratorName, synthesisPrompt, cancellationToken: ct, originalPrompt: pending.OriginalPrompt);
             Debug($"[DISPATCH] Resume synthesis sent to '{pending.OrchestratorName}'");
+
+            // Mark synthesis as completed ONLY on success
+            var synthGroup = Organization.Groups.FirstOrDefault(g => g.Id == pending.GroupId);
+            if (synthGroup != null)
+            {
+                synthGroup.LastSynthesisCompletedAt = DateTime.UtcNow;
+                SaveOrganization();
+            }
         }
         catch (Exception ex)
         {
@@ -3203,13 +3217,6 @@ public partial class CopilotService
         }
 
         ClearPendingOrchestration();
-        // Mark synthesis as completed so DetectOrphanedWorkers doesn't false-alarm
-        var synthGroup = Organization.Groups.FirstOrDefault(g => g.Id == pending.GroupId);
-        if (synthGroup != null)
-        {
-            synthGroup.LastSynthesisCompletedAt = DateTime.UtcNow;
-            SaveOrganization();
-        }
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
     }
 
@@ -3656,6 +3663,9 @@ public partial class CopilotService
         var group = Organization.Groups.FirstOrDefault(g => g.Id == groupId);
         if (group == null) return;
 
+        // Reset synthesis marker — new dispatch cycle begins
+        group.LastSynthesisCompletedAt = null;
+
         var reflectState = group.ReflectionState;
         if (reflectState == null || !reflectState.IsActive)
         {
@@ -4048,6 +4058,12 @@ public partial class CopilotService
             }
 
             SaveOrganization();
+            // Mark synthesis as completed for the reflect path
+            if (group != null)
+            {
+                group.LastSynthesisCompletedAt = DateTime.UtcNow;
+                SaveOrganization();
+            }
             var completionSummary = reflectState.BuildCompletionSummary();
             InvokeOnUI(() =>
             {
