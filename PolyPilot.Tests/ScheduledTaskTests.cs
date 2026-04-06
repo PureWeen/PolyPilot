@@ -304,6 +304,67 @@ public class ScheduledTaskTests
     }
 
     [Fact]
+    public void GetNextRunTimeUtc_Daily_FailedToday_StillDue()
+    {
+        // Regression test: a failed run today must not suppress the rest of today's schedule.
+        var now = DateTime.UtcNow;
+        var localNow = now.ToLocalTime();
+        var slotLocal = localNow.AddHours(-2);
+        var timeStr = $"{slotLocal.Hour:D2}:{slotLocal.Minute:D2}";
+
+        var task = new ScheduledTask
+        {
+            Schedule = ScheduleType.Daily,
+            TimeOfDay = timeStr,
+            LastRunAt = slotLocal.ToUniversalTime()
+        };
+        task.RecentRuns.Add(new ScheduledTaskRun
+        {
+            StartedAt = slotLocal.ToUniversalTime(),
+            CompletedAt = slotLocal.ToUniversalTime(),
+            Success = false,
+            Error = "Transient failure"
+        });
+
+        var next = task.GetNextRunTimeUtc(now);
+        Assert.NotNull(next);
+        Assert.True(next!.Value <= now, "Failed daily run today should remain due for retry");
+        Assert.True(task.IsDue(now), "Task should still be due after a failed run today");
+    }
+
+    [Fact]
+    public void GetNextRunTimeUtc_Weekly_FailedToday_StillDue()
+    {
+        // Regression test: weekly tasks should mirror daily behavior — a failed run today
+        // must not skip directly to next week.
+        var now = DateTime.UtcNow;
+        var localNow = now.ToLocalTime();
+        var slotLocal = localNow.AddHours(-2);
+        var timeStr = $"{slotLocal.Hour:D2}:{slotLocal.Minute:D2}";
+        var todayDow = (int)localNow.DayOfWeek;
+
+        var task = new ScheduledTask
+        {
+            Schedule = ScheduleType.Weekly,
+            TimeOfDay = timeStr,
+            DaysOfWeek = new List<int> { todayDow },
+            LastRunAt = slotLocal.ToUniversalTime()
+        };
+        task.RecentRuns.Add(new ScheduledTaskRun
+        {
+            StartedAt = slotLocal.ToUniversalTime(),
+            CompletedAt = slotLocal.ToUniversalTime(),
+            Success = false,
+            Error = "Transient failure"
+        });
+
+        var next = task.GetNextRunTimeUtc(now);
+        Assert.NotNull(next);
+        Assert.True(next!.Value <= now, "Failed weekly run today should remain due for retry");
+        Assert.True(task.IsDue(now), "Weekly task should still be due after a failed run today");
+    }
+
+    [Fact]
     public void GetNextRunTimeUtc_IntervalNeverRun_ReturnsNow()
     {
         var now = DateTime.UtcNow;
@@ -502,6 +563,36 @@ public class ScheduledTaskTests
             Assert.Single(result.RecentRuns); // run from timer still present
             Assert.NotNull(result.LastRunAt); // LastRunAt not wiped
             Assert.Equal("timer-session", result.RecentRuns[0].SessionName);
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public void Service_UpdateTask_DoesNotOverwriteIsEnabled_FromStaleEditSnapshot()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var svc = CreateService();
+            var task = new ScheduledTask { Name = "Toggle Race", Prompt = "test", IsEnabled = true };
+            svc.AddTask(task);
+
+            var staleClone = svc.GetTask(task.Id)!; // edit form snapshot captured while enabled
+            svc.SetEnabled(task.Id, false);         // user toggles off from the list
+
+            staleClone.Name = "Edited Name";
+            svc.UpdateTask(staleClone);
+
+            var result = svc.GetTask(task.Id)!;
+            Assert.Equal("Edited Name", result.Name);
+            Assert.False(result.IsEnabled, "UpdateTask must preserve the latest toggle state");
         }
         finally
         {

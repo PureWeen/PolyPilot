@@ -400,9 +400,9 @@
             formDays.Add(day);
     }
 
-    private void RunNow(ScheduledTask task)
+    private async Task RunNow(ScheduledTask task)
     {
-        _ = TaskService.ExecuteTaskAsync(task, DateTime.UtcNow);
+        await TaskService.ExecuteTaskAsync(task, DateTime.UtcNow);
         tasks = TaskService.GetTasks().ToList();
     }
 

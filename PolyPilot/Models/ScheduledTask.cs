@@ -70,6 +70,11 @@ public class ScheduledTask
 
     public bool IsEnabled { get; set; } = true;
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    /// <summary>
+    /// UTC timestamp of the most recent execution attempt (successful or failed).
+    /// Daily/Weekly scheduling uses the most recent successful run from RecentRuns
+    /// so a failure does not suppress the rest of today's schedule.
+    /// </summary>
     public DateTime? LastRunAt { get; set; }
 
     /// <summary>Recent execution history (kept to last 10 runs).</summary>
@@ -124,18 +129,18 @@ public class ScheduledTask
                 var localNow = now.ToLocalTime();
                 var todaySlot = localNow.Date.AddHours(h).AddMinutes(m);
                 var todaySlotUtc = todaySlot.ToUniversalTime();
+                var lastSuccessfulLocal = GetLastSuccessfulRunAt()?.ToLocalTime();
 
-                if (LastRunAt == null)
+                if (lastSuccessfulLocal == null)
                     return todaySlotUtc; // never run — schedule for today's slot
 
                 // Compare dates in local time consistently
-                var lastRunLocal = LastRunAt.Value.ToLocalTime();
-                if (lastRunLocal.Date < localNow.Date && todaySlotUtc > now)
+                if (lastSuccessfulLocal.Value.Date < localNow.Date && todaySlotUtc > now)
                     return todaySlotUtc; // haven't run today and slot is still ahead
-                if (lastRunLocal.Date < localNow.Date && todaySlotUtc <= now)
+                if (lastSuccessfulLocal.Value.Date < localNow.Date && todaySlotUtc <= now)
                     return todaySlotUtc; // haven't run today, slot passed — fire now
 
-                // Already ran today — next day
+                // Already completed successfully today — next day
                 return todaySlot.AddDays(1).ToUniversalTime();
             }
 
@@ -144,6 +149,7 @@ public class ScheduledTask
                 if (DaysOfWeek.Count == 0) return null;
                 var (h, m) = ParseTimeOfDay();
                 var localNow = now.ToLocalTime();
+                var lastSuccessfulRunAt = GetLastSuccessfulRunAt();
                 // Look up to 8 days ahead to find the next matching day
                 for (int i = 0; i <= 7; i++)
                 {
@@ -154,15 +160,15 @@ public class ScheduledTask
                         // Today's slot time has passed. Only skip if we already ran today
                         // (mirrors Daily logic). If LastRunAt is before today, the task missed
                         // its slot today and should still be treated as due.
-                        if (LastRunAt.HasValue && LastRunAt.Value.ToLocalTime().Date >= localNow.Date)
+                        if (lastSuccessfulRunAt.HasValue && lastSuccessfulRunAt.Value.ToLocalTime().Date >= localNow.Date)
                             continue;
                         // Slot passed but not yet run today — fall through to check the day
                     }
                     var dow = (int)candidate.DayOfWeek;
                     if (DaysOfWeek.Contains(dow))
                     {
-                        // Ensure we haven't already run at this slot
-                        if (LastRunAt != null && LastRunAt.Value >= candidateUtc) continue;
+                        // Ensure we haven't already completed successfully at this slot.
+                        if (lastSuccessfulRunAt != null && lastSuccessfulRunAt.Value >= candidateUtc) continue;
                         return candidateUtc;
                     }
                 }
@@ -192,6 +198,18 @@ public class ScheduledTask
         if (RecentRuns.Count > 10)
             RecentRuns.RemoveRange(0, RecentRuns.Count - 10);
         LastRunAt = run.StartedAt;
+    }
+
+    private DateTime? GetLastSuccessfulRunAt()
+    {
+        for (int i = RecentRuns.Count - 1; i >= 0; i--)
+        {
+            if (RecentRuns[i].Success)
+                return RecentRuns[i].StartedAt;
+        }
+
+        // Backward compatibility for older persisted tasks that predate RecentRuns history.
+        return RecentRuns.Count == 0 ? LastRunAt : null;
     }
 
     /// <summary>

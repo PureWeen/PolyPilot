@@ -17,12 +17,16 @@ public class ScheduledTaskService : IDisposable
     internal static void SetTasksFilePathForTesting(string path) => _tasksFilePath = path;
 
     private readonly CopilotService _copilotService;
+    private readonly SynchronizationContext? _uiContext;
     private readonly List<ScheduledTask> _tasks = new();
     private readonly object _lock = new();
+    private readonly object _saveLock = new();
     private readonly HashSet<string> _inFlight = new(); // Per-task in-flight guard
     private Timer? _evaluationTimer;
     private int _evaluating; // Guard against overlapping evaluations
     private bool _disposed;
+    private long _saveVersion;
+    private long _lastSavedVersion;
 
     /// <summary>Raised when any task list or state change occurs (for UI refresh).</summary>
     public event Action? OnTasksChanged;
@@ -33,6 +37,7 @@ public class ScheduledTaskService : IDisposable
     public ScheduledTaskService(CopilotService copilotService)
     {
         _copilotService = copilotService;
+        _uiContext = SynchronizationContext.Current;
         LoadTasks();
         Start(); // Auto-start the evaluation timer
     }
@@ -40,20 +45,26 @@ public class ScheduledTaskService : IDisposable
     /// <summary>Start the background evaluation timer.</summary>
     public void Start()
     {
-        if (_disposed) return;
-        _evaluationTimer?.Dispose();
-        _evaluationTimer = new Timer(
-            _ => _ = EvaluateTasksAsync(),
-            null,
-            TimeSpan.FromSeconds(EvaluationIntervalSeconds),
-            TimeSpan.FromSeconds(EvaluationIntervalSeconds));
+        lock (_lock)
+        {
+            if (_disposed) return;
+            _evaluationTimer?.Dispose();
+            _evaluationTimer = new Timer(
+                _ => _ = EvaluateTasksAsync(),
+                null,
+                TimeSpan.FromSeconds(EvaluationIntervalSeconds),
+                TimeSpan.FromSeconds(EvaluationIntervalSeconds));
+        }
     }
 
     /// <summary>Stop the background evaluation timer.</summary>
     public void Stop()
     {
-        _evaluationTimer?.Dispose();
-        _evaluationTimer = null;
+        lock (_lock)
+        {
+            _evaluationTimer?.Dispose();
+            _evaluationTimer = null;
+        }
     }
 
     // ── CRUD ──────────────────────────────────────────────────────────
@@ -70,7 +81,11 @@ public class ScheduledTaskService : IDisposable
 
     public void AddTask(ScheduledTask task)
     {
-        lock (_lock) _tasks.Add(task);
+        lock (_lock)
+        {
+            _tasks.Add(task);
+            _saveVersion++;
+        }
         SaveTasks();
         OnTasksChanged?.Invoke();
     }
@@ -96,7 +111,9 @@ public class ScheduledTaskService : IDisposable
                 canonical.TimeOfDay = updated.TimeOfDay;
                 canonical.DaysOfWeek = updated.DaysOfWeek.ToList();
                 canonical.CronExpression = updated.CronExpression;
-                canonical.IsEnabled = updated.IsEnabled;
+                // IsEnabled is toggled separately via SetEnabled(). Do not overwrite it
+                // from a potentially stale edit-form snapshot.
+                _saveVersion++;
             }
         }
         SaveTasks();
@@ -106,7 +123,12 @@ public class ScheduledTaskService : IDisposable
     public bool DeleteTask(string id)
     {
         bool removed;
-        lock (_lock) removed = _tasks.RemoveAll(t => t.Id == id) > 0;
+        lock (_lock)
+        {
+            removed = _tasks.RemoveAll(t => t.Id == id) > 0;
+            if (removed)
+                _saveVersion++;
+        }
         if (removed)
         {
             SaveTasks();
@@ -122,7 +144,11 @@ public class ScheduledTaskService : IDisposable
         {
             var task = _tasks.FirstOrDefault(t => t.Id == id);
             found = task != null;
-            if (found) task!.IsEnabled = enabled;
+            if (found)
+            {
+                task!.IsEnabled = enabled;
+                _saveVersion++;
+            }
         }
         if (found)
         {
@@ -244,7 +270,8 @@ public class ScheduledTaskService : IDisposable
                     sessionName = $"⏰ {snapshot.Name} ({timestamp})";
                     try
                     {
-                        await _copilotService.CreateSessionAsync(sessionName, snapshot.Model, snapshot.WorkingDirectory);
+                        await RunOnUiThreadAsync(() =>
+                            _copilotService.CreateSessionAsync(sessionName, snapshot.Model, snapshot.WorkingDirectory));
                     }
                     catch (Exception ex)
                     {
@@ -256,7 +283,8 @@ public class ScheduledTaskService : IDisposable
                 }
 
                 run.SessionName = sessionName;
-                await _copilotService.SendPromptAsync(sessionName, snapshot.Prompt);
+                await RunOnUiThreadAsync(() =>
+                    _copilotService.SendPromptAsync(sessionName, snapshot.Prompt));
 
                 run.CompletedAt = DateTime.UtcNow;
                 run.Success = true;
@@ -293,7 +321,11 @@ public class ScheduledTaskService : IDisposable
         lock (_lock)
         {
             var canonical = _tasks.FirstOrDefault(t => t.Id == taskId);
-            canonical?.RecordRun(run);
+            if (canonical != null)
+            {
+                canonical.RecordRun(run);
+                _saveVersion++;
+            }
         }
         SaveTasks(); // I/O outside lock
         OnTasksChanged?.Invoke();
@@ -332,24 +364,59 @@ public class ScheduledTaskService : IDisposable
     internal void SaveTasks()
     {
         List<ScheduledTask> snapshot;
+        long saveVersion;
         lock (_lock)
         {
             snapshot = _tasks.Select(t => t.Clone()).ToList();
+            saveVersion = _saveVersion;
         }
 
-        try
+        lock (_saveLock)
         {
-            var dir = Path.GetDirectoryName(TasksFilePath)!;
-            Directory.CreateDirectory(dir);
-            var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
-            var tempPath = TasksFilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
-            File.WriteAllText(tempPath, json);
-            File.Move(tempPath, TasksFilePath, overwrite: true);
+            // If a newer snapshot was already persisted while we waited, skip this stale write.
+            if (saveVersion < Interlocked.Read(ref _lastSavedVersion))
+                return;
+
+            try
+            {
+                var dir = Path.GetDirectoryName(TasksFilePath)!;
+                Directory.CreateDirectory(dir);
+                var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+                var tempPath = TasksFilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                File.WriteAllText(tempPath, json);
+                File.Move(tempPath, TasksFilePath, overwrite: true);
+                Interlocked.Exchange(ref _lastSavedVersion, saveVersion);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ScheduledTask] Failed to save tasks: {ex.Message}");
+            }
         }
-        catch (Exception ex)
+    }
+
+    // SDK-gap: SendPromptAsync/CreateSessionAsync mutate IsProcessing and companion state
+    // synchronously on the caller's thread. Scheduled task evaluation runs on a Timer
+    // ThreadPool thread, so these calls must be marshaled to the UI thread.
+    private Task RunOnUiThreadAsync(Func<Task> action)
+    {
+        if (_uiContext == null || SynchronizationContext.Current == _uiContext)
+            return action();
+
+        var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _uiContext.Post(async _ =>
         {
-            Console.WriteLine($"[ScheduledTask] Failed to save tasks: {ex.Message}");
-        }
+            try
+            {
+                await action();
+                tcs.TrySetResult(null);
+            }
+            catch (Exception ex)
+            {
+                tcs.TrySetException(ex);
+            }
+        }, null);
+
+        return tcs.Task;
     }
 
     private static string GetPolyPilotDir()
@@ -376,9 +443,12 @@ public class ScheduledTaskService : IDisposable
 
     public void Dispose()
     {
-        if (_disposed) return;
-        _disposed = true;
-        _evaluationTimer?.Dispose();
-        _evaluationTimer = null;
+        lock (_lock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+            _evaluationTimer?.Dispose();
+            _evaluationTimer = null;
+        }
     }
 }
