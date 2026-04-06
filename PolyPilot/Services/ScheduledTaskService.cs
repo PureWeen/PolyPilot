@@ -22,6 +22,7 @@ public class ScheduledTaskService : IDisposable
     private readonly object _lock = new();
     private readonly object _saveLock = new();
     private readonly HashSet<string> _inFlight = new(); // Per-task in-flight guard
+    private readonly CancellationTokenSource _disposeCts = new();
     private Timer? _evaluationTimer;
     private int _evaluating; // Guard against overlapping evaluations
     private bool _disposed;
@@ -34,11 +35,13 @@ public class ScheduledTaskService : IDisposable
     /// <summary>Interval between schedule evaluations.</summary>
     internal const int EvaluationIntervalSeconds = 30;
     private static readonly TimeSpan SessionCompletionTimeout = TimeSpan.FromMinutes(11);
+    private const string SessionClosedSummary = "[Error] session closed during execution";
 
     public ScheduledTaskService(CopilotService copilotService)
     {
         _copilotService = copilotService;
         _uiContext = SynchronizationContext.Current;
+        _copilotService.OnSessionClosed += HandleSessionClosed;
         LoadTasks();
         Start(); // Auto-start the evaluation timer
     }
@@ -158,16 +161,44 @@ public class ScheduledTaskService : IDisposable
         }
     }
 
+    private void HandleSessionClosed(string sessionName)
+    {
+        bool changed = false;
+
+        lock (_lock)
+        {
+            foreach (var task in _tasks)
+            {
+                if (task.IsEnabled &&
+                    !string.IsNullOrEmpty(task.SessionName) &&
+                    string.Equals(task.SessionName, sessionName, StringComparison.Ordinal))
+                {
+                    task.IsEnabled = false;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+                _saveVersion++;
+        }
+
+        if (changed)
+        {
+            SaveTasks();
+            OnTasksChanged?.Invoke();
+        }
+    }
+
     // ── Evaluation ───────────────────────────────────────────────────
 
     /// <summary>
-    /// Evaluate all tasks and execute any that are due.
+    /// Evaluate all tasks and dispatch any that are due.
     /// Called by the background timer every 30 seconds.
-    /// Uses an interlocked guard to prevent overlapping evaluations.
+    /// Uses an interlocked guard to prevent overlapping scans while due tasks continue running.
     /// </summary>
     internal async Task EvaluateTasksAsync()
     {
-        // Prevent overlapping evaluations if a previous run is still executing
+        // Prevent overlapping scans if a previous timer tick is still collecting/dispatching work.
         if (Interlocked.CompareExchange(ref _evaluating, 1, 0) != 0)
         {
             Console.WriteLine("[ScheduledTask] Evaluation skipped — previous cycle still running");
@@ -190,17 +221,7 @@ public class ScheduledTaskService : IDisposable
                 Console.WriteLine($"[ScheduledTask] Evaluation: {dueTaskIds.Count} task(s) due");
 
             foreach (var taskId in dueTaskIds)
-            {
-                try
-                {
-                    await ExecuteTaskAsync(taskId, now);
-                }
-                catch (Exception ex)
-                {
-                    // Isolate failures so one bad task doesn't prevent remaining tasks from running
-                    Console.WriteLine($"[ScheduledTask] Unhandled error executing task {taskId}: {ex.Message}");
-                }
-            }
+                DispatchDueTask(taskId, now);
         }
         finally
         {
@@ -266,13 +287,12 @@ public class ScheduledTaskService : IDisposable
                 }
                 else
                 {
-                    // Create a new session for this run
-                    var timestamp = utcNow.ToLocalTime().ToString("MMM dd HH:mm");
-                    sessionName = $"⏰ {snapshot.Name} ({timestamp})";
+                    // Create a new session for this run. Run-now can be triggered multiple times in
+                    // the same minute, so retry with a suffixed name if the timestamp-based default
+                    // already exists.
                     try
                     {
-                        await RunOnUiThreadAsync(() =>
-                            _copilotService.CreateSessionAsync(sessionName, snapshot.Model, snapshot.WorkingDirectory));
+                        sessionName = await CreateScheduledSessionAsync(snapshot, utcNow);
                     }
                     catch (Exception ex)
                     {
@@ -284,10 +304,10 @@ public class ScheduledTaskService : IDisposable
                 }
 
                 run.SessionName = sessionName;
-                var completionTask = WaitForSessionCompletionAsync(sessionName);
-                await RunOnUiThreadAsync(() =>
-                    _copilotService.SendPromptAsync(sessionName, snapshot.Prompt));
-                var completionSummary = await completionTask;
+                var completionSummary = await WaitForSessionCompletionAsync(
+                    sessionName,
+                    () => RunOnUiThreadAsync(() => _copilotService.SendPromptAsync(sessionName, snapshot.Prompt)),
+                    _disposeCts.Token);
 
                 run.CompletedAt = DateTime.UtcNow;
                 run.Success = IsSuccessfulCompletionSummary(completionSummary);
@@ -316,6 +336,19 @@ public class ScheduledTaskService : IDisposable
     internal Task ExecuteTaskAsync(ScheduledTask task, DateTime utcNow)
         => ExecuteTaskAsync(task.Id, utcNow);
 
+    private void DispatchDueTask(string taskId, DateTime utcNow)
+    {
+        _ = ExecuteTaskAsync(taskId, utcNow).ContinueWith(
+            t =>
+            {
+                var message = t.Exception?.GetBaseException().Message ?? "unknown error";
+                Console.WriteLine($"[ScheduledTask] Unhandled error executing task {taskId}: {message}");
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted,
+            TaskScheduler.Default);
+    }
+
     /// <summary>
     /// Records a run on the canonical task instance (looked up by ID under lock) and persists.
     /// Always operates on the internal task object so UI snapshots cannot corrupt state.
@@ -333,6 +366,45 @@ public class ScheduledTaskService : IDisposable
         }
         SaveTasks(); // I/O outside lock
         OnTasksChanged?.Invoke();
+    }
+
+    private async Task<string> CreateScheduledSessionAsync(ScheduledTask snapshot, DateTime utcNow)
+    {
+        const int maxAttempts = 10;
+        Exception? lastDuplicate = null;
+
+        for (var attempt = 0; attempt < maxAttempts; attempt++)
+        {
+            var sessionName = BuildScheduledSessionName(snapshot.Name, utcNow, attempt);
+
+            if (_copilotService.GetAllSessions().Any(s => s.Name == sessionName))
+            {
+                lastDuplicate = new InvalidOperationException($"Session '{sessionName}' already exists.");
+                continue;
+            }
+
+            try
+            {
+                await RunOnUiThreadAsync(() =>
+                    _copilotService.CreateSessionAsync(sessionName, snapshot.Model, snapshot.WorkingDirectory));
+                return sessionName;
+            }
+            catch (Exception ex) when (attempt < maxAttempts - 1 &&
+                                       ex.Message.Contains("already exists", StringComparison.OrdinalIgnoreCase))
+            {
+                lastDuplicate = ex;
+            }
+        }
+
+        throw lastDuplicate ?? new InvalidOperationException(
+            $"Unable to generate a unique session name for scheduled task '{snapshot.Name}'.");
+    }
+
+    private static string BuildScheduledSessionName(string taskName, DateTime utcNow, int attempt)
+    {
+        var timestamp = utcNow.ToLocalTime().ToString("MMM dd HH:mm");
+        var baseName = $"⏰ {taskName} ({timestamp})";
+        return attempt == 0 ? baseName : $"{baseName} #{attempt + 1}";
     }
 
     // ── Persistence ──────────────────────────────────────────────────
@@ -423,9 +495,20 @@ public class ScheduledTaskService : IDisposable
         return tcs.Task;
     }
 
-    private async Task<string> WaitForSessionCompletionAsync(string sessionName)
+    private async Task<string> WaitForSessionCompletionAsync(string sessionName, Func<Task> sendPromptAsync, CancellationToken cancellationToken)
     {
         var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var sawProcessing = false;
+        DateTime? observedIdleAt = null;
+        var initialHistoryCount = 0;
+
+        if (_copilotService.GetSession(sessionName) is { } initialSession)
+        {
+            lock (initialSession.HistoryLock)
+            {
+                initialHistoryCount = initialSession.History.Count;
+            }
+        }
 
         void Handler(string completedSessionName, string summary)
         {
@@ -433,20 +516,68 @@ public class ScheduledTaskService : IDisposable
                 tcs.TrySetResult(summary);
         }
 
+        void ClosedHandler(string closedSessionName)
+        {
+            if (string.Equals(closedSessionName, sessionName, StringComparison.Ordinal))
+                tcs.TrySetResult(SessionClosedSummary);
+        }
+
         _copilotService.OnSessionComplete += Handler;
+        _copilotService.OnSessionClosed += ClosedHandler;
         try
         {
+            var sendTask = sendPromptAsync();
+
+            // CopilotService.SendPromptAsync sets IsProcessing=true synchronously before its first
+            // await. Mark the turn as "seen processing" once dispatch begins so fast demo/local
+            // responses can't slip from false→true→false entirely between polling intervals.
+            sawProcessing = true;
+
             var deadline = DateTime.UtcNow + SessionCompletionTimeout;
             while (DateTime.UtcNow < deadline)
             {
+                cancellationToken.ThrowIfCancellationRequested();
+
+                if (sendTask.IsFaulted || sendTask.IsCanceled)
+                    await sendTask;
+
                 if (tcs.Task.IsCompleted)
+                {
+                    await sendTask;
                     return await tcs.Task;
+                }
 
                 var session = _copilotService.GetSession(sessionName);
-                if (session != null && !session.IsProcessing)
-                    return tcs.Task.IsCompleted ? await tcs.Task : string.Empty;
+                if (session != null)
+                {
+                    if (session.IsProcessing)
+                    {
+                        sawProcessing = true;
+                        observedIdleAt = null;
+                    }
+                    else if (sawProcessing)
+                    {
+                        if (HasAssistantMessageSince(session, initialHistoryCount))
+                        {
+                            await sendTask;
+                            return tcs.Task.IsCompleted ? await tcs.Task : string.Empty;
+                        }
 
-                await Task.Delay(250);
+                        observedIdleAt ??= DateTime.UtcNow;
+                        if (DateTime.UtcNow - observedIdleAt.Value >= TimeSpan.FromSeconds(1))
+                        {
+                            await sendTask;
+                            return tcs.Task.IsCompleted ? await tcs.Task : string.Empty;
+                        }
+                    }
+                }
+                else if (sawProcessing || sendTask.IsCompleted)
+                {
+                    await sendTask;
+                    return tcs.Task.IsCompleted ? await tcs.Task : SessionClosedSummary;
+                }
+
+                await Task.Delay(250, cancellationToken);
             }
 
             throw new TimeoutException($"Timed out waiting for session '{sessionName}' to complete");
@@ -454,6 +585,17 @@ public class ScheduledTaskService : IDisposable
         finally
         {
             _copilotService.OnSessionComplete -= Handler;
+            _copilotService.OnSessionClosed -= ClosedHandler;
+        }
+    }
+
+    private static bool HasAssistantMessageSince(AgentSessionInfo session, int initialHistoryCount)
+    {
+        lock (session.HistoryLock)
+        {
+            return session.History
+                .Skip(Math.Min(initialHistoryCount, session.History.Count))
+                .Any(m => string.Equals(m.Role, "assistant", StringComparison.OrdinalIgnoreCase));
         }
     }
 
@@ -500,5 +642,8 @@ public class ScheduledTaskService : IDisposable
             _evaluationTimer?.Dispose();
             _evaluationTimer = null;
         }
+        _disposeCts.Cancel();
+        _disposeCts.Dispose();
+        _copilotService.OnSessionClosed -= HandleSessionClosed;
     }
 }

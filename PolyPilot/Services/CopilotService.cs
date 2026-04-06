@@ -544,6 +544,7 @@ public partial class CopilotService : IAsyncDisposable
     public event Action<string, string>? OnContentReceived; // sessionName, content
     public event Action<string, string>? OnError; // sessionName, error
     public event Action<string, string>? OnSessionComplete; // sessionName, summary
+    public event Action<string>? OnSessionClosed; // sessionName
     public event Action<string, string>? OnActivity; // sessionName, activity description
     public event Action<string>? OnDebug; // debug messages
 
@@ -4809,6 +4810,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Blazor with "r.parentNode.removeChild" on null (render batch ordering race).
         // Instead, directly remove from Organization.Sessions so the deletion persists across restarts.
         RemoveSessionMetasWhere(m => m.SessionName == name);
+        OnSessionClosed?.Invoke(name);
         if (notifyUi)
             OnStateChanged?.Invoke();
         if (!IsRemoteMode)

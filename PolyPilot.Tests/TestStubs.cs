@@ -204,6 +204,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
 internal class StubDemoService : IDemoService
 {
     private readonly Dictionary<string, AgentSessionInfo> _sessions = new();
+    public Func<string, string, CancellationToken, Task>? BeforeCompleteAsync { get; set; }
 
     public event Action? OnStateChanged;
     public event Action<string, string>? OnContentReceived;
@@ -231,7 +232,10 @@ internal class StubDemoService : IDemoService
 
     public async Task SimulateResponseAsync(string sessionName, string prompt, SynchronizationContext? syncContext = null, CancellationToken ct = default)
     {
-        await Task.Delay(10, ct);
+        if (BeforeCompleteAsync != null)
+            await BeforeCompleteAsync(sessionName, prompt, ct);
+        else
+            await Task.Delay(10, ct);
         OnTurnStart?.Invoke(sessionName);
         OnContentReceived?.Invoke(sessionName, "Demo response");
         if (_sessions.TryGetValue(sessionName, out var info))

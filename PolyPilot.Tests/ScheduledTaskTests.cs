@@ -28,6 +28,27 @@ public class ScheduledTaskTests
         return new ScheduledTaskService(CreateCopilotService());
     }
 
+    private static DateTime GetPastLocalSlot(DateTime utcNow)
+    {
+        var localNow = utcNow.ToLocalTime();
+        var slotLocal = localNow.AddMinutes(-5);
+        return slotLocal.Date < localNow.Date ? localNow.Date : slotLocal;
+    }
+
+    private static async Task WaitUntilAsync(Func<bool> predicate, TimeSpan timeout, string failureMessage)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (predicate())
+                return;
+
+            await Task.Delay(25);
+        }
+
+        Assert.True(predicate(), failureMessage);
+    }
+
     // ── Model tests ─────────────────────────────────────────────
 
     [Fact]
@@ -258,9 +279,7 @@ public class ScheduledTaskTests
         // should return today's slot (due), not skip to next week.
         var now = DateTime.UtcNow;
         var localNow = now.ToLocalTime();
-
-        // Use a time 2 hours ago (slot has passed today)
-        var slotLocal = localNow.AddHours(-2);
+        var slotLocal = GetPastLocalSlot(now);
         var timeStr = $"{slotLocal.Hour:D2}:{slotLocal.Minute:D2}";
         var todayDow = (int)localNow.DayOfWeek;
 
@@ -287,7 +306,7 @@ public class ScheduledTaskTests
         var now = DateTime.UtcNow;
         var localNow = now.ToLocalTime();
 
-        var slotLocal = localNow.AddHours(-2);
+        var slotLocal = GetPastLocalSlot(now);
         var timeStr = $"{slotLocal.Hour:D2}:{slotLocal.Minute:D2}";
         var todayDow = (int)localNow.DayOfWeek;
 
@@ -308,8 +327,7 @@ public class ScheduledTaskTests
     {
         // Regression test: a failed run today must not suppress the rest of today's schedule.
         var now = DateTime.UtcNow;
-        var localNow = now.ToLocalTime();
-        var slotLocal = localNow.AddHours(-2);
+        var slotLocal = GetPastLocalSlot(now);
         var timeStr = $"{slotLocal.Hour:D2}:{slotLocal.Minute:D2}";
 
         var task = new ScheduledTask
@@ -339,7 +357,7 @@ public class ScheduledTaskTests
         // must not skip directly to next week.
         var now = DateTime.UtcNow;
         var localNow = now.ToLocalTime();
-        var slotLocal = localNow.AddHours(-2);
+        var slotLocal = GetPastLocalSlot(now);
         var timeStr = $"{slotLocal.Hour:D2}:{slotLocal.Minute:D2}";
         var todayDow = (int)localNow.DayOfWeek;
 
@@ -629,11 +647,286 @@ public class ScheduledTaskTests
             svc.AddTask(task);
 
             await svc.EvaluateTasksAsync();
+            await WaitUntilAsync(
+                () => svc.GetTask(task.Id)?.RecentRuns.Count == 1,
+                TimeSpan.FromSeconds(2),
+                "Due task should be dispatched and record its completion.");
 
             var updated = svc.GetTask(task.Id);
             Assert.NotNull(updated);
             Assert.Single(updated!.RecentRuns);
             Assert.True(updated.RecentRuns[0].Success);
+
+            var session = copilot.GetSession("test-session");
+            Assert.NotNull(session);
+            Assert.False(session!.IsProcessing, "ExecuteTaskAsync should not return before the target session is idle.");
+            lock (session.HistoryLock)
+            {
+                Assert.Contains(session.History, m => m.Role == "assistant");
+            }
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public async Task Service_EvaluateTasksAsync_DoesNotBlockOtherDueTasksBehindLongRun()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+        var slowGate = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _demoService.BeforeCompleteAsync = (sessionName, _, ct) =>
+            sessionName == "slow-session" ? slowGate.Task.WaitAsync(ct) : Task.Delay(10, ct);
+
+        try
+        {
+            var copilot = CreateCopilotService();
+            var svc = new ScheduledTaskService(copilot);
+            await copilot.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+            await copilot.CreateSessionAsync("slow-session");
+            await copilot.CreateSessionAsync("fast-session");
+
+            var slowTask = new ScheduledTask
+            {
+                Name = "Slow Due Task",
+                Prompt = "Wait here",
+                Schedule = ScheduleType.Interval,
+                IntervalMinutes = 1,
+                LastRunAt = DateTime.UtcNow.AddMinutes(-5),
+                SessionName = "slow-session",
+                IsEnabled = true
+            };
+            var fastTask = new ScheduledTask
+            {
+                Name = "Fast Due Task",
+                Prompt = "Respond immediately",
+                Schedule = ScheduleType.Interval,
+                IntervalMinutes = 1,
+                LastRunAt = DateTime.UtcNow.AddMinutes(-5),
+                SessionName = "fast-session",
+                IsEnabled = true
+            };
+
+            svc.AddTask(slowTask);
+            svc.AddTask(fastTask);
+
+            var evaluateTask = svc.EvaluateTasksAsync();
+            await WaitUntilAsync(
+                () => svc.GetTask(fastTask.Id)?.RecentRuns.Count == 1,
+                TimeSpan.FromSeconds(1),
+                "A long-running task should not prevent other due tasks from running.");
+
+            Assert.True(evaluateTask.IsCompleted,
+                "EvaluateTasksAsync should dispatch due tasks without waiting for the slow run to finish.");
+            Assert.Empty(svc.GetTask(slowTask.Id)!.RecentRuns);
+
+            slowGate.TrySetResult(null);
+            await WaitUntilAsync(
+                () => svc.GetTask(slowTask.Id)?.RecentRuns.Count == 1,
+                TimeSpan.FromSeconds(2),
+                "The slow task should record its run after completion is released.");
+        }
+        finally
+        {
+            slowGate.TrySetResult(null);
+            _demoService.BeforeCompleteAsync = null;
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public async Task Service_ExecuteTask_NewSession_RecordsCompletionAndGeneratedSessionName()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var copilot = CreateCopilotService();
+            var svc = new ScheduledTaskService(copilot);
+            await copilot.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+            var task = new ScheduledTask
+            {
+                Name = "New Session Run",
+                Prompt = "Hello from a freshly created scheduled session",
+                Schedule = ScheduleType.Interval,
+                IntervalMinutes = 5,
+                IsEnabled = true
+            };
+            svc.AddTask(task);
+
+            await svc.ExecuteTaskAsync(task, DateTime.UtcNow);
+
+            var updated = svc.GetTask(task.Id);
+            Assert.NotNull(updated);
+            var run = Assert.Single(updated!.RecentRuns);
+            Assert.True(run.Success);
+            Assert.NotNull(run.CompletedAt);
+            Assert.NotNull(run.SessionName);
+            Assert.StartsWith("⏰ New Session Run", run.SessionName);
+            var createdSession = Assert.Single(copilot.GetAllSessions(), s => s.Name == run.SessionName);
+            Assert.False(createdSession.IsProcessing, "Scheduled task run should wait for the generated session to finish responding.");
+            lock (createdSession.HistoryLock)
+            {
+                Assert.Contains(createdSession.History, m => m.Role == "assistant");
+            }
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public async Task Service_ExecuteTask_NewSession_ReusesTimestampButGeneratesUniqueName()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var copilot = CreateCopilotService();
+            var svc = new ScheduledTaskService(copilot);
+            await copilot.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+            var fixedNow = new DateTime(2026, 4, 6, 7, 7, 0, DateTimeKind.Utc);
+            var task = new ScheduledTask
+            {
+                Name = "Duplicate Minute Run",
+                Prompt = "Reply once",
+                Schedule = ScheduleType.Interval,
+                IntervalMinutes = 5,
+                IsEnabled = true
+            };
+            svc.AddTask(task);
+
+            await svc.ExecuteTaskAsync(task, fixedNow);
+            await svc.ExecuteTaskAsync(task, fixedNow);
+
+            var updated = svc.GetTask(task.Id);
+            Assert.NotNull(updated);
+            Assert.Equal(2, updated!.RecentRuns.Count);
+            Assert.All(updated.RecentRuns, run => Assert.True(run.Success, run.Error));
+            Assert.NotEqual(updated.RecentRuns[0].SessionName, updated.RecentRuns[1].SessionName);
+            Assert.EndsWith("#2", updated.RecentRuns[1].SessionName);
+
+            var createdSessionNames = copilot.GetAllSessions().Select(s => s.Name).ToList();
+            Assert.Contains(updated.RecentRuns[0].SessionName!, createdSessionNames);
+            Assert.Contains(updated.RecentRuns[1].SessionName!, createdSessionNames);
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public async Task Service_ExecuteTask_SessionClosedDuringRun_FailsFast()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+        var slowGate = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _demoService.BeforeCompleteAsync = (sessionName, _, ct) =>
+            sessionName == "target-session" ? slowGate.Task.WaitAsync(ct) : Task.Delay(10, ct);
+
+        try
+        {
+            var copilot = CreateCopilotService();
+            var svc = new ScheduledTaskService(copilot);
+            await copilot.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+            await copilot.CreateSessionAsync("target-session");
+
+            var task = new ScheduledTask
+            {
+                Name = "Close Mid Run",
+                Prompt = "Start and then close",
+                SessionName = "target-session",
+                Schedule = ScheduleType.Interval,
+                IntervalMinutes = 1,
+                IsEnabled = true
+            };
+            svc.AddTask(task);
+
+            var executeTask = svc.ExecuteTaskAsync(task, DateTime.UtcNow);
+            await WaitUntilAsync(
+                () =>
+                {
+                    var session = copilot.GetSession("target-session");
+                    if (session == null) return false;
+                    lock (session.HistoryLock)
+                    {
+                        return session.History.Any(m => m.Role == "user");
+                    }
+                },
+                TimeSpan.FromSeconds(1),
+                "The scheduled run should dispatch its prompt before the session is closed.");
+
+            var closed = await copilot.CloseSessionAsync("target-session");
+
+            Assert.True(closed);
+            await executeTask.WaitAsync(TimeSpan.FromSeconds(2));
+
+            var updated = svc.GetTask(task.Id);
+            Assert.NotNull(updated);
+            var run = Assert.Single(updated!.RecentRuns);
+            Assert.False(run.Success);
+            Assert.Contains("closed during execution", run.Error, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            slowGate.TrySetResult(null);
+            _demoService.BeforeCompleteAsync = null;
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public async Task Service_ExecuteTask_DailyFailure_StaysDueForRetryToday()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var copilot = CreateCopilotService();
+            var svc = new ScheduledTaskService(copilot);
+            await copilot.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+            var now = DateTime.UtcNow;
+            var slotLocal = GetPastLocalSlot(now);
+            var task = new ScheduledTask
+            {
+                Name = "Retry After Failure",
+                Prompt = "This should fail because the target session does not exist",
+                Schedule = ScheduleType.Daily,
+                TimeOfDay = $"{slotLocal.Hour:D2}:{slotLocal.Minute:D2}",
+                SessionName = "missing-session",
+                IsEnabled = true
+            };
+            svc.AddTask(task);
+
+            await svc.ExecuteTaskAsync(task, now);
+
+            var updated = svc.GetTask(task.Id);
+            Assert.NotNull(updated);
+            var run = Assert.Single(updated!.RecentRuns);
+            Assert.False(run.Success);
+            Assert.Contains("not found", run.Error);
+            Assert.True(updated.IsDue(now.AddMinutes(1)),
+                "A failed daily run should remain due so it can retry later the same day.");
         }
         finally
         {
@@ -1136,6 +1429,51 @@ public class ScheduledTaskTests
 
             // The stale clone should NOT have been updated (it's a snapshot)
             Assert.Empty(staleClone.RecentRuns);
+        }
+        finally
+        {
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public async Task CloseSessionAsync_DisablesScheduledTasksTargetingDeletedSession()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var copilot = CreateCopilotService();
+            var svc = new ScheduledTaskService(copilot);
+            await copilot.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+            await copilot.CreateSessionAsync("target-session");
+
+            var targetedTask = new ScheduledTask
+            {
+                Name = "Uses Deleted Session",
+                Prompt = "test",
+                SessionName = "target-session",
+                IsEnabled = true
+            };
+            var untargetedTask = new ScheduledTask
+            {
+                Name = "Independent Task",
+                Prompt = "test",
+                IsEnabled = true
+            };
+
+            svc.AddTask(targetedTask);
+            svc.AddTask(untargetedTask);
+
+            var closed = await copilot.CloseSessionAsync("target-session");
+
+            Assert.True(closed);
+            Assert.False(svc.GetTask(targetedTask.Id)!.IsEnabled);
+            Assert.True(svc.GetTask(untargetedTask.Id)!.IsEnabled);
+            Assert.Equal("target-session", svc.GetTask(targetedTask.Id)!.SessionName);
         }
         finally
         {
