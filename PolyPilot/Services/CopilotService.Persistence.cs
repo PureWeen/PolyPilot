@@ -560,7 +560,7 @@ public partial class CopilotService
             // Scan for orphaned workers whose results were never synthesized.
             // This catches the gap where PendingOrchestration was already cleared
             // (synthesis completed) but the app crashed before workers finished.
-            _ = ScanForOrphanedWorkersAsync();
+            _ = ScanForOrphanedWorkersAsync(cancellationToken);
 
             // Replay any bridge prompts that arrived during restore
             var bridgeServer = _serviceProvider?.GetService<WsBridgeServer>();
@@ -588,22 +588,26 @@ public partial class CopilotService
     /// is idle and unaware of their results (e.g., app crashed after PendingOrchestration
     /// was cleared but before synthesis ran).
     /// </summary>
-    internal async Task ScanForOrphanedWorkersAsync()
+    internal async Task ScanForOrphanedWorkersAsync(CancellationToken ct = default)
     {
         // Brief delay to let ResumeOrchestrationIfPendingAsync claim any pending groups first
-        await Task.Delay(3000).ConfigureAwait(false);
+        await Task.Delay(3000, ct).ConfigureAwait(false);
 
         try
         {
             var groups = SnapshotGroups();
             var metas = SnapshotSessionMetas();
 
+            // Read once — single global file, doesn't change between iterations
+            var pending = LoadPendingOrchestration();
+
             foreach (var group in groups)
             {
                 if (!group.IsMultiAgent) continue;
 
+                ct.ThrowIfCancellationRequested();
+
                 // Skip if there's still a pending orchestration for this group (being handled)
-                var pending = LoadPendingOrchestration();
                 if (pending?.GroupId == group.Id) continue;
 
                 var orchestratorMeta = metas.FirstOrDefault(
@@ -617,21 +621,32 @@ public partial class CopilotService
                     m => m.GroupId == group.Id && m.Role == MultiAgentRole.Worker).ToList();
                 if (workerMetas.Count == 0) continue;
 
+                // Snapshot orchestrator history under lock for thread safety
+                ChatMessage[] orchHistory;
+                lock (orchestratorInfo.HistoryLock)
+                    orchHistory = orchestratorInfo.History.ToArray();
+
+                var orchestratorLastMsg = orchHistory.LastOrDefault();
+
                 var orphanedWorkers = new List<string>();
                 foreach (var wm in workerMetas)
                 {
                     var workerInfo = GetSession(wm.SessionName);
                     if (workerInfo == null || workerInfo.IsProcessing) continue;
 
+                    // Snapshot worker history under lock for thread safety
+                    ChatMessage[] workerHistory;
+                    lock (workerInfo.HistoryLock)
+                        workerHistory = workerInfo.History.ToArray();
+
                     // Worker has a completed assistant response
-                    var lastAssistant = workerInfo.History
+                    var lastAssistant = workerHistory
                         .LastOrDefault(m => m.Role == "assistant"
                             && m.MessageType == ChatMessageType.Assistant
                             && !string.IsNullOrWhiteSpace(m.Content));
                     if (lastAssistant == null) continue;
 
                     // Check if orchestrator's last history entry predates the worker's response
-                    var orchestratorLastMsg = orchestratorInfo.History.LastOrDefault();
                     if (orchestratorLastMsg == null || lastAssistant.Timestamp > orchestratorLastMsg.Timestamp)
                         orphanedWorkers.Add(wm.SessionName);
                 }
@@ -648,6 +663,7 @@ public partial class CopilotService
                 }
             }
         }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             Debug($"[ORPHAN-WORKER] Scan failed: {ex.Message}");
