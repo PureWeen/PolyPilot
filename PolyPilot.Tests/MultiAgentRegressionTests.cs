@@ -1527,11 +1527,12 @@ public class MultiAgentRegressionTests
             $"SavePendingOrchestration (pos {savePos}) must appear before ExecuteWorkerAsync (pos {dispatchPos}) in non-reflect dispatch path");
 
         // Reflect path (SendViaOrchestratorReflectAsync): SavePendingOrchestration before Task.WhenAll
-        var reflectMethod = source.IndexOf("SendViaOrchestratorReflectAsync");
-        Assert.True(reflectMethod >= 0, "SendViaOrchestratorReflectAsync not found");
+        // Anchor to the method definition, not the call site, to avoid testing the wrong path.
+        var reflectMethod = source.IndexOf("private async Task SendViaOrchestratorReflectAsync");
+        Assert.True(reflectMethod >= 0, "SendViaOrchestratorReflectAsync method definition not found");
         var reflectSave = source.IndexOf("SavePendingOrchestration", reflectMethod);
-        var reflectWhenAll = source.IndexOf("Task.WhenAll(workerTasks)", reflectSave);
         Assert.True(reflectSave >= 0, "SavePendingOrchestration not found in reflect path");
+        var reflectWhenAll = source.IndexOf("Task.WhenAll(workerTasks)", reflectSave);
         Assert.True(reflectWhenAll >= 0, "Task.WhenAll(workerTasks) not found after SavePendingOrchestration in reflect path");
         Assert.True(reflectSave < reflectWhenAll,
             $"SavePendingOrchestration (pos {reflectSave}) must appear before Task.WhenAll (pos {reflectWhenAll}) in reflect dispatch path");
