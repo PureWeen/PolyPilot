@@ -1333,6 +1333,7 @@ public partial class CopilotService
         CancelTurnEndFallback(state);
         CancelToolHealthCheck(state);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+        Interlocked.Exchange(ref state.SendingFlag, 0);
         state.HasUsedToolsThisTurn = false;
         state.HasDeferredIdle = false;
         Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);

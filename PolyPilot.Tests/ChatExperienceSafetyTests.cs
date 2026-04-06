@@ -847,6 +847,22 @@ public class ChatExperienceSafetyTests
     }
 
     /// <summary>
+    /// The UI must suppress the live streaming bubble once that exact assistant text has
+    /// already been flushed into History. Otherwise IDLE-DEFER sessions render the same
+    /// answer twice until the next prompt clears the streaming cache.
+    /// </summary>
+    [Fact]
+    public void ChatMessageList_Source_SuppressesStreamingDuplicateAfterFlush()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Components", "ChatMessageList.razor"));
+
+        Assert.Contains("private bool ShouldShowStreamingContent()", source);
+        Assert.Contains("NormalizeStreamingText(lastAssistant?.Content)", source);
+        Assert.Contains("NormalizeStreamingText(StreamingContent)", source);
+    }
+
+    /// <summary>
     /// The "Session not found" reconnect path must include McpServers and SkillDirectories
     /// in the fresh session config (PR #330 regression guard).
     /// </summary>

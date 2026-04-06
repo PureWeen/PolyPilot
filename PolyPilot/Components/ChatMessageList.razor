@@ -68,7 +68,7 @@
         }
 
         @* Streaming content — show while actively processing, or while remote streaming guard is active *@
-        @if (!string.IsNullOrEmpty(StreamingContent) && (IsProcessing || IsRemoteStreaming))
+        @if (ShouldShowStreamingContent())
         {
             <div class="chat-msg assistant streaming">
                 @if (!Compact)
@@ -192,6 +192,25 @@
         var historyCallIds = Messages.ToList().Where(m => m.ToolCallId != null).Select(m => m.ToolCallId).ToHashSet();
         return ToolActivities.Where(a => !historyCallIds.Contains(a.CallId));
     }
+
+    private bool ShouldShowStreamingContent()
+    {
+        if (string.IsNullOrWhiteSpace(StreamingContent) || (!IsProcessing && !IsRemoteStreaming))
+            return false;
+
+        // TurnEnd / IDLE-DEFER can flush the current assistant text into History while the
+        // session stays "processing" for background tasks. Suppress the live bubble once the
+        // same text is already present in History to avoid showing it twice.
+        var lastAssistant = Messages.LastOrDefault(m =>
+            m.Role == "assistant" &&
+            m.MessageType != ChatMessageType.ToolCall &&
+            m.MessageType != ChatMessageType.Reasoning &&
+            m.MessageType != ChatMessageType.Image);
+
+        return !string.Equals(NormalizeStreamingText(lastAssistant?.Content), NormalizeStreamingText(StreamingContent), StringComparison.Ordinal);
+    }
+
+    private static string NormalizeStreamingText(string? text) => string.IsNullOrWhiteSpace(text) ? "" : text.Trim();
 
     private static readonly Dictionary<string, string> _imageCache = new();
     // LRU markdown cache: uses content string as key (no hash collisions), with eviction at 1000 entries
