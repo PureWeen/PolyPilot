@@ -1966,10 +1966,11 @@ public partial class CopilotService
                 // Collect results — all tasks should now be completed (force-completed or already done).
                 // Use try/catch since force-completed tasks may fault.
                 var partialResults = new List<WorkerResult>();
-                foreach (var t in workerTasks)
+                for (var i = 0; i < workerTasks.Count; i++)
                 {
-                    try { partialResults.Add(await t); }
-                    catch (Exception ex) { partialResults.Add(new WorkerResult("unknown", null, false, $"Error: {ex.Message}", TimeSpan.Zero)); }
+                    var workerName = i < assignments.Count ? assignments[i].WorkerName : "unknown";
+                    try { partialResults.Add(await workerTasks[i]); }
+                    catch (Exception ex) { partialResults.Add(new WorkerResult(workerName, null, false, $"Error: {ex.Message}", TimeSpan.Zero)); }
                 }
                 results = partialResults.ToArray();
             }
@@ -2244,6 +2245,7 @@ public partial class CopilotService
 
                 state.CurrentResponse.Clear();
                 state.FlushedResponse.Clear();
+                ClearFlushedReplayDedup(state);
                 state.PendingReasoningMessages.Clear();
                 state.Info.IsProcessing = false;
 
@@ -3912,10 +3914,11 @@ public partial class CopilotService
                     }
                 }
                 var partialResults = new List<WorkerResult>();
-                foreach (var t in workerTasks)
+                for (var i = 0; i < workerTasks.Count; i++)
                 {
-                    try { partialResults.Add(await t); }
-                    catch (Exception ex) { partialResults.Add(new WorkerResult("unknown", null, false, $"Error: {ex.Message}", TimeSpan.Zero)); }
+                    var workerName = i < assignments.Count ? assignments[i].WorkerName : "unknown";
+                    try { partialResults.Add(await workerTasks[i]); }
+                    catch (Exception ex) { partialResults.Add(new WorkerResult(workerName, null, false, $"Error: {ex.Message}", TimeSpan.Zero)); }
                 }
                 results = partialResults.ToArray();
             }

@@ -140,6 +140,15 @@ public class SessionStabilityTests
         Assert.Contains("OperationCanceledException", method);
     }
 
+    [Fact]
+    public void OrchestratorTimeout_ResultCollection_PreservesWorkerNames()
+    {
+        var source = File.ReadAllText(TestPaths.OrganizationCs);
+
+        Assert.Contains("var workerName = i < assignments.Count ? assignments[i].WorkerName : \"unknown\";", source);
+        Assert.DoesNotContain("new WorkerResult(\"unknown\", null, false", source);
+    }
+
     // ─── Mixed Worker Success/Failure Synthesis Tests ───
 
     [Fact]

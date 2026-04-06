@@ -355,6 +355,7 @@ public partial class CopilotService
                 if (toolStart.Data == null) break;
                 Interlocked.Increment(ref state.ActiveToolCallCount);
                 state.HasUsedToolsThisTurn = true; // volatile field — no explicit barrier needed
+                ClearFlushedReplayDedup(state);
                 // Record tool start time and schedule health check
                 Interlocked.Exchange(ref state.ToolStartedAtTicks, DateTime.UtcNow.Ticks);
                 ScheduleToolHealthCheck(state, sessionName);
@@ -386,6 +387,7 @@ public partial class CopilotService
                         Invoke(() =>
                         {
                             FlushCurrentResponse(state);
+                            ClearFlushedReplayDedup(state);
                             state.Info.History.Add(imgPlaceholder);
                             OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                         });
@@ -396,6 +398,7 @@ public partial class CopilotService
                         Invoke(() =>
                         {
                             FlushCurrentResponse(state);
+                            ClearFlushedReplayDedup(state);
                             state.Info.History.Add(toolMsg);
                             OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                             OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
@@ -561,6 +564,7 @@ public partial class CopilotService
                 CancelTurnEndFallback(state);
                 state.FallbackCanceledByTurnStart = true;
                 state.HasReceivedDeltasThisTurn = false;
+                ClearFlushedReplayDedup(state);
                 var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
                 if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
@@ -1215,22 +1219,23 @@ public partial class CopilotService
         }
     }
 
-    private static string? GetLastFlushedSegmentThisTurn(SessionState state)
+    private static void ClearFlushedReplayDedup(SessionState state)
     {
-        if (state.FlushedResponse.Length == 0) return null;
-
-        var flushed = state.FlushedResponse.ToString();
-        var separatorIndex = flushed.LastIndexOf("\n\n", StringComparison.Ordinal);
-        return separatorIndex >= 0 ? flushed[(separatorIndex + 2)..] : flushed;
+        state.LastFlushedResponseSegment = null;
+        state.FlushedReplayDedupArmed = false;
     }
 
     private static bool WasResponseAlreadyFlushedThisTurn(SessionState state, string text)
     {
-        if (string.IsNullOrWhiteSpace(text)) return false;
+        if (string.IsNullOrWhiteSpace(text) ||
+            state.FlushedResponse.Length == 0 ||
+            !state.FlushedReplayDedupArmed ||
+            string.IsNullOrEmpty(state.LastFlushedResponseSegment))
+        {
+            return false;
+        }
 
-        var lastSegment = GetLastFlushedSegmentThisTurn(state);
-        return !string.IsNullOrEmpty(lastSegment) &&
-               string.Equals(lastSegment, text, StringComparison.Ordinal);
+        return string.Equals(state.LastFlushedResponseSegment, text, StringComparison.Ordinal);
     }
 
     /// <summary>Flush accumulated assistant text to history without ending the turn.</summary>
@@ -1265,6 +1270,8 @@ public partial class CopilotService
         if (state.FlushedResponse.Length > 0)
             state.FlushedResponse.Append("\n\n");
         state.FlushedResponse.Append(text);
+        state.LastFlushedResponseSegment = text;
+        state.FlushedReplayDedupArmed = true;
         
         state.CurrentResponse.Clear();
         // NOTE: Do NOT reset HasReceivedDeltasThisTurn here — that flag gates whether
@@ -1286,6 +1293,7 @@ public partial class CopilotService
                 var remaining = state.CurrentResponse.ToString();
                 var fullResponse = string.IsNullOrEmpty(remaining) ? flushed : flushed + "\n\n" + remaining;
                 state.FlushedResponse.Clear();
+                ClearFlushedReplayDedup(state);
                 state.CurrentResponse.Clear();
                 state.ResponseCompletion.TrySetResult(fullResponse);
             }
@@ -1408,6 +1416,7 @@ public partial class CopilotService
         // call must see IsProcessing=false or it throws "already processing".
         state.CurrentResponse.Clear();
         state.FlushedResponse.Clear();
+        ClearFlushedReplayDedup(state);
         state.PendingReasoningMessages.Clear();
         // Accumulate API time before clearing ProcessingStartedAt
         if (state.Info.ProcessingStartedAt is { } started)

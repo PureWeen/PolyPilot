@@ -72,6 +72,14 @@ public class ChatExperienceSafetyTests
         method.Invoke(svc, new object?[] { sessionState });
     }
 
+    /// <summary>Invokes the private ClearFlushedReplayDedup helper to simulate a tool/sub-turn boundary.</summary>
+    private static void InvokeClearFlushedReplayDedup(object sessionState)
+    {
+        var method = typeof(CopilotService).GetMethod("ClearFlushedReplayDedup",
+            BindingFlags.NonPublic | BindingFlags.Static)!;
+        method.Invoke(null, new[] { sessionState });
+    }
+
     /// <summary>Gets a field from SessionState by name.</summary>
     private static T GetField<T>(object state, string fieldName)
     {
@@ -402,8 +410,8 @@ public class ChatExperienceSafetyTests
         session.IsProcessing = true;
         SetField(state, "SendingFlag", 1);
 
-        GetFlushedResponse(state).Append("Already flushed content");
-        session.History.Add(ChatMessage.AssistantMessage("Already flushed content"));
+        GetCurrentResponse(state).Append("Already flushed content");
+        InvokeFlushCurrentResponse(svc, state);
         var historyBefore = session.History.Count;
 
         GetCurrentResponse(state).Append("Already flushed content");
@@ -416,6 +424,38 @@ public class ChatExperienceSafetyTests
         Assert.Equal(historyBefore, session.History.Count);
         Assert.True(tcs.Task.IsCompleted);
         Assert.Equal("Already flushed content", tcs.Task.Result);
+    }
+
+    /// <summary>
+    /// Same-turn replay dedup must still work for ordinary multi-paragraph/model-formatted
+    /// responses that contain "\n\n" inside the content body.
+    /// </summary>
+    [Fact]
+    public async Task CompleteResponse_SameTurnReplay_MultiParagraphContent_DoesNotDuplicate()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("same-turn-replay-multipara");
+
+        var state = GetSessionState(svc, "same-turn-replay-multipara");
+        session.IsProcessing = true;
+        SetField(state, "SendingFlag", 1);
+
+        const string content = "First paragraph.\n\n```csharp\nConsole.WriteLine(\"hi\");\n```\n\nFinal paragraph.";
+        GetCurrentResponse(state).Append(content);
+        InvokeFlushCurrentResponse(svc, state);
+        var historyBefore = session.History.Count;
+
+        GetCurrentResponse(state).Append(content);
+
+        var tcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        SetResponseCompletion(state, tcs);
+
+        InvokeCompleteResponse(svc, state, null);
+
+        Assert.Equal(historyBefore, session.History.Count);
+        Assert.True(tcs.Task.IsCompleted);
+        Assert.Equal(content, tcs.Task.Result);
     }
 
     /// <summary>
@@ -788,8 +828,8 @@ public class ChatExperienceSafetyTests
         var state = GetSessionState(svc, "dedup-test");
 
         // Simulate the current turn already flushing this exact segment once.
-        GetFlushedResponse(state).Append("Already flushed content");
-        session.History.Add(ChatMessage.AssistantMessage("Already flushed content"));
+        GetCurrentResponse(state).Append("Already flushed content");
+        InvokeFlushCurrentResponse(svc, state);
         var historyCountAfterFirst = session.History.Count;
 
         // Simulate the same content appearing in CurrentResponse again (SDK replay)
@@ -799,6 +839,31 @@ public class ChatExperienceSafetyTests
         InvokeFlushCurrentResponse(svc, state);
 
         // Assert: no duplicate added
+        Assert.Equal(historyCountAfterFirst, session.History.Count);
+    }
+
+    /// <summary>
+    /// Same-turn flush dedup must treat embedded paragraph breaks as normal content, not as
+    /// separators between separately flushed segments.
+    /// </summary>
+    [Fact]
+    public async Task FlushCurrentResponse_DedupGuard_MultiParagraphContent_SkipsDuplicate()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("dedup-multipara-test");
+
+        var state = GetSessionState(svc, "dedup-multipara-test");
+
+        const string content = "Overview:\n\n- first item\n- second item\n\nDone.";
+        GetCurrentResponse(state).Append(content);
+        InvokeFlushCurrentResponse(svc, state);
+        var historyCountAfterFirst = session.History.Count;
+
+        GetCurrentResponse(state).Append(content);
+
+        InvokeFlushCurrentResponse(svc, state);
+
         Assert.Equal(historyCountAfterFirst, session.History.Count);
     }
 
@@ -821,6 +886,33 @@ public class ChatExperienceSafetyTests
         InvokeFlushCurrentResponse(svc, state);
 
         Assert.Equal(historyBefore + 1, session.History.Count);
+        Assert.Equal("Done.", session.History.Last().Content);
+    }
+
+    /// <summary>
+    /// A later same-turn sub-turn may legitimately produce the same short text again after a
+    /// tool/sub-turn boundary. That follow-up response must not be mistaken for an SDK replay.
+    /// </summary>
+    [Fact]
+    public async Task FlushCurrentResponse_IdenticalSameTurnAfterBoundary_IsStillPersisted()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("same-turn-after-boundary");
+
+        var state = GetSessionState(svc, "same-turn-after-boundary");
+
+        GetCurrentResponse(state).Append("Done.");
+        InvokeFlushCurrentResponse(svc, state);
+        var historyAfterFirst = session.History.Count;
+
+        // Simulate a tool/sub-turn boundary before the assistant emits the same text again.
+        InvokeClearFlushedReplayDedup(state);
+
+        GetCurrentResponse(state).Append("Done.");
+        InvokeFlushCurrentResponse(svc, state);
+
+        Assert.Equal(historyAfterFirst + 1, session.History.Count);
         Assert.Equal("Done.", session.History.Last().Content);
     }
 

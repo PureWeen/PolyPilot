@@ -568,6 +568,13 @@ public partial class CopilotService : IAsyncDisposable
         /// CompleteResponse combines this with CurrentResponse for the TCS result so
         /// orchestrator dispatch gets the full response text.</summary>
         public StringBuilder FlushedResponse { get; } = new();
+        /// <summary>The last response segment flushed during the current turn. Used only
+        /// for immediate same-subturn replay suppression when the SDK replays events.</summary>
+        public string? LastFlushedResponseSegment { get; set; }
+        /// <summary>True only until a new tool/sub-turn boundary is observed. This keeps
+        /// replay dedup scoped to the just-flushed segment instead of suppressing later
+        /// identical content from a legitimate follow-up sub-turn.</summary>
+        public bool FlushedReplayDedupArmed { get; set; }
         public bool HasReceivedDeltasThisTurn { get; set; }
         public bool HasReceivedEventsSinceResume;
         public string? LastMessageId { get; set; }
