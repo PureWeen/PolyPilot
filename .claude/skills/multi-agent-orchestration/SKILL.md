@@ -57,10 +57,13 @@ GetClientForGroup(groupId)
 **Thread safety**: Uses `SnapshotGroups()` (not live `Organization.Groups` list) because the
 method may be called from an await continuation on a background thread.
 
-**Callers** (all session creation/resume paths):
+**Callers** (primary session creation/resume paths):
 - `Organization.cs` → worker fresh session revival (dead event stream recovery)
 - `Persistence.cs` → session creation and resume during restore
 - `CopilotService.cs` → main session creation and resume paths
+
+Note: Codespace health-check resumes (`ResumeCodespaceSessionsAsync`) and permission-recovery
+resumes (`TryRecoverPermissionAsync`) use their client references directly, bypassing this method.
 
 **Fail-fast design**: If a codespace group is expected but not connected, throws immediately
 with a diagnostic message rather than silently falling back to the local client.
@@ -197,8 +200,8 @@ Worker result collection filters messages with `m.Timestamp >= dispatchTime` to 
 stale responses from previous dispatches. **Local time (`DateTime.Now`) is used throughout**, not UTC:
 
 - `dispatchTime = DateTime.Now` — set before sending prompts to workers
-- `ChatMessage.Timestamp` defaults to `DateTime.Now` in `LoadHistoryFromDiskAsync` (falls back
-  to parsed event timestamp if available)
+- `ChatMessage.Timestamp` uses the parsed event timestamp if present in `LoadHistoryFromDiskAsync`,
+  falling back to `DateTime.Now` when the event has no `timestamp` field
 - `PendingOrchestration.StartedAt` is persisted in UTC, but **converted to local time** on resume:
   ```csharp
   var dispatchTimeLocal = pending.StartedAt.Kind == DateTimeKind.Utc
