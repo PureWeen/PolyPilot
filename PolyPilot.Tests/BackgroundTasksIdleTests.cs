@@ -287,6 +287,38 @@ public class BackgroundTasksIdleTests
         Assert.Equal(now, field);
     }
 
+    [Fact]
+    public void SessionIdle_StalePayload_NotDeferredWhenBgTasksAlreadyConfirmedEmpty()
+    {
+        // Regression: session.idle arrives with shells=2 but backgroundTasksChanged already
+        // confirmed shells=0 (race — CLI snapshotted before completions landed). PolyPilot
+        // must NOT defer in this case. The fix captures pre-idle fingerprint/ticks; if they
+        // were null/0, the payload is stale.
+        //
+        // Verified by checking that SessionIdleEvent handler reads preIdleFingerprint and
+        // preIdleTicks BEFORE calling RefreshDeferredBackgroundTaskTracking, and only defers
+        // when !idlePayloadIsStale.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(),
+            "PolyPilot", "Services", "CopilotService.Events.cs"));
+
+        var idleHandlerStart = source.IndexOf("case SessionIdleEvent idle:");
+        Assert.True(idleHandlerStart >= 0, "SessionIdleEvent handler not found");
+        var idleHandlerEnd = source.IndexOf("case SessionBackgroundTasks", idleHandlerStart + 1);
+        if (idleHandlerEnd < 0) idleHandlerEnd = source.Length;
+        var handler = source.Substring(idleHandlerStart, idleHandlerEnd - idleHandlerStart);
+
+        // The handler must capture state before RefreshDeferredBackgroundTaskTracking
+        Assert.Contains("preIdleFingerprint", handler);
+        Assert.Contains("preIdleTicks", handler);
+        // Staleness detection guard must reference both captured values and the new snapshot
+        Assert.Contains("idlePayloadIsStale", handler);
+        Assert.Contains("preIdleFingerprint == null", handler);
+        Assert.Contains("preIdleTicks == 0", handler);
+        Assert.Contains("tracking.Snapshot.HasAny", handler);
+        // hasActiveTasks must be guarded by !idlePayloadIsStale
+        Assert.Contains("!idlePayloadIsStale", handler);
+    }
+
     private static string GetRepoRoot()
     {
         var dir = AppContext.BaseDirectory;

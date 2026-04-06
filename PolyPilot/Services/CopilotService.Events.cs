@@ -851,9 +851,26 @@ public partial class CopilotService
                 // KEY FIX: age background tasks by stable fingerprint (agent/shell IDs), not just
                 // by "current turn." Without this, the same orphaned shell IDs get their timer
                 // reset on every new prompt and sessions like PROMPT can appear busy forever.
+
+                // Capture PolyPilot's own background-task state BEFORE the idle payload can
+                // overwrite it. If backgroundTasksChanged already confirmed shells=0
+                // (fingerprint=null, ticks=0) but the session.idle payload still reports
+                // shells>0, the payload is stale: shell completions arrived and were processed
+                // before this idle event, but the CLI snapshotted its state slightly earlier
+                // (race). PolyPilot's own tracking is the ground truth — don't defer.
+                var preIdleFingerprint = state.DeferredBackgroundTaskFingerprint;
+                var preIdleTicks = Interlocked.Read(ref state.DeferredBackgroundTasksFirstSeenAtTicks);
+
                 var tracking = RefreshDeferredBackgroundTaskTracking(state, idle.Data?.BackgroundTasks);
                 var deferTicks = tracking.FirstSeenTicks;
-                var hasActiveTasks = HasActiveBackgroundTasks(idle, deferTicks);
+
+                bool idlePayloadIsStale = preIdleFingerprint == null && preIdleTicks == 0 && tracking.Snapshot.HasAny;
+                if (idlePayloadIsStale)
+                    Debug($"[IDLE-DIAG-STALE] '{sessionName}' session.idle backgroundTasks " +
+                          $"({tracking.Snapshot.AgentCount} agents, {tracking.Snapshot.ShellCount} shells) are stale — " +
+                          $"backgroundTasksChanged already confirmed empty, completing normally");
+
+                var hasActiveTasks = !idlePayloadIsStale && HasActiveBackgroundTasks(idle, deferTicks);
 
                 // Log zombie expiry here where Debug() is available (HasActiveBackgroundTasks is static)
                 var zombieAgentCount = tracking.Snapshot.AgentCount;
