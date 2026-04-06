@@ -120,16 +120,17 @@ file with `FileShare.ReadWrite` to allow concurrent reads while the server is st
 
 | Caller | Trigger | Context |
 |--------|---------|---------|
-| `ExecuteWorkerAsync` (~line 2456) | Worker response is empty after TCS completes | Normal dispatch — 3rd fallback after in-memory History and last-assistant scan |
-| Synthesis fallback (~line 2752) | In-memory History has less content than disk | Result collection before orchestrator synthesis |
-| Resume fallback (~line 3049) | App restarted while workers were processing | `ResumeOrchestrationIfPendingAsync` collecting worker results |
+| `ExecuteWorkerAsync` (~line 2466) | Worker response is empty after TCS completes | Normal dispatch — 3rd fallback after in-memory History and last-assistant scan |
+| `RecoverFromPrematureIdleIfNeededAsync` (~line 2762) | bestResponse no better than initial after re-arm wait | Dispatch-phase premature idle recovery (SDK bug #299) |
+| Resume fallback (~line 3059) | App restarted while workers were processing | `ResumeOrchestrationIfPendingAsync` collecting worker results |
 
 **Timestamp filtering**: All three sites filter messages with `m.Timestamp >= dispatchTime` to
 avoid picking up stale messages from previous dispatches. See the multi-agent-orchestration skill
 for the local-time timestamp convention.
 
-**Also called by**: `LoadBestHistoryAsync` (`Utilities.cs:795`) — a wrapper that compares
-events.jsonl history with ChatDatabase history and returns whichever is more complete.
+**Also called by**: `LoadBestHistoryAsync` (`Utilities.cs:793`) — a wrapper that compares
+events.jsonl history with ChatDatabase history, returning whichever has the most recent user
+message (with a 5-second staleness threshold), defaulting to events.jsonl.
 
 ## 18 Invariants
 
