@@ -375,6 +375,8 @@
             var el = document.getElementById(elementId);
             if (el) {
                 el.value = '';
+                if (window.__liveDrafts) delete window.__liveDrafts[elementId];
+                el.__lastRestoredDraft = '';
                 el.style.height = 'auto';
                 // Remove slash command ghost overlay
                 var ghost = document.getElementById(elementId + '--slash-ghost');
@@ -761,9 +763,29 @@
             // Single rAF follow-up is sufficient — content is rendered synchronously by Blazor
             requestAnimationFrame(doScroll);
             var drafts = JSON.parse(draftsJson || '{}');
+            if (window.__liveDrafts) {
+                for (var liveId in window.__liveDrafts) {
+                    if (Object.prototype.hasOwnProperty.call(window.__liveDrafts, liveId)) {
+                        drafts[liveId] = window.__liveDrafts[liveId];
+                    }
+                }
+            }
             for (var id in drafts) {
                 var el = document.getElementById(id);
-                if (el) el.value = drafts[id];
+                if (!el) continue;
+                var desired = drafts[id] || '';
+                var current = (typeof el.value === 'string') ? el.value : '';
+                var lastRestored = (typeof el.__lastRestoredDraft === 'string') ? el.__lastRestoredDraft : '';
+                var hasDivergedUserText = current.length > 0 && current !== desired && current !== lastRestored;
+                if (hasDivergedUserText) continue;
+                if (current !== desired) {
+                    el.value = desired;
+                    if (el.tagName === 'TEXTAREA' && el.closest('.input-row')) {
+                        el.style.height = 'auto';
+                        el.style.height = Math.min(el.scrollHeight, 150) + 'px';
+                    }
+                }
+                el.__lastRestoredDraft = desired;
             }
             if (focusId) {
                 var fel = document.getElementById(focusId);

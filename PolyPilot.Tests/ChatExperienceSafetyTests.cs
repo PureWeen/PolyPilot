@@ -863,6 +863,25 @@ public class ChatExperienceSafetyTests
     }
 
     /// <summary>
+    /// Draft restore must not clobber newer user typing with a stale cached draft during
+    /// normal render cycles. The browser keeps a live draft map and restore logic skips
+    /// overwriting text that diverged from the last restored value.
+    /// </summary>
+    [Fact]
+    public void DraftRestore_Source_PreservesLiveTyping()
+    {
+        var indexHtml = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "wwwroot", "index.html"));
+        var dashboard = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Components", "Pages", "Dashboard.razor"));
+
+        Assert.Contains("window.__liveDrafts", dashboard);
+        Assert.Contains("hasDivergedUserText", indexHtml);
+        Assert.Contains("current !== desired && current !== lastRestored", indexHtml);
+        Assert.Contains("delete window.__liveDrafts[elementId]", indexHtml);
+    }
+
+    /// <summary>
     /// The "Session not found" reconnect path must include McpServers and SkillDirectories
     /// in the fresh session config (PR #330 regression guard).
     /// </summary>

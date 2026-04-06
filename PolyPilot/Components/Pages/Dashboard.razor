@@ -1168,6 +1168,11 @@
                     // overwrite their changes with a history entry.
                     document.addEventListener('input', function(e) {
                         if (e.target.matches && e.target.matches('.card-input input, .card-input textarea, .input-row textarea')) {
+                            if (!window.__liveDrafts) window.__liveDrafts = {};
+                            if (e.target.id) {
+                                if (e.target.value) window.__liveDrafts[e.target.id] = e.target.value;
+                                else delete window.__liveDrafts[e.target.id];
+                            }
                             var card = e.target.closest('[data-session]');
                             var sn = card ? card.dataset.session : '';
                             if (sn && window.__histNavActive) window.__histNavActive[sn] = false;
