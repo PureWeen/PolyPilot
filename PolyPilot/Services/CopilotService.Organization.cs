@@ -3230,8 +3230,68 @@ public partial class CopilotService
             // response still streaming when workers complete and we try to send synthesis).
             await WaitForSessionIdleAsync(pending.OrchestratorName, ct);
 
-            await SendPromptAsync(pending.OrchestratorName, synthesisPrompt, cancellationToken: ct, originalPrompt: pending.OriginalPrompt);
-            Debug($"[DISPATCH] Resume synthesis sent to '{pending.OrchestratorName}'");
+            if (pending.IsReflect)
+            {
+                // For reflect-mode groups the orchestrator's response to the synthesis may contain
+                // new @worker blocks (it wants to keep iterating rather than emit
+                // [[GROUP_REFLECT_COMPLETE]]). If we just fire-and-forget with SendPromptAsync the
+                // @worker dispatch is silently dropped and the loop stalls indefinitely.
+                // Wait for the response and, if new assignments are found, execute one more
+                // collect+synthesize round so the loop can complete or continue naturally.
+                var availableWorkers = GetMultiAgentGroupMembers(pending.GroupId);
+                var orchestratorResponse = await SendPromptAndWaitAsync(
+                    pending.OrchestratorName, synthesisPrompt, ct, originalPrompt: pending.OriginalPrompt);
+                Debug($"[DISPATCH] Resume reflect: orchestrator response received from '{pending.OrchestratorName}'");
+
+                var resumeAssignments = ParseTaskAssignments(orchestratorResponse, availableWorkers);
+                if (resumeAssignments.Count > 0 && !ct.IsCancellationRequested)
+                {
+                    Debug($"[DISPATCH] Resume reflect: orchestrator dispatched {resumeAssignments.Count} worker(s) — executing continuation");
+                    AddOrchestratorSystemMessage(pending.OrchestratorName,
+                        $"🔄 Resume: executing {resumeAssignments.Count} worker(s) dispatched by orchestrator...");
+                    InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Dispatching, "Resume iteration"));
+
+                    var workerTasks = resumeAssignments
+                        .Select(a => ExecuteWorkerAsync(a.WorkerName, a.Task, pending.OriginalPrompt, ct))
+                        .ToList();
+
+                    var allDone = Task.WhenAll(workerTasks);
+                    var timeoutTask = Task.Delay(OrchestratorCollectionTimeout, CancellationToken.None);
+                    if (await Task.WhenAny(allDone, timeoutTask) != allDone)
+                    {
+                        Debug($"[DISPATCH] Resume reflect: collection timeout — force-completing stuck workers");
+                        foreach (var a in resumeAssignments)
+                        {
+                            if (_sessions.TryGetValue(a.WorkerName, out var ws))
+                            {
+                                if (ws.Info.IsProcessing)
+                                    await ForceCompleteProcessingAsync(a.WorkerName, ws, $"resume reflect collection timeout");
+                                else
+                                    ws.ResponseCompletion?.TrySetResult("(worker timed out)");
+                            }
+                        }
+                    }
+
+                    var resumeResults = new List<WorkerResult>();
+                    for (var i = 0; i < workerTasks.Count; i++)
+                    {
+                        var workerName = i < resumeAssignments.Count ? resumeAssignments[i].WorkerName : "unknown";
+                        try { resumeResults.Add(await workerTasks[i]); }
+                        catch (Exception ex) { resumeResults.Add(new WorkerResult(workerName, null, false, $"Error: {ex.Message}", TimeSpan.Zero)); }
+                    }
+
+                    InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Synthesizing, "Resume final"));
+                    var finalSynthesis = BuildSynthesisPrompt(pending.OriginalPrompt, resumeResults);
+                    await WaitForSessionIdleAsync(pending.OrchestratorName, ct);
+                    await SendPromptAsync(pending.OrchestratorName, finalSynthesis, cancellationToken: ct, originalPrompt: pending.OriginalPrompt);
+                    Debug($"[DISPATCH] Resume reflect: final synthesis sent to '{pending.OrchestratorName}'");
+                }
+            }
+            else
+            {
+                await SendPromptAsync(pending.OrchestratorName, synthesisPrompt, cancellationToken: ct, originalPrompt: pending.OriginalPrompt);
+                Debug($"[DISPATCH] Resume synthesis sent to '{pending.OrchestratorName}'");
+            }
         }
         catch (Exception ex)
         {

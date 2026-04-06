@@ -1582,6 +1582,34 @@ public class MultiAgentRegressionTests
     }
 
     [Fact]
+    public void MonitorAndSynthesize_ReflectResume_WaitsForOrchestratorResponse()
+    {
+        // When a reflect-mode group resumes after restart and the orchestrator responds with
+        // new @worker blocks (wants to keep iterating), MonitorAndSynthesizeAsync must wait for
+        // the response and dispatch those workers — not fire-and-forget the synthesis.
+        //
+        // Observed failure: orchestrator emitted @worker:Copilot Cli-worker-1 after resume
+        // synthesis, but SendPromptAsync (fire-and-forget) meant the response was never
+        // processed and the worker was never dispatched. Loop stalled indefinitely.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+
+        var startIdx = source.IndexOf("private async Task MonitorAndSynthesizeAsync");
+        Assert.True(startIdx >= 0, "MonitorAndSynthesizeAsync method not found in source");
+        var block = source.Substring(startIdx, Math.Min(source.Length - startIdx, 8000));
+
+        // For reflect groups: must use SendPromptAndWaitAsync (not just SendPromptAsync)
+        // to get the orchestrator's response and detect new @worker assignments.
+        Assert.Contains("pending.IsReflect", block);
+        Assert.Contains("SendPromptAndWaitAsync", block);
+        // Must parse the orchestrator's response for @worker assignments
+        Assert.Contains("ParseTaskAssignments", block);
+        // Must dispatch workers if assignments found
+        Assert.Contains("resumeAssignments.Count > 0", block);
+        // Must apply the same collection timeout as the normal reflect loop
+        Assert.Contains("OrchestratorCollectionTimeout", block);
+    }
+
+    [Fact]
     public async Task RetryOrchestration_MissingGroup_DoesNothing()
     {
         var svc = CreateService();
