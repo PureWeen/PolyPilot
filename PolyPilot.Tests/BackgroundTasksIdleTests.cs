@@ -218,4 +218,80 @@ public class BackgroundTasksIdleTests
         bool shouldRearm = !info.IsProcessing && CopilotService.HasActiveBackgroundTasks(idle) && !wasUserAborted;
         Assert.False(shouldRearm, "Should NOT re-arm when user aborted");
     }
+
+    [Fact]
+    public void ProactiveIdleDefer_SubagentDeferStartedAtTicks_StampedOnBackgroundTasksChanged()
+    {
+        // SessionBackgroundTasksChangedEvent should proactively stamp SubagentDeferStartedAtTicks
+        // so the zombie expiry timer starts as early as possible — without waiting for session.idle.
+        // See issue #518.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(),
+            "PolyPilot", "Services", "CopilotService.Events.cs"));
+
+        var handlerStart = source.IndexOf("case SessionBackgroundTasksChangedEvent:");
+        Assert.True(handlerStart >= 0, "SessionBackgroundTasksChangedEvent handler not found");
+
+        // Find the next case or closing brace to bound the handler
+        var handlerEnd = source.IndexOf("case System", handlerStart + 1);
+        if (handlerEnd < 0) handlerEnd = source.Length;
+        var handler = source.Substring(handlerStart, handlerEnd - handlerStart);
+
+        // Must stamp SubagentDeferStartedAtTicks via CompareExchange
+        Assert.Contains("SubagentDeferStartedAtTicks", handler);
+        Assert.Contains("CompareExchange", handler);
+    }
+
+    [Fact]
+    public void ProactiveIdleDefer_Handler_DoesNotSetIsProcessingFalse()
+    {
+        // The SessionBackgroundTasksChangedEvent handler must NOT set IsProcessing=false.
+        // It should only update IDLE-DEFER tracking fields. See issue #518.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(),
+            "PolyPilot", "Services", "CopilotService.Events.cs"));
+
+        var handlerStart = source.IndexOf("case SessionBackgroundTasksChangedEvent:");
+        Assert.True(handlerStart >= 0, "SessionBackgroundTasksChangedEvent handler not found");
+
+        var handlerEnd = source.IndexOf("case System", handlerStart + 1);
+        if (handlerEnd < 0) handlerEnd = source.Length;
+        var handler = source.Substring(handlerStart, handlerEnd - handlerStart);
+
+        Assert.DoesNotContain("IsProcessing = false", handler);
+        Assert.DoesNotContain("IsProcessing=false", handler);
+    }
+
+    [Fact]
+    public void ProactiveIdleDefer_CompareExchange_PreservesExistingTimestamp()
+    {
+        // CompareExchange(0 → now) should only set the timestamp if it's currently 0.
+        // If a previous IDLE-DEFER already stamped it, the proactive stamp should not overwrite.
+        long existingTicks = DateTime.UtcNow.AddMinutes(-5).Ticks;
+        long field = existingTicks;
+
+        // Simulate what the handler does: CompareExchange(ref field, newValue, 0L)
+        Interlocked.CompareExchange(ref field, DateTime.UtcNow.Ticks, 0L);
+
+        // Should NOT have changed — existing value was non-zero
+        Assert.Equal(existingTicks, field);
+    }
+
+    [Fact]
+    public void ProactiveIdleDefer_CompareExchange_SetsWhenZero()
+    {
+        // When SubagentDeferStartedAtTicks is 0 (no prior IDLE-DEFER), CompareExchange should set it.
+        long field = 0L;
+        var now = DateTime.UtcNow.Ticks;
+
+        Interlocked.CompareExchange(ref field, now, 0L);
+
+        Assert.Equal(now, field);
+    }
+
+    private static string GetRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return dir ?? throw new InvalidOperationException("Could not find repo root");
+    }
 }

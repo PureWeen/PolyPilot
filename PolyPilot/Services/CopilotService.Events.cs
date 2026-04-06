@@ -1069,7 +1069,16 @@ public partial class CopilotService
             {
                 // Real-time background task status update — fires when agents/shells start or stop.
                 // Provides proactive awareness without waiting for session.idle.
-                Debug($"[BG-TASKS] '{sessionName}' background tasks changed");
+                // Proactively stamp SubagentDeferStartedAtTicks so the zombie expiry timer
+                // starts as early as possible — don't wait for the next session.idle to learn
+                // that background tasks are active. CompareExchange(0 → now) preserves any
+                // existing timestamp from an earlier IDLE-DEFER for the same turn.
+                Interlocked.CompareExchange(
+                    ref state.SubagentDeferStartedAtTicks,
+                    DateTime.UtcNow.Ticks,
+                    0L);
+                Debug($"[BG-TASKS] '{sessionName}' background tasks changed " +
+                      $"(SubagentDeferStartedAtTicks={Interlocked.Read(ref state.SubagentDeferStartedAtTicks)})");
                 Invoke(() =>
                 {
                     state.Info.LastUpdatedAt = DateTime.Now;
