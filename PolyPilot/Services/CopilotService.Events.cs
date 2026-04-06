@@ -200,7 +200,12 @@ public partial class CopilotService
 
         if (!snapshot.HasAny)
         {
-            state.DeferredBackgroundTaskFingerprint = null;
+            // Use string.Empty (not null) to distinguish "confirmed empty by backgroundTasksChanged"
+            // from "never seen a backgroundTasksChanged event" (null = initial/reset state).
+            // This sentinel lets the stale-idle detection in SessionIdleEvent tell apart:
+            //   - null  → no backgroundTasksChanged has fired this turn → idle payload may be genuine
+            //   - ""    → backgroundTasksChanged confirmed zero tasks → idle payload is stale
+            state.DeferredBackgroundTaskFingerprint = string.Empty;
             Interlocked.Exchange(ref state.DeferredBackgroundTasksFirstSeenAtTicks, 0L);
             Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
             return (snapshot, 0L);
@@ -854,17 +859,26 @@ public partial class CopilotService
 
                 // Capture PolyPilot's own background-task state BEFORE the idle payload can
                 // overwrite it. If backgroundTasksChanged already confirmed shells=0
-                // (fingerprint=null, ticks=0) but the session.idle payload still reports
+                // (fingerprint="" sentinel, ticks=0) but the session.idle payload still reports
                 // shells>0, the payload is stale: shell completions arrived and were processed
                 // before this idle event, but the CLI snapshotted its state slightly earlier
                 // (race). PolyPilot's own tracking is the ground truth — don't defer.
+                //
+                // Sentinel values for DeferredBackgroundTaskFingerprint:
+                //   null         → no backgroundTasksChanged has fired this turn (initial/reset state)
+                //   string.Empty → backgroundTasksChanged explicitly confirmed zero tasks
+                //   non-empty    → backgroundTasksChanged reported active tasks with this fingerprint
+                //
+                // Only treat the idle as stale when fingerprint == "" (confirmed empty), NOT when
+                // fingerprint == null (never seen). The null case means tasks may genuinely be
+                // starting up and backgroundTasksChanged simply hasn't fired yet.
                 var preIdleFingerprint = state.DeferredBackgroundTaskFingerprint;
                 var preIdleTicks = Interlocked.Read(ref state.DeferredBackgroundTasksFirstSeenAtTicks);
 
                 var tracking = RefreshDeferredBackgroundTaskTracking(state, idle.Data?.BackgroundTasks);
                 var deferTicks = tracking.FirstSeenTicks;
 
-                bool idlePayloadIsStale = preIdleFingerprint == null && preIdleTicks == 0 && tracking.Snapshot.HasAny;
+                bool idlePayloadIsStale = preIdleFingerprint == string.Empty && preIdleTicks == 0 && tracking.Snapshot.HasAny;
                 if (idlePayloadIsStale)
                     Debug($"[IDLE-DIAG-STALE] '{sessionName}' session.idle backgroundTasks " +
                           $"({tracking.Snapshot.AgentCount} agents, {tracking.Snapshot.ShellCount} shells) are stale — " +
