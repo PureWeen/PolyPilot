@@ -10,13 +10,13 @@ PolyPilot's multi-agent system lets you create a **team of AI sessions** that wo
 
 | File | Purpose |
 |------|---------|
-| `PolyPilot/Services/CopilotService.Organization.cs` | Orchestration engine (dispatch, reflection loop, reconciliation, group deletion) |
-| `PolyPilot/Models/SessionOrganization.cs` | `SessionGroup`, `SessionMeta`, `MultiAgentMode`, `MultiAgentRole` |
-| `PolyPilot/Models/ReflectionCycle.cs` | Reflection state, stall detection, sentinel parsing, evaluator prompts |
-| `PolyPilot/Models/ModelCapabilities.cs` | `GroupPreset`, `UserPresets` (three-tier merge), built-in presets |
-| `PolyPilot/Models/SquadDiscovery.cs` | Squad directory parser (`.squad/` → `GroupPreset`) |
-| `PolyPilot/Models/SquadWriter.cs` | Squad directory writer (`GroupPreset` → `.squad/`) |
-| `PolyPilot/Services/CopilotService.Events.cs` | TCS completion (IsProcessing → TrySetResult ordering) |
+| `PolyPilot.Core/Services/CopilotService.Organization.cs` | Orchestration engine (dispatch, reflection loop, reconciliation, group deletion) |
+| `PolyPilot.Core/Models/SessionOrganization.cs` | `SessionGroup`, `SessionMeta`, `MultiAgentMode`, `MultiAgentRole` |
+| `PolyPilot.Core/Models/ReflectionCycle.cs` | Reflection state, stall detection, sentinel parsing, evaluator prompts |
+| `PolyPilot.Core/Models/ModelCapabilities.cs` | `GroupPreset`, `UserPresets` (three-tier merge), built-in presets |
+| `PolyPilot.Core/Models/SquadDiscovery.cs` | Squad directory parser (`.squad/` → `GroupPreset`) |
+| `PolyPilot.Core/Models/SquadWriter.cs` | Squad directory writer (`GroupPreset` → `.squad/`) |
+| `PolyPilot.Core/Services/CopilotService.Events.cs` | TCS completion (IsProcessing → TrySetResult ordering) |
 | `PolyPilot/Components/Layout/SessionSidebar.razor` | Preset picker UI (sectioned: From Repo / Built-in / My Presets) |
 | `PolyPilot.Tests/MultiAgentRegressionTests.cs` | 37 regression tests covering all known bugs |
 | `PolyPilot.Tests/SessionOrganizationTests.cs` | 15 grouping stability tests |

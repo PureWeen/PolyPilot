@@ -14,6 +14,7 @@ public static class PlatformHelper
 
     public static string PlatformName =>
         OperatingSystem.IsMacCatalyst() ? "maccatalyst" :
+        OperatingSystem.IsMacOS() ? "maccatalyst" :
         OperatingSystem.IsWindows() ? "windows" :
         OperatingSystem.IsIOS() ? "ios" :
         OperatingSystem.IsAndroid() ? "android" :

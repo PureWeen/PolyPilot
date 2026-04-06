@@ -56,15 +56,9 @@
     <PackageReference Include="Platform.Maui.Linux.Gtk4" Version="0.6.0" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4.Essentials" Version="0.6.0" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4.BlazorWebView" Version="0.6.0" />
-    <PackageReference Include="GitHub.Copilot.SDK" Version="0.2.1" />
-    <PackageReference Include="Markdig" Version="1.1.2" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView" Version="10.0.5" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
     <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.5" />
-    <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
-    <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
-    <PackageReference Include="QRCoder" Version="*" />
     <PackageReference Include="Microsoft.Maui.DevFlow.Agent.Gtk" Version="0.1.0-preview.4.26202.3" />
     <PackageReference Include="Microsoft.Maui.DevFlow.Blazor.Gtk" Version="0.1.0-preview.4.26202.3" />
   </ItemGroup>

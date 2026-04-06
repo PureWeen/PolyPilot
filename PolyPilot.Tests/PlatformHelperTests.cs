@@ -19,6 +19,32 @@ public class PlatformHelperTests
     }
 
     [Fact]
+    public void IsDesktop_And_IsMobile_AreExclusive()
+    {
+        // Desktop and mobile must never both be true at the same time
+        Assert.NotEqual(PlatformHelper.IsDesktop, PlatformHelper.IsMobile);
+    }
+
+    [Fact]
+    public void PlatformName_OnTestHost_IsKnownValue()
+    {
+        // On a desktop test host, PlatformName should be a recognized value, never "unknown"
+        var name = PlatformHelper.PlatformName;
+        Assert.Contains(name, new[] { "maccatalyst", "windows", "linux" });
+    }
+
+    [Fact]
+    public void PlatformName_NeverReturnsUnknown_OnDesktopHost()
+    {
+        // Regression guard: runtime checks must correctly identify the platform.
+        // OperatingSystem.IsIOS() returns true on Mac Catalyst, so the check order matters.
+        if (PlatformHelper.IsDesktop)
+        {
+            Assert.NotEqual("unknown", PlatformHelper.PlatformName);
+        }
+    }
+
+    [Fact]
     public void AvailableModes_OnNonDesktop_IncludesRemote()
     {
         // When IsDesktop is false (test host), Remote is always available;
