@@ -1507,6 +1507,36 @@ public class MultiAgentRegressionTests
         Assert.Contains("ClearPendingOrchestration", dispatchBlock);
     }
 
+    [Fact]
+    public void SavePendingOrchestration_MustAppearBeforeWorkerDispatch()
+    {
+        // SavePendingOrchestration must be called BEFORE ExecuteWorkerAsync / Task.WhenAll
+        // in both orchestrator paths. If the app crashes after workers are dispatched but
+        // before the save, the orchestration state is lost and ResumeOrchestrationIfPendingAsync
+        // has no record to resume from. See issue #517.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
+
+        // Non-reflect path (SendViaOrchestratorAsync): SavePendingOrchestration before ExecuteWorkerAsync
+        var phase3 = source.IndexOf("Phase 3: Dispatch tasks to workers");
+        Assert.True(phase3 >= 0, "Phase 3 marker not found");
+        var savePos = source.IndexOf("SavePendingOrchestration", phase3);
+        var dispatchPos = source.IndexOf("ExecuteWorkerAsync", phase3);
+        Assert.True(savePos >= 0, "SavePendingOrchestration not found after Phase 3");
+        Assert.True(dispatchPos >= 0, "ExecuteWorkerAsync not found after Phase 3");
+        Assert.True(savePos < dispatchPos,
+            $"SavePendingOrchestration (pos {savePos}) must appear before ExecuteWorkerAsync (pos {dispatchPos}) in non-reflect dispatch path");
+
+        // Reflect path (SendViaOrchestratorReflectAsync): SavePendingOrchestration before Task.WhenAll
+        var reflectMethod = source.IndexOf("SendViaOrchestratorReflectAsync");
+        Assert.True(reflectMethod >= 0, "SendViaOrchestratorReflectAsync not found");
+        var reflectSave = source.IndexOf("SavePendingOrchestration", reflectMethod);
+        var reflectWhenAll = source.IndexOf("Task.WhenAll(workerTasks)", reflectSave);
+        Assert.True(reflectSave >= 0, "SavePendingOrchestration not found in reflect path");
+        Assert.True(reflectWhenAll >= 0, "Task.WhenAll(workerTasks) not found after SavePendingOrchestration in reflect path");
+        Assert.True(reflectSave < reflectWhenAll,
+            $"SavePendingOrchestration (pos {reflectSave}) must appear before Task.WhenAll (pos {reflectWhenAll}) in reflect dispatch path");
+    }
+
     private static string GetRepoRoot()
     {
         var dir = AppContext.BaseDirectory;
