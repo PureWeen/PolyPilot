@@ -170,6 +170,42 @@ public class OrphanedWorkerScanTests
     }
 
     [Fact]
+    public async Task Scan_OrchestratorHasNewerSystemMessageButOlderAssistant_StillWarns()
+    {
+        var svc = CreateService();
+
+        var group = new SessionGroup { Id = "team-3b", Name = "RecoveredTeam", IsMultiAgent = true };
+        svc.Organization.Groups.Add(group);
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "orch-3b", GroupId = "team-3b", Role = MultiAgentRole.Orchestrator
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "worker-3b", GroupId = "team-3b", Role = MultiAgentRole.Worker
+        });
+
+        // The orchestrator's latest assistant content is older than the worker,
+        // but a newer system message was added during reconnect/recovery.
+        var orchInfo = AddDummySession(svc, "orch-3b");
+        orchInfo.History.Add(ChatMessage.AssistantMessage("Earlier synthesis."));
+        orchInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-15);
+        orchInfo.History.Add(ChatMessage.SystemMessage("Session recreated after reconnect."));
+        orchInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-1);
+
+        var workerInfo = AddDummySession(svc, "worker-3b");
+        workerInfo.History.Add(ChatMessage.AssistantMessage("Worker finished after the earlier synthesis."));
+        workerInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-5);
+
+        await svc.ScanForOrphanedWorkersAsync();
+
+        var warning = Assert.Single(orchInfo.History, m =>
+            m.MessageType == ChatMessageType.System &&
+            m.Content.Contains("not synthesized", StringComparison.Ordinal));
+        Assert.Contains("worker-3b", warning.Content);
+    }
+
+    [Fact]
     public async Task Scan_WorkerWithNoResponse_NoWarning()
     {
         var svc = CreateService();

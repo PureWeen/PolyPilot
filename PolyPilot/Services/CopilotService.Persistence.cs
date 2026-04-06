@@ -634,7 +634,10 @@ public partial class CopilotService
                 lock (orchestratorInfo.HistoryLock)
                     orchHistory = orchestratorInfo.History.ToArray();
 
-                var orchestratorLastMsg = orchHistory.LastOrDefault();
+                var orchestratorLastAssistant = orchHistory
+                    .LastOrDefault(m => m.Role == "assistant"
+                        && m.MessageType == ChatMessageType.Assistant
+                        && !string.IsNullOrWhiteSpace(m.Content));
 
                 var orphanedWorkers = new List<string>();
                 foreach (var wm in workerMetas)
@@ -654,8 +657,9 @@ public partial class CopilotService
                             && !string.IsNullOrWhiteSpace(m.Content));
                     if (lastAssistant == null) continue;
 
-                    // Check if orchestrator's last history entry predates the worker's response
-                    if (orchestratorLastMsg == null || lastAssistant.Timestamp > orchestratorLastMsg.Timestamp)
+                    // Compare against the orchestrator's last assistant synthesis, not any
+                    // trailing system/user message from reconnect or recovery paths.
+                    if (orchestratorLastAssistant == null || lastAssistant.Timestamp > orchestratorLastAssistant.Timestamp)
                         orphanedWorkers.Add(wm.SessionName);
                 }
 
