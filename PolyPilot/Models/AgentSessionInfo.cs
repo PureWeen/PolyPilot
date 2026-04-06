@@ -36,6 +36,13 @@ public class AgentSessionInfo
     // For resumed sessions
     public string? SessionId { get; set; }
     public bool IsResumed { get; set; }
+    /// <summary>
+    /// When this session was recreated from an older session during restore/recovery,
+    /// records the source session ID whose history was explicitly injected into this one.
+    /// Persisted to active-sessions.json so merge logic can safely suppress the obsolete
+    /// predecessor only when recovery actually happened.
+    /// </summary>
+    public string? RecoveredFromSessionId { get; set; }
     
     // Timestamp of last state change (message received, turn end, etc.)
     // Uses Interlocked ticks pattern for thread safety (updated from background SDK event threads).

@@ -128,6 +128,27 @@ public class SessionStabilityTests
         Assert.Contains("!state.Info.IsProcessing", method);
     }
 
+    [Fact]
+    public void ForceCompleteProcessing_BoundsAbortAsyncTimeout()
+    {
+        var source = File.ReadAllText(TestPaths.OrganizationCs);
+        var method = ExtractMethod(source, "Task ForceCompleteProcessingAsync");
+
+        Assert.Contains("ForceCompleteAbortTimeoutSeconds", source);
+        Assert.Contains("new CancellationTokenSource(TimeSpan.FromSeconds(ForceCompleteAbortTimeoutSeconds))", method);
+        Assert.Contains("await session.AbortAsync(abortCts.Token);", method);
+        Assert.Contains("OperationCanceledException", method);
+    }
+
+    [Fact]
+    public void OrchestratorTimeout_ResultCollection_PreservesWorkerNames()
+    {
+        var source = File.ReadAllText(TestPaths.OrganizationCs);
+
+        Assert.Contains("var workerName = i < assignments.Count ? assignments[i].WorkerName : \"unknown\";", source);
+        Assert.DoesNotContain("new WorkerResult(\"unknown\", null, false", source);
+    }
+
     // ─── Mixed Worker Success/Failure Synthesis Tests ───
 
     [Fact]

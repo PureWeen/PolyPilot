@@ -363,7 +363,9 @@ You are the Implementer. Your job is to write correct, clean, production-ready c
 - Commit your changes with descriptive messages as you complete sections.
 
 ## Step 3: Validate everything
-- Run the build and tests to verify correctness.
+- The build must pass and existing tests must not regress.
+- Write or update tests that directly exercise the new behavior — do not rely solely on pre-existing tests that may not cover what you just added.
+- If the change has observable runtime output (UI rendering, CLI output, API responses, etc.), verify that output directly — do not assume passing tests are sufficient evidence that the behavior is correct.
 - If the task involves a runnable app (MAUI, web, console, etc.), launch it and verify it works at runtime when a runtime environment is available. Building alone is NOT sufficient — many bugs (DI failures, runtime crashes, locale issues, missing UI) only surface when you actually run the app.
 - If the prompt specifies validation steps (e.g., "validate with MauiDevFlow", "verify the API works", "test in the browser"), you MUST perform those exact validation steps. Do not skip them.
 - Use any available tools and skills to validate.
@@ -397,11 +399,13 @@ You are the Challenger. Your job is to find real problems in the Implementer's w
 - This is the most important step — the Implementer may have built something that compiles but doesn't cover all requirements.
 
 ## Step 4: Runtime Validation
-- Run the build and tests yourself to verify correctness.
-- If the task involves a runnable app, launch it and verify it works at runtime when possible. Many bugs only surface when you actually run the app.
-- If the prompt specifies validation steps (e.g., "validate with MauiDevFlow"), perform those same validation steps yourself.
+- Do not approve based on trust. Run the build and tests yourself — independently, not just by reading the Implementer's report.
+- For changes with observable runtime behavior (UI rendering, CLI output, API responses), verify that behavior at runtime. Do not approve a UI feature because unit tests pass — verify it actually renders correctly.
+- If the task involves a runnable app, launch it and verify it works. Many bugs only surface at runtime.
+- If the prompt specifies validation steps (e.g., "validate with MauiDevFlow"), perform those same steps yourself.
 - Use any available tools and skills for runtime verification.
 - For every validation claim, cite the specific command you ran and its output as evidence (e.g., "ran `dotnet test` — 23 passed, 0 failed"). Do NOT claim something works without showing proof.
+- If you cannot verify something at runtime (no device, no environment), say so explicitly — do not approve blindly or omit the gap.
 
 ## Verdict
 - If EVERY checklist item is implemented, correct, and validated, say so clearly and emit [[GROUP_REFLECT_COMPLETE]].

@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Text;
 using System.Collections.Concurrent;
 using System.Text.Json;
@@ -81,6 +82,150 @@ public partial class CopilotService
         return SdkEventMatrix.TryGetValue(eventTypeName, out var classification)
             ? classification
             : EventVisibility.TimelineOnly;
+    }
+
+    internal readonly record struct BackgroundTaskSnapshot(int AgentCount, int ShellCount, string Fingerprint, bool IsKnown)
+    {
+        public bool HasAny => AgentCount > 0 || ShellCount > 0;
+    }
+
+    private static object? UnwrapBackgroundTasksPayload(object? backgroundTasksOrEventData)
+    {
+        if (backgroundTasksOrEventData == null)
+            return null;
+
+        var nested = backgroundTasksOrEventData.GetType().GetProperty("BackgroundTasks")?.GetValue(backgroundTasksOrEventData);
+        return nested ?? backgroundTasksOrEventData;
+    }
+
+    private static List<string> GetBackgroundTaskKeys(object? backgroundTasks, string collectionName, params string[] keyProperties)
+    {
+        var keys = new List<string>();
+        var items = backgroundTasks?.GetType().GetProperty(collectionName)?.GetValue(backgroundTasks) as IEnumerable;
+        if (items == null)
+            return keys;
+
+        var index = 0;
+        foreach (var item in items)
+        {
+            if (item == null)
+            {
+                index++;
+                continue;
+            }
+
+            string? key = null;
+            foreach (var propertyName in keyProperties)
+            {
+                if (item.GetType().GetProperty(propertyName)?.GetValue(item) is string value &&
+                    !string.IsNullOrWhiteSpace(value))
+                {
+                    key = value.Trim();
+                    break;
+                }
+            }
+
+            keys.Add(key ?? $"#{index}");
+            index++;
+        }
+
+        keys.Sort(StringComparer.Ordinal);
+        return keys;
+    }
+
+    internal static BackgroundTaskSnapshot GetBackgroundTaskSnapshot(object? backgroundTasksOrEventData)
+    {
+        if (backgroundTasksOrEventData == null)
+            return new BackgroundTaskSnapshot(0, 0, string.Empty, IsKnown: true);
+
+        var outerType = backgroundTasksOrEventData.GetType();
+        var backgroundTasks = UnwrapBackgroundTasksPayload(backgroundTasksOrEventData);
+        if (backgroundTasks == null)
+            return new BackgroundTaskSnapshot(0, 0, string.Empty, IsKnown: true);
+
+        var type = backgroundTasks.GetType();
+        if (type.GetProperty("Agents") == null && type.GetProperty("Shells") == null)
+        {
+            return outerType.GetProperty("BackgroundTasks") != null
+                ? new BackgroundTaskSnapshot(0, 0, string.Empty, IsKnown: true)
+                : default;
+        }
+
+        var agentKeys = GetBackgroundTaskKeys(backgroundTasks, "Agents", "AgentId", "AgentName", "AgentType", "Description");
+        var shellKeys = GetBackgroundTaskKeys(backgroundTasks, "Shells", "ShellId", "Description");
+
+        var fingerprintParts = new List<string>(agentKeys.Count + shellKeys.Count);
+        fingerprintParts.AddRange(agentKeys.Select(static key => $"agent:{key}"));
+        fingerprintParts.AddRange(shellKeys.Select(static key => $"shell:{key}"));
+
+        return new BackgroundTaskSnapshot(
+            agentKeys.Count,
+            shellKeys.Count,
+            string.Join("|", fingerprintParts),
+            IsKnown: true);
+    }
+
+    internal static long GetBackgroundTaskFirstSeenTicks(
+        object? backgroundTasksOrEventData,
+        string? previousFingerprint,
+        long previousTicks,
+        DateTime utcNow)
+    {
+        var snapshot = GetBackgroundTaskSnapshot(backgroundTasksOrEventData);
+        if (!snapshot.IsKnown)
+            return previousTicks;
+        if (!snapshot.HasAny)
+            return 0L;
+
+        return previousTicks != 0 &&
+               string.Equals(previousFingerprint, snapshot.Fingerprint, StringComparison.Ordinal)
+            ? previousTicks
+            : utcNow.Ticks;
+    }
+
+    private static (BackgroundTaskSnapshot Snapshot, long FirstSeenTicks) RefreshDeferredBackgroundTaskTracking(
+        SessionState state,
+        object? backgroundTasksOrEventData)
+    {
+        var snapshot = GetBackgroundTaskSnapshot(backgroundTasksOrEventData);
+        var previousTicks = Interlocked.Read(ref state.DeferredBackgroundTasksFirstSeenAtTicks);
+        var firstSeenTicks = GetBackgroundTaskFirstSeenTicks(
+            backgroundTasksOrEventData,
+            state.DeferredBackgroundTaskFingerprint,
+            previousTicks,
+            DateTime.UtcNow);
+
+        if (!snapshot.IsKnown)
+            return (snapshot, previousTicks);
+
+        if (!snapshot.HasAny)
+        {
+            state.DeferredBackgroundTaskFingerprint = null;
+            Interlocked.Exchange(ref state.DeferredBackgroundTasksFirstSeenAtTicks, 0L);
+            Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+            return (snapshot, 0L);
+        }
+
+        state.DeferredBackgroundTaskFingerprint = snapshot.Fingerprint;
+        Interlocked.Exchange(ref state.DeferredBackgroundTasksFirstSeenAtTicks, firstSeenTicks);
+        Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, firstSeenTicks);
+        return (snapshot, firstSeenTicks);
+    }
+
+    private void TryResolveDeferredIdleAfterBackgroundTaskChange(SessionState state, string sessionName, object? backgroundTasksOrEventData)
+    {
+        var tracking = RefreshDeferredBackgroundTaskTracking(state, backgroundTasksOrEventData);
+        if (!state.HasDeferredIdle || !state.Info.IsProcessing || !tracking.Snapshot.IsKnown || tracking.Snapshot.HasAny)
+            return;
+
+        Debug($"[IDLE-DEFER-RESOLVE] '{sessionName}' background task set is now empty — completing deferred turn");
+        InvokeOnUI(() =>
+        {
+            if (state.IsOrphaned || !state.HasDeferredIdle || !state.Info.IsProcessing)
+                return;
+
+            CompleteResponse(state);
+        });
     }
 
     private void LogUnhandledSessionEvent(string sessionName, SessionEvent evt)
@@ -355,6 +500,7 @@ public partial class CopilotService
                 if (toolStart.Data == null) break;
                 Interlocked.Increment(ref state.ActiveToolCallCount);
                 state.HasUsedToolsThisTurn = true; // volatile field — no explicit barrier needed
+                ClearFlushedReplayDedup(state);
                 // Record tool start time and schedule health check
                 Interlocked.Exchange(ref state.ToolStartedAtTicks, DateTime.UtcNow.Ticks);
                 ScheduleToolHealthCheck(state, sessionName);
@@ -386,6 +532,7 @@ public partial class CopilotService
                         Invoke(() =>
                         {
                             FlushCurrentResponse(state);
+                            ClearFlushedReplayDedup(state);
                             state.Info.History.Add(imgPlaceholder);
                             OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                         });
@@ -396,6 +543,7 @@ public partial class CopilotService
                         Invoke(() =>
                         {
                             FlushCurrentResponse(state);
+                            ClearFlushedReplayDedup(state);
                             state.Info.History.Add(toolMsg);
                             OnToolStarted?.Invoke(sessionName, startToolName, startCallId, toolInput);
                             OnActivity?.Invoke(sessionName, $"🔧 Running {startToolName}...");
@@ -561,6 +709,7 @@ public partial class CopilotService
                 CancelTurnEndFallback(state);
                 state.FallbackCanceledByTurnStart = true;
                 state.HasReceivedDeltasThisTurn = false;
+                ClearFlushedReplayDedup(state);
                 var phaseAdvancedToThinking = state.Info.ProcessingPhase < 2;
                 if (phaseAdvancedToThinking) state.Info.ProcessingPhase = 2; // Thinking
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
@@ -571,10 +720,16 @@ public partial class CopilotService
                 // via the normal CompleteResponse path on the next session.idle.
                 // WasUserAborted guard: skip re-arm if the user explicitly clicked Stop —
                 // in-flight TurnStart events from before the abort must not restart processing.
-                if (!state.Info.IsProcessing && isCurrentState && !state.IsOrphaned && !state.WasUserAborted)
+                if (ShouldRearmOnTurnStart(
+                        state.Info.IsProcessing,
+                        isCurrentState,
+                        state.IsOrphaned,
+                        state.WasUserAborted,
+                        state.AllowTurnStartRearm))
                 {
                     Debug($"[EVT-REARM] '{sessionName}' TurnStartEvent arrived after premature session.idle — re-arming IsProcessing");
                     state.PrematureIdleSignal.Set(); // Signal to ExecuteWorkerAsync that TCS result was truncated
+                    state.AllowTurnStartRearm = false; // One-shot guard for this completion cycle
                     Invoke(() =>
                     {
                         if (state.IsOrphaned) return;
@@ -586,6 +741,10 @@ public partial class CopilotService
                         OnActivity?.Invoke(sessionName, "🤔 Thinking...");
                         NotifyStateChangedCoalesced();
                     });
+                }
+                else if (!state.Info.IsProcessing && isCurrentState && !state.IsOrphaned && !state.WasUserAborted)
+                {
+                    Debug($"[EVT-REARM-SKIP] '{sessionName}' TurnStartEvent arrived after explicit completion — ignoring stale replay");
                 }
                 else
                 {
@@ -689,26 +848,21 @@ public partial class CopilotService
                     Debug($"[IDLE-DIAG] '{sessionName}' session.idle payload: backgroundTasks={{agents={agentCount}, shells={shellCount}, null={bt == null}}}");
                 }
 
-                // KEY FIX: Check if the server reports active background tasks (sub-agents, shells).
-                // session.idle with background tasks means "foreground quiesced, background still running."
-                // Do NOT treat this as terminal — flush text and wait for the real idle.
-                // Record when we first entered IDLE-DEFER for this turn (used for zombie expiry).
-                // CompareExchange(0 → now): sets only on the first IDLE-DEFER; subsequent ones
-                // for the same turn preserve the original timestamp so elapsed time is cumulative.
-                Interlocked.CompareExchange(
-                    ref state.SubagentDeferStartedAtTicks,
-                    DateTime.UtcNow.Ticks,
-                    0L);
-
-                var deferTicks = Interlocked.Read(ref state.SubagentDeferStartedAtTicks);
+                // KEY FIX: age background tasks by stable fingerprint (agent/shell IDs), not just
+                // by "current turn." Without this, the same orphaned shell IDs get their timer
+                // reset on every new prompt and sessions like PROMPT can appear busy forever.
+                var tracking = RefreshDeferredBackgroundTaskTracking(state, idle.Data?.BackgroundTasks);
+                var deferTicks = tracking.FirstSeenTicks;
                 var hasActiveTasks = HasActiveBackgroundTasks(idle, deferTicks);
 
                 // Log zombie expiry here where Debug() is available (HasActiveBackgroundTasks is static)
-                if (!hasActiveTasks && deferTicks != 0 && (idle.Data?.BackgroundTasks?.Agents?.Length ?? 0) > 0)
+                var zombieAgentCount = tracking.Snapshot.AgentCount;
+                var zombieShellCount = tracking.Snapshot.ShellCount;
+                if (!hasActiveTasks && deferTicks != 0 && (zombieAgentCount > 0 || zombieShellCount > 0))
                 {
                     var expiredMinutes = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - deferTicks).TotalMinutes;
-                    Debug($"[IDLE-DEFER-ZOMBIE] '{sessionName}' {idle.Data!.BackgroundTasks!.Agents!.Length} " +
-                          $"background agent(s) expired after {expiredMinutes:F0}min " +
+                    Debug($"[IDLE-DEFER-ZOMBIE] '{sessionName}' {zombieAgentCount} agent(s) + {zombieShellCount} shell(s) " +
+                          $"expired after {expiredMinutes:F0}min " +
                           $"(threshold={SubagentZombieTimeoutMinutes}min) — allowing session to complete");
                 }
 
@@ -908,8 +1062,7 @@ public partial class CopilotService
                 CancelToolHealthCheck(state);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
-                state.HasDeferredIdle = false;
-                Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+                ClearDeferredIdleTracking(state);
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
                 Interlocked.Exchange(ref state.EventCountThisTurn, 0);
@@ -934,6 +1087,7 @@ public partial class CopilotService
                     // call must see IsProcessing=false or it throws "already processing".
                     // (Matches CompleteResponse ordering per INV-O3)
                     state.Info.IsProcessing = false;
+                    state.AllowTurnStartRearm = false; // Errors are terminal for this turn; late TurnStart events are stale
                     state.Info.IsResumed = false;
                     state.IsReconnectedSend = false; // INV-1: clear all per-turn flags on termination
                     Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock (INV-1)
@@ -1065,20 +1219,16 @@ public partial class CopilotService
                 break;
             }
 
-            case SessionBackgroundTasksChangedEvent:
+            case SessionBackgroundTasksChangedEvent backgroundTasksChanged:
             {
                 // Real-time background task status update — fires when agents/shells start or stop.
-                // Provides proactive awareness without waiting for session.idle.
-                // Proactively stamp SubagentDeferStartedAtTicks so the zombie expiry timer
-                // starts as early as possible — don't wait for the next session.idle to learn
-                // that background tasks are active. CompareExchange(0 → now) preserves any
-                // existing timestamp from an earlier IDLE-DEFER for the same turn.
-                Interlocked.CompareExchange(
-                    ref state.SubagentDeferStartedAtTicks,
-                    DateTime.UtcNow.Ticks,
-                    0L);
+                // Provides proactive awareness without waiting for session.idle and preserves
+                // age across turns for the same shell/agent IDs so orphaned tasks still expire.
+                var bgTracking = RefreshDeferredBackgroundTaskTracking(state, backgroundTasksChanged.Data);
                 Debug($"[BG-TASKS] '{sessionName}' background tasks changed " +
-                      $"(SubagentDeferStartedAtTicks={Interlocked.Read(ref state.SubagentDeferStartedAtTicks)})");
+                      $"(agents={bgTracking.Snapshot.AgentCount}, shells={bgTracking.Snapshot.ShellCount}, " +
+                      $"SubagentDeferStartedAtTicks={Interlocked.Read(ref state.SubagentDeferStartedAtTicks)})");
+                TryResolveDeferredIdleAfterBackgroundTaskChange(state, sessionName, backgroundTasksChanged.Data);
                 Invoke(() =>
                 {
                     state.Info.LastUpdatedAt = DateTime.Now;
@@ -1212,43 +1362,82 @@ public partial class CopilotService
         }
     }
 
+    private static void ClearFlushedReplayDedup(SessionState state)
+    {
+        // Clear armed FIRST: concurrent UI-thread readers check armed before segment,
+        // so seeing armed=false short-circuits even if segment hasn't been cleared yet.
+        // Both fields are volatile — safe for cross-thread access on ARM64.
+        state.FlushedReplayDedupArmed = false;
+        state.LastFlushedResponseSegment = null;
+    }
+
+    private static bool WasResponseAlreadyFlushedThisTurn(SessionState state, string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) ||
+            state.FlushedResponse.Length == 0 ||
+            !state.FlushedReplayDedupArmed ||
+            string.IsNullOrEmpty(state.LastFlushedResponseSegment))
+        {
+            return false;
+        }
+
+        return string.Equals(state.LastFlushedResponseSegment, text, StringComparison.Ordinal);
+    }
+
+    internal static bool ShouldRearmOnTurnStart(
+        bool isProcessing,
+        bool isCurrentState,
+        bool isOrphaned,
+        bool wasUserAborted,
+        bool allowTurnStartRearm)
+    {
+        return !isProcessing
+               && isCurrentState
+               && !isOrphaned
+               && !wasUserAborted
+               && allowTurnStartRearm;
+    }
+
     /// <summary>Flush accumulated assistant text to history without ending the turn.</summary>
     private void FlushCurrentResponse(SessionState state)
     {
         var text = state.CurrentResponse.ToString();
         if (string.IsNullOrWhiteSpace(text)) return;
-        
-        // Dedup guard: if this exact text was already flushed (e.g., SDK replayed events
-        // after resume and content was re-appended to CurrentResponse), don't duplicate.
-        var lastAssistant = state.Info.History.LastOrDefault(m => 
-            m.Role == "assistant" && m.MessageType != ChatMessageType.ToolCall);
-        if (lastAssistant?.Content == text)
+
+        // Dedup only within the CURRENT turn. SDK replay after a flush can re-append the
+        // same sub-turn text to CurrentResponse, but identical replies across different
+        // turns are legitimate and must still be preserved in History.
+        if (WasResponseAlreadyFlushedThisTurn(state, text))
         {
-            Debug($"[DEDUP] FlushCurrentResponse skipped duplicate content ({text.Length} chars) for session '{state.Info.Name}'");
+            Debug($"[DEDUP] FlushCurrentResponse skipped same-turn replay ({text.Length} chars) for session '{state.Info.Name}'");
             state.CurrentResponse.Clear();
-            state.HasReceivedDeltasThisTurn = false;
             return;
         }
-        
+
         var msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
         state.Info.History.Add(msg);
         state.Info.MessageCount = state.Info.History.Count;
-        
+
         if (!string.IsNullOrEmpty(state.Info.SessionId))
             SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
-        
+
         // Track code suggestions from accumulated response segment
         _usageStats?.TrackCodeSuggestion(text);
-        
+
         // Accumulate flushed text so CompleteResponse can include it in the TCS result.
         // Without this, orchestrator dispatch gets "" because TurnEnd flush clears
         // CurrentResponse before SessionIdle fires CompleteResponse.
         if (state.FlushedResponse.Length > 0)
             state.FlushedResponse.Append("\n\n");
         state.FlushedResponse.Append(text);
+        state.LastFlushedResponseSegment = text;
+        state.FlushedReplayDedupArmed = true;
         
         state.CurrentResponse.Clear();
-        state.HasReceivedDeltasThisTurn = false;
+        // NOTE: Do NOT reset HasReceivedDeltasThisTurn here — that flag gates whether
+        // AssistantMessageEvent (full content) is accepted. Resetting it mid-turn causes
+        // the next full-message event to re-add content already flushed to History.
+        // HasReceivedDeltasThisTurn is only reset at turn boundaries (AssistantTurnStartEvent).
         
         // Early dispatch: if the orchestrator wrote @worker blocks in an intermediate sub-turn,
         // resolve the TCS now so ParseTaskAssignments can run immediately. Without this, the
@@ -1264,6 +1453,7 @@ public partial class CopilotService
                 var remaining = state.CurrentResponse.ToString();
                 var fullResponse = string.IsNullOrEmpty(remaining) ? flushed : flushed + "\n\n" + remaining;
                 state.FlushedResponse.Clear();
+                ClearFlushedReplayDedup(state);
                 state.CurrentResponse.Clear();
                 state.ResponseCompletion.TrySetResult(fullResponse);
             }
@@ -1328,9 +1518,9 @@ public partial class CopilotService
         CancelTurnEndFallback(state);
         CancelToolHealthCheck(state);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+        Interlocked.Exchange(ref state.SendingFlag, 0);
         state.HasUsedToolsThisTurn = false;
-        state.HasDeferredIdle = false;
-        Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+        ClearDeferredIdleTracking(state);
         state.IsReconnectedSend = false; // Clear reconnect flag on turn completion (defense-in-depth)
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -1339,31 +1529,43 @@ public partial class CopilotService
         Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
         state.Info.IsResumed = false; // Clear after first successful turn
         var response = state.CurrentResponse.ToString();
+        var responseAlreadyFlushedThisTurn = WasResponseAlreadyFlushedThisTurn(state, response);
         if (!string.IsNullOrWhiteSpace(response))
         {
-            var msg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
-            state.Info.History.Add(msg);
-            state.Info.MessageCount = state.Info.History.Count;
-            // If user is viewing this session, keep it read
-            if (state.Info.Name == _activeSessionName)
-                state.Info.LastReadMessageCount = state.Info.History.Count;
+            // Dedup only within the current turn. FlushCurrentResponse may have already
+            // committed this exact segment when SessionIdle replays after IDLE-DEFER, but
+            // identical assistant replies on different turns are legitimate and must persist.
+            if (!responseAlreadyFlushedThisTurn)
+            {
+                var msg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
+                state.Info.History.Add(msg);
+                state.Info.MessageCount = state.Info.History.Count;
+                // If user is viewing this session, keep it read
+                if (state.Info.Name == _activeSessionName)
+                    state.Info.LastReadMessageCount = state.Info.History.Count;
 
-            // Write-through to DB
-            if (!string.IsNullOrEmpty(state.Info.SessionId))
-                SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
-            
-            // Track code suggestions from final response segment
-            _usageStats?.TrackCodeSuggestion(response);
+                // Write-through to DB
+                if (!string.IsNullOrEmpty(state.Info.SessionId))
+                    SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, msg), "AddMessageAsync");
+
+                // Track code suggestions from final response segment
+                _usageStats?.TrackCodeSuggestion(response);
+            }
+            else
+            {
+                Debug($"[DEDUP] CompleteResponse skipped same-turn replay ({response.Length} chars) for '{state.Info.Name}'");
+            }
         }
         // Build full turn response for TCS: include text flushed mid-turn (e.g., on TurnEnd)
         // plus any remaining text in CurrentResponse. Without this, orchestrator dispatch
         // gets "" because FlushCurrentResponse on TurnEnd clears CurrentResponse before
         // SessionIdle fires CompleteResponse.
+        var responseForCompletion = responseAlreadyFlushedThisTurn ? string.Empty : response;
         var fullResponse = state.FlushedResponse.Length > 0
-            ? (string.IsNullOrEmpty(response)
+            ? (string.IsNullOrEmpty(responseForCompletion)
                 ? state.FlushedResponse.ToString()
-                : state.FlushedResponse + "\n\n" + response)
-            : response;
+                : state.FlushedResponse + "\n\n" + responseForCompletion)
+            : responseForCompletion;
         // Track one message per completed turn regardless of trailing text
         _usageStats?.TrackMessage();
         // Reset permission recovery attempts on successful turn completion
@@ -1373,6 +1575,7 @@ public partial class CopilotService
         // call must see IsProcessing=false or it throws "already processing".
         state.CurrentResponse.Clear();
         state.FlushedResponse.Clear();
+        ClearFlushedReplayDedup(state);
         state.PendingReasoningMessages.Clear();
         // Accumulate API time before clearing ProcessingStartedAt
         if (state.Info.ProcessingStartedAt is { } started)
@@ -1380,6 +1583,7 @@ public partial class CopilotService
             state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
             state.Info.PremiumRequestsUsed++;
         }
+        state.AllowTurnStartRearm = true; // session.idle/turn-end completion can be premature; allow one late TurnStart recovery
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false;
         Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
@@ -2084,8 +2288,7 @@ public partial class CopilotService
             // Full cleanup mirroring CompleteResponse — missing fields here caused stuck sessions
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
             state.HasUsedToolsThisTurn = false;
-            state.HasDeferredIdle = false;
-            Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+            ClearDeferredIdleTracking(state);
             state.FallbackCanceledByTurnStart = false;
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
@@ -2106,6 +2309,7 @@ public partial class CopilotService
             state.PendingReasoningMessages.Clear();
 
             state.Info.IsProcessing = false;
+            state.AllowTurnStartRearm = false; // Explicit tool-health recovery should stay completed
             state.Info.IsResumed = false;
             Interlocked.Exchange(ref state.SendingFlag, 0);
             state.Info.ProcessingStartedAt = null;
@@ -2230,39 +2434,45 @@ public partial class CopilotService
     /// before all background agents are treated as zombies and the session is allowed to complete.
     /// The Copilot CLI has no per-agent timeout, so a crashed or orphaned subagent blocks
     /// IDLE-DEFER indefinitely. After this threshold PolyPilot expires the stale block.
-    /// Shells are never expired — they are managed at the OS level.
     /// </summary>
     internal const int SubagentZombieTimeoutMinutes = 20;
+    /// <summary>
+    /// Shells get a longer zombie window than subagents because legitimate build/test
+    /// processes can run for much longer than the agent orchestration rounds that spawned them.
+    /// This still bounds leaked shells, but avoids truncating healthy long-running work.
+    /// </summary>
+    internal const int ShellZombieTimeoutMinutes = 60;
 
     /// <summary>
     /// Check if a SessionIdleEvent reports active background tasks (agents or shells).
     /// When background tasks are active, session.idle means "foreground quiesced, background
     /// still running" — NOT true completion.
     ///
-    /// When <paramref name="idleDeferStartedAtTicks"/> is non-zero, background agents are treated
-    /// as zombies if the session has been in IDLE-DEFER longer than
-    /// <see cref="SubagentZombieTimeoutMinutes"/>. This allows the session to complete even if
-    /// the CLI never fires SubagentCompleted for a crashed or orphaned subagent.
-    /// The caller is responsible for logging the zombie expiry via <c>Debug()</c>.
-    /// Shells are never expired — their lifecycle is managed by the OS.
+    /// When <paramref name="idleDeferStartedAtTicks"/> is non-zero, agents and shells get
+    /// separate zombie windows. Agents expire after <see cref="SubagentZombieTimeoutMinutes"/>;
+    /// shells expire after the longer <see cref="ShellZombieTimeoutMinutes"/>. This allows
+    /// the session to recover from leaked background tasks without prematurely truncating
+    /// legitimate long-running shell work.
     /// </summary>
     internal static bool HasActiveBackgroundTasks(
         SessionIdleEvent idle,
         long idleDeferStartedAtTicks = 0)
     {
-        var bt = idle.Data?.BackgroundTasks;
-        if (bt == null) return false;
+        var snapshot = GetBackgroundTaskSnapshot(idle.Data?.BackgroundTasks);
+        bool hasAgents = snapshot.AgentCount > 0;
+        bool hasShells = snapshot.ShellCount > 0;
 
-        bool hasAgents = bt.Agents is { Length: > 0 };
-
-        if (hasAgents && idleDeferStartedAtTicks != 0)
+        if ((hasAgents || hasShells) && idleDeferStartedAtTicks != 0)
         {
             var elapsed = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - idleDeferStartedAtTicks);
-            if (elapsed.TotalMinutes >= SubagentZombieTimeoutMinutes)
+            if (hasAgents && elapsed.TotalMinutes >= SubagentZombieTimeoutMinutes)
                 hasAgents = false;
+
+            if (hasShells && elapsed.TotalMinutes >= ShellZombieTimeoutMinutes)
+                hasShells = false;
         }
 
-        return hasAgents || (bt.Shells is { Length: > 0 });
+        return hasAgents || hasShells;
     }
 
     private void StartProcessingWatchdog(SessionState state, string sessionName)
@@ -2687,8 +2897,7 @@ public partial class CopilotService
                         CancelToolHealthCheck(state);
                         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                         state.HasUsedToolsThisTurn = false;
-                        state.HasDeferredIdle = false;
-                        Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+                        ClearDeferredIdleTracking(state);
                         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                         Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
                         Interlocked.Exchange(ref state.EventCountThisTurn, 0);
@@ -2704,6 +2913,7 @@ public partial class CopilotService
                         catch (Exception flushEx) { Debug($"[WATCHDOG] '{sessionName}' flush failed during kill: {flushEx.Message}"); }
                         Debug($"[WATCHDOG] '{sessionName}' IsProcessing=false — watchdog timeout after {totalProcessingSeconds:F0}s total, elapsed={elapsed:F0}s, exceededMaxTime={exceededMaxTime}");
                         state.Info.IsProcessing = false;
+                        state.AllowTurnStartRearm = false; // Watchdog timeout is an explicit forced stop
                         Interlocked.Exchange(ref state.SendingFlag, 0);
                         if (state.Info.ProcessingStartedAt is { } wdStarted)
                             state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - wdStarted).TotalSeconds;
@@ -2783,12 +2993,12 @@ public partial class CopilotService
                     catch { /* Flush failure must not prevent IsProcessing cleanup */ }
                     // INV-1: clear IsProcessing and all 9 companion fields
                     state.Info.IsProcessing = false;
+                    state.AllowTurnStartRearm = false; // Watchdog crash cleanup is terminal for this turn
                     state.Info.IsResumed = false;
                     Interlocked.Exchange(ref state.SendingFlag, 0);
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                     state.HasUsedToolsThisTurn = false;
-                    state.HasDeferredIdle = false;
-                    Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+                    ClearDeferredIdleTracking(state);
                     Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                     Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
                     Interlocked.Exchange(ref state.EventCountThisTurn, 0);
@@ -2844,8 +3054,7 @@ public partial class CopilotService
             state.Info.IsProcessing = false;
             state.Info.IsResumed = false;
             state.HasUsedToolsThisTurn = false;
-            state.HasDeferredIdle = false;
-            Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+            ClearDeferredIdleTracking(state);
             Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
             Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
@@ -2984,8 +3193,7 @@ public partial class CopilotService
                 state.Info.IsProcessing = false;
                 state.Info.IsResumed = false;
                 state.HasUsedToolsThisTurn = false;
-                state.HasDeferredIdle = false;
-                Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+                ClearDeferredIdleTracking(state);
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);

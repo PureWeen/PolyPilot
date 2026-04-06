@@ -30,6 +30,7 @@ public partial class CopilotService
                     ReasoningEffort = s.Info.ReasoningEffort,
                     WorkingDirectory = s.Info.WorkingDirectory,
                     GroupId = sessionMetas.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
+                    RecoveredFromSessionId = s.Info.RecoveredFromSessionId,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
                         : null,
@@ -77,6 +78,7 @@ public partial class CopilotService
                     WorkingDirectory = s.Info.WorkingDirectory,
                     ReasoningEffort = s.Info.ReasoningEffort,
                     GroupId = sessionMetas.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
+                    RecoveredFromSessionId = s.Info.RecoveredFromSessionId,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
                         : null,
@@ -190,6 +192,18 @@ public partial class CopilotService
             var entryToAdd = existing;
             if (activeNames.Contains(existing.DisplayName))
             {
+                // If the active session moved to a different group (e.g., scattered team
+                // reconstruction created a new multi-agent group and the session was recreated
+                // there), the persisted entry may be an obsolete predecessor. Drop it only
+                // when the replacement explicitly records that it recovered history from this
+                // exact session ID; otherwise keep a "(previous)" entry so recoverability wins.
+                var activeCounterpart = active.FirstOrDefault(a =>
+                    string.Equals(a.DisplayName, existing.DisplayName, StringComparison.OrdinalIgnoreCase));
+                if (activeCounterpart != null && CanSafelyDropSupersededGroupMoveEntry(existing, activeCounterpart))
+                {
+                    continue; // Explicitly recovered into the active group-moved replacement
+                }
+
                 entryToAdd = new ActiveSessionEntry
                 {
                     SessionId = existing.SessionId,
@@ -199,6 +213,7 @@ public partial class CopilotService
                     WorkingDirectory = existing.WorkingDirectory,
                     LastPrompt = existing.LastPrompt,
                     GroupId = existing.GroupId,
+                    RecoveredFromSessionId = existing.RecoveredFromSessionId,
                     TotalInputTokens = existing.TotalInputTokens,
                     TotalOutputTokens = existing.TotalOutputTokens,
                     ContextCurrentTokens = existing.ContextCurrentTokens,
@@ -221,6 +236,21 @@ public partial class CopilotService
         }
 
         return merged;
+    }
+
+    private static bool CanSafelyDropSupersededGroupMoveEntry(
+        ActiveSessionEntry existing,
+        ActiveSessionEntry activeCounterpart)
+    {
+        if (string.IsNullOrEmpty(existing.GroupId) ||
+            string.IsNullOrEmpty(activeCounterpart.GroupId) ||
+            string.Equals(existing.GroupId, activeCounterpart.GroupId, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return !string.IsNullOrEmpty(activeCounterpart.RecoveredFromSessionId) &&
+               string.Equals(activeCounterpart.RecoveredFromSessionId, existing.SessionId, StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -248,6 +278,7 @@ public partial class CopilotService
         // Restore real LastUpdatedAt so focus detection uses actual activity time, not restore time
         if (entry.LastUpdatedAt.HasValue)
             state.Info.LastUpdatedAt = entry.LastUpdatedAt.Value;
+        state.Info.RecoveredFromSessionId ??= entry.RecoveredFromSessionId;
 
         // Backfill from events.jsonl only when ALL tracked fields are zero (indicating "never tracked")
         if (entry.PremiumRequestsUsed == 0 && entry.TotalApiTimeSeconds == 0 && !entry.CreatedAt.HasValue)
@@ -929,6 +960,7 @@ public partial class CopilotService
                                         recreatedState.Info.History.Add(ChatMessage.SystemMessage("🔄 Session recreated — conversation history recovered from previous session."));
                                         recreatedState.Info.MessageCount = recreatedState.Info.History.Count;
                                         recreatedState.Info.LastReadMessageCount = recreatedState.Info.History.Count;
+                                        recreatedState.Info.RecoveredFromSessionId = bestSourceId;
                                     }
 
                                     // Restore usage stats (token counts, CreatedAt, etc.)

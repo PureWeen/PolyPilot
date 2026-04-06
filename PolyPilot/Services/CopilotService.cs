@@ -568,6 +568,16 @@ public partial class CopilotService : IAsyncDisposable
         /// CompleteResponse combines this with CurrentResponse for the TCS result so
         /// orchestrator dispatch gets the full response text.</summary>
         public StringBuilder FlushedResponse { get; } = new();
+        /// <summary>The last response segment flushed during the current turn. Used only
+        /// for immediate same-subturn replay suppression when the SDK replays events.
+        /// Volatile: written on SDK background thread (ClearFlushedReplayDedup at tool/turn
+        /// boundaries), read on UI thread (WasResponseAlreadyFlushedThisTurn).</summary>
+        public volatile string? LastFlushedResponseSegment;
+        /// <summary>True only until a new tool/sub-turn boundary is observed. This keeps
+        /// replay dedup scoped to the just-flushed segment instead of suppressing later
+        /// identical content from a legitimate follow-up sub-turn.
+        /// Volatile: written on SDK background thread, read on UI thread.</summary>
+        public volatile bool FlushedReplayDedupArmed;
         public bool HasReceivedDeltasThisTurn { get; set; }
         public bool HasReceivedEventsSinceResume;
         public string? LastMessageId { get; set; }
@@ -700,6 +710,26 @@ public partial class CopilotService : IAsyncDisposable
         /// Cleared by SendPromptAsync at the start of each new turn.</summary>
         public volatile bool WasUserAborted;
         /// <summary>
+        /// One-shot guard for EVT-REARM. Set only by speculative auto-completion paths
+        /// (CompleteResponse) so a late AssistantTurnStartEvent can revive a turn that
+        /// was completed too early. Explicit abort/recovery paths leave this false so
+        /// stale SDK TurnStart replays do not resurrect intentionally-cleared sessions.
+        /// Cleared on each new SendPromptAsync turn.
+        /// </summary>
+        public volatile bool AllowTurnStartRearm;
+        /// <summary>
+        /// Stable identity of the most recently reported background task set (agent IDs + shell IDs).
+        /// Preserved across SendPromptAsync so the same orphaned background shells keep aging instead
+        /// of resetting the zombie timeout every time the user sends another prompt.
+        /// </summary>
+        public volatile string? DeferredBackgroundTaskFingerprint;
+        /// <summary>
+        /// UTC ticks when the current DeferredBackgroundTaskFingerprint was first observed. Unlike the
+        /// per-turn SubagentDeferStartedAtTicks, this can intentionally survive into the next prompt
+        /// so repeated reports of the SAME shell IDs still expire after the real wall-clock timeout.
+        /// </summary>
+        public long DeferredBackgroundTasksFirstSeenAtTicks;
+        /// <summary>
         /// UTC ticks when IDLE-DEFER was first entered for the current turn (first
         /// SessionIdleEvent with active background tasks). 0 = not set.
         /// Uses Interlocked for thread safety: the IDLE-DEFER section (SDK event thread) sets via
@@ -713,6 +743,18 @@ public partial class CopilotService : IAsyncDisposable
     private static void DisposePrematureIdleSignal(SessionState? state)
     {
         try { state?.PrematureIdleSignal?.Dispose(); } catch { }
+    }
+
+    private static void ClearDeferredIdleTracking(SessionState state, bool preserveCarryOver = false)
+    {
+        state.HasDeferredIdle = false;
+        Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+
+        if (!preserveCarryOver)
+        {
+            state.DeferredBackgroundTaskFingerprint = null;
+            Interlocked.Exchange(ref state.DeferredBackgroundTasksFirstSeenAtTicks, 0L);
+        }
     }
 
     /// <summary>Ping interval to prevent the headless server from killing idle sessions.
@@ -3292,10 +3334,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ClearPermissionDenials();
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0); // Reset stale tool count from previous turn
         state.HasUsedToolsThisTurn = false; // Reset stale tool flag from previous turn
-        state.HasDeferredIdle = false; // Reset deferred idle flag from previous turn
-        Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L); // Companion pair — must clear with HasDeferredIdle
+        ClearDeferredIdleTracking(state, preserveCarryOver: true); // Keep stale shell age across turns so orphaned IDs can still expire
         state.IsReconnectedSend = false; // Clear reconnect flag — new turn starts fresh (see watchdog reconnect timeout)
         state.WasUserAborted = false; // Clear abort flag — new turn starts fresh (re-enables EVT-REARM)
+        state.AllowTurnStartRearm = false; // New user send is authoritative; ignore stale turn-start replays from the prior turn
         state.PrematureIdleSignal.Reset(); // Clear premature idle detection from previous turn
         state.FallbackCanceledByTurnStart = false;
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
@@ -3591,8 +3633,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     };
                                                     // Mirror primary reconnect: reset tool tracking for new connection
                                                     siblingState.HasUsedToolsThisTurn = false;
-                                                    siblingState.HasDeferredIdle = false;
-                                                    Interlocked.Exchange(ref siblingState.SubagentDeferStartedAtTicks, 0L);
+                                                    ClearDeferredIdleTracking(siblingState);
                                                     Interlocked.Exchange(ref siblingState.ActiveToolCallCount, 0);
                                                     Interlocked.Exchange(ref siblingState.SuccessfulToolCountThisTurn, 0);
                                                     Interlocked.Exchange(ref siblingState.ToolHealthStaleChecks, 0);
@@ -3822,8 +3863,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // Reset HasUsedToolsThisTurn so the retried turn starts with the default
                     // 120s watchdog tier instead of the inflated 600s from stale tool state.
                     state.HasUsedToolsThisTurn = false;
-                    state.HasDeferredIdle = false;
-                    Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+                    ClearDeferredIdleTracking(state);
 
                     // Schedule persistence of the new session ID so it survives app restart.
                     // Without this, the debounced save captures the pre-reconnect snapshot
@@ -3895,10 +3935,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                     state.HasUsedToolsThisTurn = false;
-                    state.HasDeferredIdle = false;
-                    Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+                    ClearDeferredIdleTracking(state);
                     Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                     state.Info.IsResumed = false;
+                    state.AllowTurnStartRearm = false; // Explicit reconnect failure is terminal for this turn
                     state.Info.IsProcessing = false;
                     if (state.Info.ProcessingStartedAt is { } rcStarted)
                         state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - rcStarted).TotalSeconds;
@@ -3919,10 +3959,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
-                state.HasDeferredIdle = false;
-                Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+                ClearDeferredIdleTracking(state);
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 state.Info.IsResumed = false;
+                state.AllowTurnStartRearm = false; // Explicit send failure is terminal for this turn
                 state.Info.IsProcessing = false;
                 if (state.Info.ProcessingStartedAt is { } saStarted)
                     state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - saStarted).TotalSeconds;
@@ -4065,6 +4105,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         Debug($"[ABORT] '{sessionName}' user abort, clearing IsProcessing");
         state.Info.IsProcessing = false;
         state.WasUserAborted = true; // Suppress EVT-REARM for in-flight TurnStart events after abort
+        state.AllowTurnStartRearm = false; // Abort is explicit terminal intent — do not revive on late TurnStart replays
         state.Info.IsResumed = false;
         if (state.Info.ProcessingStartedAt is { } abortStarted)
             state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - abortStarted).TotalSeconds;
@@ -4073,8 +4114,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.Info.ProcessingPhase = 0;
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
-        state.HasDeferredIdle = false;
-        Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L); // INV-1: companion pair with HasDeferredIdle
+        ClearDeferredIdleTracking(state);
         state.IsReconnectedSend = false; // INV-1: clear all per-turn flags on abort
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
         // Release send lock — allows a subsequent SteerSessionAsync to acquire it immediately
@@ -4200,8 +4240,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Debug($"[STEER-ERROR] '{sessionName}' soft steer SendAsync failed, clearing IsProcessing (error={ex.Message})");
                 Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                 state.HasUsedToolsThisTurn = false;
-                state.HasDeferredIdle = false;
-                Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+                ClearDeferredIdleTracking(state);
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 state.Info.IsResumed = false;
                 state.IsReconnectedSend = false; // INV-1 item 8: prevent stale 35s timeout on next watchdog start
@@ -4489,8 +4528,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
                     state.HasUsedToolsThisTurn = false;
-                    state.HasDeferredIdle = false;
-                    Interlocked.Exchange(ref state.SubagentDeferStartedAtTicks, 0L);
+                    ClearDeferredIdleTracking(state);
                     Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
                     Interlocked.Exchange(ref state.SendingFlag, 0);
                     state.Info.ProcessingStartedAt = null;
@@ -5060,6 +5098,7 @@ public class ActiveSessionEntry
     public string? WorkingDirectory { get; set; }
     public string? LastPrompt { get; set; }
     public string? GroupId { get; set; }
+    public string? RecoveredFromSessionId { get; set; }
     // Usage stats persisted across reconnects
     public int TotalInputTokens { get; set; }
     public int TotalOutputTokens { get; set; }
