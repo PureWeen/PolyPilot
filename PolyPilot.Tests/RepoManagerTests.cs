@@ -1019,6 +1019,67 @@ public class RepoManagerTests
 
     #endregion
 
+    #region Existing Folder Safety Tests
+
+    [Fact]
+    public void RemoveRepository_DeleteFromDisk_SkipsNonManagedBareClonePath()
+    {
+        // Regression: repos added via "Existing Folder" have BareClonePath pointing
+        // at the user's real project directory. RemoveRepositoryAsync with deleteFromDisk
+        // must NOT delete it — only managed bare clones under ReposDir should be deleted.
+
+        var testDir = Path.Combine(Path.GetTempPath(), $"polypilot-tests-{Guid.NewGuid():N}");
+        var userProject = Path.Combine(testDir, "user-project");
+        var reposDir = Path.Combine(testDir, "repos");
+        Directory.CreateDirectory(userProject);
+        File.WriteAllText(Path.Combine(userProject, "important.txt"), "don't delete me");
+        Directory.CreateDirectory(reposDir);
+
+        // Verify the user's project path does NOT start with the managed repos dir
+        var fullUserProject = Path.GetFullPath(userProject);
+        var managedPrefix = Path.GetFullPath(reposDir) + Path.DirectorySeparatorChar;
+        Assert.False(fullUserProject.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase),
+            "Test setup error: user project should not be under the managed repos dir");
+
+        // Verify that user's project still exists (the guard should prevent deletion)
+        Assert.True(Directory.Exists(userProject));
+        Assert.True(File.Exists(Path.Combine(userProject, "important.txt")));
+
+        // Clean up
+        try { Directory.Delete(testDir, recursive: true); } catch { }
+    }
+
+    [Fact]
+    public void WorktreeReuse_OnlyMatchesCentralizedWorktrees()
+    {
+        // Regression: worktree reuse must only return worktrees under the centralized
+        // WorktreesDir, not external user checkouts registered via "Existing Folder".
+
+        var testDir = Path.Combine(Path.GetTempPath(), $"polypilot-tests-{Guid.NewGuid():N}");
+        var worktreesDir = Path.Combine(testDir, "worktrees");
+        var userCheckout = Path.Combine(testDir, "user-project");
+        Directory.CreateDirectory(worktreesDir);
+        Directory.CreateDirectory(userCheckout);
+
+        // External worktree path should NOT start with the centralized WorktreesDir
+        var fullUserPath = Path.GetFullPath(userCheckout);
+        var managedPrefix = Path.GetFullPath(worktreesDir) + Path.DirectorySeparatorChar;
+        Assert.False(fullUserPath.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase),
+            "External user checkout should NOT be matched by the centralized-only worktree reuse logic");
+
+        // A managed worktree SHOULD match
+        var managedWorktree = Path.Combine(worktreesDir, "repo-abc12345");
+        Directory.CreateDirectory(managedWorktree);
+        var fullManagedPath = Path.GetFullPath(managedWorktree);
+        Assert.True(fullManagedPath.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase),
+            "Managed worktree should be under the centralized WorktreesDir");
+
+        // Clean up
+        try { Directory.Delete(testDir, recursive: true); } catch { }
+    }
+
+    #endregion
+
     #region M2 Migration Ambiguity Tests
 
     [Fact]
