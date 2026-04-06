@@ -590,11 +590,11 @@ public partial class CopilotService
     /// </summary>
     internal async Task ScanForOrphanedWorkersAsync(CancellationToken ct = default)
     {
-        // Brief delay to let ResumeOrchestrationIfPendingAsync claim any pending groups first
-        await Task.Delay(3000, ct).ConfigureAwait(false);
-
         try
         {
+            // Brief delay to let ResumeOrchestrationIfPendingAsync claim any pending groups first
+            await Task.Delay(3000, ct).ConfigureAwait(false);
+
             var groups = SnapshotGroups();
             var metas = SnapshotSessionMetas();
 

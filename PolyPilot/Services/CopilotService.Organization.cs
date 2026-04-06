@@ -2878,7 +2878,8 @@ public partial class CopilotService
         var session = GetSession(sessionName);
         if (session != null)
         {
-            session.History.Add(ChatMessage.SystemMessage(message));
+            lock (session.HistoryLock)
+                session.History.Add(ChatMessage.SystemMessage(message));
             InvokeOnUI(() => OnStateChanged?.Invoke());
         }
     }

@@ -198,4 +198,55 @@ public class OrphanedWorkerScanTests
             .ToList();
         Assert.Empty(systemMsgs);
     }
+
+    [Fact]
+    public async Task Scan_PendingOrchestrationForGroup_SkipsWarning()
+    {
+        var svc = CreateService();
+
+        var group = new SessionGroup { Id = "team-5", Name = "PendingTeam", IsMultiAgent = true };
+        svc.Organization.Groups.Add(group);
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "orch-5", GroupId = "team-5", Role = MultiAgentRole.Orchestrator
+        });
+        svc.Organization.Sessions.Add(new SessionMeta
+        {
+            SessionName = "worker-5", GroupId = "team-5", Role = MultiAgentRole.Worker
+        });
+
+        var orchInfo = AddDummySession(svc, "orch-5");
+        orchInfo.History.Add(ChatMessage.UserMessage("Do something"));
+        orchInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-10);
+
+        var workerInfo = AddDummySession(svc, "worker-5");
+        workerInfo.History.Add(ChatMessage.AssistantMessage("Done."));
+        workerInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-5);
+
+        svc.SavePendingOrchestration(new PendingOrchestration
+        {
+            GroupId = "team-5",
+            OrchestratorName = "orch-5",
+            WorkerNames = ["worker-5"],
+            OriginalPrompt = "Do something",
+            StartedAt = DateTime.UtcNow
+        });
+
+        await svc.ScanForOrphanedWorkersAsync();
+
+        var systemMsgs = orchInfo.History
+            .Where(m => m.MessageType == ChatMessageType.System)
+            .ToList();
+        Assert.Empty(systemMsgs);
+    }
+
+    [Fact]
+    public async Task Scan_CancelledDuringInitialDelay_IsSilentlyIgnored()
+    {
+        var svc = CreateService();
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        await svc.ScanForOrphanedWorkersAsync(cts.Token);
+    }
 }
