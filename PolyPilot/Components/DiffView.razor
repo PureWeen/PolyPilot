@@ -10,77 +10,110 @@
 else
 {
     <div class="diff-viewer">
-        @for (var fileIdx = 0; fileIdx < Files.Count; fileIdx++)
+        <div class="diff-summary-bar">
+            <div class="diff-summary">
+                <span class="diff-summary-title">@SummaryLabel</span>
+                <span class="diff-summary-stats">
+                    <span class="stat-add">+@TotalAdded</span>
+                    <span class="stat-del">-@TotalRemoved</span>
+                </span>
+            </div>
+
+            @if (Files.Count > 1)
+            {
+                <button type="button"
+                        class="diff-picker-toggle"
+                        @onclick="ToggleFilePicker"
+                        aria-expanded="@(!_isFilePickerCollapsed)">
+                    @(_isFilePickerCollapsed ? "Show files" : "Hide files")
+                </button>
+            }
+        </div>
+
+        @if (!_isFilePickerCollapsed || Files.Count == 1)
         {
-            var file = Files[fileIdx];
-            var capturedIdx = fileIdx;
-            <div class="diff-file">
+            <div class="diff-file-picker" role="tablist" aria-label="Changed files">
+                @for (var fileIdx = 0; fileIdx < Files.Count; fileIdx++)
+                {
+                    var listFile = Files[fileIdx];
+                    var capturedIdx = fileIdx;
+
+                    <button type="button"
+                            class="diff-file-tab @(capturedIdx == _selectedFileIdx ? "selected" : "")"
+                            @onclick="() => SelectFile(capturedIdx)"
+                            title="@listFile.DisplayName"
+                            aria-pressed="@(capturedIdx == _selectedFileIdx)">
+                        <span class="diff-file-badge @listFile.StatusCssClass">@listFile.StatusLabel</span>
+                        <span class="diff-file-tab-name">@listFile.DisplayName</span>
+                        <span class="diff-file-tab-stats">
+                            <span class="stat-add">+@listFile.AddedLineCount</span>
+                            <span class="stat-del">-@listFile.RemovedLineCount</span>
+                        </span>
+                    </button>
+                }
+            </div>
+        }
+
+        @if (SelectedFile is { } selectedFile)
+        {
+            var selectedIdx = _selectedFileIdx;
+
+            <div class="diff-file" @key="selectedIdx">
                 <div class="diff-file-header">
-                    <span class="diff-file-badge @(file.IsNew ? "new" : file.IsDeleted ? "deleted" : file.IsRenamed ? "renamed" : "modified")">
-                        @(file.IsNew ? "NEW" : file.IsDeleted ? "DEL" : file.IsRenamed ? "REN" : "MOD")
-                    </span>
-                    <span class="diff-file-name">
-                        @if (file.IsRenamed)
-                        {
-                            <span>@file.OldFileName → @file.FileName</span>
-                        }
-                        else
-                        {
-                            @file.FileName
-                        }
-                    </span>
+                    <span class="diff-file-badge @selectedFile.StatusCssClass">@selectedFile.StatusLabel</span>
+                    <span class="diff-file-name">@selectedFile.DisplayName</span>
                     <span class="diff-file-stats">
-                        @{ var added = file.Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Added); }
-                        @{ var removed = file.Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Removed); }
-                        @if (added > 0) { <span class="stat-add">+@added</span> }
-                        @if (removed > 0) { <span class="stat-del">-@removed</span> }
+                        <span class="stat-add">+@selectedFile.AddedLineCount</span>
+                        <span class="stat-del">-@selectedFile.RemovedLineCount</span>
                     </span>
                     <span class="diff-view-toggle">
-                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(capturedIdx, DiffViewMode.Table) == DiffViewMode.Table ? "active" : "")"
-                                @onclick="() => SetViewMode(capturedIdx, DiffViewMode.Table)"
+                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(selectedIdx, DiffViewMode.Table) == DiffViewMode.Table ? "active" : "")"
+                                @onclick="() => SetViewMode(selectedIdx, DiffViewMode.Table)"
                                 title="Table view">Table</button>
-                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(capturedIdx, DiffViewMode.Table) == DiffViewMode.Editor ? "active" : "")"
-                                @onclick="() => SetViewMode(capturedIdx, DiffViewMode.Editor)"
+                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(selectedIdx, DiffViewMode.Table) == DiffViewMode.Editor ? "active" : "")"
+                                @onclick="() => SetViewMode(selectedIdx, DiffViewMode.Editor)"
                                 title="Editor view with syntax highlighting">Editor</button>
                     </span>
                 </div>
-                @if (!file.IsDeleted || file.Hunks.Count > 0)
+
+                @if (selectedFile.Hunks.Count == 0)
                 {
-                    @if (_viewModes.GetValueOrDefault(capturedIdx, DiffViewMode.Table) == DiffViewMode.Editor)
-                    {
-                        <div class="diff-cm-container" id="cm-diff-@_instancePrefix-@capturedIdx"></div>
-                    }
-                    else
-                    {
-                        <div class="diff-panes">
-                            <table class="diff-table">
-                                <colgroup>
-                                    <col class="diff-col-ln" />
-                                    <col class="diff-col-code" />
-                                    <col class="diff-col-ln" />
-                                    <col class="diff-col-code" />
-                                </colgroup>
-                                @foreach (var hunk in file.Hunks)
+                    <div class="diff-empty-body">No diff hunks available for this file.</div>
+                }
+                else if (_viewModes.GetValueOrDefault(selectedIdx, DiffViewMode.Table) == DiffViewMode.Editor)
+                {
+                    <div class="diff-cm-container" id="cm-diff-@_instancePrefix-@selectedIdx"></div>
+                }
+                else
+                {
+                    <div class="diff-panes">
+                        <table class="diff-table">
+                            <colgroup>
+                                <col class="diff-col-ln" />
+                                <col class="diff-col-code" />
+                                <col class="diff-col-ln" />
+                                <col class="diff-col-code" />
+                            </colgroup>
+                            @foreach (var hunk in selectedFile.Hunks)
+                            {
+                                @if (!string.IsNullOrEmpty(hunk.Header))
                                 {
-                                    @if (!string.IsNullOrEmpty(hunk.Header))
-                                    {
-                                        <tr class="diff-hunk-header">
-                                            <td colspan="4" class="hunk-label">@hunk.Header</td>
-                                        </tr>
-                                    }
-                                    @foreach (var row in DiffParser.PairLines(hunk))
-                                    {
-                                        <tr class="diff-row">
-                                            <td class="diff-ln @(row.Left?.Type == DiffLineType.Removed ? "ln-del" : "")">@(row.Left?.OldLineNo?.ToString() ?? "")</td>
-                                            <td class="diff-code @(row.Left == null ? "diff-blank" : row.Left.Type == DiffLineType.Removed ? "diff-del" : "diff-ctx")"><pre>@(row.Left?.Content ?? "")</pre></td>
-                                            <td class="diff-ln @(row.Right?.Type == DiffLineType.Added ? "ln-add" : "")">@(row.Right?.NewLineNo?.ToString() ?? "")</td>
-                                            <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right?.Content ?? "")</pre></td>
-                                        </tr>
-                                    }
+                                    <tr class="diff-hunk-header">
+                                        <td colspan="4" class="hunk-label">@hunk.Header</td>
+                                    </tr>
                                 }
-                            </table>
-                        </div>
-                    }
+                                @foreach (var row in DiffParser.PairLines(hunk))
+                                {
+                                    <tr class="diff-row">
+                                        <td class="diff-ln @(row.Left?.Type == DiffLineType.Removed ? "ln-del" : "")">@(row.Left?.OldLineNo?.ToString() ?? "")</td>
+                                        <td class="diff-code @(row.Left == null ? "diff-blank" : row.Left.Type == DiffLineType.Removed ? "diff-del" : "diff-ctx")"><pre>@(row.Left?.Content ?? "")</pre></td>
+                                        <td class="diff-ln @(row.Right?.Type == DiffLineType.Added ? "ln-add" : "")">@(row.Right?.NewLineNo?.ToString() ?? "")</td>
+                                        <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right?.Content ?? "")</pre></td>
+                                    </tr>
+                                }
+                            }
+                        </table>
+                    </div>
                 }
             </div>
         }
@@ -96,7 +129,16 @@ else
     private readonly HashSet<int> _pendingEditorInit = new();
     private readonly string _instancePrefix = Guid.NewGuid().ToString("N")[..8];
     private int _generation;
+    private int _selectedFileIdx;
+    private bool _isFilePickerCollapsed;
     private bool _disposed;
+
+    private DiffFile? SelectedFile =>
+        _selectedFileIdx >= 0 && _selectedFileIdx < Files.Count ? Files[_selectedFileIdx] : null;
+
+    private int TotalAdded => Files.Sum(file => file.AddedLineCount);
+    private int TotalRemoved => Files.Sum(file => file.RemovedLineCount);
+    private string SummaryLabel => Files.Count == 1 ? "1 file changed" : $"{Files.Count} files changed";
 
     private enum DiffViewMode { Table, Editor }
 
@@ -107,6 +149,8 @@ else
             _lastRawDiff = RawDiff;
             Files = DiffParser.Parse(RawDiff);
             _generation++;
+            _selectedFileIdx = Files.Count > 0 ? 0 : -1;
+            _isFilePickerCollapsed = false;
 
             // Snapshot IDs before clearing so fire-and-forget only disposes these exact instances
             var idsToDispose = _cmInstances.Values.ToArray();
@@ -116,6 +160,20 @@ else
 
             _ = DisposeJsInstancesByIdAsync(idsToDispose);
         }
+    }
+
+    private void ToggleFilePicker() => _isFilePickerCollapsed = !_isFilePickerCollapsed;
+
+    private void SelectFile(int fileIdx)
+    {
+        if (fileIdx < 0 || fileIdx >= Files.Count || fileIdx == _selectedFileIdx)
+            return;
+
+        DisposeEditorInstance(_selectedFileIdx);
+        _selectedFileIdx = fileIdx;
+
+        if (_viewModes.GetValueOrDefault(fileIdx, DiffViewMode.Table) == DiffViewMode.Editor)
+            _pendingEditorInit.Add(fileIdx);
     }
 
     private void SetViewMode(int fileIdx, DiffViewMode mode)
@@ -136,6 +194,15 @@ else
                 _ = DisposeJsInstancesByIdAsync(new[] { instanceId });
             }
         }
+    }
+
+    private void DisposeEditorInstance(int fileIdx)
+    {
+        if (fileIdx < 0)
+            return;
+
+        if (_cmInstances.Remove(fileIdx, out var instanceId))
+            _ = DisposeJsInstancesByIdAsync(new[] { instanceId });
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)

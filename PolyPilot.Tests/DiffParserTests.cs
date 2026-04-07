@@ -108,6 +108,49 @@ public class DiffParserTests
     }
 
     [Fact]
+    public void DiffFile_MetadataProperties_ReportStatusAndCounts()
+    {
+        var file = new DiffFile
+        {
+            FileName = "src/example.cs",
+            Hunks = new List<DiffHunk>
+            {
+                new()
+                {
+                    Lines = new List<DiffLine>
+                    {
+                        new() { Type = DiffLineType.Context, Content = "keep" },
+                        new() { Type = DiffLineType.Added, Content = "add 1" },
+                        new() { Type = DiffLineType.Added, Content = "add 2" },
+                        new() { Type = DiffLineType.Removed, Content = "remove 1" },
+                    }
+                }
+            }
+        };
+
+        Assert.Equal(2, file.AddedLineCount);
+        Assert.Equal(1, file.RemovedLineCount);
+        Assert.Equal("MOD", file.StatusLabel);
+        Assert.Equal("modified", file.StatusCssClass);
+        Assert.Equal("src/example.cs", file.DisplayName);
+    }
+
+    [Fact]
+    public void DiffFile_DisplayName_RenamedFile_ShowsOldAndNewPaths()
+    {
+        var file = new DiffFile
+        {
+            FileName = "src/new-name.cs",
+            OldFileName = "src/old-name.cs",
+            IsRenamed = true
+        };
+
+        Assert.Equal("REN", file.StatusLabel);
+        Assert.Equal("renamed", file.StatusCssClass);
+        Assert.Equal("src/old-name.cs → src/new-name.cs", file.DisplayName);
+    }
+
+    [Fact]
     public void Parse_HunkHeader_ExtractsLineNumbers()
     {
         var diff = """
