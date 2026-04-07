@@ -481,6 +481,8 @@ public class RepoManager
     /// </param>
     internal async Task<RepositoryInfo> AddRepositoryAsync(string url, Action<string>? onProgress, string? localCloneSource, CancellationToken ct = default)
     {
+        if (localCloneSource != null && !Directory.Exists(localCloneSource))
+            throw new ArgumentException($"Local clone source not found: '{localCloneSource}'", nameof(localCloneSource));
         url = NormalizeRepoUrl(url);
         EnsureLoaded();
         var id = RepoIdFromUrl(url);
@@ -504,8 +506,11 @@ public class RepoManager
         }
         else if (localCloneSource != null)
         {
-            // Clone from local path — fast, no network required
-            onProgress?.Invoke($"Cloning from local folder…");
+            // Clone from local path — fast, no network required.
+            // Intentionally skips the network fetch that the remote-clone branch does:
+            // the bare repo mirrors whatever the user's local repo already has.
+            // Missing remote-only branches (if any) will appear on the next scheduled fetch.
+            onProgress?.Invoke("Cloning from local folder…");
             await RunGitWithProgressAsync(null, onProgress, ct, "clone", "--bare", "--progress", localCloneSource, barePath);
 
             // Point remote origin at the real remote URL so future fetches go to the network

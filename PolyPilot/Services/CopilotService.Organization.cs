@@ -607,12 +607,21 @@ public partial class CopilotService
                     var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
                     if (repo != null)
                     {
-                        var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
-                        if (repoGroup != null)
+                        // Prefer an existing local folder group (same fix as the
+                        // workingDir-based block above) to avoid duplicate sidebar entries.
+                        var localFolderGroup = Organization.Groups.FirstOrDefault(g =>
+                            g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
+                        if (localFolderGroup != null)
                         {
-                            meta.GroupId = repoGroup.Id;
-                            changed = true;
+                            meta.GroupId = localFolderGroup.Id;
                         }
+                        else
+                        {
+                            var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
+                            if (repoGroup != null)
+                                meta.GroupId = repoGroup.Id;
+                        }
+                        changed = true;
                     }
                 }
             }

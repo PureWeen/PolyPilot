@@ -41,26 +41,6 @@ public class AddExistingRepoTests
         new CopilotService(_chatDb, _serverManager, _bridgeClient, repoManager ?? new RepoManager(), _serviceProvider, _demoService);
 
     /// <summary>
-    /// Injects dummy SessionState entries into _sessions so ReconcileOrganization
-    /// doesn't hit the zero-session early-return guard.
-    /// </summary>
-    private static void AddDummySessions(CopilotService svc, params string[] names)
-    {
-        var sessionsField = typeof(CopilotService).GetField("_sessions",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
-        var dict = sessionsField.GetValue(svc)!;
-        var stateType = sessionsField.FieldType.GenericTypeArguments[1]; // SessionState
-
-        foreach (var name in names)
-        {
-            var info = new AgentSessionInfo { Name = name, Model = "test-model" };
-            var state = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(stateType);
-            stateType.GetProperty("Info")!.SetValue(state, info);
-            dict.GetType().GetMethod("TryAdd")!.Invoke(dict, new[] { name, state });
-        }
-    }
-
-    /// <summary>
     /// Injects a SessionState with a specific working directory so ReconcileOrganization
     /// can match it to a worktree via workingDir.StartsWith(w.Path).
     /// </summary>
@@ -209,48 +189,166 @@ public class AddExistingRepoTests
     // ─── Bug 1: AddRepositoryAsync supports local clone source ─────────────────
 
     [Fact]
-    public void AddRepositoryAsync_HasLocalCloneSourceOverload()
+    public async Task AddRepositoryFromLocal_ClonesLocallyAndSetsRemoteUrl()
     {
-        // Verify the internal overload with localCloneSource parameter exists and is accessible.
+        // Create a real local git repo with an origin remote, then call
+        // AddRepositoryFromLocalAsync and verify the bare clone's remote URL
+        // is the network URL (not the local path).
+        var tempDir = Path.Combine(Path.GetTempPath(), $"local-clone-test-{Guid.NewGuid():N}");
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(testBaseDir);
+        try
+        {
+            var remoteUrl = "https://github.com/test-owner/local-clone-test.git";
+
+            await RunProcess("git", "init", tempDir);
+            await RunProcess("git", "-C", tempDir, "config", "user.email", "test@test.com");
+            await RunProcess("git", "-C", tempDir, "config", "user.name", "Test");
+            await RunProcess("git", "-C", tempDir, "commit", "--allow-empty", "-m", "init");
+            await RunProcess("git", "-C", tempDir, "remote", "add", "origin", remoteUrl);
+
+            var rm = new RepoManager();
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var progressMessages = new List<string>();
+                var repo = await rm.AddRepositoryFromLocalAsync(
+                    tempDir, msg => progressMessages.Add(msg));
+
+                // Should have used local clone, not network
+                Assert.Contains(progressMessages, m => m.Contains("local folder", StringComparison.OrdinalIgnoreCase));
+
+                // The bare clone's remote origin should point to the network URL
+                var bareRemoteUrl = await RunGitOutput(repo.BareClonePath, "remote", "get-url", "origin");
+                Assert.Equal(remoteUrl, bareRemoteUrl.Trim());
+
+                // Verify the repo was registered
+                Assert.Contains(rm.Repositories, r => r.Id == repo.Id);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            ForceDeleteDirectory(tempDir);
+            ForceDeleteDirectory(testBaseDir);
+        }
+    }
+
+    [Fact]
+    public void AddRepositoryAsync_LocalCloneSource_InvalidPath_Throws()
+    {
+        var rm = new RepoManager();
         var method = typeof(RepoManager).GetMethod("AddRepositoryAsync",
             System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
             null,
             new[] { typeof(string), typeof(Action<string>), typeof(string), typeof(CancellationToken) },
-            null);
-        Assert.NotNull(method);
+            null)!;
+
+        var ex = Assert.ThrowsAsync<ArgumentException>(async () =>
+            await (Task<RepositoryInfo>)method.Invoke(rm,
+                new object?[] { "https://github.com/test/repo", null, "/nonexistent/path", CancellationToken.None })!);
+
+        Assert.Contains("not found", ex.Result.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    // ─── Bug 2 (second block): WorktreeId-based reconcile prefers local folder ─
 
     [Fact]
-    public void AddRepositoryFromLocalAsync_PassesLocalPathAsCloneSource()
+    public void Reconcile_SessionWithWorktreeId_InDefault_WithLocalFolderGroup_AssignsToLocalGroup()
     {
-        // Verify that AddRepositoryFromLocalAsync calls AddRepositoryAsync with
-        // localCloneSource set to the local path (structural invariant).
-        // This ensures future refactors don't lose the local clone optimization.
-        var sourceFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "RepoManager.cs"));
+        // When a session has a WorktreeId but is in the Default group (e.g., after
+        // group deletion healing), ReconcileOrganization should prefer the local
+        // folder group over creating a duplicate URL-based group.
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "WorktreeIdTest");
+        var nestedWtPath = Path.Combine(localRepoPath, ".polypilot", "worktrees", "wt-1");
 
-        // The call should pass localCloneSource: localPath
-        Assert.Contains("localCloneSource: localPath", sourceFile);
-        Assert.Contains("localCloneSource", sourceFile);
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "test-wt-repo", Name = "WorktreeIdTest", Url = "https://github.com/test/worktreeidtest" }
+        };
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "ext-1", RepoId = "test-wt-repo", Branch = "main", Path = localRepoPath },
+            new() { Id = "wt-1", RepoId = "test-wt-repo", Branch = "feature", Path = nestedWtPath }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        // Create local folder group (as when user added via "Existing folder")
+        var localGroup = svc.GetOrCreateLocalFolderGroup(localRepoPath, "test-wt-repo");
+
+        // Session has a WorktreeId but is in Default (simulates group-deletion healing)
+        var meta = new SessionMeta
+        {
+            SessionName = "healed-session",
+            GroupId = SessionGroup.DefaultId,
+            WorktreeId = "wt-1"
+        };
+        svc.Organization.Sessions.Add(meta);
+        AddDummySessionWithWorkingDir(svc, "healed-session", nestedWtPath);
+
+        svc.ReconcileOrganization();
+
+        // Session should land in the local folder group, not a new URL-based group
+        var updated = svc.Organization.Sessions.First(m => m.SessionName == "healed-session");
+        Assert.Equal(localGroup.Id, updated.GroupId);
+
+        // No URL-based repo group should have been created
+        var urlGroups = svc.Organization.Groups.Count(g =>
+            g.RepoId == "test-wt-repo" && !g.IsLocalFolder && !g.IsMultiAgent);
+        Assert.Equal(0, urlGroups);
     }
 
-    [Fact]
-    public void AddRepositoryAsync_LocalCloneSource_SetsRemoteUrlAfterClone()
-    {
-        // Verify that when localCloneSource is used, the code sets the remote URL
-        // to the actual remote URL (not the local path) so future fetches go to the network.
-        var sourceFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "RepoManager.cs"));
+    // ─── Helpers ───────────────────────────────────────────────────────────────
 
-        // The local clone branch must reconfigure the remote origin
-        Assert.Contains("remote", sourceFile);
-        Assert.Contains("set-url", sourceFile);
-        Assert.Contains("origin", sourceFile);
+    private static Task RunProcess(string exe, params string[] args)
+    {
+        var tcs = new TaskCompletionSource();
+        var psi = new System.Diagnostics.ProcessStartInfo(exe)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        var p = new System.Diagnostics.Process { StartInfo = psi, EnableRaisingEvents = true };
+        p.Exited += (_, _) =>
+        {
+            if (p.ExitCode == 0) tcs.TrySetResult();
+            else tcs.TrySetException(new Exception($"{exe} exited with {p.ExitCode}"));
+        };
+        p.Start();
+        return tcs.Task;
     }
 
-    private static string GetRepoRoot()
+    private static async Task<string> RunGitOutput(string workingDir, params string[] args)
     {
-        var dir = AppContext.BaseDirectory;
-        while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
-            dir = Path.GetDirectoryName(dir);
-        return dir ?? throw new InvalidOperationException("Could not find repo root");
+        var psi = new System.Diagnostics.ProcessStartInfo("git")
+        {
+            WorkingDirectory = workingDir,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        var p = System.Diagnostics.Process.Start(psi)!;
+        var output = await p.StandardOutput.ReadToEndAsync();
+        await p.WaitForExitAsync();
+        if (p.ExitCode != 0)
+            throw new Exception($"git exited with {p.ExitCode}");
+        return output;
+    }
+
+    private static void ForceDeleteDirectory(string path)
+    {
+        if (!Directory.Exists(path))
+            return;
+        foreach (var f in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
+            File.SetAttributes(f, FileAttributes.Normal);
+        Directory.Delete(path, true);
     }
 }
