@@ -10,6 +10,18 @@ public class DiffFile
     public bool IsDeleted { get; set; }
     public bool IsRenamed { get; set; }
     public List<DiffHunk> Hunks { get; set; } = new();
+
+    public int AddedLineCount => Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Added);
+    public int RemovedLineCount => Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Removed);
+
+    public string StatusLabel => IsNew ? "NEW" : IsDeleted ? "DEL" : IsRenamed ? "REN" : "MOD";
+
+    public string StatusCssClass => IsNew ? "new" : IsDeleted ? "deleted" : IsRenamed ? "renamed" : "modified";
+
+    public string DisplayName =>
+        IsRenamed && !string.IsNullOrWhiteSpace(OldFileName)
+            ? $"{OldFileName} → {FileName}"
+            : FileName;
 }
 
 public class DiffHunk
