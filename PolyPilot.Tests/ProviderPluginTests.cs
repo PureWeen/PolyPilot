@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Models;
@@ -241,6 +242,62 @@ public class ProviderPluginTests
         Assert.Null(action.Tooltip);
     }
 
+    [Fact]
+    public void RegisterProvider_PersistsReasoningMessagesForProviderSessions()
+    {
+        var chatDb = new StubChatDatabase();
+        var services = new ServiceCollection();
+        var sp = services.BuildServiceProvider();
+        var service = new CopilotService(
+            chatDb,
+            new StubServerManager(),
+            new StubWsBridgeClient(),
+            new RepoManager(),
+            sp,
+            new StubDemoService());
+        var provider = new FakeProvider();
+
+        RegisterProvider(service, provider);
+
+        provider.RaiseTurnStart();
+        provider.RaiseReasoning("reason-1", "Thinking through the answer");
+
+        var session = service.GetSession("__fake__");
+        Assert.NotNull(session);
+
+        var reasoning = Assert.Single(session.History);
+        Assert.Equal(ChatMessageType.Reasoning, reasoning.MessageType);
+        Assert.Equal("reason-1", reasoning.ReasoningId);
+        Assert.Equal("Thinking through the answer", reasoning.Content);
+        Assert.False(reasoning.IsComplete);
+
+        provider.RaiseContent("Final answer");
+        provider.RaiseTurnEnd();
+
+        Assert.Collection(session.History,
+            msg =>
+            {
+                Assert.Equal(ChatMessageType.Reasoning, msg.MessageType);
+                Assert.Equal("Thinking through the answer", msg.Content);
+                Assert.True(msg.IsComplete);
+                Assert.True(msg.IsCollapsed);
+            },
+            msg =>
+            {
+                Assert.Equal(ChatMessageType.Assistant, msg.MessageType);
+                Assert.Equal("Final answer", msg.Content);
+            });
+
+        Assert.Contains(chatDb.AddedMessages, entry =>
+            entry.SessionId == "provider:fake:leader" &&
+            entry.Message.MessageType == ChatMessageType.Reasoning &&
+            entry.Message.ReasoningId == "reason-1");
+        Assert.Contains(chatDb.AddedMessages, entry =>
+            entry.SessionId == "provider:fake:leader" &&
+            entry.Message.MessageType == ChatMessageType.Assistant &&
+            entry.Message.Content == "Final answer");
+    }
+
     // ── Helper ──────────────────────────────────────────────
 
     private static class TestHelper
@@ -258,5 +315,55 @@ public class ProviderPluginTests
                 new StubDemoService()
             );
         }
+    }
+
+    private static void RegisterProvider(CopilotService service, ISessionProvider provider)
+    {
+        var method = typeof(CopilotService).GetMethod("RegisterProvider", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+        method.Invoke(service, [provider]);
+    }
+
+    private sealed class FakeProvider : ISessionProvider
+    {
+        public string ProviderId => "fake";
+        public string DisplayName => "Fake Provider";
+        public string Icon => "";
+        public string AccentColor => "#000000";
+        public string GroupName => "Fake Group";
+        public string GroupDescription => "Fake provider for tests";
+        public bool IsInitialized => true;
+        public bool IsInitializing => false;
+        public string LeaderDisplayName => "Fake";
+        public string LeaderIcon => "";
+        public bool IsProcessing => false;
+        public IReadOnlyList<ProviderChatMessage> History => [];
+
+        public event Action? OnMembersChanged;
+        public event Action<string>? OnContentReceived;
+        public event Action<string, string>? OnReasoningReceived;
+        public event Action<string>? OnReasoningComplete;
+        public event Action<string, string, string?>? OnToolStarted;
+        public event Action<string, string, bool>? OnToolCompleted;
+        public event Action<string>? OnIntentChanged;
+        public event Action? OnTurnStart;
+        public event Action? OnTurnEnd;
+        public event Action<string>? OnError;
+        public event Action? OnStateChanged;
+        public event Action<string, string>? OnMemberContentReceived;
+        public event Action<string>? OnMemberTurnStart;
+        public event Action<string>? OnMemberTurnEnd;
+        public event Action<string, string>? OnMemberError;
+
+        public Task InitializeAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task ShutdownAsync() => Task.CompletedTask;
+        public Task<string> SendMessageAsync(string message, CancellationToken ct = default) => Task.FromResult(message);
+        public IReadOnlyList<ProviderMember> GetMembers() => [];
+
+        public void RaiseTurnStart() => OnTurnStart?.Invoke();
+        public void RaiseReasoning(string reasoningId, string content) => OnReasoningReceived?.Invoke(reasoningId, content);
+        public void RaiseReasoningComplete(string reasoningId) => OnReasoningComplete?.Invoke(reasoningId);
+        public void RaiseContent(string content) => OnContentReceived?.Invoke(content);
+        public void RaiseTurnEnd() => OnTurnEnd?.Invoke();
     }
 }

@@ -109,6 +109,8 @@ public partial class CopilotService
             {
                 Name = leaderName,
                 Model = "provider",
+                SessionId = $"provider:{provider.ProviderId}:leader",
+                CreatedAt = DateTime.Now
             };
             var leaderMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == leaderName);
             if (leaderMeta == null)
@@ -180,12 +182,20 @@ public partial class CopilotService
 
         provider.OnReasoningReceived += (reasoningId, content) => InvokeOnUI(() =>
         {
-            OnReasoningReceived?.Invoke(sessionName, reasoningId, content);
+            if (_sessions.TryGetValue(sessionName, out var state))
+                ApplyReasoningUpdate(state, sessionName, reasoningId, content, isDelta: true);
+            else
+                OnReasoningReceived?.Invoke(sessionName, reasoningId, content);
+            OnStateChanged?.Invoke();
         });
 
         provider.OnReasoningComplete += reasoningId => InvokeOnUI(() =>
         {
-            OnReasoningComplete?.Invoke(sessionName, reasoningId);
+            if (_sessions.TryGetValue(sessionName, out var state))
+                CompleteReasoningMessages(state, sessionName);
+            else
+                OnReasoningComplete?.Invoke(sessionName, reasoningId);
+            OnStateChanged?.Invoke();
         });
 
         provider.OnIntentChanged += intent => InvokeOnUI(() =>
@@ -211,14 +221,9 @@ public partial class CopilotService
         {
             if (_sessions.TryGetValue(sessionName, out var state))
             {
+                CompleteReasoningMessages(state, sessionName);
                 // Flush accumulated content to history
-                if (state.CurrentResponse.Length > 0)
-                {
-                    var responseText = state.CurrentResponse.ToString();
-                    state.Info.History.Add(ChatMessage.AssistantMessage(responseText));
-                    state.Info.MessageCount = state.Info.History.Count;
-                    state.CurrentResponse.Clear();
-                }
+                FlushProviderResponse(state);
                 state.Info.IsProcessing = false;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ProcessingPhase = 0;
@@ -234,13 +239,8 @@ public partial class CopilotService
             if (_sessions.TryGetValue(sessionName, out var state))
             {
                 // Flush any partial content before clearing state
-                if (state.CurrentResponse.Length > 0)
-                {
-                    var responseText = state.CurrentResponse.ToString();
-                    state.Info.History.Add(ChatMessage.AssistantMessage(responseText));
-                    state.Info.MessageCount = state.Info.History.Count;
-                    state.CurrentResponse.Clear();
-                }
+                CompleteReasoningMessages(state, sessionName);
+                FlushProviderResponse(state);
                 state.Info.IsProcessing = false;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ProcessingPhase = 0;
@@ -298,13 +298,7 @@ public partial class CopilotService
             var sessionName = $"{prefix}{memberId}{suffix}";
             if (_sessions.TryGetValue(sessionName, out var state))
             {
-                if (state.CurrentResponse.Length > 0)
-                {
-                    var responseText = state.CurrentResponse.ToString();
-                    state.Info.History.Add(ChatMessage.AssistantMessage(responseText));
-                    state.Info.MessageCount = state.Info.History.Count;
-                    state.CurrentResponse.Clear();
-                }
+                FlushProviderResponse(state);
                 state.Info.IsProcessing = false;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ProcessingPhase = 0;
@@ -320,13 +314,7 @@ public partial class CopilotService
             var sessionName = $"{prefix}{memberId}{suffix}";
             if (_sessions.TryGetValue(sessionName, out var state))
             {
-                if (state.CurrentResponse.Length > 0)
-                {
-                    var responseText = state.CurrentResponse.ToString();
-                    state.Info.History.Add(ChatMessage.AssistantMessage(responseText));
-                    state.Info.MessageCount = state.Info.History.Count;
-                    state.CurrentResponse.Clear();
-                }
+                FlushProviderResponse(state);
                 state.Info.IsProcessing = false;
                 state.Info.ProcessingStartedAt = null;
                 state.Info.ProcessingPhase = 0;
@@ -373,6 +361,8 @@ public partial class CopilotService
                 {
                     Name = name,
                     Model = "provider-member",
+                    SessionId = $"provider:{provider.ProviderId}:member:{member.Id}",
+                    CreatedAt = DateTime.Now
                 };
 
                 var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
@@ -397,6 +387,27 @@ public partial class CopilotService
         }
 
         OnStateChanged?.Invoke();
+    }
+
+    private void FlushProviderResponse(SessionState state)
+    {
+        var responseText = state.CurrentResponse.ToString();
+        if (string.IsNullOrWhiteSpace(responseText))
+            return;
+
+        var message = new ChatMessage("assistant", responseText, DateTime.Now) { Model = state.Info.Model };
+        state.Info.History.Add(message);
+        state.Info.MessageCount = state.Info.History.Count;
+        state.Info.LastUpdatedAt = DateTime.Now;
+
+        if (state.Info.Name == _activeSessionName)
+            state.Info.LastReadMessageCount = state.Info.History.Count;
+
+        if (!string.IsNullOrEmpty(state.Info.SessionId))
+            SafeFireAndForget(_chatDb.AddMessageAsync(state.Info.SessionId, message), "AddMessageAsync");
+
+        _usageStats?.TrackCodeSuggestion(responseText);
+        state.CurrentResponse.Clear();
     }
 
     /// <summary>
