@@ -1298,11 +1298,16 @@ public class ChatExperienceSafetyTests
         Assert.False(codeOnly.Contains("_consecutiveWatchdogTimeouts", StringComparison.Ordinal),
             "ClearProcessingState must NOT reset _consecutiveWatchdogTimeouts — only CompleteResponse " +
             "(success path) should, since resetting on error/abort paths defeats server-recovery detection.");
+
+        Assert.False(codeOnly.Contains("ConsecutiveStuckCount", StringComparison.Ordinal),
+            "ClearProcessingState must NOT reset ConsecutiveStuckCount — only CompleteResponse " +
+            "(success path) should, since resetting on watchdog/error paths breaks the >= 3 " +
+            "threshold that stops system message accumulation in repeatedly-stuck sessions.");
     }
 
     /// <summary>
-    /// PR #531 review finding: CompleteResponse must set AllowTurnStartRearm=true and
-    /// reset _consecutiveWatchdogTimeouts after ClearProcessingState.
+    /// PR #531 review finding: CompleteResponse must set AllowTurnStartRearm=true,
+    /// reset _consecutiveWatchdogTimeouts, and reset ConsecutiveStuckCount after ClearProcessingState.
     /// </summary>
     [Fact]
     public void CompleteResponse_SetsAllowTurnStartRearmAndResetsWatchdogCounter()
@@ -1319,6 +1324,8 @@ public class ChatExperienceSafetyTests
             "CompleteResponse must explicitly set AllowTurnStartRearm=true after ClearProcessingState");
         Assert.True(methodBody.Contains("_consecutiveWatchdogTimeouts", StringComparison.Ordinal),
             "CompleteResponse must reset _consecutiveWatchdogTimeouts on successful completion");
+        Assert.True(methodBody.Contains("ConsecutiveStuckCount = 0", StringComparison.Ordinal),
+            "CompleteResponse must reset ConsecutiveStuckCount on successful completion");
     }
 
     /// <summary>

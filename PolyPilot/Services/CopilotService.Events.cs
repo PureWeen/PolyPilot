@@ -1638,6 +1638,9 @@ public partial class CopilotService
         // Success-only: a successful completion proves the server is healthy — reset the
         // service-level watchdog timeout counter to prevent false recovery triggers.
         Interlocked.Exchange(ref _consecutiveWatchdogTimeouts, 0);
+        // Success-only: a successful response proves the session is not stuck — reset the
+        // per-session consecutive stuck counter so the >= 3 threshold can re-accumulate.
+        state.Info.ConsecutiveStuckCount = 0;
         state.ResponseCompletion?.TrySetResult(fullResponse);
         
         // Fire completion notification BEFORE OnStateChanged — this ensures
@@ -2949,7 +2952,7 @@ public partial class CopilotService
                             state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - wdStarted).TotalSeconds;
                         ClearProcessingState(state, accumulateApiTime: false);
                         state.AllowTurnStartRearm = false; // Watchdog timeout is an explicit forced stop
-                        state.Info.ConsecutiveStuckCount++; // Override the = 0 from ClearProcessingState
+                        state.Info.ConsecutiveStuckCount++;
                         // Track service-level consecutive watchdog timeouts. When the
                         // persistent server's auth token expires, ALL sessions hang silently.
                         // After WatchdogServerRecoveryThreshold consecutive timeouts across
@@ -3023,7 +3026,7 @@ public partial class CopilotService
                         state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - crashStarted).TotalSeconds;
                     ClearProcessingState(state, accumulateApiTime: false);
                     state.AllowTurnStartRearm = false; // Watchdog crash cleanup is terminal for this turn
-                    state.Info.ConsecutiveStuckCount++; // Override the = 0 from ClearProcessingState
+                    state.Info.ConsecutiveStuckCount++;
                     Interlocked.Increment(ref _consecutiveWatchdogTimeouts);
                     state.ResponseCompletion?.TrySetResult(crashResponse);
                     OnSessionComplete?.Invoke(sessionName, "[Watchdog] crash recovery");

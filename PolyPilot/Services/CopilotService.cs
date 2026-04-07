@@ -787,7 +787,6 @@ public partial class CopilotService : IAsyncDisposable
         state.Info.ProcessingStartedAt = null;
         state.Info.ToolCallCount = 0;
         state.Info.ProcessingPhase = 0;
-        state.Info.ConsecutiveStuckCount = 0;
         state.Info.ClearPermissionDenials();
         state.Info.LastUpdatedAt = DateTime.Now;
 
@@ -802,12 +801,12 @@ public partial class CopilotService : IAsyncDisposable
         state.IsReconnectedSend = false;
         CancelTurnEndFallback(state);
         CancelToolHealthCheck(state);
-        // NOTE: AllowTurnStartRearm and _consecutiveWatchdogTimeouts are NOT reset here.
-        // AllowTurnStartRearm = true only belongs on the normal-completion path (CompleteResponse),
-        // not on error/abort paths — setting it here would create a race window where a background
-        // TurnStart event could re-arm IsProcessing between ClearProcessingState and the caller's
-        // AllowTurnStartRearm = false override.
-        // _consecutiveWatchdogTimeouts reset only belongs on success (CompleteResponse), not errors.
+        // NOTE: AllowTurnStartRearm, _consecutiveWatchdogTimeouts, and ConsecutiveStuckCount
+        // are NOT reset here. All three are cross-turn health accumulators:
+        // - AllowTurnStartRearm = true only belongs on the normal-completion path (CompleteResponse)
+        // - _consecutiveWatchdogTimeouts resets only on success (server is healthy)
+        // - ConsecutiveStuckCount resets only on success (session responded normally)
+        // Resetting them here would break accumulation across consecutive failures.
     }
 
     /// <summary>Ping interval to prevent the headless server from killing idle sessions.
