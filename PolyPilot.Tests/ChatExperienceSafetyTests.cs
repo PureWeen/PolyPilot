@@ -1320,4 +1320,32 @@ public class ChatExperienceSafetyTests
         Assert.True(methodBody.Contains("_consecutiveWatchdogTimeouts", StringComparison.Ordinal),
             "CompleteResponse must reset _consecutiveWatchdogTimeouts on successful completion");
     }
+
+    /// <summary>
+    /// PR #531 re-review finding: AbortSessionAsync must NOT increment PremiumRequestsUsed.
+    /// User-initiated aborts consumed server resources (API time) but shouldn't count against
+    /// the premium request budget. The call must use accumulateApiTime: false and manually
+    /// accumulate TotalApiTimeSeconds before ClearProcessingState.
+    /// </summary>
+    [Fact]
+    public void AbortSessionAsync_DoesNotIncrementPremiumRequestsViaAccumulateApiTime()
+    {
+        var svcPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(svcPath);
+
+        var methodIdx = source.IndexOf("public async Task AbortSessionAsync(", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "AbortSessionAsync must exist");
+        var methodEnd = source.IndexOf("\n    }", methodIdx + 1, StringComparison.Ordinal);
+        var methodBody = source.Substring(methodIdx, methodEnd - methodIdx);
+
+        // The abort path must call ClearProcessingState with accumulateApiTime: false
+        Assert.True(methodBody.Contains("accumulateApiTime: false", StringComparison.Ordinal),
+            "AbortSessionAsync must call ClearProcessingState with accumulateApiTime: false — " +
+            "user aborts should not increment PremiumRequestsUsed");
+
+        // It must also manually accumulate TotalApiTimeSeconds (request was consumed)
+        Assert.True(methodBody.Contains("TotalApiTimeSeconds", StringComparison.Ordinal),
+            "AbortSessionAsync must manually accumulate TotalApiTimeSeconds before ClearProcessingState — " +
+            "the request consumed server resources even though the user aborted");
+    }
 }

@@ -4132,7 +4132,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         state.CurrentResponse.Clear();
 
         Debug($"[ABORT] '{sessionName}' user abort, clearing IsProcessing");
-        ClearProcessingState(state);
+        // Accumulate API time (the request was in-flight and consumed server resources)
+        // but don't increment PremiumRequestsUsed — user-initiated aborts shouldn't count
+        // against the premium request budget.
+        if (state.Info.ProcessingStartedAt is { } abortStarted)
+            state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - abortStarted).TotalSeconds;
+        ClearProcessingState(state, accumulateApiTime: false);
         state.WasUserAborted = true; // Suppress EVT-REARM for in-flight TurnStart events after abort
         state.AllowTurnStartRearm = false; // Abort is explicit terminal intent — do not revive on late TurnStart replays
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
