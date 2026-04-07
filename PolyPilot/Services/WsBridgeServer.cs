@@ -44,6 +44,26 @@ public class WsBridgeServer : IDisposable
     public bool SupportsRemoteConnections { get; private set; }
 
     /// <summary>
+    /// Logs a bridge diagnostic message to the event-diagnostics log via CopilotService.
+    /// Falls back to Console.WriteLine if CopilotService is not yet attached.
+    /// All messages are prefixed with [BRIDGE] for filtering.
+    /// </summary>
+    private void BridgeLog(string message)
+    {
+        var tagged = message.StartsWith("[") ? message : $"[BRIDGE] {message}";
+        if (_copilot != null)
+        {
+            // Use reflection-free approach: CopilotService.LogExternal is a public static method
+            // that writes to the event-diagnostics log without requiring instance access.
+            CopilotService.LogBridgeDiagnostic(tagged);
+        }
+        else
+        {
+            Console.WriteLine(tagged);
+        }
+    }
+
+    /// <summary>
     /// Access token that clients must provide via X-Tunnel-Authorization header or query param.
     /// </summary>
     public string? AccessToken { get; set; }
@@ -69,12 +89,12 @@ public class WsBridgeServer : IDisposable
 
         if (TryBindBridgePipeline(bridgePort))
         {
-            Console.WriteLine($"[WsBridge] Listening on port {bridgePort} (state-sync mode, network via loopback proxy localhost:{_internalListenerPort})");
+            BridgeLog($"[BRIDGE] Listening on port {bridgePort} (state-sync mode, network via loopback proxy localhost:{_internalListenerPort})");
             OnStateChanged?.Invoke();
         }
         else
         {
-            Console.WriteLine($"[WsBridge] Port {bridgePort} unavailable — will retry in accept loops");
+            BridgeLog($"[BRIDGE] Port {bridgePort} unavailable — will retry in accept loops");
         }
 
         _acceptTask = AcceptLoopAsync(_cts.Token);
@@ -113,12 +133,12 @@ public class WsBridgeServer : IDisposable
                 listener.Start();
                 _listener = listener;
                 _internalListenerPort = port;
-                Console.WriteLine($"[WsBridge] Internal listener on localhost:{port}");
+                BridgeLog($"[BRIDGE] Internal listener on localhost:{port}");
                 return true;
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[WsBridge] Internal bind on localhost:{port} failed: {ex.Message}");
+                BridgeLog($"[BRIDGE] Internal bind on localhost:{port} failed: {ex.Message}");
             }
         }
 
@@ -133,12 +153,12 @@ public class WsBridgeServer : IDisposable
             proxy.Server.DualMode = true;
             proxy.Start();
             _proxyListener = proxy;
-            Console.WriteLine($"[WsBridge] Public proxy listening on port {port} (dual-stack)");
+            BridgeLog($"[BRIDGE] Public proxy listening on port {port} (dual-stack)");
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WsBridge] Public dual-stack bind on port {port} failed: {ex.Message}");
+            BridgeLog($"[BRIDGE] Public dual-stack bind on port {port} failed: {ex.Message}");
         }
 
         try
@@ -146,12 +166,12 @@ public class WsBridgeServer : IDisposable
             var proxy = new TcpListener(IPAddress.Any, port);
             proxy.Start();
             _proxyListener = proxy;
-            Console.WriteLine($"[WsBridge] Public proxy listening on port {port} (IPv4)");
+            BridgeLog($"[BRIDGE] Public proxy listening on port {port} (IPv4)");
             return true;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WsBridge] Public bind on port {port} failed: {ex.Message}");
+            BridgeLog($"[BRIDGE] Public bind on port {port} failed: {ex.Message}");
             return false;
         }
     }
@@ -296,14 +316,14 @@ public class WsBridgeServer : IDisposable
         {
             while (_pendingBridgePrompts.TryDequeue(out var pending))
             {
-                Console.WriteLine($"[BRIDGE] Replaying queued prompt for '{pending.SessionName}'");
+                BridgeLog($"[BRIDGE] Replaying queued prompt for '{pending.SessionName}'");
                 try
                 {
                     await DispatchBridgePromptAsync(pending.SessionName, pending.Message, pending.AgentMode);
                 }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[BRIDGE] Failed to replay prompt for '{pending.SessionName}': {ex.Message}");
+                    BridgeLog($"[BRIDGE] Failed to replay prompt for '{pending.SessionName}': {ex.Message}");
                 }
             }
         }
@@ -329,7 +349,7 @@ public class WsBridgeServer : IDisposable
                     var orchGroup = _copilot.Organization.Groups.FirstOrDefault(g => g.Id == orchGroupId);
                     if (orchGroup?.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
                         _copilot.StartGroupReflection(orchGroupId, message, orchGroup.MaxReflectIterations ?? 5);
-                    Console.WriteLine($"[WsBridge] Routing '{sessionName}' through orchestration pipeline (group={orchGroupId})");
+                    BridgeLog($"[BRIDGE] Routing '{sessionName}' through orchestration pipeline (group={orchGroupId})");
                     await _copilot.SendToMultiAgentGroupAsync(orchGroupId, message, ct);
                 }
                 else
@@ -351,13 +371,13 @@ public class WsBridgeServer : IDisposable
                 {
                     // Orchestrated sessions route through SendToMultiAgentGroupAsync which has
                     // its own busy handling; blindly queuing would bypass the orchestration pipeline.
-                    Console.WriteLine($"[WsBridge] Orchestrator '{sessionName}' busy, dropping mobile message (retry manually)");
+                    BridgeLog($"[BRIDGE] Orchestrator '{sessionName}' busy, dropping mobile message (retry manually)");
                     Broadcast(BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
                         new ErrorPayload { SessionName = sessionName, Error = "Session is busy processing a request. Please retry when the current turn completes." }));
                 }
                 else
                 {
-                    Console.WriteLine($"[WsBridge] '{sessionName}' busy, queuing mobile message for next turn");
+                    BridgeLog($"[BRIDGE] '{sessionName}' busy, queuing mobile message for next turn");
                     _copilot.EnqueueMessage(sessionName, message, agentMode: agentMode);
                 }
                 return Task.CompletedTask;
@@ -378,7 +398,7 @@ public class WsBridgeServer : IDisposable
         foreach (var kvp in _clientSendLocks) kvp.Value.Dispose();
         _clientSendLocks.Clear();
         StopListenersOnly();
-        Console.WriteLine("[WsBridge] Stopped");
+        BridgeLog("[BRIDGE] Stopped");
         OnStateChanged?.Invoke();
     }
 
@@ -425,7 +445,7 @@ public class WsBridgeServer : IDisposable
                     {
                         context.Response.StatusCode = 429;
                         context.Response.Close();
-                        Console.WriteLine("[WsBridge] Pair request rate-limited");
+                        BridgeLog("[BRIDGE] Pair request rate-limited");
                         continue;
                     }
                     _ = Task.Run(() => HandlePairHandshakeAsync(context, ct), ct);
@@ -436,7 +456,7 @@ public class WsBridgeServer : IDisposable
                     {
                         context.Response.StatusCode = 401;
                         context.Response.Close();
-                        Console.WriteLine("[WsBridge] Rejected unauthenticated WebSocket connection");
+                        BridgeLog("[BRIDGE] Rejected unauthenticated WebSocket connection");
                         continue;
                     }
                     _ = Task.Run(() => HandleClientAsync(context, ct), ct);
@@ -485,13 +505,13 @@ public class WsBridgeServer : IDisposable
             catch (HttpListenerException ex)
             {
                 if (ct.IsCancellationRequested) break;
-                Console.WriteLine($"[WsBridge] Listener error ({ex.ErrorCode}): {ex.Message} — will restart");
+                BridgeLog($"[BRIDGE] Listener error ({ex.ErrorCode}): {ex.Message} — will restart");
                 await _restartLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
                 try { StopListenersOnly(); } finally { _restartLock.Release(); }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[WsBridge] Accept error: {ex.Message}");
+                BridgeLog($"[BRIDGE] Accept error: {ex.Message}");
             }
         }
     }
@@ -539,13 +559,13 @@ public class WsBridgeServer : IDisposable
             catch (SocketException ex)
             {
                 if (ct.IsCancellationRequested) break;
-                Console.WriteLine($"[WsBridge] Proxy accept error: {ex.Message} — will restart");
+                BridgeLog($"[BRIDGE] Proxy accept error: {ex.Message} — will restart");
                 await _restartLock.WaitAsync(CancellationToken.None).ConfigureAwait(false);
                 try { StopListenersOnly(); } finally { _restartLock.Release(); }
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[WsBridge] Proxy error: {ex.Message}");
+                BridgeLog($"[BRIDGE] Proxy error: {ex.Message}");
             }
         }
     }
@@ -568,7 +588,7 @@ public class WsBridgeServer : IDisposable
 
             if (TryBindBridgePipeline(_bridgePort))
             {
-                Console.WriteLine($"[WsBridge] Restarted listening on port {_bridgePort}");
+                BridgeLog($"[BRIDGE] Restarted listening on port {_bridgePort}");
                 OnStateChanged?.Invoke();
                 return true;
             }
@@ -605,7 +625,7 @@ public class WsBridgeServer : IDisposable
             var request = await ReadProxyRequestAsync(downstreamStream, ct).ConfigureAwait(false);
             if (request == null)
             {
-                Console.WriteLine("[WsBridge] Proxy request dropped (incomplete headers or exceeded 64KB limit)");
+                BridgeLog("[BRIDGE] Proxy request dropped (incomplete headers or exceeded 64KB limit)");
                 return;
             }
 
@@ -627,7 +647,7 @@ public class WsBridgeServer : IDisposable
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WsBridge] Proxy client error: {ex.Message}");
+            BridgeLog($"[BRIDGE] Proxy client error: {ex.Message}");
         }
     }
 
@@ -799,7 +819,7 @@ public class WsBridgeServer : IDisposable
             ws = wsContext.WebSocket;
             _clients[clientId] = ws;
             _clientSendLocks[clientId] = new SemaphoreSlim(1, 1);
-            Console.WriteLine($"[WsBridge] Client {clientId} connected ({_clients.Count} total)");
+            BridgeLog($"[BRIDGE] Client {clientId} connected ({_clients.Count} total)");
 
             // Send initial state — if the server is still restoring sessions, wait so the
             // client doesn't see sessions with MessageCount=0 (History hasn't loaded from
@@ -808,14 +828,14 @@ public class WsBridgeServer : IDisposable
             {
                 if (_copilot.IsRestoring)
                 {
-                    Console.WriteLine($"[WsBridge] Client {clientId} connected while server is restoring — waiting for restore to complete");
+                    BridgeLog($"[BRIDGE] Client {clientId} connected while server is restoring — waiting for restore to complete");
                     var restoreDeadline = DateTime.UtcNow.AddSeconds(30);
                     while (_copilot.IsRestoring && DateTime.UtcNow < restoreDeadline && !ct.IsCancellationRequested)
                         await Task.Delay(200, ct);
                     if (!_copilot.IsRestoring)
-                        Console.WriteLine($"[WsBridge] Restore complete — sending session list to client {clientId}");
+                        BridgeLog($"[BRIDGE] Restore complete — sending session list to client {clientId}");
                     else
-                        Console.WriteLine($"[WsBridge] Restore still running after 30s — sending partial session list to client {clientId}");
+                        BridgeLog($"[BRIDGE] Restore still running after 30s — sending partial session list to client {clientId}");
                 }
                 await SendToClientAsync(clientId, ws,
                     BridgeMessage.Create(BridgeMessageTypes.SessionsList, BuildSessionsListPayload()), ct);
@@ -869,7 +889,7 @@ public class WsBridgeServer : IDisposable
         catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WsBridge] Client {clientId} error: {ex.Message}");
+            BridgeLog($"[BRIDGE] Client {clientId} error: {ex.Message}");
         }
         finally
         {
@@ -881,7 +901,7 @@ public class WsBridgeServer : IDisposable
                 catch { }
             }
             ws?.Dispose();
-            Console.WriteLine($"[WsBridge] Client {clientId} disconnected ({_clients.Count} remaining)");
+            BridgeLog($"[BRIDGE] Client {clientId} disconnected ({_clients.Count} remaining)");
         }
     }
 
@@ -909,7 +929,7 @@ public class WsBridgeServer : IDisposable
                     var sendReq = msg.GetPayload<SendMessagePayload>();
                     if (sendReq != null && !string.IsNullOrWhiteSpace(sendReq.SessionName) && !string.IsNullOrWhiteSpace(sendReq.Message))
                     {
-                        Console.WriteLine($"[WsBridge] Client sending message to '{sendReq.SessionName}'");
+                        BridgeLog($"[BRIDGE] Client sending message to '{sendReq.SessionName}'");
                         // Fire-and-forget: don't block the client message loop waiting for the full response.
                         // SendPromptAsync awaits ResponseCompletion (minutes). Responses stream back via events.
                         // Blocking here prevents the client from sending abort, switch, or other commands.
@@ -921,7 +941,7 @@ public class WsBridgeServer : IDisposable
                         if (_copilot.IsRestoring)
                         {
                             _pendingBridgePrompts.Enqueue(new PendingBridgePrompt(sendSession, sendMessage, sendAgentMode));
-                            Console.WriteLine($"[BRIDGE] Queued prompt for '{sendSession}' during restore ({_pendingBridgePrompts.Count} pending)");
+                            BridgeLog($"[BRIDGE] Queued prompt for '{sendSession}' during restore ({_pendingBridgePrompts.Count} pending)");
                             break;
                         }
 
@@ -929,7 +949,7 @@ public class WsBridgeServer : IDisposable
                         _ = Task.Run(async () =>
                         {
                             try { await DispatchBridgePromptAsync(sendSession, sendMessage, sendAgentMode, ct); }
-                            catch (Exception ex) { Console.WriteLine($"[WsBridge] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
+                            catch (Exception ex) { BridgeLog($"[BRIDGE] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
                         });
                     }
                     break;
@@ -949,14 +969,14 @@ public class WsBridgeServer : IDisposable
                                 createReq.WorkingDirectory.Contains("..") ||
                                 !Directory.Exists(createReq.WorkingDirectory))
                             {
-                                Console.WriteLine($"[WsBridge] Rejected invalid WorkingDirectory: {createReq.WorkingDirectory}");
+                                BridgeLog($"[BRIDGE] Rejected invalid WorkingDirectory: {createReq.WorkingDirectory}");
                                 await SendToClientAsync(clientId, ws,
                                     BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
                                         new ErrorPayload { SessionName = createReq.Name, Error = $"Working directory not found on server: {createReq.WorkingDirectory}" }), ct);
                                 break;
                             }
                         }
-                        Console.WriteLine($"[WsBridge] Client creating session '{createReq.Name}'");
+                        BridgeLog($"[BRIDGE] Client creating session '{createReq.Name}'");
                         await _copilot.CreateSessionAsync(createReq.Name, createReq.Model, createReq.WorkingDirectory, ct);
                         BroadcastSessionsList();
                         BroadcastOrganizationState();
@@ -990,24 +1010,24 @@ public class WsBridgeServer : IDisposable
                         // Validate session ID is a valid GUID to prevent path traversal
                         if (!Guid.TryParse(resumeReq.SessionId, out _))
                         {
-                            Console.WriteLine($"[WsBridge] Rejected invalid session ID format: {resumeReq.SessionId}");
+                            BridgeLog($"[BRIDGE] Rejected invalid session ID format: {resumeReq.SessionId}");
                             await SendToClientAsync(clientId, ws,
                                 BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
                                     new ErrorPayload { SessionName = resumeReq.DisplayName ?? "Unknown", Error = "Invalid session ID format" }), ct);
                             break;
                         }
-                        Console.WriteLine($"[WsBridge] Client resuming session '{resumeReq.SessionId}'");
+                        BridgeLog($"[BRIDGE] Client resuming session '{resumeReq.SessionId}'");
                         var displayName = resumeReq.DisplayName ?? "Resumed";
                         try
                         {
                             await _copilot.ResumeSessionAsync(resumeReq.SessionId, displayName, workingDirectory: null, model: null, cancellationToken: ct);
-                            Console.WriteLine($"[WsBridge] Session resumed successfully, broadcasting updated list");
+                            BridgeLog($"[BRIDGE] Session resumed successfully, broadcasting updated list");
                             BroadcastSessionsList();
                             BroadcastOrganizationState();
                         }
                         catch (Exception resumeEx)
                         {
-                            Console.WriteLine($"[WsBridge] Resume failed: {resumeEx.Message}");
+                            BridgeLog($"[BRIDGE] Resume failed: {resumeEx.Message}");
                             await SendToClientAsync(clientId, ws,
                                 BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
                                     new ErrorPayload { SessionName = displayName, Error = $"Resume failed: {resumeEx.Message}" }), ct);
@@ -1019,7 +1039,7 @@ public class WsBridgeServer : IDisposable
                     var closeReq = msg.GetPayload<SessionNamePayload>();
                     if (closeReq != null && !string.IsNullOrWhiteSpace(closeReq.SessionName))
                     {
-                        Console.WriteLine($"[WsBridge] Client closing session '{closeReq.SessionName}'");
+                        BridgeLog($"[BRIDGE] Client closing session '{closeReq.SessionName}'");
                         await _copilot.CloseSessionAsync(closeReq.SessionName);
                     }
                     break;
@@ -1028,7 +1048,7 @@ public class WsBridgeServer : IDisposable
                     var abortReq = msg.GetPayload<SessionNamePayload>();
                     if (abortReq != null && !string.IsNullOrWhiteSpace(abortReq.SessionName))
                     {
-                        Console.WriteLine($"[WsBridge] Client aborting session '{abortReq.SessionName}'");
+                        BridgeLog($"[BRIDGE] Client aborting session '{abortReq.SessionName}'");
                         // AbortSessionAsync mutates IsProcessing/History — must run on UI thread
                         _copilot.InvokeOnUI(() =>
                         {
@@ -1041,7 +1061,7 @@ public class WsBridgeServer : IDisposable
                     var changeModelReq = msg.GetPayload<ChangeModelPayload>();
                     if (changeModelReq != null && !string.IsNullOrWhiteSpace(changeModelReq.SessionName))
                     {
-                        Console.WriteLine($"[WsBridge] Client changing model for '{changeModelReq.SessionName}' to '{changeModelReq.NewModel}'");
+                        BridgeLog($"[BRIDGE] Client changing model for '{changeModelReq.SessionName}' to '{changeModelReq.NewModel}'");
                         var modelChanged = await _copilot.ChangeModelAsync(changeModelReq.SessionName, changeModelReq.NewModel, changeModelReq.ReasoningEffort);
                         if (!modelChanged)
                         {
@@ -1058,7 +1078,7 @@ public class WsBridgeServer : IDisposable
                     var renameReq = msg.GetPayload<RenameSessionPayload>();
                     if (renameReq != null && !string.IsNullOrWhiteSpace(renameReq.OldName) && !string.IsNullOrWhiteSpace(renameReq.NewName))
                     {
-                        Console.WriteLine($"[WsBridge] Client renaming session '{renameReq.OldName}' to '{renameReq.NewName}'");
+                        BridgeLog($"[BRIDGE] Client renaming session '{renameReq.OldName}' to '{renameReq.NewName}'");
                         var renamed = _copilot.RenameSession(renameReq.OldName, renameReq.NewName);
                         if (!renamed)
                         {
@@ -1139,7 +1159,7 @@ public class WsBridgeServer : IDisposable
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine($"[WsBridge] CreateGroupFromPreset failed: {ex.Message}");
+                                BridgeLog($"[BRIDGE] CreateGroupFromPreset failed: {ex.Message}");
                                 try
                                 {
                                     await SendToClientAsync(presetClientId, presetWs,
@@ -1277,7 +1297,7 @@ public class WsBridgeServer : IDisposable
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[WsBridgeServer] RemoveRepo error: {ex.Message}");
+                            BridgeLog($"[BRIDGE] RemoveRepo error: {ex.Message}");
                         }
                     }
                     break;
@@ -1333,7 +1353,7 @@ public class WsBridgeServer : IDisposable
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine($"[WsBridgeServer] RemoveWorktree error: {ex.Message}");
+                                BridgeLog($"[BRIDGE] RemoveWorktree error: {ex.Message}");
                                 await SendToClientAsync(clientId, ws,
                                     BridgeMessage.Create(BridgeMessageTypes.WorktreeError,
                                         new RepoErrorPayload { RequestId = rmWtReq.RequestId, Error = ex.Message }), ct);
@@ -1350,7 +1370,7 @@ public class WsBridgeServer : IDisposable
                         {
                             try
                             {
-                                Console.WriteLine($"[WsBridge] Client creating session+worktree for repo '{cswtReq.RepoId}'");
+                                BridgeLog($"[BRIDGE] Client creating session+worktree for repo '{cswtReq.RepoId}'");
                                 // Run on UI thread — CreateSessionWithWorktreeAsync calls
                                 // ReconcileOrganization() which mutates Organization.Sessions
                                 await _copilot.InvokeOnUIAsync(async () =>
@@ -1370,7 +1390,7 @@ public class WsBridgeServer : IDisposable
                             }
                             catch (Exception ex)
                             {
-                                Console.WriteLine($"[WsBridge] CreateSessionWithWorktree error: {ex.Message}");
+                                BridgeLog($"[BRIDGE] CreateSessionWithWorktree error: {ex.Message}");
                                 await SendToClientAsync(clientId, ws,
                                     BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
                                         new ErrorPayload { SessionName = cswtReq.SessionName ?? "", Error = $"Create session+worktree failed: {ex.Message}" }), ct);
@@ -1388,7 +1408,7 @@ public class WsBridgeServer : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WsBridge] Error handling {msg.Type}: {ex.Message}");
+            BridgeLog($"[BRIDGE] Error handling {msg.Type}: {ex.Message}");
         }
     }
 
@@ -1448,7 +1468,7 @@ public class WsBridgeServer : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WsBridge] Failed to send directory list: {ex.Message}");
+            BridgeLog($"[BRIDGE] Failed to send directory list: {ex.Message}");
         }
     }
 
@@ -1517,7 +1537,7 @@ public class WsBridgeServer : IDisposable
         try { snapshot = session.History.ToArray(); }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WsBridge] History snapshot failed for '{sessionName}': {ex.Message}");
+            BridgeLog($"[BRIDGE] History snapshot failed for '{sessionName}': {ex.Message}");
             return;
         }
 
@@ -1649,7 +1669,7 @@ public class WsBridgeServer : IDisposable
     public void BroadcastStateToClients()
     {
         if (_clients.IsEmpty) return;
-        Console.WriteLine("[WsBridge] Broadcasting state to clients after unlock/wake");
+        BridgeLog("[BRIDGE] Broadcasting state to clients after unlock/wake");
         BroadcastSessionsList();
         BroadcastOrganizationState();
     }
@@ -1741,7 +1761,7 @@ public class WsBridgeServer : IDisposable
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WsBridge] BroadcastSessionHistory error for '{sessionName}': {ex.Message}");
+            BridgeLog($"[BRIDGE] BroadcastSessionHistory error for '{sessionName}': {ex.Message}");
         }
     }
 
@@ -1953,14 +1973,14 @@ public class WsBridgeServer : IDisposable
             var wsCtx = await ctx.AcceptWebSocketAsync(null);
             ws = wsCtx.WebSocket;
             var remoteIp = GetClientAddress(ctx.Request)?.ToString() ?? "unknown";
-            Console.WriteLine($"[WsBridge] Pair handshake from {remoteIp}");
+            BridgeLog($"[BRIDGE] Pair handshake from {remoteIp}");
 
             if (_fiestaService != null)
                 await _fiestaService.HandleIncomingPairHandshakeAsync(ws, remoteIp, ct);
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"[WsBridge] Pair handshake error: {ex.Message}");
+            BridgeLog($"[BRIDGE] Pair handshake error: {ex.Message}");
         }
         finally
         {

@@ -919,6 +919,28 @@ public partial class CopilotService : IAsyncDisposable
             message.Contains("watchdog") || message.Contains("Failed to");
     }
 
+    /// <summary>
+    /// Static logging entry point for WsBridgeServer diagnostics.
+    /// Writes directly to the event-diagnostics.log file without requiring a CopilotService instance.
+    /// </summary>
+    internal static void LogBridgeDiagnostic(string message)
+    {
+        Console.WriteLine($"[DEBUG] {message}");
+        if (ShouldPersistDiagnostic(message))
+        {
+            try
+            {
+                lock (_diagnosticLogLock)
+                {
+                    var logPath = Path.Combine(PolyPilotBaseDir, "event-diagnostics.log");
+                    File.AppendAllText(logPath,
+                        $"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} {message}{Environment.NewLine}");
+                }
+            }
+            catch { }
+        }
+    }
+
     private void Debug(string message)
     {
         LastDebugMessage = message;
