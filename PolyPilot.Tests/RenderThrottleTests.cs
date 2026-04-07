@@ -214,18 +214,18 @@ public class RenderThrottleTests
         var methodStart = source.IndexOf("private void CompleteResponse(", StringComparison.Ordinal);
         Assert.True(methodStart >= 0, "CompleteResponse method not found");
 
-        // The critical ordering is AFTER IsProcessing = false (the main completion path).
+        // The critical ordering is AFTER ClearProcessingState (which sets IsProcessing=false).
         // Use the preceding comment as anchor to find the right occurrence.
         var anchor = source.IndexOf("// Clear IsProcessing BEFORE completing the TCS", methodStart, StringComparison.Ordinal);
         Assert.True(anchor >= 0, "CompleteResponse TCS comment not found");
-        var isProcessingFalse = source.IndexOf("state.Info.IsProcessing = false;", anchor, StringComparison.Ordinal);
-        Assert.True(isProcessingFalse >= 0, "IsProcessing = false not found in CompleteResponse main path");
+        var clearProcessing = source.IndexOf("ClearProcessingState(state)", anchor, StringComparison.Ordinal);
+        Assert.True(clearProcessing >= 0, "ClearProcessingState(state) not found in CompleteResponse main path");
 
-        var afterProcessing = source.Substring(isProcessingFalse, 1200);
+        var afterProcessing = source.Substring(clearProcessing, 2000);
         var completeIdx = afterProcessing.IndexOf("OnSessionComplete?", StringComparison.Ordinal);
         var stateIdx = afterProcessing.IndexOf("OnStateChanged?", StringComparison.Ordinal);
-        Assert.True(completeIdx >= 0, "OnSessionComplete not found after IsProcessing=false in CompleteResponse");
-        Assert.True(stateIdx >= 0, "OnStateChanged not found after IsProcessing=false in CompleteResponse");
+        Assert.True(completeIdx >= 0, "OnSessionComplete not found after ClearProcessingState in CompleteResponse");
+        Assert.True(stateIdx >= 0, "OnStateChanged not found after ClearProcessingState in CompleteResponse");
         Assert.True(completeIdx < stateIdx,
             "OnSessionComplete must fire BEFORE OnStateChanged in CompleteResponse. " +
             "HandleComplete populates completedSessions which RefreshState checks to bypass throttle.");

@@ -2315,7 +2315,6 @@ public partial class CopilotService
         if (state.IsOrphaned) return;
         CancelToolHealthCheck(state);
         CancelProcessingWatchdog(state);
-        CancelTurnEndFallback(state);
 
         var activeTools = Volatile.Read(ref state.ActiveToolCallCount);
         var recoveryGeneration = Interlocked.Read(ref state.ProcessingGeneration);
@@ -2330,16 +2329,8 @@ public partial class CopilotService
 
             OnError?.Invoke(sessionName, $"Tool execution stuck ({reason}). Session recovered automatically.");
 
-            // Full cleanup mirroring CompleteResponse — missing fields here caused stuck sessions
-            Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-            state.HasUsedToolsThisTurn = false;
-            ClearDeferredIdleTracking(state);
             state.FallbackCanceledByTurnStart = false;
-            Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
             Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
-            Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
-            Interlocked.Exchange(ref state.EventCountThisTurn, 0);
-            Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
 
             // Build full response: flushed mid-turn text + remaining current text
             var response = state.CurrentResponse.ToString();
@@ -2349,18 +2340,11 @@ public partial class CopilotService
                     : state.FlushedResponse + "\n\n" + response)
                 : response;
 
-            state.CurrentResponse.Clear();
-            state.FlushedResponse.Clear();
-            state.PendingReasoningMessages.Clear();
-
-            state.Info.IsProcessing = false;
+            // Accumulate API time but don't count as premium request (recovery, not success)
+            if (state.Info.ProcessingStartedAt is { } healthStarted)
+                state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - healthStarted).TotalSeconds;
+            ClearProcessingState(state, accumulateApiTime: false);
             state.AllowTurnStartRearm = false; // Explicit tool-health recovery should stay completed
-            state.Info.IsResumed = false;
-            Interlocked.Exchange(ref state.SendingFlag, 0);
-            state.Info.ProcessingStartedAt = null;
-            state.Info.ToolCallCount = 0;
-            state.Info.ProcessingPhase = 0;
-            state.Info.ClearPermissionDenials();
 
             state.ResponseCompletion?.TrySetResult(fullResponse);
 
