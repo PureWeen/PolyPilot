@@ -2560,7 +2560,7 @@ public class MultiAgentRegressionTests
         // Find the method definition (not a call site)
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
         Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
-        var methodBlock = source.Substring(methodIdx, Math.Min(8000, source.Length - methodIdx));
+        var methodBlock = source.Substring(methodIdx, Math.Min(12000, source.Length - methodIdx));
 
         Assert.Contains("OnSessionComplete +=", methodBlock);
         Assert.Contains("OnSessionComplete -=", methodBlock); // Must unsubscribe in finally
@@ -2692,7 +2692,7 @@ public class MultiAgentRegressionTests
 
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
         Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
-        var methodBlock = source.Substring(methodIdx, Math.Min(8000, source.Length - methodIdx));
+        var methodBlock = source.Substring(methodIdx, Math.Min(12000, source.Length - methodIdx));
 
         Assert.Contains("IsEventsFileActive", methodBlock);
     }
@@ -2723,7 +2723,7 @@ public class MultiAgentRegressionTests
 
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
         Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
-        var methodBlock = source.Substring(methodIdx, Math.Min(8000, source.Length - methodIdx));
+        var methodBlock = source.Substring(methodIdx, Math.Min(12000, source.Length - methodIdx));
 
         // Must have a loop for repeated premature idle rounds
         Assert.Contains("while (", methodBlock);
@@ -2801,6 +2801,27 @@ public class MultiAgentRegressionTests
         var assignIdx = methodBlock.IndexOf("stableMtime = GetEventsFileMtime", StringComparison.Ordinal);
         Assert.True(assignIdx >= 0, "stableMtime must be assigned from GetEventsFileMtime after the delay");
         Assert.True(delayIdx < assignIdx, "Grace period delay must precede stable-mtime assignment");
+    }
+
+    [Fact]
+    public void RecoverFromPrematureIdleIfNeededAsync_GracePeriodSkipsReconnectWrites()
+    {
+        // Structural: the grace period mtime check must guard against reconnect writes.
+        // When the app restarts mid-orchestration, EnsureSessionConnectedAsync writes
+        // session.resume to events.jsonl — this advances mtime but is NOT premature idle.
+        // The fix: after detecting mtime changed, check last event type and skip if it's
+        // session.resume or session.shutdown (terminal/reconnect events).
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync method definition must exist");
+        var methodBlock = source.Substring(methodIdx, Math.Min(6000, source.Length - methodIdx));
+
+        // Must use GetLastEventType to check the content, not just raw mtime delta
+        Assert.Contains("GetLastEventType", methodBlock);
+        // Must skip session.resume writes (reconnect scenario)
+        Assert.Contains("session.resume", methodBlock);
     }
 
     [Fact]

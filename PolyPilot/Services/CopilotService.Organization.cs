@@ -2693,8 +2693,19 @@ public partial class CopilotService
             try { await Task.Delay(PrematureIdleEventsGracePeriodMs, cancellationToken); }
             catch (OperationCanceledException) { return initialResponse; }
             stableMtime = GetEventsFileMtime(state.Info.SessionId);
-            // Mtime changed → CLI wrote new events during grace period → genuine premature idle
-            detected = stableMtime.HasValue && stableMtime.Value > (mtimeBefore ?? DateTime.MinValue);
+            // Mtime changed → check it's from real processing, not a reconnect session.resume write.
+            // When the app restarts mid-orchestration, EnsureSessionConnectedAsync writes session.resume
+            // to events.jsonl which advances mtime — that is NOT premature idle.
+            if (stableMtime.HasValue && stableMtime.Value > (mtimeBefore ?? DateTime.MinValue))
+            {
+                var eventsPath = Path.Combine(SessionStatePath, state.Info.SessionId ?? "", "events.jsonl");
+                var lastEvent = GetLastEventType(eventsPath);
+                // session.resume = reconnect write (not new processing)
+                // session.shutdown = terminal
+                detected = lastEvent != null && lastEvent != "session.resume" && lastEvent != "session.shutdown";
+                if (!detected)
+                    Debug($"[DISPATCH-RECOVER] Skipping grace-period false positive: last event={lastEvent ?? "none"} is a reconnect/terminal write, not premature idle");
+            }
         }
 
         if (!detected)
@@ -2713,12 +2724,21 @@ public partial class CopilotService
                     break;
                 }
                 
-                // Check if events.jsonl mtime advanced past the stable baseline
+                // Check if events.jsonl mtime advanced past the stable baseline.
+                // Skip session.resume writes (from app reconnect) — they advance mtime but
+                // are not signs of premature idle.
                 var currentMtime = GetEventsFileMtime(state.Info.SessionId);
                 if (currentMtime.HasValue && currentMtime.Value > (stableMtime ?? DateTime.MinValue))
                 {
-                    detected = true;
-                    break;
+                    var eventsPath = Path.Combine(SessionStatePath, state.Info.SessionId ?? "", "events.jsonl");
+                    var lastEvent = GetLastEventType(eventsPath);
+                    if (lastEvent != null && lastEvent != "session.resume" && lastEvent != "session.shutdown")
+                    {
+                        detected = true;
+                        break;
+                    }
+                    // Reconnect/terminal write — update baseline and keep polling
+                    stableMtime = currentMtime;
                 }
             }
         }
