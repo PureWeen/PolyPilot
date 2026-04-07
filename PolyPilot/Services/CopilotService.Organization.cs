@@ -573,9 +573,21 @@ public partial class CopilotService
                             var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
                             if (repo != null)
                             {
-                                var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
-                                if (repoGroup != null)
-                                    meta.GroupId = repoGroup.Id;
+                                // Prefer an existing local folder group for this repo over creating
+                                // a new URL-based repo group. This prevents duplicate sidebar entries
+                                // when the user added the repo via "Existing folder".
+                                var localFolderGroup = Organization.Groups.FirstOrDefault(g =>
+                                    g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
+                                if (localFolderGroup != null)
+                                {
+                                    meta.GroupId = localFolderGroup.Id;
+                                }
+                                else
+                                {
+                                    var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
+                                    if (repoGroup != null)
+                                        meta.GroupId = repoGroup.Id;
+                                }
                             }
                         }
                         changed = true;

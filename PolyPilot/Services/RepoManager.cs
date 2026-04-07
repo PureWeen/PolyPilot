@@ -472,6 +472,14 @@ public class RepoManager
         => AddRepositoryAsync(url, null, ct);
 
     public async Task<RepositoryInfo> AddRepositoryAsync(string url, Action<string>? onProgress, CancellationToken ct = default)
+        => await AddRepositoryAsync(url, onProgress, localCloneSource: null, ct);
+
+    /// <param name="localCloneSource">
+    /// When non-null, clone from this local path instead of the remote URL.
+    /// The remote origin is then set to <paramref name="url"/> so future fetches go to the network.
+    /// This avoids a redundant network clone when the user adds an existing local repository.
+    /// </param>
+    internal async Task<RepositoryInfo> AddRepositoryAsync(string url, Action<string>? onProgress, string? localCloneSource, CancellationToken ct = default)
     {
         url = NormalizeRepoUrl(url);
         EnsureLoaded();
@@ -493,6 +501,18 @@ public class RepoManager
             try { await RunGitAsync(barePath, ct, "config", "remote.origin.fetch",
                 "+refs/heads/*:refs/remotes/origin/*"); } catch { }
             await RunGitWithProgressAsync(barePath, onProgress, ct, "fetch", "--progress", "origin");
+        }
+        else if (localCloneSource != null)
+        {
+            // Clone from local path — fast, no network required
+            onProgress?.Invoke($"Cloning from local folder…");
+            await RunGitWithProgressAsync(null, onProgress, ct, "clone", "--bare", "--progress", localCloneSource, barePath);
+
+            // Point remote origin at the real remote URL so future fetches go to the network
+            await RunGitAsync(barePath, ct, "remote", "set-url", "origin", url);
+
+            await RunGitAsync(barePath, ct, "config", "remote.origin.fetch",
+                "+refs/heads/*:refs/remotes/origin/*");
         }
         else
         {
@@ -577,7 +597,7 @@ public class RepoManager
                 $"No 'origin' remote found in '{localPath}'. " +
                 "The folder must have a remote named 'origin' (e.g. a GitHub clone).");
 
-        var repo = await AddRepositoryAsync(remoteUrl, onProgress, ct);
+        var repo = await AddRepositoryAsync(remoteUrl, onProgress, localCloneSource: localPath, ct);
 
         // Register the local folder as an external worktree so it also appears in the
         // "📂 Existing" picker when creating repo-based sessions.
