@@ -2451,17 +2451,6 @@ public class MultiAgentRegressionTests
     #region Premature Idle Recovery Tests (PR #375 — SDK bug #299)
 
     [Fact]
-    public void PrematureIdleDetectionWindowMs_IsReasonable()
-    {
-        // The detection window must be long enough for EVT-REARM to fire on the UI thread
-        // after the premature idle, but short enough not to delay normal completions excessively.
-        Assert.True(CopilotService.PrematureIdleDetectionWindowMs >= 3000,
-            "Detection window must be >= 3s to allow UI thread EVT-REARM dispatch");
-        Assert.True(CopilotService.PrematureIdleDetectionWindowMs <= 10_000,
-            "Detection window must be <= 10s to avoid excessive delay on normal completions");
-    }
-
-    [Fact]
     public void PrematureIdleRecoveryTimeoutMs_IsReasonable()
     {
         // Recovery timeout must accommodate workers with long tool runs (up to 10+ minutes)
@@ -2747,6 +2736,18 @@ public class MultiAgentRegressionTests
     }
 
     [Fact]
+    public void PrematureIdleEventsSettleMs_ConstantExists()
+    {
+        // Settle period constant: time to wait before taking the stable baseline snapshot.
+        // Must be > 0 (need time for OS to flush mtime) and < GracePeriodMs (must leave
+        // observation window after settle).
+        Assert.True(CopilotService.PrematureIdleEventsSettleMs > 0,
+            "Settle must be > 0ms");
+        Assert.True(CopilotService.PrematureIdleEventsSettleMs < CopilotService.PrematureIdleEventsGracePeriodMs,
+            "Settle must be < GracePeriodMs to leave an observation window");
+    }
+
+    [Fact]
     public void PrematureIdleEventsGracePeriodMs_ConstantExists()
     {
         // Grace period constant must exist and be in a sensible range (500ms–5s).
@@ -2781,26 +2782,31 @@ public class MultiAgentRegressionTests
     [Fact]
     public void RecoverFromPrematureIdleIfNeededAsync_UsesMtimeComparisonForInitialDetection()
     {
-        // Structural: instead of raw IsEventsFileActive (which sees the idle event's own write
-        // as "fresh" and false-positives), the method must snapshot mtime, wait the grace period,
-        // then compare mtimes. Only a changed mtime proves the CLI is still writing.
+        // Structural: two-phase mtime check avoids OS mtime-flush false positives.
+        // Phase 1: settle (500ms) to let OS flush the completing write's mtime update
+        // Phase 2: observe (1500ms) to see if MORE writes happen (genuine premature idle)
+        // Only writes AFTER the settle baseline trigger detection.
         var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
         var methodIdx = source.IndexOf("private async Task<string?> RecoverFromPrematureIdleIfNeededAsync", StringComparison.Ordinal);
         Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync must exist");
-        var methodBlock = source.Substring(methodIdx, Math.Min(4000, source.Length - methodIdx));
+        var methodBlock = source.Substring(methodIdx, Math.Min(5000, source.Length - methodIdx));
 
         // Must use mtime comparison in the detection phase
         Assert.Contains("GetEventsFileMtime", methodBlock);
-        Assert.Contains("PrematureIdleEventsGracePeriodMs", methodBlock);
         Assert.Contains("stableMtime", methodBlock);
+        Assert.Contains("endMtime", methodBlock);
 
-        // The grace period delay must appear before the stableMtime assignment
-        var delayIdx = methodBlock.IndexOf("PrematureIdleEventsGracePeriodMs", StringComparison.Ordinal);
+        // Two-phase: settle delay must precede the stableMtime (baseline) assignment
+        var settleIdx = methodBlock.IndexOf("PrematureIdleEventsSettleMs", StringComparison.Ordinal);
         var assignIdx = methodBlock.IndexOf("stableMtime = GetEventsFileMtime", StringComparison.Ordinal);
-        Assert.True(assignIdx >= 0, "stableMtime must be assigned from GetEventsFileMtime after the delay");
-        Assert.True(delayIdx < assignIdx, "Grace period delay must precede stable-mtime assignment");
+        Assert.True(settleIdx >= 0, "PrematureIdleEventsSettleMs constant must appear in the method");
+        Assert.True(assignIdx >= 0, "stableMtime must be assigned from GetEventsFileMtime after the settle delay");
+        Assert.True(settleIdx < assignIdx, "Settle delay must precede stable-mtime baseline assignment");
+
+        // The observation comparison must use endMtime > stableMtime
+        Assert.Contains("endMtime.HasValue && endMtime.Value > (stableMtime", methodBlock);
     }
 
     [Fact]
@@ -2825,11 +2831,11 @@ public class MultiAgentRegressionTests
     }
 
     [Fact]
-    public void RecoverFromPrematureIdleIfNeededAsync_PollingLoopUsesMtimeComparison()
+    public void RecoverFromPrematureIdleIfNeededAsync_UsesTwoPhaseMtimeCheck()
     {
-        // Structural: the secondary polling loop must also use mtime comparison (not raw
-        // IsEventsFileActive) so that a stale-but-fresh file doesn't trigger false detection
-        // in subsequent poll cycles.
+        // Structural: the method must use the two-phase approach — settle period then
+        // snapshot stableMtime, then observe — so OS-flush false positives are avoided.
+        // After the two-phase check returns not-detected, it returns immediately (no polling loop).
         var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
         var source = File.ReadAllText(orgPath);
 
@@ -2837,11 +2843,11 @@ public class MultiAgentRegressionTests
         Assert.True(methodIdx >= 0, "RecoverFromPrematureIdleIfNeededAsync must exist");
         var methodBlock = source.Substring(methodIdx, Math.Min(5000, source.Length - methodIdx));
 
-        // The polling loop must compare currentMtime against stableMtime
-        Assert.Contains("currentMtime", methodBlock);
+        // Must use stableMtime (post-settle baseline) and endMtime (post-observe)
         Assert.Contains("stableMtime", methodBlock);
+        Assert.Contains("endMtime", methodBlock);
 
-        // Both GetEventsFileMtime calls should appear in the method
+        // Both GetEventsFileMtime calls should appear (settle snapshot + observe snapshot)
         var calls = 0;
         var searchFrom = 0;
         while (true)
@@ -2851,7 +2857,11 @@ public class MultiAgentRegressionTests
             calls++;
             searchFrom = idx + 1;
         }
-        Assert.True(calls >= 2, $"GetEventsFileMtime must be called at least twice (grace + polling), found {calls}");
+        Assert.True(calls >= 2, $"GetEventsFileMtime must be called at least twice (settle + observe), found {calls}");
+
+        // Must NOT have a secondary polling loop (the while loop that kept looping for 10s)
+        // because it added 10s of delay to every normal worker completion.
+        Assert.DoesNotContain("detectStart", methodBlock);
     }
 
     #endregion

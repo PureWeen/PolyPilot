@@ -42,20 +42,19 @@ public partial class CopilotService
     /// Shorter than WorkerExecutionTimeout — if a worker is stuck, the orchestrator
     /// proceeds with partial results rather than blocking the group forever.</summary>
     private static readonly TimeSpan OrchestratorCollectionTimeout = TimeSpan.FromMinutes(15);
-    /// Checks both WasPrematurelyIdled flag (set by EVT-REARM) and events.jsonl freshness
-    /// (CLI still writing events). The events.jsonl check catches cases where EVT-REARM
-    /// takes 30-60s to fire.</summary>
-    internal const int PrematureIdleDetectionWindowMs = 10_000;
 
     /// <summary>If events.jsonl was modified within this many seconds of TCS completion,
     /// the worker is likely still active despite the premature session.idle.</summary>
     internal const int PrematureIdleEventsFileFreshnessSeconds = 15;
 
-    /// <summary>Grace period after TCS completion before declaring premature idle based on
-    /// events.jsonl mtime. During this window we observe whether the file's mtime changes
-    /// (indicating the CLI is still writing), vs. remaining frozen (normal completion where
-    /// the idle event itself wrote the file). This prevents false-positive premature idle
-    /// detection when events.jsonl was just written by the completing idle event.</summary>
+    /// <summary>Settle period (first phase of two-phase grace check): waits for the OS to
+    /// flush the completing event's mtime update before taking the stable baseline snapshot.
+    /// Must be less than PrematureIdleEventsGracePeriodMs. Observation window = Grace - Settle.</summary>
+    internal const int PrematureIdleEventsSettleMs = 500;
+
+    /// <summary>Total observation window: settle (500ms) + observe (1500ms) = 2000ms.
+    /// After settle, we snapshot stableMtime. After the full window, endMtime > stableMtime
+    /// means the CLI wrote NEW events (genuine premature idle), not just the completing flush.</summary>
     internal const int PrematureIdleEventsGracePeriodMs = 2000;
 
     /// <summary>Maximum time to wait for the worker's real completion after detecting a
@@ -2686,17 +2685,28 @@ public partial class CopilotService
 
         if (!detected)
         {
-            // Snapshot mtime and wait briefly to detect whether CLI is still writing.
-            // Without this grace period we'd false-positive: the idle event itself just
-            // wrote to events.jsonl, making it appear "fresh" even on normal completion.
-            var mtimeBefore = GetEventsFileMtime(state.Info.SessionId);
-            try { await Task.Delay(PrematureIdleEventsGracePeriodMs, cancellationToken); }
+            // Two-phase mtime check to avoid OS mtime-flush false positives.
+            //
+            // Problem: the SDK writes assistant.turn_end to events.jsonl, then immediately emits
+            // session.idle (ephemeral, not written). TCS fires and we capture `mtimeBefore`, but
+            // the OS may not have flushed the turn_end mtime update yet (APFS can buffer for ~100ms).
+            // If we compare mtimeBefore (pre-flush) vs stableMtime (post-flush), we see a phantom
+            // change even though no new processing happened.
+            //
+            // Fix: brief settle (500ms) to let the OS flush the completing write's mtime, THEN
+            // snapshot `stableMtime` as a clean baseline. After 1500ms observation, compare against
+            // that post-settle baseline — only genuine new writes (tool rounds, etc.) trigger detection.
+            try { await Task.Delay(PrematureIdleEventsSettleMs, cancellationToken); }
             catch (OperationCanceledException) { return initialResponse; }
+            // Post-settle baseline — already includes the completing turn_end write's mtime
             stableMtime = GetEventsFileMtime(state.Info.SessionId);
-            // Mtime changed → check it's from real processing, not a reconnect session.resume write.
-            // When the app restarts mid-orchestration, EnsureSessionConnectedAsync writes session.resume
-            // to events.jsonl which advances mtime — that is NOT premature idle.
-            if (stableMtime.HasValue && stableMtime.Value > (mtimeBefore ?? DateTime.MinValue))
+
+            try { await Task.Delay(PrematureIdleEventsGracePeriodMs - PrematureIdleEventsSettleMs, cancellationToken); }
+            catch (OperationCanceledException) { return initialResponse; }
+
+            var endMtime = GetEventsFileMtime(state.Info.SessionId);
+            // endMtime > stableMtime only if the CLI wrote NEW events after the settle
+            if (endMtime.HasValue && endMtime.Value > (stableMtime ?? DateTime.MinValue))
             {
                 var eventsPath = Path.Combine(SessionStatePath, state.Info.SessionId ?? "", "events.jsonl");
                 var lastEvent = GetLastEventType(eventsPath);
@@ -2705,41 +2715,6 @@ public partial class CopilotService
                 detected = lastEvent != null && lastEvent != "session.resume" && lastEvent != "session.shutdown";
                 if (!detected)
                     Debug($"[DISPATCH-RECOVER] Skipping grace-period false positive: last event={lastEvent ?? "none"} is a reconnect/terminal write, not premature idle");
-            }
-        }
-
-        if (!detected)
-        {
-            // Wait for PrematureIdleSignal OR poll events.jsonl for mtime changes
-            var detectStart = DateTime.UtcNow;
-            while ((DateTime.UtcNow - detectStart).TotalMilliseconds < PrematureIdleDetectionWindowMs)
-            {
-                // Wait up to 500ms on the signal (exits immediately if Set())
-                var signaled = await Task.Run(WaitForPrematureIdleSignal, cancellationToken)
-                    .ConfigureAwait(false);
-                
-                if (signaled || cancellationToken.IsCancellationRequested)
-                {
-                    detected = signaled;
-                    break;
-                }
-                
-                // Check if events.jsonl mtime advanced past the stable baseline.
-                // Skip session.resume writes (from app reconnect) — they advance mtime but
-                // are not signs of premature idle.
-                var currentMtime = GetEventsFileMtime(state.Info.SessionId);
-                if (currentMtime.HasValue && currentMtime.Value > (stableMtime ?? DateTime.MinValue))
-                {
-                    var eventsPath = Path.Combine(SessionStatePath, state.Info.SessionId ?? "", "events.jsonl");
-                    var lastEvent = GetLastEventType(eventsPath);
-                    if (lastEvent != null && lastEvent != "session.resume" && lastEvent != "session.shutdown")
-                    {
-                        detected = true;
-                        break;
-                    }
-                    // Reconnect/terminal write — update baseline and keep polling
-                    stableMtime = currentMtime;
-                }
             }
         }
 
