@@ -83,6 +83,11 @@
         <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
         <PackageReference Include="QRCoder" Version="1.7.0" />
         <PackageReference Include="ZXing.Net.Maui.Controls" Version="0.7.4" />
+    </ItemGroup>
+
+    <!-- MauiDevFlow is a dev-time inspection tool — exclude from Release builds
+         to avoid shipping unnecessary assemblies and working around packaging bugs. -->
+    <ItemGroup Condition="'$(Configuration)' == 'Debug'">
         <PackageReference Include="Microsoft.Maui.DevFlow.Agent" Version="0.1.0-preview.4.26202.3" />
         <PackageReference Include="Microsoft.Maui.DevFlow.Blazor" Version="0.1.0-preview.4.26202.3" />
     </ItemGroup>

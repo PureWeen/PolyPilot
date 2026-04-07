@@ -64,6 +64,10 @@
     <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
     <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
     <PackageReference Include="QRCoder" Version="*" />
+  </ItemGroup>
+
+  <!-- MauiDevFlow is a dev-time inspection tool — exclude from Release builds. -->
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
     <PackageReference Include="Microsoft.Maui.DevFlow.Agent.Gtk" Version="0.1.0-preview.4.26202.3" />
     <PackageReference Include="Microsoft.Maui.DevFlow.Blazor.Gtk" Version="0.1.0-preview.4.26202.3" />
   </ItemGroup>

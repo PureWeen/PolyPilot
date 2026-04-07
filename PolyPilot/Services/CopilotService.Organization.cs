@@ -2228,24 +2228,13 @@ public partial class CopilotService
             {
                 if (!state.Info.IsProcessing) { tcs.TrySetResult(true); return; }
 
-                // Full cleanup mirroring CompleteResponse / unstartedWorkers recovery
+                // Full cleanup via ClearProcessingState
                 FlushCurrentResponse(state);
-                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-                Interlocked.Exchange(ref state.SendingFlag, 0);
-                Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 Interlocked.Exchange(ref state.WatchdogCaseAResets, 0);
                 Interlocked.Exchange(ref state.WatchdogCaseBResets, 0);
                 Interlocked.Exchange(ref state.WatchdogCaseBLastFileSize, 0);
                 Interlocked.Exchange(ref state.WatchdogCaseBStaleCount, 0);
-                state.HasUsedToolsThisTurn = false;
-                ClearDeferredIdleTracking(state, preserveCarryOver: true);
-                state.AllowTurnStartRearm = false; // Force-complete is explicit recovery, not a speculative idle completion
                 state.FallbackCanceledByTurnStart = false;
-                state.Info.IsResumed = false;
-                state.Info.ProcessingStartedAt = null;
-                state.Info.ToolCallCount = 0;
-                state.Info.ProcessingPhase = 0;
-                state.Info.ClearPermissionDenials();
 
                 var response = state.CurrentResponse.ToString();
                 var fullResponse = state.FlushedResponse.Length > 0
@@ -2254,11 +2243,11 @@ public partial class CopilotService
                         : state.FlushedResponse + "\n\n" + response)
                     : response;
 
-                state.CurrentResponse.Clear();
-                state.FlushedResponse.Clear();
-                ClearFlushedReplayDedup(state);
-                state.PendingReasoningMessages.Clear();
-                state.Info.IsProcessing = false;
+                // Accumulate API time but don't count as premium request (forced recovery)
+                if (state.Info.ProcessingStartedAt is { } forceStarted)
+                    state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - forceStarted).TotalSeconds;
+                ClearProcessingState(state, accumulateApiTime: false);
+                state.AllowTurnStartRearm = false; // Force-complete is explicit recovery, not a speculative idle completion
 
                 state.ResponseCompletion?.TrySetResult(fullResponse);
                 var summary = fullResponse.Length > 0 ? (fullResponse.Length > 100 ? fullResponse[..100] + "..." : fullResponse) : "";

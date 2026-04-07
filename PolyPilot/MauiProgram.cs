@@ -3,8 +3,10 @@ using PolyPilot.Models;
 using PolyPilot.Provider;
 using Microsoft.Extensions.Logging;
 using ZXing.Net.Maui.Controls;
+#if DEBUG
 using Microsoft.Maui.DevFlow.Agent;
 using Microsoft.Maui.DevFlow.Blazor;
+#endif
 using CommunityToolkit.Maui;
 using CommunityToolkit.Maui.Media;
 #if MACCATALYST
