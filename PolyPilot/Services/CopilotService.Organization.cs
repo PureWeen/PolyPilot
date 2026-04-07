@@ -2227,7 +2227,7 @@ public partial class CopilotService
                 Interlocked.Exchange(ref state.WatchdogCaseBLastFileSize, 0);
                 Interlocked.Exchange(ref state.WatchdogCaseBStaleCount, 0);
                 state.HasUsedToolsThisTurn = false;
-                ClearDeferredIdleTracking(state);
+                ClearDeferredIdleTracking(state, preserveCarryOver: true);
                 state.AllowTurnStartRearm = false; // Force-complete is explicit recovery, not a speculative idle completion
                 state.FallbackCanceledByTurnStart = false;
                 state.Info.IsResumed = false;

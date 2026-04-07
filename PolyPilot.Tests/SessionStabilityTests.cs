@@ -141,6 +141,15 @@ public class SessionStabilityTests
     }
 
     [Fact]
+    public void ForceCompleteProcessing_PreservesCarryOverDeferredIdleFingerprint()
+    {
+        var source = File.ReadAllText(TestPaths.OrganizationCs);
+        var method = ExtractMethod(source, "Task ForceCompleteProcessingAsync");
+
+        Assert.Contains("ClearDeferredIdleTracking(state, preserveCarryOver: true)", method);
+    }
+
+    [Fact]
     public void OrchestratorTimeout_ResultCollection_PreservesWorkerNames()
     {
         var source = File.ReadAllText(TestPaths.OrganizationCs);
