@@ -1,0 +1,530 @@
+{
+  "description": "Multi-agent reliability scenarios for PolyPilot. Tests cover every orchestration lifecycle path: group creation, dispatch, worker execution, synthesis, subsequent orchestrations, follow-up handling, restart recovery, and state hygiene. Complements multi-agent-scenarios.json which covers organization/presets/squad. Execute against a running PolyPilot instance using MauiDevFlow CDP commands.",
+  "prerequisites": {
+    "build": "cd PolyPilot && ./relaunch.sh",
+    "waitForAgent": "maui devflow MAUI status --agent-port 9223",
+    "initialMode": "Persistent",
+    "notes": "All test sessions MUST point to the PolyPilot repository. Use 'Implement & Challenge' preset (ignore PR Reviewer). Never commit, push, or create GitHub issues/PRs. DevFlow agent port is 9223. CDP Blazor clicks require PointerEvent dispatch."
+  },
+  "scenarios": [
+    {
+      "id": "create-implement-challenge-group",
+      "name": "Create Implement & Challenge multi-agent group",
+      "description": "Create a multi-agent group using the Implement & Challenge preset. Verify orchestrator and workers are created with correct roles.",
+      "category": "group-creation",
+      "invariants": [
+        "Group appears in sidebar",
+        "Orchestrator session exists with Role=Orchestrator",
+        "Worker sessions exist (at least 2)",
+        "All sessions point to PolyPilot repo"
+      ],
+      "steps": [
+        { "action": "openCreateMenu" },
+        { "action": "selectOption", "text": "Multi-Agent Team" },
+        { "action": "selectPreset", "name": "Implement & Challenge" },
+        { "action": "selectRepo", "repo": "PureWeen-PolyPilot" },
+        { "action": "clickCreate" },
+        { "action": "wait", "ms": 5000 },
+        { "action": "assertGroupExists", "nameContains": "Implement" },
+        { "action": "assertSessionExists", "nameContains": "orchestrator" },
+        { "action": "assertSessionExists", "nameContains": "worker" }
+      ]
+    },
+    {
+      "id": "group-shows-all-sessions-in-sidebar",
+      "name": "Multi-agent group shows all sessions in sidebar",
+      "description": "Verify all group sessions (orchestrator + workers) are visible in the sidebar under the group.",
+      "category": "group-creation",
+      "invariants": [
+        "All sessions visible under group header",
+        "Session count matches expected (orchestrator + N workers)"
+      ],
+      "steps": [
+        { "action": "evaluate", "script": "document.querySelectorAll('[class*=session-list-item]').length", "expect": { "greaterThan": 2 }, "note": "At least orchestrator + 2 workers visible" }
+      ]
+    },
+    {
+      "id": "workers-have-assigned-models",
+      "name": "Workers have model assignments from preset",
+      "description": "Verify each worker session has its configured model from the preset.",
+      "category": "group-creation",
+      "invariants": [
+        "Each worker has a non-empty model assignment",
+        "Model names match preset configuration"
+      ],
+      "steps": [
+        { "action": "note", "text": "Verify by expanding each worker card and checking model dropdown, or via event log on first dispatch" }
+      ]
+    },
+    {
+      "id": "orchestrator-role-correct",
+      "name": "Orchestrator session has correct metadata",
+      "description": "Verify the orchestrator session is marked with the correct role and group membership.",
+      "category": "group-creation",
+      "invariants": [
+        "Orchestrator session exists",
+        "Session is part of the multi-agent group",
+        "IsMultiAgentSession = true"
+      ],
+      "steps": [
+        { "action": "assertSessionExists", "nameContains": "orchestrator" },
+        { "action": "assertEventLog", "pattern": "DISPATCH-ROUTE.*orchestrator.*isOrch=True", "expected": true, "note": "Will be verified when first message is sent" }
+      ]
+    },
+    {
+      "id": "dispatch-sends-to-all-workers",
+      "name": "Orchestration dispatches to all workers",
+      "description": "Send a prompt to the group. Verify the orchestrator dispatches tasks to all workers via event log.",
+      "category": "dispatch",
+      "invariants": [
+        "Event log shows [DISPATCH-ROUTE] with correct mode",
+        "Event log shows [SEND] for each worker",
+        "Event log shows [DISPATCH] with worker names"
+      ],
+      "steps": [
+        { "action": "sendToGroup", "text": "Add a one-line code comment to the top of README.md explaining what PolyPilot is. Keep it simple." },
+        { "action": "wait", "ms": 10000, "note": "Wait for orchestrator to plan and dispatch" },
+        { "action": "assertEventLog", "pattern": "\\[DISPATCH-ROUTE\\].*Orchestrator", "expected": true },
+        { "action": "assertEventLog", "pattern": "\\[DISPATCH\\].*Dispatching", "expected": true },
+        { "action": "assertEventLog", "pattern": "\\[SEND\\].*worker", "expected": true }
+      ]
+    },
+    {
+      "id": "dispatch-stagger-delay",
+      "name": "Workers dispatched with stagger delay",
+      "description": "Verify workers are dispatched approximately 1 second apart, not all at once.",
+      "category": "dispatch",
+      "invariants": [
+        "Worker [SEND] timestamps are ~1s apart"
+      ],
+      "steps": [
+        { "action": "shellCheck", "command": "grep '\\[SEND\\].*worker' ~/.polypilot/event-diagnostics.log | tail -3", "note": "Verify timestamps show staggered dispatch" }
+      ]
+    },
+    {
+      "id": "pending-orchestration-saved-during-dispatch",
+      "name": "PendingOrchestration file created during dispatch",
+      "description": "During worker execution, verify pending-orchestration.json exists with correct data.",
+      "category": "dispatch",
+      "invariants": [
+        "File exists at ~/.polypilot/pending-orchestration.json",
+        "Contains correct group ID and worker names"
+      ],
+      "steps": [
+        { "action": "shellCheck", "command": "cat ~/.polypilot/pending-orchestration.json 2>/dev/null | head -5", "expect": { "contains": "worker" } }
+      ]
+    },
+    {
+      "id": "orchestrator-plans-with-worker-blocks",
+      "name": "Orchestrator planning includes @worker blocks",
+      "description": "Verify the orchestrator's response contains @worker task assignments.",
+      "category": "dispatch",
+      "invariants": [
+        "Event log shows 'Early dispatch: @worker blocks detected'",
+        "Assignments parsed from orchestrator response"
+      ],
+      "steps": [
+        { "action": "assertEventLog", "pattern": "Early dispatch.*@worker", "expected": true }
+      ]
+    },
+    {
+      "id": "workers-process-independently",
+      "name": "Workers process their tasks independently",
+      "description": "Monitor workers during execution. Each should cycle through TurnStart/TurnEnd events independently.",
+      "category": "worker-execution",
+      "invariants": [
+        "Each worker has AssistantTurnStartEvent and AssistantTurnEndEvent in event log",
+        "Workers process concurrently"
+      ],
+      "steps": [
+        { "action": "waitForEventPattern", "pattern": "\\[EVT\\].*worker.*TurnStart", "timeout": 30, "note": "Wait for workers to start processing" },
+        { "action": "assertEventLog", "pattern": "\\[EVT\\].*worker.*TurnEndEvent", "expected": true, "note": "Workers cycling through events" }
+      ]
+    },
+    {
+      "id": "worker-tool-use-completes",
+      "name": "Workers using tools complete without getting stuck",
+      "description": "Workers often use tools (grep, file reads). Verify tool execution completes.",
+      "category": "worker-execution",
+      "invariants": [
+        "Workers complete (SessionIdleEvent or CompleteResponse)",
+        "No workers stuck with HasUsedToolsThisTurn=true indefinitely"
+      ],
+      "steps": [
+        { "action": "waitForEventPattern", "pattern": "\\[COMPLETE\\].*worker", "timeout": 600, "note": "Wait for at least one worker to complete" }
+      ]
+    },
+    {
+      "id": "worker-subagent-idle-defer",
+      "name": "Worker IDLE-DEFER fires and resolves for subagents",
+      "description": "If a worker dispatches sub-agents (task tool), IDLE-DEFER should fire and eventually resolve.",
+      "category": "worker-execution",
+      "invariants": [
+        "If [IDLE-DEFER] appears, it's eventually followed by [COMPLETE]",
+        "Worker doesn't stay stuck in IDLE-DEFER forever"
+      ],
+      "steps": [
+        { "action": "note", "text": "This scenario is best verified by checking event log after orchestration completes" },
+        { "action": "shellCheck", "command": "defer_count=$(grep -c '\\[IDLE-DEFER\\]' ~/.polypilot/event-diagnostics.log); complete_count=$(grep -c '\\[COMPLETE\\]' ~/.polypilot/event-diagnostics.log); echo \"defers=$defer_count completes=$complete_count\"" }
+      ]
+    },
+    {
+      "id": "worker-timeout-handled-gracefully",
+      "name": "Worker timeout produces error result, doesn't block orchestration",
+      "description": "If a worker times out (>10 min), the orchestration should still continue with an error result.",
+      "category": "worker-execution",
+      "invariants": [
+        "Orchestration doesn't hang forever waiting for a dead worker",
+        "Synthesis includes failure message for timed-out worker"
+      ],
+      "steps": [
+        { "action": "note", "text": "Difficult to force a timeout in live testing. Verify by checking event log for any [WATCHDOG] entries on workers and confirming orchestration still completed." }
+      ]
+    },
+    {
+      "id": "worker-error-doesnt-block-orchestration",
+      "name": "One worker error doesn't block the whole orchestration",
+      "description": "If one worker fails, the other worker should still complete and synthesis should include the failure.",
+      "category": "worker-execution",
+      "invariants": [
+        "Orchestration completes even if one worker errored",
+        "Synthesis prompt includes error message for failed worker"
+      ],
+      "steps": [
+        { "action": "note", "text": "Verify from event log: if any [ERROR] entries exist for workers, check that [DISPATCH] Collected results still fires" }
+      ]
+    },
+    {
+      "id": "synthesis-collects-all-worker-results",
+      "name": "Synthesis includes all worker responses",
+      "description": "After workers complete, verify the synthesis prompt is sent to the orchestrator with all results.",
+      "category": "synthesis",
+      "invariants": [
+        "Event log shows 'Collected N/N worker results for synthesis'",
+        "All workers accounted for"
+      ],
+      "steps": [
+        { "action": "waitForEventPattern", "pattern": "Collected.*worker results for synthesis", "timeout": 600 },
+        { "action": "assertEventLog", "pattern": "Collected.*worker results", "expected": true }
+      ]
+    },
+    {
+      "id": "synthesis-completes-orchestrator",
+      "name": "Orchestrator completes after synthesis",
+      "description": "After synthesis prompt is sent, the orchestrator should process it and complete.",
+      "category": "synthesis",
+      "invariants": [
+        "Orchestrator shows [SEND] for synthesis prompt",
+        "Orchestrator shows [COMPLETE] after synthesis",
+        "IsProcessing = false on orchestrator"
+      ],
+      "steps": [
+        { "action": "waitForEventPattern", "pattern": "\\[COMPLETE\\].*orchestrator", "timeout": 120, "note": "Wait for synthesis completion" },
+        { "action": "assertProcessing", "sessionContains": "orchestrator", "expected": false }
+      ]
+    },
+    {
+      "id": "pending-orchestration-cleared-after-synthesis",
+      "name": "PendingOrchestration file cleared after synthesis",
+      "description": "After orchestration completes, pending-orchestration.json should be empty or deleted.",
+      "category": "synthesis",
+      "invariants": [
+        "File is empty, contains '{}', or doesn't exist"
+      ],
+      "steps": [
+        { "action": "shellCheck", "command": "cat ~/.polypilot/pending-orchestration.json 2>/dev/null || echo 'file not found'", "expect": { "oneOf": ["file not found", "{}", "null", ""] } }
+      ]
+    },
+    {
+      "id": "all-workers-idle-after-orchestration",
+      "name": "All workers have IsProcessing=false after orchestration",
+      "description": "After orchestration completes, verify every worker session is idle.",
+      "category": "synthesis",
+      "invariants": [
+        "Every worker session has IsProcessing = false",
+        "No stop buttons visible for any worker"
+      ],
+      "steps": [
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0, "note": "No sessions processing" }
+      ]
+    },
+    {
+      "id": "no-orphaned-workers-after-orchestration",
+      "name": "No orphaned worker state after orchestration",
+      "description": "After orchestration, no workers should be stuck in a partial processing state.",
+      "category": "synthesis",
+      "invariants": [
+        "No worker [SEND] without corresponding [COMPLETE]",
+        "No stuck TCS (TaskCompletionSource)"
+      ],
+      "steps": [
+        { "action": "shellCheck", "command": "for w in 1 2; do sends=$(grep -c \"\\[SEND\\].*worker-$w\" ~/.polypilot/event-diagnostics.log); completes=$(grep -c \"\\[COMPLETE\\].*worker-$w\" ~/.polypilot/event-diagnostics.log); echo \"worker-$w: sends=$sends completes=$completes\"; done" }
+      ]
+    },
+    {
+      "id": "second-orchestration-works",
+      "name": "Second orchestration to same group completes",
+      "description": "After one orchestration completes, send a new prompt to the same group. Verify full lifecycle works again.",
+      "category": "subsequent-orchestrations",
+      "invariants": [
+        "Second dispatch fires",
+        "Workers process again",
+        "Synthesis completes again",
+        "IsProcessing = false on all sessions"
+      ],
+      "steps": [
+        { "action": "sendToGroup", "text": "Now add a comment to the bottom of README.md saying 'Built with GitHub Copilot'. Keep it simple." },
+        { "action": "waitForEventPattern", "pattern": "\\[DISPATCH\\].*Dispatching", "timeout": 60, "note": "Wait for second dispatch" },
+        { "action": "waitForEventPattern", "pattern": "\\[COMPLETE\\].*orchestrator", "timeout": 600, "note": "Wait for second orchestration to complete" },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0 }
+      ]
+    },
+    {
+      "id": "third-orchestration-no-degradation",
+      "name": "Third orchestration shows no accumulated state issues",
+      "description": "A third consecutive orchestration should work as cleanly as the first.",
+      "category": "subsequent-orchestrations",
+      "invariants": [
+        "No accumulated stuck state from previous orchestrations",
+        "Event log clean for this orchestration"
+      ],
+      "steps": [
+        { "action": "sendToGroup", "text": "Check if README.md has any typos and fix them. If none, just say so." },
+        { "action": "waitForEventPattern", "pattern": "\\[COMPLETE\\].*orchestrator", "timeout": 600 },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0 }
+      ]
+    },
+    {
+      "id": "orchestration-after-worker-error-works",
+      "name": "Orchestration works after a previous worker error",
+      "description": "If a previous orchestration had a worker error, the next one should still work.",
+      "category": "subsequent-orchestrations",
+      "invariants": [
+        "All workers dispatch correctly",
+        "No lingering error state from previous run"
+      ],
+      "steps": [
+        { "action": "note", "text": "This is verified by the second/third orchestration tests above. If any had errors, this confirms recovery." }
+      ]
+    },
+    {
+      "id": "follow-up-during-dispatch-queued",
+      "name": "Follow-up message during orchestration is queued, not steered",
+      "description": "Send a follow-up while workers are busy. It should be queued (not steer the orchestrator). PR #375 fix.",
+      "category": "follow-up-steering",
+      "invariants": [
+        "Event log shows QUEUED, not STEER",
+        "Orchestration not disrupted by follow-up",
+        "Follow-up processed after current orchestration completes"
+      ],
+      "steps": [
+        { "action": "sendToGroup", "text": "Review all the files in PolyPilot/Models/ directory." },
+        { "action": "wait", "ms": 5000, "note": "Workers start processing" },
+        { "action": "sendToGroup", "text": "Also check the Services directory." },
+        { "action": "assertEventLog", "pattern": "QUEUED", "expected": true, "note": "Follow-up queued" },
+        { "action": "waitForEventPattern", "pattern": "\\[COMPLETE\\].*orchestrator", "timeout": 600 }
+      ]
+    },
+    {
+      "id": "follow-up-after-completion-works",
+      "name": "Follow-up after orchestration completes starts new orchestration",
+      "description": "Send a message after orchestration is fully complete. It should start a new orchestration.",
+      "category": "follow-up-steering",
+      "invariants": [
+        "New [DISPATCH-ROUTE] appears",
+        "New orchestration lifecycle begins"
+      ],
+      "steps": [
+        { "action": "assertProcessing", "sessionContains": "orchestrator", "expected": false, "note": "Verify idle first" },
+        { "action": "sendToGroup", "text": "Summarize what changes were made across all previous tasks." },
+        { "action": "waitForEventPattern", "pattern": "\\[DISPATCH-ROUTE\\]", "timeout": 60 },
+        { "action": "waitForEventPattern", "pattern": "\\[COMPLETE\\].*orchestrator", "timeout": 600 }
+      ]
+    },
+    {
+      "id": "abort-orchestration-cleans-up",
+      "name": "Aborting orchestration cleans up all sessions",
+      "description": "Abort the orchestrator while workers are running. Verify clean state for all sessions.",
+      "category": "follow-up-steering",
+      "invariants": [
+        "All sessions reach IsProcessing = false",
+        "No stuck workers",
+        "PendingOrchestration cleared"
+      ],
+      "steps": [
+        { "action": "sendToGroup", "text": "Do a comprehensive review of every single file in the repository." },
+        { "action": "wait", "ms": 10000, "note": "Workers start processing" },
+        { "action": "clickAbort", "sessionContains": "orchestrator" },
+        { "action": "wait", "ms": 10000 },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0, "note": "All sessions idle after abort" }
+      ]
+    },
+    {
+      "id": "group-survives-relaunch",
+      "name": "Multi-agent group persists across app relaunch",
+      "description": "Relaunch the app and verify the multi-agent group is restored with all sessions.",
+      "category": "restart-recovery",
+      "invariants": [
+        "Group appears in sidebar after relaunch",
+        "Orchestrator session restored",
+        "Worker sessions restored",
+        "All sessions idle (not stuck processing)"
+      ],
+      "steps": [
+        { "action": "captureGroupState", "capture": "beforeRelaunch" },
+        { "action": "relaunchApp" },
+        { "action": "waitForAgent", "timeout": 120 },
+        { "action": "assertSessionExists", "nameContains": "orchestrator" },
+        { "action": "assertSessionExists", "nameContains": "worker" },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0 }
+      ]
+    },
+    {
+      "id": "no-phantom-worker-sessions",
+      "name": "No phantom or duplicate worker sessions after relaunch",
+      "description": "After relaunch, verify no duplicate worker sessions or phantom '(resumed)' entries.",
+      "category": "restart-recovery",
+      "invariants": [
+        "No duplicate session names",
+        "No '(resumed)' in any session name"
+      ],
+      "steps": [
+        { "action": "evaluate", "script": "Array.from(document.querySelectorAll('.session-name, .session-title')).filter(e => e.textContent.includes('resumed')).length", "expect": 0 }
+      ]
+    },
+    {
+      "id": "pending-orchestration-recovery",
+      "name": "PendingOrchestration recovers after relaunch during dispatch",
+      "description": "If the app relaunches while workers are processing, PendingOrchestration should enable recovery.",
+      "category": "restart-recovery",
+      "invariants": [
+        "If pending-orchestration.json existed, recovery was attempted",
+        "Workers either completed or were collected with partial results"
+      ],
+      "steps": [
+        { "action": "note", "text": "Best tested by: 1) Start orchestration, 2) Immediately relaunch, 3) Check event log for 'Resuming pending orchestration'" },
+        { "action": "shellCheck", "command": "grep 'Resuming pending orchestration\\|pending orchestration' ~/.polypilot/event-diagnostics.log | tail -3 || echo 'no pending recovery'" }
+      ]
+    },
+    {
+      "id": "post-relaunch-new-orchestration-works",
+      "name": "New orchestration works after relaunch",
+      "description": "After relaunching and restoring the group, send a new prompt. Verify full lifecycle works.",
+      "category": "restart-recovery",
+      "invariants": [
+        "New dispatch fires",
+        "Workers process and complete",
+        "Synthesis completes"
+      ],
+      "steps": [
+        { "action": "sendToGroup", "text": "What is in the README.md file? Summarize it briefly." },
+        { "action": "waitForEventPattern", "pattern": "\\[DISPATCH\\]", "timeout": 60 },
+        { "action": "waitForEventPattern", "pattern": "\\[COMPLETE\\].*orchestrator", "timeout": 600 },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0 }
+      ]
+    },
+    {
+      "id": "workers-not-stuck-after-relaunch",
+      "name": "No workers stuck in IsProcessing after relaunch",
+      "description": "After relaunch, verify no worker sessions are stuck processing.",
+      "category": "restart-recovery",
+      "invariants": [
+        "All workers have IsProcessing = false within 30s of relaunch",
+        "No [WATCHDOG] kill entries needed"
+      ],
+      "steps": [
+        { "action": "wait", "ms": 30000, "note": "Wait for any watchdog cleanup" },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0 }
+      ]
+    },
+    {
+      "id": "event-log-dispatch-complete-pairs",
+      "name": "Every [DISPATCH] has completion in event log",
+      "description": "Audit the event log: every worker dispatch should have a completion.",
+      "category": "state-hygiene",
+      "invariants": [
+        "Number of worker [SEND] ≤ worker [COMPLETE] + [ABORT]",
+        "No orphaned dispatches"
+      ],
+      "steps": [
+        { "action": "shellCheck", "command": "sends=$(grep -c '\\[SEND\\].*worker' ~/.polypilot/event-diagnostics.log); completes=$(grep -c '\\[COMPLETE\\].*worker\\|\\[ABORT\\].*worker' ~/.polypilot/event-diagnostics.log); echo \"worker sends=$sends completions=$completes\"" }
+      ]
+    },
+    {
+      "id": "no-stuck-tcs-after-orchestration",
+      "name": "No unresolved TaskCompletionSources after orchestration",
+      "description": "After orchestration, verify no TCS objects are waiting for completion.",
+      "category": "state-hygiene",
+      "invariants": [
+        "All sessions idle",
+        "No pending awaits blocking orchestrator"
+      ],
+      "steps": [
+        { "action": "assertProcessing", "sessionContains": "orchestrator", "expected": false },
+        { "action": "note", "text": "TCS state is internal — best verified by confirming orchestrator can accept new messages" },
+        { "action": "sendToGroup", "text": "Say 'TCS test OK'." },
+        { "action": "waitForEventPattern", "pattern": "\\[COMPLETE\\].*orchestrator", "timeout": 120 }
+      ]
+    },
+    {
+      "id": "watchdog-doesnt-kill-active-workers",
+      "name": "Watchdog doesn't kill workers that are actively processing",
+      "description": "During a long orchestration, verify the watchdog doesn't prematurely kill active workers.",
+      "category": "state-hygiene",
+      "invariants": [
+        "No [WATCHDOG].*kill entries for workers with recent events",
+        "Watchdog Case B defers correctly when events.jsonl is fresh"
+      ],
+      "steps": [
+        { "action": "shellCheck", "command": "grep '\\[WATCHDOG\\].*worker.*kill\\|\\[WATCHDOG\\].*worker.*stuck' ~/.polypilot/event-diagnostics.log | wc -l | tr -d ' '", "expect": "0" }
+      ]
+    },
+    {
+      "id": "idle-defer-resolves-correctly",
+      "name": "IDLE-DEFER fires and resolves without leaving sessions stuck",
+      "description": "If IDLE-DEFER fires during worker execution, it should eventually resolve to completion.",
+      "category": "state-hygiene",
+      "invariants": [
+        "Every [IDLE-DEFER] is eventually followed by [COMPLETE] for the same session",
+        "No sessions left in permanent IDLE-DEFER state"
+      ],
+      "steps": [
+        { "action": "shellCheck", "command": "grep '\\[IDLE-DEFER\\]' ~/.polypilot/event-diagnostics.log | wc -l | tr -d ' '", "note": "Count IDLE-DEFER entries" },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0, "note": "No sessions stuck" }
+      ]
+    },
+    {
+      "id": "reconnect-during-orchestration-no-deadlock",
+      "name": "Reconnect during orchestration doesn't cause deadlock",
+      "description": "If a reconnect happens mid-orchestration, TCS should be cancelled and orchestration should not deadlock.",
+      "category": "state-hygiene",
+      "invariants": [
+        "No permanent deadlock after reconnect",
+        "Orchestration either recovers or fails cleanly"
+      ],
+      "steps": [
+        { "action": "note", "text": "Best tested by triggering a reconnect mid-orchestration (e.g., server restart). In live testing, verify no sessions are stuck after any reconnect events in the log." },
+        { "action": "shellCheck", "command": "grep '\\[RECONNECT\\]' ~/.polypilot/event-diagnostics.log | tail -3 || echo 'no reconnects'" }
+      ]
+    },
+    {
+      "id": "delete-group-cleans-everything",
+      "name": "Deleting multi-agent group removes all sessions cleanly",
+      "description": "Delete the test multi-agent group. Verify all sessions are removed with no orphans.",
+      "category": "state-hygiene",
+      "invariants": [
+        "All group sessions removed from sidebar",
+        "No orphaned worker sessions",
+        "PendingOrchestration cleared",
+        "Organization state updated"
+      ],
+      "steps": [
+        { "action": "deleteGroup", "nameContains": "Implement" },
+        { "action": "wait", "ms": 3000 },
+        { "action": "assertSessionNotExists", "nameContains": "orchestrator" },
+        { "action": "assertSessionNotExists", "nameContains": "worker" },
+        { "action": "shellCheck", "command": "cat ~/.polypilot/pending-orchestration.json 2>/dev/null || echo 'clean'", "expect": { "oneOf": ["clean", "{}", "null", ""] } }
+      ]
+    }
+  ]
+}

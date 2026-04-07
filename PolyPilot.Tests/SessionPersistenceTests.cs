@@ -1721,10 +1721,11 @@ public class SessionPersistenceTests
     }
 
     [Fact]
-    public void Merge_NameCollision_SameGroupId_StillCreatesPrevious()
+    public void Merge_NameCollision_SameGroupId_WithoutRecoveryMarker_StillCreatesPrevious()
     {
-        // When the collision happens within the same group (e.g., reconnect replaced
-        // the session), the old entry should still be preserved as "(previous)".
+        // When the collision happens within the same group but there is NO explicit
+        // RecoveredFromSessionId marker, we cannot be sure the new session intentionally
+        // replaced the old one — preserve the old entry as "(previous)" to avoid data loss.
         var active = new List<ActiveSessionEntry>
         {
             new() { SessionId = "new-id", DisplayName = "MyWorker", Model = "m",
@@ -1741,6 +1742,31 @@ public class SessionPersistenceTests
         Assert.Equal(2, result.Count);
         Assert.Equal("MyWorker", result[0].DisplayName);
         Assert.Equal("MyWorker (previous)", result[1].DisplayName);
+    }
+
+    [Fact]
+    public void Merge_NameCollision_SameGroupId_WithExplicitRecovery_DropsPersistedEntry()
+    {
+        // Worker revival (empty response → fresh session) sets RecoveredFromSessionId on the
+        // new session to record that it explicitly replaced the old one.  The merge must
+        // drop the old persisted entry so it never appears as a "(previous)" phantom.
+        var active = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "new-id", DisplayName = "MyWorker", Model = "m",
+                     WorkingDirectory = "/w", GroupId = "same-group", RecoveredFromSessionId = "old-id" }
+        };
+        var persisted = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "old-id", DisplayName = "MyWorker", Model = "m",
+                     WorkingDirectory = "/w", GroupId = "same-group" }
+        };
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, new HashSet<string>(), new HashSet<string>(), _ => true);
+
+        // Only the active (revival) entry should remain — no "(previous)" phantom
+        Assert.Single(result);
+        Assert.Equal("new-id", result[0].SessionId);
+        Assert.Equal("MyWorker", result[0].DisplayName);
     }
 
     [Fact]

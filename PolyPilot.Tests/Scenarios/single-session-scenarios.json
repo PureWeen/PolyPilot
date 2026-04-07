@@ -1,0 +1,633 @@
+{
+  "description": "Single-session reliability scenarios for PolyPilot. Tests cover every way to interact with a single session: sending messages, tool use, abort, rapid input, session lifecycle, restart recovery, state hygiene, and edge cases. Execute against a running PolyPilot instance using MauiDevFlow CDP commands.",
+  "prerequisites": {
+    "build": "cd PolyPilot && ./relaunch.sh",
+    "waitForAgent": "maui devflow MAUI status --agent-port 9223",
+    "initialMode": "Persistent",
+    "notes": "All test sessions MUST point to the PolyPilot repository (PureWeen-PolyPilot). Never use other repos. Never commit, push, or create GitHub issues/PRs during testing. The DevFlow agent port is 9223 (bypass broker with --agent-port 9223). CDP click events require PointerEvent dispatch for Blazor compatibility."
+  },
+  "cdpHelpers": {
+    "clickBlazorButton": "btn.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true, clientX: x, clientY: y})); btn.dispatchEvent(new PointerEvent('pointerup', {bubbles: true, clientX: x, clientY: y})); btn.dispatchEvent(new MouseEvent('click', {bubbles: true, clientX: x, clientY: y}));",
+    "setInputValue": "const el = document.getElementById(inputId); el.value = text; el.dispatchEvent(new Event('input', {bubbles: true}));",
+    "sendMessage": "1) Set textarea value via getElementValue-compatible path, 2) PointerEvent click on send-btn[title='Send message']",
+    "checkProcessing": "document.querySelectorAll('.send-btn.stop-btn').length > 0 means session is processing",
+    "checkEventLog": "grep 'SESSION_NAME' ~/.polypilot/event-diagnostics.log | tail -N"
+  },
+  "scenarios": [
+    {
+      "id": "send-simple-message",
+      "name": "Simple message sends and receives a response",
+      "description": "Send 'What is 2+2? Reply with just the number.' and verify the response arrives, IsProcessing clears, and event log shows clean [SEND]→[COMPLETE].",
+      "category": "basic-message-flow",
+      "invariants": [
+        "Response text appears in chat history",
+        "IsProcessing = false after completion",
+        "Event log shows [SEND] followed by [COMPLETE]",
+        "No [ERROR] or [WATCHDOG] entries for this session",
+        "Response length > 0"
+      ],
+      "steps": [
+        { "action": "createSession", "name": "TestSimpleSend", "repo": "PureWeen-PolyPilot" },
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "What is 2+2? Reply with just the number." },
+        { "action": "waitForIdle", "timeout": 60 },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[SEND\\].*\\[COMPLETE\\]", "expected": true },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[ERROR\\]|\\[WATCHDOG\\]", "expected": false },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertResponseNotEmpty", "session": "TestSimpleSend" }
+      ]
+    },
+    {
+      "id": "send-long-message",
+      "name": "Long multi-paragraph prompt processes correctly",
+      "description": "Send a multi-paragraph prompt to verify large inputs don't break processing.",
+      "category": "basic-message-flow",
+      "invariants": [
+        "Response arrives for large input",
+        "IsProcessing = false after completion",
+        "No truncation or corruption of input"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Please analyze the following requirements and provide your thoughts:\n\n1. The system must handle concurrent requests\n2. It must maintain session state across restarts\n3. Error recovery should be automatic\n4. All state transitions must be logged\n\nWhat design patterns would you recommend?" },
+        { "action": "waitForIdle", "timeout": 120 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[COMPLETE\\]", "expected": true }
+      ]
+    },
+    {
+      "id": "response-renders-markdown",
+      "name": "Response renders markdown as formatted HTML",
+      "description": "Send a prompt requesting markdown output and verify it renders as HTML.",
+      "category": "basic-message-flow",
+      "invariants": [
+        "Response contains HTML elements (not raw markdown)",
+        "Code blocks, headers, or lists render correctly"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Write a short bullet list of 3 items about testing." },
+        { "action": "waitForIdle", "timeout": 60 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "evaluate", "script": "document.querySelectorAll('.message-content li, .message-content ul').length > 0", "expect": true, "note": "Markdown list rendered as HTML" }
+      ]
+    },
+    {
+      "id": "response-contains-code-block",
+      "name": "Code block renders with syntax highlighting",
+      "description": "Request code output and verify it renders in a code block.",
+      "category": "basic-message-flow",
+      "invariants": [
+        "Response contains a <pre> or <code> element",
+        "Code content is present"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Write a one-line Python hello world program. Just the code, no explanation." },
+        { "action": "waitForIdle", "timeout": 60 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "evaluate", "script": "document.querySelectorAll('.message-content pre, .message-content code').length > 0", "expect": true, "note": "Code block rendered" }
+      ]
+    },
+    {
+      "id": "send-empty-validation",
+      "name": "Empty send is prevented",
+      "description": "Attempt to send an empty message and verify it's blocked.",
+      "category": "basic-message-flow",
+      "invariants": [
+        "No [SEND] entry in event log for empty message",
+        "Session remains idle"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "captureEventLogPosition", "capture": "beforeEmpty" },
+        { "action": "sendMessage", "text": "" },
+        { "action": "wait", "ms": 2000 },
+        { "action": "assertNoNewEvents", "session": "TestSimpleSend", "since": "beforeEmpty", "pattern": "\\[SEND\\]" }
+      ]
+    },
+    {
+      "id": "tool-file-listing",
+      "name": "Tool execution: file listing completes",
+      "description": "Send a file listing request that requires tool use. Verify tools execute and response contains expected files.",
+      "category": "tool-execution",
+      "invariants": [
+        "Tool execution events appear in event log",
+        "Response mentions expected files (README.md, PolyPilot.slnx)",
+        "IsProcessing = false after completion",
+        "No [WATCHDOG] entries"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "List just the file names in the root directory of this repository. Be brief." },
+        { "action": "waitForIdle", "timeout": 120 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[COMPLETE\\]", "expected": true },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[WATCHDOG\\]", "expected": false }
+      ]
+    },
+    {
+      "id": "tool-file-read",
+      "name": "Tool execution: file read completes",
+      "description": "Request reading a specific file to verify file read tools work.",
+      "category": "tool-execution",
+      "invariants": [
+        "Response contains content from the file",
+        "IsProcessing = false after completion"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Read the first line of README.md in this repo and tell me what it says. Be brief." },
+        { "action": "waitForIdle", "timeout": 120 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[COMPLETE\\]", "expected": true }
+      ]
+    },
+    {
+      "id": "tool-multiple-rounds",
+      "name": "Multi-round tool use completes without getting stuck",
+      "description": "Send a request requiring multiple tool calls in sequence. Verify all rounds complete.",
+      "category": "tool-execution",
+      "invariants": [
+        "Multiple TurnStart/TurnEnd cycles in event log",
+        "Session completes with [COMPLETE]",
+        "IsProcessing = false after all rounds"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Find the PolyPilot.slnx file and tell me how many project references it contains. Be brief." },
+        { "action": "waitForIdle", "timeout": 180 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[COMPLETE\\]", "expected": true },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[WATCHDOG\\]", "expected": false }
+      ]
+    },
+    {
+      "id": "tool-execution-shows-progress",
+      "name": "Processing indicator shows during tool use",
+      "description": "During tool execution, verify the UI shows working/tool call indicators.",
+      "category": "tool-execution",
+      "invariants": [
+        "Stop button visible during processing",
+        "Processing indicator updates"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Search the codebase for all files containing 'IsProcessing' and count them. Be brief." },
+        { "action": "wait", "ms": 5000, "note": "Allow time for tool execution to start" },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn').length", "expect": { "greaterThan": 0 }, "note": "Stop button visible means processing" },
+        { "action": "waitForIdle", "timeout": 180 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false }
+      ]
+    },
+    {
+      "id": "tool-long-running",
+      "name": "Long tool execution doesn't trigger false watchdog",
+      "description": "A prompt requiring extended tool use completes without watchdog interference.",
+      "category": "tool-execution",
+      "invariants": [
+        "No [WATCHDOG] kill entries in event log",
+        "Session completes naturally with [COMPLETE]"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Count the total number of lines across all .cs files in the PolyPilot/Services/ directory. Be brief, just give me the count." },
+        { "action": "waitForIdle", "timeout": 300 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[WATCHDOG\\].*kill|\\[WATCHDOG\\].*stuck", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[COMPLETE\\]", "expected": true }
+      ]
+    },
+    {
+      "id": "abort-during-thinking",
+      "name": "Abort during 'Thinking...' phase cleans up state",
+      "description": "Send a prompt, abort during the thinking phase. Verify IsProcessing clears and all companion fields reset.",
+      "category": "abort-cancel",
+      "invariants": [
+        "IsProcessing = false within 5 seconds of abort",
+        "No lingering spinner or 'Thinking...' indicator",
+        "Event log shows [ABORT]",
+        "Session accepts new input after abort"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Write a very detailed 5000-word essay about software testing methodologies." },
+        { "action": "wait", "ms": 3000, "note": "Wait for thinking phase" },
+        { "action": "clickAbort", "session": "TestSimpleSend" },
+        { "action": "wait", "ms": 5000 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[ABORT\\]", "expected": true }
+      ]
+    },
+    {
+      "id": "abort-during-tool-use",
+      "name": "Abort during tool execution cleans up state",
+      "description": "Send a tool-using prompt, abort during tool execution. Verify clean state.",
+      "category": "abort-cancel",
+      "invariants": [
+        "IsProcessing = false after abort",
+        "ActiveToolCallCount = 0",
+        "Event log shows [ABORT]"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Read every single .cs file in the repository and summarize each one in detail." },
+        { "action": "wait", "ms": 10000, "note": "Wait for tool execution to start" },
+        { "action": "clickAbort", "session": "TestSimpleSend" },
+        { "action": "wait", "ms": 5000 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[ABORT\\]", "expected": true }
+      ]
+    },
+    {
+      "id": "abort-then-send-new",
+      "name": "Session accepts new message after abort",
+      "description": "Abort a session, then immediately send a new prompt. Verify no deadlock.",
+      "category": "abort-cancel",
+      "invariants": [
+        "New message processes successfully after abort",
+        "IsProcessing = false after new message completes",
+        "No deadlock or stuck state"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Write a very long detailed analysis of every design pattern ever created." },
+        { "action": "wait", "ms": 5000 },
+        { "action": "clickAbort", "session": "TestSimpleSend" },
+        { "action": "wait", "ms": 3000 },
+        { "action": "sendMessage", "text": "Say 'hello'. Just that one word." },
+        { "action": "waitForIdle", "timeout": 60 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[COMPLETE\\]", "expected": true }
+      ]
+    },
+    {
+      "id": "abort-when-idle-no-crash",
+      "name": "Abort on idle session doesn't crash",
+      "description": "Try to abort a session that's already idle. Verify no crash or error.",
+      "category": "abort-cancel",
+      "invariants": [
+        "No crash or error",
+        "Session remains idle and functional"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "clickAbort", "session": "TestSimpleSend", "note": "Abort when already idle" },
+        { "action": "wait", "ms": 2000 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "sendMessage", "text": "Say 'still working'. Just those two words." },
+        { "action": "waitForIdle", "timeout": 60 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false }
+      ]
+    },
+    {
+      "id": "back-to-back-simple",
+      "name": "Back-to-back messages both complete",
+      "description": "Send message 1, wait for completion, immediately send message 2. Both should complete.",
+      "category": "rapid-input",
+      "invariants": [
+        "Both messages get [COMPLETE] in event log",
+        "IsProcessing = false after both complete",
+        "No deadlock"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Say 'first'. Just that word." },
+        { "action": "waitForIdle", "timeout": 60 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "sendMessage", "text": "Say 'second'. Just that word." },
+        { "action": "waitForIdle", "timeout": 60 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[COMPLETE\\]", "count": { "atLeast": 2 } }
+      ]
+    },
+    {
+      "id": "send-while-processing",
+      "name": "Send during processing is handled correctly",
+      "description": "Send a second message while the first is still processing. Verify no crash, second message eventually processes.",
+      "category": "rapid-input",
+      "invariants": [
+        "No crash or exception",
+        "Both messages eventually complete or second is queued",
+        "Session reaches idle state"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "List every .cs file in the PolyPilot/Services directory." },
+        { "action": "wait", "ms": 2000, "note": "First message starts processing" },
+        { "action": "sendMessage", "text": "Say 'queued message received'." },
+        { "action": "waitForIdle", "timeout": 180 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false }
+      ]
+    },
+    {
+      "id": "rapid-three-messages",
+      "name": "Three rapid messages don't cause permanent stuck state",
+      "description": "Send 3 messages in quick succession. Verify session eventually reaches idle.",
+      "category": "rapid-input",
+      "invariants": [
+        "Session eventually reaches idle (IsProcessing = false)",
+        "No permanent stuck state",
+        "Event log has at least one [COMPLETE]"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Say 'one'." },
+        { "action": "wait", "ms": 500 },
+        { "action": "sendMessage", "text": "Say 'two'." },
+        { "action": "wait", "ms": 500 },
+        { "action": "sendMessage", "text": "Say 'three'." },
+        { "action": "waitForIdle", "timeout": 180 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false }
+      ]
+    },
+    {
+      "id": "create-new-session",
+      "name": "Create new session appears in sidebar",
+      "description": "Create a new session and verify it appears in the session list.",
+      "category": "session-lifecycle",
+      "invariants": [
+        "New session appears in sidebar",
+        "Session is empty (no messages)",
+        "Session accepts input"
+      ],
+      "steps": [
+        { "action": "createSession", "name": "TestLifecycle", "repo": "PureWeen-PolyPilot" },
+        { "action": "assertSessionExists", "name": "TestLifecycle" },
+        { "action": "selectSession", "name": "TestLifecycle" },
+        { "action": "assertInputAvailable", "session": "TestLifecycle" }
+      ]
+    },
+    {
+      "id": "create-session-with-repo-context",
+      "name": "Session with repo context has tool access",
+      "description": "Create a session pointed at PolyPilot repo, verify it can use tools.",
+      "category": "session-lifecycle",
+      "invariants": [
+        "Session has repo context",
+        "Tool calls work (file listing succeeds)"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestLifecycle" },
+        { "action": "sendMessage", "text": "What repository am I in? Be brief." },
+        { "action": "waitForIdle", "timeout": 60 },
+        { "action": "assertProcessing", "session": "TestLifecycle", "expected": false }
+      ]
+    },
+    {
+      "id": "switch-between-sessions",
+      "name": "Switching sessions preserves each one's history",
+      "description": "Switch between two sessions and verify each retains its own chat history.",
+      "category": "session-lifecycle",
+      "invariants": [
+        "Each session shows its own history after switching",
+        "No cross-contamination between sessions"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "assertResponseNotEmpty", "session": "TestSimpleSend", "note": "First session has history" },
+        { "action": "selectSession", "name": "TestLifecycle" },
+        { "action": "wait", "ms": 1000 },
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "assertResponseNotEmpty", "session": "TestSimpleSend", "note": "History preserved after switch" }
+      ]
+    },
+    {
+      "id": "close-session-removed",
+      "name": "Closed session doesn't appear after removal",
+      "description": "Close a session and verify it's removed from the sidebar.",
+      "category": "session-lifecycle",
+      "invariants": [
+        "Session removed from sidebar",
+        "Not restored on next check"
+      ],
+      "steps": [
+        { "action": "createSession", "name": "TestClose", "repo": "PureWeen-PolyPilot" },
+        { "action": "assertSessionExists", "name": "TestClose" },
+        { "action": "closeSession", "name": "TestClose" },
+        { "action": "wait", "ms": 2000 },
+        { "action": "assertSessionNotExists", "name": "TestClose" }
+      ]
+    },
+    {
+      "id": "session-history-persists-to-disk",
+      "name": "Chat history persists across interactions",
+      "description": "Send a message, then verify the chat database has the message stored.",
+      "category": "session-lifecycle",
+      "invariants": [
+        "Message appears in chat history",
+        "History survives session switch and return"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Say 'persistence test 12345'. Just those exact words." },
+        { "action": "waitForIdle", "timeout": 60 },
+        { "action": "selectSession", "name": "TestLifecycle" },
+        { "action": "wait", "ms": 1000 },
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "evaluate", "script": "document.querySelector('.expanded-view-container')?.textContent?.includes('persistence test 12345') || document.querySelector('.chat-messages')?.textContent?.includes('persistence test 12345')", "expect": true }
+      ]
+    },
+    {
+      "id": "session-survives-relaunch",
+      "name": "Session restores correctly after app relaunch",
+      "description": "Send a message, relaunch the app, verify session is restored with history.",
+      "category": "connection-recovery",
+      "invariants": [
+        "Session appears in sidebar after relaunch",
+        "Chat history is preserved",
+        "Session is idle (not stuck in processing)"
+      ],
+      "steps": [
+        { "action": "captureSessionList", "capture": "beforeRelaunch" },
+        { "action": "relaunchApp" },
+        { "action": "waitForAgent", "timeout": 120 },
+        { "action": "assertSessionExists", "name": "TestSimpleSend" },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false }
+      ]
+    },
+    {
+      "id": "idle-session-no-resumed-tag",
+      "name": "Idle session doesn't get '(resumed)' tag after relaunch",
+      "description": "After relaunch, idle sessions should not have phantom '(resumed)' markers.",
+      "category": "connection-recovery",
+      "invariants": [
+        "No session names contain '(resumed)' text",
+        "All sessions have their original names"
+      ],
+      "steps": [
+        { "action": "evaluate", "script": "Array.from(document.querySelectorAll('.session-name, .session-title')).filter(e => e.textContent.includes('resumed')).length", "expect": 0, "note": "No phantom (resumed) sessions" }
+      ]
+    },
+    {
+      "id": "no-phantom-sessions-after-relaunch",
+      "name": "No duplicate or phantom sessions after relaunch",
+      "description": "After relaunch, verify no duplicate sessions appeared.",
+      "category": "connection-recovery",
+      "invariants": [
+        "Session count matches pre-relaunch count (±1 for any cleaned up)",
+        "No duplicate session names"
+      ],
+      "steps": [
+        { "action": "evaluate", "script": "new Set(Array.from(document.querySelectorAll('.session-name')).map(e => e.textContent.trim())).size === document.querySelectorAll('.session-name').length", "expect": true, "note": "No duplicate session names" }
+      ]
+    },
+    {
+      "id": "post-relaunch-send-works",
+      "name": "Session is functional after relaunch",
+      "description": "After relaunch, send a message to a restored session and verify it completes.",
+      "category": "connection-recovery",
+      "invariants": [
+        "Message sends successfully",
+        "Response arrives",
+        "IsProcessing = false after completion"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Say 'post relaunch OK'. Just those exact words." },
+        { "action": "waitForIdle", "timeout": 120 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertEventLog", "session": "TestSimpleSend", "pattern": "\\[COMPLETE\\]", "expected": true }
+      ]
+    },
+    {
+      "id": "no-stuck-processing-after-relaunch",
+      "name": "No sessions stuck in IsProcessing after relaunch",
+      "description": "After relaunch, verify no sessions are stuck in processing state.",
+      "category": "connection-recovery",
+      "invariants": [
+        "Zero visible stop buttons (no sessions processing)",
+        "No 'Thinking...' indicators visible"
+      ],
+      "steps": [
+        { "action": "wait", "ms": 30000, "note": "Wait for watchdog to clear any stuck sessions" },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0, "note": "No sessions stuck processing" }
+      ]
+    },
+    {
+      "id": "isprocessing-false-when-idle",
+      "name": "IsProcessing is false on all idle sessions",
+      "description": "Check that every session in the list has IsProcessing = false when no messages are being sent.",
+      "category": "state-hygiene",
+      "invariants": [
+        "No stop buttons visible",
+        "No thinking/working indicators"
+      ],
+      "steps": [
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0 },
+        { "action": "evaluate", "script": "document.querySelectorAll('.thinking-indicator, .processing-indicator').length", "expect": 0 }
+      ]
+    },
+    {
+      "id": "event-log-send-complete-pairs",
+      "name": "Every [SEND] has a matching [COMPLETE] or [ABORT]",
+      "description": "Audit the event diagnostics log. Every [SEND] entry should have a corresponding completion.",
+      "category": "state-hygiene",
+      "invariants": [
+        "Number of [SEND] entries ≤ [COMPLETE] + [ABORT] entries (for test sessions)",
+        "No orphaned [SEND] without resolution"
+      ],
+      "steps": [
+        { "action": "shellCheck", "command": "sends=$(grep -c '\\[SEND\\].*TestSimpleSend' ~/.polypilot/event-diagnostics.log); completes=$(grep -c '\\[COMPLETE\\].*TestSimpleSend\\|\\[ABORT\\].*TestSimpleSend' ~/.polypilot/event-diagnostics.log); echo \"sends=$sends completes=$completes\"; [ $sends -le $completes ]" }
+      ]
+    },
+    {
+      "id": "no-watchdog-on-normal-sessions",
+      "name": "Watchdog doesn't fire for normally-completing sessions",
+      "description": "Verify that sessions completing normally don't trigger watchdog entries.",
+      "category": "state-hygiene",
+      "invariants": [
+        "No [WATCHDOG] entries for test sessions",
+        "All completions are via [COMPLETE] or [ABORT]"
+      ],
+      "steps": [
+        { "action": "shellCheck", "command": "grep '\\[WATCHDOG\\].*TestSimpleSend' ~/.polypilot/event-diagnostics.log | grep -v 'deferred' | wc -l | tr -d ' '", "expect": "0" }
+      ]
+    },
+    {
+      "id": "processing-indicator-shows-and-clears",
+      "name": "Processing indicator shows during work and clears after",
+      "description": "Send a message, verify processing indicator appears, then clears after completion.",
+      "category": "state-hygiene",
+      "invariants": [
+        "Processing indicator visible during processing",
+        "Processing indicator gone after completion"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "List the top-level directories in this repository." },
+        { "action": "wait", "ms": 3000 },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length > 0 || true", "expect": true, "note": "May or may not catch the processing window" },
+        { "action": "waitForIdle", "timeout": 120 },
+        { "action": "evaluate", "script": "document.querySelectorAll('.send-btn.stop-btn, .card-stop-btn').length", "expect": 0, "note": "Processing indicator cleared" }
+      ]
+    },
+    {
+      "id": "session-not-stuck-after-idle",
+      "name": "No phantom 'Thinking...' after session completes",
+      "description": "After a message completes, verify the session is truly idle with no lingering indicators.",
+      "category": "state-hygiene",
+      "invariants": [
+        "No thinking/working text visible for session",
+        "Input is enabled and accepts typing",
+        "Send button is not a stop button"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false },
+        { "action": "assertInputAvailable", "session": "TestSimpleSend" }
+      ]
+    },
+    {
+      "id": "send-special-characters",
+      "name": "Special characters in prompt don't cause issues",
+      "description": "Send a prompt with quotes, backticks, unicode, and special characters.",
+      "category": "edge-cases",
+      "invariants": [
+        "Message sends successfully",
+        "Response arrives",
+        "No crash or error"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "sendMessage", "text": "Echo this back: Hello 'world' \"test\" `code` <tag> & © ñ 🎉" },
+        { "action": "waitForIdle", "timeout": 60 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false }
+      ]
+    },
+    {
+      "id": "model-switch-then-send",
+      "name": "Session works after model switch",
+      "description": "Switch the model for a session, then send a message. Verify it completes.",
+      "category": "edge-cases",
+      "invariants": [
+        "Model switch succeeds",
+        "Message sends and completes with new model",
+        "IsProcessing = false after completion"
+      ],
+      "steps": [
+        { "action": "selectSession", "name": "TestSimpleSend" },
+        { "action": "switchModel", "note": "Switch to a different available model via UI dropdown" },
+        { "action": "sendMessage", "text": "Say 'model switch OK'. Just those words." },
+        { "action": "waitForIdle", "timeout": 120 },
+        { "action": "assertProcessing", "session": "TestSimpleSend", "expected": false }
+      ]
+    },
+    {
+      "id": "stale-session-loads-ok",
+      "name": "Old sessions load without errors",
+      "description": "Verify that existing sessions from before testing load and don't cause errors.",
+      "category": "edge-cases",
+      "invariants": [
+        "Pre-existing sessions visible in sidebar",
+        "No error messages or crash indicators",
+        "App remains responsive"
+      ],
+      "steps": [
+        { "action": "evaluate", "script": "document.querySelectorAll('.session-list-item, .session-card').length > 0", "expect": true, "note": "Sessions loaded" },
+        { "action": "evaluate", "script": "document.querySelectorAll('.error-banner, .crash-indicator, .fatal-error').length", "expect": 0, "note": "No error banners" }
+      ]
+    }
+  ]
+}

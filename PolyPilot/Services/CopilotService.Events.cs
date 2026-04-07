@@ -1640,29 +1640,9 @@ public partial class CopilotService
         // Clear IsProcessing BEFORE completing the TCS — if the continuation runs
         // synchronously (e.g., in orchestrator reflection loops), the next SendPromptAsync
         // call must see IsProcessing=false or it throws "already processing".
-        state.CurrentResponse.Clear();
-        state.FlushedResponse.Clear();
-        ClearFlushedReplayDedup(state);
-        state.PendingReasoningMessages.Clear();
-        // Accumulate API time before clearing ProcessingStartedAt
-        if (state.Info.ProcessingStartedAt is { } started)
-        {
-            state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
-            state.Info.PremiumRequestsUsed++;
-        }
-        state.AllowTurnStartRearm = true; // session.idle/turn-end completion can be premature; allow one late TurnStart recovery
-        state.Info.IsProcessing = false;
-        state.Info.IsResumed = false;
-        Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock
-        state.Info.ConsecutiveStuckCount = 0;
+        ClearProcessingState(state);
         // A successful completion proves the server is healthy — reset the
         // service-level watchdog timeout counter to prevent false recovery triggers.
-        Interlocked.Exchange(ref _consecutiveWatchdogTimeouts, 0);
-        state.Info.ProcessingStartedAt = null;
-        state.Info.ToolCallCount = 0;
-        state.Info.ProcessingPhase = 0;
-        state.Info.ClearPermissionDenials();
-        state.Info.LastUpdatedAt = DateTime.Now;
         state.ResponseCompletion?.TrySetResult(fullResponse);
         
         // Fire completion notification BEFORE OnStateChanged — this ensures

@@ -2411,6 +2411,10 @@ public partial class CopilotService
                     Debug($"[DISPATCH] Worker '{workerName}' returned empty — attempting fresh session revival");
                     if (_sessions.TryGetValue(workerName, out var deadState))
                     {
+                        // Capture the old session ID BEFORE orphaning — used to prevent
+                        // MergeSessionEntries from creating a "(previous)" phantom entry.
+                        var deadSessionId = deadState.Info.SessionId;
+
                         // Mark old state as orphaned so any lingering callbacks are no-ops
                         deadState.IsOrphaned = true;
                         try { await deadState.Session.DisposeAsync(); } catch { }
@@ -2438,11 +2442,18 @@ public partial class CopilotService
                             }
                             else
                             {
-                                // Commit SessionId only after TryUpdate succeeds — avoids
-                                // mutating shared Info on a path that might discard the state.
+                                // Commit SessionId + recovery marker only after TryUpdate succeeds.
+                                // RecoveredFromSessionId records that the new session explicitly replaced
+                                // the old one — MergeSessionEntries uses this to drop the old persisted
+                                // entry instead of renaming it "(previous)" (same-group revival case).
+                                deadState.Info.RecoveredFromSessionId ??= deadSessionId;
                                 deadState.Info.SessionId = freshSession.SessionId;
+                                // Add the old session ID to the closed set so SaveActiveSessionsToDisk's
+                                // merge logic drops it instead of creating a "(previous)" phantom entry.
+                                if (!string.IsNullOrEmpty(deadSessionId))
+                                    _closedSessionIds[deadSessionId] = 0;
                                 DisposePrematureIdleSignal(deadState);
-                                Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}'");
+                                Debug($"[DISPATCH] Worker '{workerName}' revived with fresh session '{freshSession.SessionId}' (replaced '{deadSessionId}')");
                                 response = await SendPromptAndWaitAsync(workerName, workerPrompt, cancellationToken, originalPrompt: originalPrompt);
                             }
                         }

@@ -2510,7 +2510,7 @@ public class MultiAgentRegressionTests
         var sendIdx = source.IndexOf("async Task<string> SendPromptAsync(", StringComparison.Ordinal);
         Assert.True(sendIdx >= 0, "SendPromptAsync must exist in CopilotService.cs");
 
-        var sendBlock = source.Substring(sendIdx, Math.Min(6000, source.Length - sendIdx));
+        var sendBlock = source.Substring(sendIdx, Math.Min(8000, source.Length - sendIdx));
         Assert.Contains("PrematureIdleSignal.Reset()", sendBlock);
     }
 
@@ -2617,6 +2617,68 @@ public class MultiAgentRegressionTests
         Assert.True(sessionIdAssign >= 0, "SessionId assignment must exist");
         Assert.True(sessionIdAssign > tryUpdateIdx,
             "SessionId must be assigned AFTER TryUpdate succeeds (mutation-after-commit pattern)");
+    }
+
+    [Fact]
+    public void Revival_SetsRecoveredFromSessionId_BeforeUpdatingSessionId()
+    {
+        // Structural: revival must set RecoveredFromSessionId on the Info object BEFORE
+        // updating SessionId. This ensures MergeSessionEntries can identify that the new
+        // session explicitly replaced the old one and drop the old "(previous)" phantom entry.
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        var tryUpdateIdx = source.IndexOf("TryUpdate(workerName, freshState, deadState)", StringComparison.Ordinal);
+        Assert.True(tryUpdateIdx >= 0, "TryUpdate call must exist");
+
+        var recoveredFromIdx = source.IndexOf("deadState.Info.RecoveredFromSessionId ??=", StringComparison.Ordinal);
+        Assert.True(recoveredFromIdx >= 0, "Revival must set RecoveredFromSessionId after TryUpdate");
+        Assert.True(recoveredFromIdx > tryUpdateIdx, "RecoveredFromSessionId must be set after TryUpdate");
+
+        var sessionIdAssign = source.IndexOf("deadState.Info.SessionId = freshSession.SessionId", StringComparison.Ordinal);
+        Assert.True(recoveredFromIdx < sessionIdAssign,
+            "RecoveredFromSessionId must be set BEFORE SessionId is updated (so the old ID is correctly recorded)");
+    }
+
+    [Fact]
+    public void Revival_AddsOldSessionIdToClosedSet_PreventingPhantomPreviousEntry()
+    {
+        // Structural: when worker revival creates a fresh session, it must add the OLD
+        // session ID to _closedSessionIds. Without this, SaveActiveSessionsToDisk's merge
+        // sees the old ID in persisted active-sessions.json and creates a "(previous)" entry.
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        var tryUpdateIdx = source.IndexOf("TryUpdate(workerName, freshState, deadState)", StringComparison.Ordinal);
+        Assert.True(tryUpdateIdx >= 0, "TryUpdate call must exist");
+
+        // Find the else block after TryUpdate (the success path)
+        var successBlock = source.Substring(tryUpdateIdx, Math.Min(3000, source.Length - tryUpdateIdx));
+
+        Assert.Contains("_closedSessionIds[deadSessionId] = 0",
+            successBlock,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Revival_CapturesOldSessionIdBeforeOrphaning()
+    {
+        // Structural: the old session ID must be captured BEFORE marking the state as orphaned
+        // and disposing the session. After orphaning, Info.SessionId might be mutated by
+        // concurrent code. The captured ID is what gets added to _closedSessionIds.
+        var orgPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs");
+        var source = File.ReadAllText(orgPath);
+
+        // Find the revival section
+        var revivalStart = source.IndexOf("Worker revival: empty response", StringComparison.Ordinal);
+        Assert.True(revivalStart >= 0, "Revival comment must exist");
+        var revivalBlock = source.Substring(revivalStart, Math.Min(2000, source.Length - revivalStart));
+
+        // Old session ID must be captured before IsOrphaned = true
+        var captureIdx = revivalBlock.IndexOf("var deadSessionId = deadState.Info.SessionId", StringComparison.Ordinal);
+        var orphanIdx = revivalBlock.IndexOf("deadState.IsOrphaned = true", StringComparison.Ordinal);
+        Assert.True(captureIdx >= 0, "Old session ID must be captured before orphaning");
+        Assert.True(captureIdx < orphanIdx, "Session ID capture must come before IsOrphaned = true");
     }
 
     [Fact]

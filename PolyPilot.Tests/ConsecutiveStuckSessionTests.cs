@@ -186,11 +186,12 @@ public class ConsecutiveStuckSessionTests
     [Fact]
     public void CompleteResponseSource_ResetsConsecutiveStuckCount()
     {
-        // Verify CompleteResponse resets the stuck counter on success.
+        // Verify ClearProcessingState resets the stuck counter on success.
+        // ClearProcessingState is in CopilotService.cs and called by CompleteResponse.
         var repoRoot = GetRepoRoot();
-        var eventsSource = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var mainSource = File.ReadAllText(Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.cs"));
 
-        Assert.Contains("ConsecutiveStuckCount = 0", eventsSource);
+        Assert.Contains("ConsecutiveStuckCount = 0", mainSource);
     }
 
     // =========================================================================

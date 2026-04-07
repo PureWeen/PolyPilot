@@ -242,15 +242,21 @@ public partial class CopilotService
         ActiveSessionEntry existing,
         ActiveSessionEntry activeCounterpart)
     {
-        if (string.IsNullOrEmpty(existing.GroupId) ||
-            string.IsNullOrEmpty(activeCounterpart.GroupId) ||
-            string.Equals(existing.GroupId, activeCounterpart.GroupId, StringComparison.OrdinalIgnoreCase))
+        // Require an explicit recovery marker — without it we don't know if the new session
+        // is really a replacement for the old one (it might just be a same-named unrelated session).
+        if (string.IsNullOrEmpty(activeCounterpart.RecoveredFromSessionId) ||
+            !string.Equals(activeCounterpart.RecoveredFromSessionId, existing.SessionId, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        return !string.IsNullOrEmpty(activeCounterpart.RecoveredFromSessionId) &&
-               string.Equals(activeCounterpart.RecoveredFromSessionId, existing.SessionId, StringComparison.OrdinalIgnoreCase);
+        // If RecoveredFromSessionId explicitly matches, allow drop regardless of group.
+        // Covers two cases:
+        //   1. Cross-group: scattered team reconstruction moved the session to a new group
+        //   2. Same-group: worker revival (empty response → fresh session within the same group)
+        // Both are safe to drop because the active entry explicitly records that it recovered
+        // history from the old one — there is no user-visible history loss.
+        return true;
     }
 
     /// <summary>
