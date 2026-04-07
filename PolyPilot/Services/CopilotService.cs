@@ -3789,6 +3789,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         {
                             Debug($"[RECONNECT] Session ID changed on resume: '{state.Info.SessionId}' → '{actualId}' for '{sessionName}'");
                             CopyEventsToNewSession(state.Info.SessionId, actualId);
+                            // Mark the old session ID as closed so the merge in SaveActiveSessionsToDisk
+                            // doesn't re-add it — otherwise a stale entry with the old ID lingers and
+                            // gets renamed to "(previous)" on the next save cycle.
+                            _closedSessionIds[state.Info.SessionId] = 0;
                             state.Info.SessionId = actualId;
                             // Persist the new session ID so restarts don't revert to the old one
                             FlushSaveActiveSessionsToDisk();
