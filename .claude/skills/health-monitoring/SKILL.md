@@ -278,3 +278,118 @@ Use:
 
 If you detect an issue, diagnose it immediately using the techniques above. If it's a
 code bug (not a transient connection issue), investigate the source code and propose a fix.
+
+## Mobile App Monitoring (WsBridge + DevTunnel)
+
+The mobile app connects to the desktop via WebSocket through a DevTunnel. Monitor this
+entire chain for reliability issues.
+
+### Architecture
+
+```
+Mobile App (iOS/Android)
+  → DevTunnel (wss://TUNNEL_ID.usw3.devtunnels.ms)
+    → WsBridgeServer (localhost:4322)
+      → CopilotService (desktop)
+```
+
+### Quick Health Check
+
+```bash
+# 1. Is the bridge server listening?
+lsof -i :4322
+
+# 2. Is DevTunnel running?
+ps aux | grep "devtunnel host" | grep -v grep
+
+# 3. Is the tunnel reachable?
+curl -s -o /dev/null -w "%{http_code}" https://TUNNEL_ID.usw3.devtunnels.ms/
+
+# 4. Is the devtunnel login still valid?
+devtunnel show TUNNEL_ID 2>&1 | head -5
+# If "Login token expired" → tunnel may reject new connections
+
+# 5. Check for connected mobile clients
+# WsBridgeServer logs connect/disconnect to stdout (Console.WriteLine)
+# Check app logs:
+maui devflow MAUI logs --limit 30 --agent-port 9223 2>&1 | grep -i "client\|connect\|bridge"
+
+# 6. Bridge-related errors in crash log
+grep -i "bridge\|WebSocket\|tunnel" ~/.polypilot/crash.log | tail -5
+
+# 7. Bridge-related diagnostic events
+grep -E "BRIDGE|SyncRemote|SmartURL" ~/.polypilot/event-diagnostics.log | tail -10
+```
+
+### Common Mobile Issues
+
+#### Mobile shows "Connecting..." or blank session list
+1. Check DevTunnel is running (`ps aux | grep devtunnel`)
+2. Check bridge port is listening (`lsof -i :4322`)
+3. Check tunnel is reachable (`curl` the tunnel URL — expect 404, not connection error)
+4. If `devtunnel show` says "Login token expired" — the tunnel host process may still
+   work but new management operations fail. The existing tunnel should keep forwarding.
+
+#### Mobile sends message but never gets response
+The bridge proxies prompts via `DispatchBridgePromptAsync`. Check:
+```bash
+# Stack traces from bridge prompt dispatch
+grep "DispatchBridgePromptAsync" ~/.polypilot/event-diagnostics.log | tail -5
+
+# Bridge completion events
+grep "BRIDGE-COMPLETE\|BRIDGE-SESSION" ~/.polypilot/event-diagnostics.log | tail -10
+```
+
+If `DispatchBridgePromptAsync` has stack traces, the desktop CopilotService failed to
+process the prompt. The mobile will show "Working..." indefinitely. Check if the
+triggering session had a connection error (look for RECONNECT events around the same time).
+
+#### Mobile shows session as "Working" when desktop shows idle
+The bridge syncs `IsProcessing` state. If a reconnect force-completed a session on
+desktop but the bridge state-sync hasn't fired yet, mobile shows stale state. The
+next `SyncRemoteSessions` call (triggered by `OnStateChanged`) should fix it. If not:
+```bash
+grep "SyncRemoteSessions" ~/.polypilot/event-diagnostics.log | tail -5
+```
+
+#### Mobile disconnects frequently
+Check network quality. The WebSocket connection goes through DevTunnel → Azure →
+mobile network. Each hop can drop. The `WsBridgeClient` on mobile has auto-reconnect
+logic, but gaps cause temporary UI freezes.
+
+```bash
+# Check for SmartURL network change events (WiFi↔Cellular transitions)
+grep "SmartURL" ~/.polypilot/event-diagnostics.log | tail -10
+
+# Check HEALTH events (Mac wake/sleep affects tunnel)
+grep "HEALTH" ~/.polypilot/event-diagnostics.log | tail -10
+```
+
+### Bridge-Specific Diagnostic Tags
+
+| Tag | Meaning |
+|-----|---------|
+| `[BRIDGE-COMPLETE]` | Bridge `OnTurnEnd` cleared IsProcessing for a remote session |
+| `[BRIDGE-SESSION-COMPLETE]` | Stale IsProcessing cleared during bridge sync |
+| `[SmartURL]` | Network change detected (WiFi gain/loss) — may trigger reconnect |
+| `[HEALTH]` | Connection health check after Mac wake/sleep |
+
+### DevTunnel Management
+
+```bash
+# Re-login if token expired (interactive — opens browser)
+devtunnel login
+
+# Show tunnel details
+devtunnel show TUNNEL_ID
+
+# Restart tunnel hosting (if process died)
+devtunnel host TUNNEL_ID --allow-anonymous &
+
+# Check tunnel port forwarding
+devtunnel list
+```
+
+Note: The DevTunnel host process runs independently from PolyPilot. If the Mac sleeps
+and wakes, the tunnel process usually survives but the WebSocket connections through
+it may need to re-establish.
