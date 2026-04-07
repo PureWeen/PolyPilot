@@ -189,11 +189,10 @@ public class AddExistingRepoTests
     // ─── Bug 1: AddRepositoryAsync supports local clone source ─────────────────
 
     [Fact]
-    public async Task AddRepositoryFromLocal_ClonesLocallyAndSetsRemoteUrl()
+    public async Task AddRepositoryFromLocal_PointsBareClonePathAtLocalRepo()
     {
-        // Create a real local git repo with an origin remote, then call
-        // AddRepositoryFromLocalAsync and verify the bare clone's remote URL
-        // is the network URL (not the local path).
+        // AddRepositoryFromLocalAsync should set BareClonePath to the local path
+        // (no bare clone is created) and register the repo.
         var tempDir = Path.Combine(Path.GetTempPath(), $"local-clone-test-{Guid.NewGuid():N}");
         var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
@@ -212,16 +211,15 @@ public class AddExistingRepoTests
             RepoManager.SetBaseDirForTesting(testBaseDir);
             try
             {
-                var progressMessages = new List<string>();
-                var repo = await rm.AddRepositoryFromLocalAsync(
-                    tempDir, msg => progressMessages.Add(msg));
+                var repo = await rm.AddRepositoryFromLocalAsync(tempDir);
 
-                // Should have used local clone, not network
-                Assert.Contains(progressMessages, m => m.Contains("local folder", StringComparison.OrdinalIgnoreCase));
+                // BareClonePath should point at the user's local repo — no bare clone
+                Assert.Equal(Path.GetFullPath(tempDir), Path.GetFullPath(repo.BareClonePath));
 
-                // The bare clone's remote origin should point to the network URL
-                var bareRemoteUrl = await RunGitOutput(repo.BareClonePath, "remote", "get-url", "origin");
-                Assert.Equal(remoteUrl, bareRemoteUrl.Trim());
+                // No bare clone directory should exist under the managed repos dir
+                var reposDir = Path.Combine(testBaseDir, "repos");
+                if (Directory.Exists(reposDir))
+                    Assert.Empty(Directory.GetDirectories(reposDir));
 
                 // Verify the repo was registered
                 Assert.Contains(rm.Repositories, r => r.Id == repo.Id);
@@ -239,20 +237,37 @@ public class AddExistingRepoTests
     }
 
     [Fact]
-    public async Task AddRepositoryAsync_LocalCloneSource_InvalidPath_Throws()
+    public void AddRepositoryFromLocal_NoBareCloneCreatedInReposDir()
     {
-        var rm = new RepoManager();
-        var method = typeof(RepoManager).GetMethod("AddRepositoryAsync",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance,
-            null,
-            new[] { typeof(string), typeof(Action<string>), typeof(string), typeof(CancellationToken) },
-            null)!;
+        // Verify that AddRepositoryFromLocalAsync does NOT call AddRepositoryAsync
+        // (which would create a bare clone). Our approach sets BareClonePath directly
+        // to the local path — the internal localCloneSource overload is no longer used.
+        var sourceFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "RepoManager.cs"));
 
-        var ex = await Assert.ThrowsAsync<ArgumentException>(async () =>
-            await (Task<RepositoryInfo>)method.Invoke(rm,
-                new object?[] { "https://github.com/test/repo", null, "/nonexistent/path", CancellationToken.None })!);
+        // AddRepositoryFromLocalAsync should NOT call AddRepositoryAsync
+        // Instead it should directly create a RepositoryInfo with BareClonePath = localPath
+        var methodBody = ExtractMethodBody(sourceFile, "AddRepositoryFromLocalAsync");
+        Assert.DoesNotContain("AddRepositoryAsync(", methodBody);
+        Assert.Contains("BareClonePath = localPath", methodBody);
+    }
 
-        Assert.Contains("not found", ex.Message, StringComparison.OrdinalIgnoreCase);
+    private static string ExtractMethodBody(string source, string methodName)
+    {
+        var idx = source.IndexOf(methodName, StringComparison.Ordinal);
+        if (idx < 0) return "";
+        // Find opening brace
+        var braceIdx = source.IndexOf('{', idx);
+        if (braceIdx < 0) return "";
+        // Find matching closing brace
+        var depth = 1;
+        var i = braceIdx + 1;
+        while (i < source.Length && depth > 0)
+        {
+            if (source[i] == '{') depth++;
+            else if (source[i] == '}') depth--;
+            i++;
+        }
+        return source[braceIdx..i];
     }
 
     // ─── Bug 2 (second block): WorktreeId-based reconcile prefers local folder ─
@@ -350,5 +365,13 @@ public class AddExistingRepoTests
         foreach (var f in Directory.EnumerateFiles(path, "*", SearchOption.AllDirectories))
             File.SetAttributes(f, FileAttributes.Normal);
         Directory.Delete(path, true);
+    }
+
+    private static string GetRepoRoot()
+    {
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "PolyPilot.slnx")))
+            dir = dir.Parent;
+        return dir?.FullName ?? throw new InvalidOperationException("Could not find repo root");
     }
 }
