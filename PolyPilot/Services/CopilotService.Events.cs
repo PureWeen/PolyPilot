@@ -364,6 +364,25 @@ public partial class CopilotService
 
     private void CompleteReasoningMessages(SessionState state, string sessionName)
     {
+        // Drain any messages still in PendingReasoningMessages into History.
+        // When ApplyReasoningUpdate creates a new reasoning message, it stores it in
+        // PendingReasoningMessages immediately but defers History.Add via InvokeOnUI.
+        // If CompleteReasoningMessages runs before that deferred add executes (e.g., when
+        // OnTurnEnd and OnReasoningReceived are both queued on the UI thread), the message
+        // won't be in History yet and would be left permanently incomplete.
+        if (!state.PendingReasoningMessages.IsEmpty)
+        {
+            foreach (var kvp in state.PendingReasoningMessages)
+            {
+                if (!state.Info.History.Contains(kvp.Value))
+                {
+                    state.Info.History.Add(kvp.Value);
+                    state.Info.MessageCount = state.Info.History.Count;
+                }
+            }
+            state.PendingReasoningMessages.Clear();
+        }
+
         var openReasoningMessages = state.Info.History
             .Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete)
             .ToList();
