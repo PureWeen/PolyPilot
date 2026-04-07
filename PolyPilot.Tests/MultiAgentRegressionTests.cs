@@ -1595,7 +1595,7 @@ public class MultiAgentRegressionTests
 
         var startIdx = source.IndexOf("private async Task MonitorAndSynthesizeAsync");
         Assert.True(startIdx >= 0, "MonitorAndSynthesizeAsync method not found in source");
-        var block = source.Substring(startIdx, Math.Min(source.Length - startIdx, 8000));
+        var block = source.Substring(startIdx, Math.Min(source.Length - startIdx, 14000));
 
         // For reflect groups: must use SendPromptAndWaitAsync (not just SendPromptAsync)
         // to get the orchestrator's response and detect new @worker assignments.

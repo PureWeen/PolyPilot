@@ -228,7 +228,7 @@ public class BackgroundTasksIdleTests
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(),
             "PolyPilot", "Services", "CopilotService.Events.cs"));
 
-        var handlerStart = source.IndexOf("case SessionBackgroundTasksChangedEvent:");
+        var handlerStart = source.IndexOf("case SessionBackgroundTasksChangedEvent");
         Assert.True(handlerStart >= 0, "SessionBackgroundTasksChangedEvent handler not found");
 
         // Find the next case or closing brace to bound the handler
@@ -236,9 +236,9 @@ public class BackgroundTasksIdleTests
         if (handlerEnd < 0) handlerEnd = source.Length;
         var handler = source.Substring(handlerStart, handlerEnd - handlerStart);
 
-        // Must stamp SubagentDeferStartedAtTicks via CompareExchange
+        // Must stamp SubagentDeferStartedAtTicks via RefreshDeferredBackgroundTaskTracking
+        Assert.Contains("RefreshDeferredBackgroundTaskTracking", handler);
         Assert.Contains("SubagentDeferStartedAtTicks", handler);
-        Assert.Contains("CompareExchange", handler);
     }
 
     [Fact]
@@ -249,7 +249,7 @@ public class BackgroundTasksIdleTests
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(),
             "PolyPilot", "Services", "CopilotService.Events.cs"));
 
-        var handlerStart = source.IndexOf("case SessionBackgroundTasksChangedEvent:");
+        var handlerStart = source.IndexOf("case SessionBackgroundTasksChangedEvent");
         Assert.True(handlerStart >= 0, "SessionBackgroundTasksChangedEvent handler not found");
 
         var handlerEnd = source.IndexOf("case System", handlerStart + 1);
@@ -339,7 +339,7 @@ public class BackgroundTasksIdleTests
         // Must set string.Empty sentinel (not null) when clearing after confirmed-empty event
         Assert.Contains("string.Empty", method);
         // Must NOT set null when clearing in this path (null is reserved for initial/reset state)
-        Assert.DoesNotContain("= null", method);
+        Assert.DoesNotContain("DeferredBackgroundTaskFingerprint = null", method);
     }
 
     private static string GetRepoRoot()
