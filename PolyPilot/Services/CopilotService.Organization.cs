@@ -614,14 +614,17 @@ public partial class CopilotService
                         if (localFolderGroup != null)
                         {
                             meta.GroupId = localFolderGroup.Id;
+                            changed = true;
                         }
                         else
                         {
                             var repoGroup = GetOrCreateRepoGroup(repo.Id, repo.Name);
                             if (repoGroup != null)
+                            {
                                 meta.GroupId = repoGroup.Id;
+                                changed = true;
+                            }
                         }
-                        changed = true;
                     }
                 }
             }

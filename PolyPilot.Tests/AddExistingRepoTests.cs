@@ -239,7 +239,7 @@ public class AddExistingRepoTests
     }
 
     [Fact]
-    public void AddRepositoryAsync_LocalCloneSource_InvalidPath_Throws()
+    public async Task AddRepositoryAsync_LocalCloneSource_InvalidPath_Throws()
     {
         var rm = new RepoManager();
         var method = typeof(RepoManager).GetMethod("AddRepositoryAsync",
@@ -248,11 +248,11 @@ public class AddExistingRepoTests
             new[] { typeof(string), typeof(Action<string>), typeof(string), typeof(CancellationToken) },
             null)!;
 
-        var ex = Assert.ThrowsAsync<ArgumentException>(async () =>
+        var ex = await Assert.ThrowsAsync<ArgumentException>(async () =>
             await (Task<RepositoryInfo>)method.Invoke(rm,
                 new object?[] { "https://github.com/test/repo", null, "/nonexistent/path", CancellationToken.None })!);
 
-        Assert.Contains("not found", ex.Result.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("not found", ex.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     // ─── Bug 2 (second block): WorktreeId-based reconcile prefers local folder ─
@@ -335,7 +335,7 @@ public class AddExistingRepoTests
             UseShellExecute = false
         };
         foreach (var a in args) psi.ArgumentList.Add(a);
-        var p = System.Diagnostics.Process.Start(psi)!;
+        using var p = System.Diagnostics.Process.Start(psi)!;
         var output = await p.StandardOutput.ReadToEndAsync();
         await p.WaitForExitAsync();
         if (p.ExitCode != 0)
