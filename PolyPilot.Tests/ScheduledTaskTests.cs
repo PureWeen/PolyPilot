@@ -49,6 +49,18 @@ public class ScheduledTaskTests
         Assert.True(predicate(), failureMessage);
     }
 
+    private sealed class RecordingSynchronizationContext : SynchronizationContext
+    {
+        private int _postCount;
+        public int PostCount => Volatile.Read(ref _postCount);
+
+        public override void Post(SendOrPostCallback d, object? state)
+        {
+            Interlocked.Increment(ref _postCount);
+            d(state);
+        }
+    }
+
     // ── Model tests ─────────────────────────────────────────────
 
     [Fact]
@@ -674,6 +686,50 @@ public class ScheduledTaskTests
     }
 
     [Fact]
+    public async Task Service_ExecuteTask_UsesCopilotUiDispatcherCapturedAfterConstruction()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+        var originalContext = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(null);
+
+        try
+        {
+            var copilot = CreateCopilotService();
+            var svc = new ScheduledTaskService(copilot);
+            var uiContext = new RecordingSynchronizationContext();
+            copilot.SetSyncContextForTesting(uiContext);
+
+            await copilot.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+            await copilot.CreateSessionAsync("ui-dispatch-session");
+
+            var task = new ScheduledTask
+            {
+                Name = "UI Dispatch Task",
+                Prompt = "Hello from the timer thread",
+                Schedule = ScheduleType.Interval,
+                IntervalMinutes = 1,
+                IsEnabled = true,
+                SessionName = "ui-dispatch-session"
+            };
+            svc.AddTask(task);
+
+            await svc.ExecuteTaskAsync(task, DateTime.UtcNow);
+
+            Assert.True(uiContext.PostCount > 0,
+                "Scheduled task execution should marshal via CopilotService's UI dispatcher even when the service was constructed before the UI context existed.");
+            Assert.True(svc.GetTask(task.Id)!.RecentRuns.Single().Success);
+        }
+        finally
+        {
+            SynchronizationContext.SetSynchronizationContext(originalContext);
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
     public async Task Service_EvaluateTasksAsync_DoesNotBlockOtherDueTasksBehindLongRun()
     {
         var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
@@ -887,6 +943,55 @@ public class ScheduledTaskTests
         {
             slowGate.TrySetResult(null);
             _demoService.BeforeCompleteAsync = null;
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(
+                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public async Task Service_RenameSession_UpdatesTargetedTaskSessionName()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        try
+        {
+            var copilot = CreateCopilotService();
+            var svc = new ScheduledTaskService(copilot);
+            await copilot.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+            await copilot.CreateSessionAsync("target-session");
+
+            var targetedTask = new ScheduledTask
+            {
+                Name = "Targeted",
+                Prompt = "Keep following the renamed session",
+                SessionName = "target-session",
+                Schedule = ScheduleType.Interval,
+                IntervalMinutes = 5,
+                IsEnabled = true
+            };
+            var untouchedTask = new ScheduledTask
+            {
+                Name = "Untouched",
+                Prompt = "This should stay on its own session",
+                SessionName = "other-session",
+                Schedule = ScheduleType.Interval,
+                IntervalMinutes = 5,
+                IsEnabled = true
+            };
+
+            svc.AddTask(targetedTask);
+            svc.AddTask(untouchedTask);
+
+            var renamed = copilot.RenameSession("target-session", "renamed-session");
+
+            Assert.True(renamed);
+            Assert.Equal("renamed-session", svc.GetTask(targetedTask.Id)!.SessionName);
+            Assert.Equal("other-session", svc.GetTask(untouchedTask.Id)!.SessionName);
+        }
+        finally
+        {
             try { File.Delete(tempFile); } catch { }
             ScheduledTaskService.SetTasksFilePathForTesting(
                 Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));

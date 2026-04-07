@@ -49,6 +49,8 @@ public partial class CopilotService : IAsyncDisposable
     }
     /// <summary>Test-only: simulate IsRestoring state for bridge queue tests.</summary>
     internal void SetIsRestoringForTesting(bool value) => IsRestoring = value;
+    /// <summary>Test-only: set the UI synchronization context captured during initialization.</summary>
+    internal void SetSyncContextForTesting(SynchronizationContext? syncContext) => _syncContext = syncContext;
     // Sessions for which history has already been requested — prevents duplicate request storms
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
     // External session IDs currently being resumed — prevents duplicate SDK connections from rapid double-clicks
@@ -545,6 +547,7 @@ public partial class CopilotService : IAsyncDisposable
     public event Action<string, string>? OnError; // sessionName, error
     public event Action<string, string>? OnSessionComplete; // sessionName, summary
     public event Action<string>? OnSessionClosed; // sessionName
+    public event Action<string, string>? OnSessionRenamed; // oldName, newName
     public event Action<string, string>? OnActivity; // sessionName, activity description
     public event Action<string>? OnDebug; // debug messages
 
@@ -4696,6 +4699,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var remoteMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == oldName);
             if (remoteMeta != null)
                 remoteMeta.SessionName = newName;
+            OnSessionRenamed?.Invoke(oldName, newName);
             OnStateChanged?.Invoke();
             // Send to server (fire-and-forget with error logging)
             _ = _bridgeClient.RenameSessionAsync(oldName, newName)
@@ -4746,6 +4750,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Re-key usage stats tracking so TrackSessionEnd(newName) finds the entry
         _usageStats?.RenameActiveSession(oldName, newName);
 
+        OnSessionRenamed?.Invoke(oldName, newName);
         SaveActiveSessionsToDisk();
         ReconcileOrganization();
         OnStateChanged?.Invoke();

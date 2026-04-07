@@ -17,7 +17,6 @@ public class ScheduledTaskService : IDisposable
     internal static void SetTasksFilePathForTesting(string path) => _tasksFilePath = path;
 
     private readonly CopilotService _copilotService;
-    private readonly SynchronizationContext? _uiContext;
     private readonly List<ScheduledTask> _tasks = new();
     private readonly object _lock = new();
     private readonly object _saveLock = new();
@@ -40,8 +39,8 @@ public class ScheduledTaskService : IDisposable
     public ScheduledTaskService(CopilotService copilotService)
     {
         _copilotService = copilotService;
-        _uiContext = SynchronizationContext.Current;
         _copilotService.OnSessionClosed += HandleSessionClosed;
+        _copilotService.OnSessionRenamed += HandleSessionRenamed;
         LoadTasks();
         Start(); // Auto-start the evaluation timer
     }
@@ -174,6 +173,39 @@ public class ScheduledTaskService : IDisposable
                     string.Equals(task.SessionName, sessionName, StringComparison.Ordinal))
                 {
                     task.IsEnabled = false;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+                _saveVersion++;
+        }
+
+        if (changed)
+        {
+            SaveTasks();
+            OnTasksChanged?.Invoke();
+        }
+    }
+
+    private void HandleSessionRenamed(string oldName, string newName)
+    {
+        if (string.IsNullOrEmpty(oldName) ||
+            string.IsNullOrEmpty(newName) ||
+            string.Equals(oldName, newName, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        bool changed = false;
+        lock (_lock)
+        {
+            foreach (var task in _tasks)
+            {
+                if (!string.IsNullOrEmpty(task.SessionName) &&
+                    string.Equals(task.SessionName, oldName, StringComparison.Ordinal))
+                {
+                    task.SessionName = newName;
                     changed = true;
                 }
             }
@@ -472,28 +504,10 @@ public class ScheduledTaskService : IDisposable
 
     // SDK-gap: SendPromptAsync/CreateSessionAsync mutate IsProcessing and companion state
     // synchronously on the caller's thread. Scheduled task evaluation runs on a Timer
-    // ThreadPool thread, so these calls must be marshaled to the UI thread.
+    // ThreadPool thread, so these calls must be marshaled through CopilotService's
+    // UI dispatcher instead of relying on this singleton's constructor-time context.
     private Task RunOnUiThreadAsync(Func<Task> action)
-    {
-        if (_uiContext == null || SynchronizationContext.Current == _uiContext)
-            return action();
-
-        var tcs = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _uiContext.Post(async _ =>
-        {
-            try
-            {
-                await action();
-                tcs.TrySetResult(null);
-            }
-            catch (Exception ex)
-            {
-                tcs.TrySetException(ex);
-            }
-        }, null);
-
-        return tcs.Task;
-    }
+        => _copilotService.InvokeOnUIAsync(action);
 
     private async Task<string> WaitForSessionCompletionAsync(string sessionName, Func<Task> sendPromptAsync, CancellationToken cancellationToken)
     {
@@ -645,5 +659,6 @@ public class ScheduledTaskService : IDisposable
         _disposeCts.Cancel();
         _disposeCts.Dispose();
         _copilotService.OnSessionClosed -= HandleSessionClosed;
+        _copilotService.OnSessionRenamed -= HandleSessionRenamed;
     }
 }
