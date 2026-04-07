@@ -1,5 +1,7 @@
+#if DEBUG
 using Microsoft.Maui.DevFlow.Agent.Gtk;
 using Microsoft.Maui.DevFlow.Blazor.Gtk;
+#endif
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Maui.Hosting;
 using Platform.Maui.Linux.Gtk4.BlazorWebView;
