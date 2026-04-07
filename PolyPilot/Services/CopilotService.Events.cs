@@ -217,13 +217,37 @@ public partial class CopilotService
         return (snapshot, firstSeenTicks);
     }
 
+    internal static bool ShouldIgnoreCarryOverShellOnlyTasks(
+        BackgroundTaskSnapshot snapshot,
+        long firstSeenTicks,
+        DateTime? processingStartedAtUtc)
+    {
+        if (!snapshot.IsKnown || snapshot.AgentCount > 0 || snapshot.ShellCount <= 0)
+            return false;
+        if (firstSeenTicks == 0 || processingStartedAtUtc == null)
+            return false;
+
+        // Shell handles can legitimately survive into later prompts (for example, detached dev
+        // servers or leaked log tails). Once a new turn starts, those carry-over shell IDs should
+        // not keep the new prompt stuck in IDLE-DEFER when there are no active agents left.
+        return firstSeenTicks < processingStartedAtUtc.Value.ToUniversalTime().Ticks;
+    }
+
     private void TryResolveDeferredIdleAfterBackgroundTaskChange(SessionState state, string sessionName, object? backgroundTasksOrEventData)
     {
         var tracking = RefreshDeferredBackgroundTaskTracking(state, backgroundTasksOrEventData);
-        if (!state.HasDeferredIdle || !state.Info.IsProcessing || !tracking.Snapshot.IsKnown || tracking.Snapshot.HasAny)
+        var onlyCarryOverShellsRemain = ShouldIgnoreCarryOverShellOnlyTasks(
+            tracking.Snapshot,
+            tracking.FirstSeenTicks,
+            state.Info.ProcessingStartedAt);
+        if (!state.HasDeferredIdle || !state.Info.IsProcessing || !tracking.Snapshot.IsKnown ||
+            (tracking.Snapshot.HasAny && !onlyCarryOverShellsRemain))
             return;
 
-        Debug($"[IDLE-DEFER-RESOLVE] '{sessionName}' background task set is now empty — completing deferred turn");
+        var reason = onlyCarryOverShellsRemain
+            ? "only carry-over shell tasks remain"
+            : "background task set is now empty";
+        Debug($"[IDLE-DEFER-RESOLVE] '{sessionName}' {reason} — completing deferred turn");
         InvokeOnUI(() =>
         {
             if (state.IsOrphaned || !state.HasDeferredIdle || !state.Info.IsProcessing)
@@ -885,11 +909,23 @@ public partial class CopilotService
                           $"backgroundTasksChanged already confirmed empty, completing normally");
 
                 var hasActiveTasks = !idlePayloadIsStale && HasActiveBackgroundTasks(idle, deferTicks);
+                var onlyCarryOverShellsRemain = !idlePayloadIsStale && ShouldIgnoreCarryOverShellOnlyTasks(
+                    tracking.Snapshot,
+                    deferTicks,
+                    state.Info.ProcessingStartedAt);
+                if (onlyCarryOverShellsRemain)
+                {
+                    hasActiveTasks = false;
+                    var carryOverMinutes = TimeSpan.FromTicks(Math.Max(0, DateTime.UtcNow.Ticks - deferTicks)).TotalMinutes;
+                    Debug($"[IDLE-DEFER-CARRYOVER] '{sessionName}' shell-only background tasks predate this turn " +
+                          $"by {carryOverMinutes:F1}min — allowing completion");
+                }
 
                 // Log zombie expiry here where Debug() is available (HasActiveBackgroundTasks is static)
                 var zombieAgentCount = tracking.Snapshot.AgentCount;
                 var zombieShellCount = tracking.Snapshot.ShellCount;
-                if (!hasActiveTasks && deferTicks != 0 && (zombieAgentCount > 0 || zombieShellCount > 0))
+                if (!hasActiveTasks && !idlePayloadIsStale && !onlyCarryOverShellsRemain && deferTicks != 0 &&
+                    (zombieAgentCount > 0 || zombieShellCount > 0))
                 {
                     var expiredMinutes = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - deferTicks).TotalMinutes;
                     Debug($"[IDLE-DEFER-ZOMBIE] '{sessionName}' {zombieAgentCount} agent(s) + {zombieShellCount} shell(s) " +

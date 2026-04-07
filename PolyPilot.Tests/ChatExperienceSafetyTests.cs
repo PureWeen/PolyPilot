@@ -192,6 +192,7 @@ public class ChatExperienceSafetyTests
 
         var successfulToolCount = GetField<int>(state, "SuccessfulToolCountThisTurn");
         Assert.Equal(0, successfulToolCount);
+        Assert.True(GetField<bool>(state, "AllowTurnStartRearm"));
     }
 
     /// <summary>
@@ -265,6 +266,37 @@ public class ChatExperienceSafetyTests
 
         // Assert: should have completed
         Assert.False(session.IsProcessing, "CompleteResponse must execute when generation matches");
+        Assert.True(GetField<bool>(state, "AllowTurnStartRearm"),
+            "Normal completion should allow one late TurnStart to recover from premature idle");
+    }
+
+    /// <summary>
+    /// Late TurnStart events should only revive sessions after speculative auto-completion.
+    /// Explicit aborts, watchdog kills, and force-complete recovery paths must not be re-armed
+    /// by stale SDK TurnStart replays.
+    /// </summary>
+    [Theory]
+    [InlineData(false, true, false, false, true,  true)]
+    [InlineData(false, true, false, false, false, false)]
+    [InlineData(false, true, false, true,  true,  false)]
+    [InlineData(false, true, true,  false, true,  false)]
+    [InlineData(true,  true, false, false, true,  false)]
+    public void TurnStartRearmGuard_OnlyAllowsSpeculativeCompletion(
+        bool isProcessing,
+        bool isCurrentState,
+        bool isOrphaned,
+        bool wasUserAborted,
+        bool allowTurnStartRearm,
+        bool expected)
+    {
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing,
+            isCurrentState,
+            isOrphaned,
+            wasUserAborted,
+            allowTurnStartRearm);
+
+        Assert.Equal(expected, result);
     }
 
     /// <summary>
