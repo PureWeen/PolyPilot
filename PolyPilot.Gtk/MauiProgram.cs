@@ -1,7 +1,9 @@
 using CommunityToolkit.Maui;
 using CommunityToolkit.Maui.Media;
+#if DEBUG
 using Microsoft.Maui.DevFlow.Agent.Gtk;
 using Microsoft.Maui.DevFlow.Blazor.Gtk;
+#endif
 using Microsoft.Extensions.Logging;
 using Platform.Maui.Linux.Gtk4.BlazorWebView;
 using Platform.Maui.Linux.Gtk4.Essentials.Hosting;
