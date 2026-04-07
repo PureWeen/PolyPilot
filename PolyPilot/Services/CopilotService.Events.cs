@@ -336,9 +336,14 @@ public partial class CopilotService
             // Must add to History on UI thread to avoid concurrent List<T> mutation
             InvokeOnUI(() =>
             {
-                state.Info.History.Add(reasoningMsg);
-                state.Info.MessageCount = state.Info.History.Count;
-                // Remove from pending — now findable via History search
+                // Guard: CompleteReasoningMessages may have already drained this message
+                // into History if TurnEnd fired before this deferred callback executed.
+                if (!state.Info.History.Contains(reasoningMsg))
+                {
+                    state.Info.History.Add(reasoningMsg);
+                    state.Info.MessageCount = state.Info.History.Count;
+                }
+                // Always clean up pending map regardless of whether we added to History
                 state.PendingReasoningMessages.TryRemove(normalizedReasoningId, out _);
             });
             isNew = true;
