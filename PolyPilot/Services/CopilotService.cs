@@ -792,6 +792,16 @@ public partial class CopilotService : IAsyncDisposable
         state.Info.LastUpdatedAt = DateTime.Now;
 
         Interlocked.Exchange(ref state.SendingFlag, 0);
+        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
+        state.HasUsedToolsThisTurn = false;
+        ClearDeferredIdleTracking(state);
+        Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
+        Interlocked.Exchange(ref state.EventCountThisTurn, 0);
+        Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
+        state.IsReconnectedSend = false;
+        CancelTurnEndFallback(state);
+        CancelToolHealthCheck(state);
         // NOTE: AllowTurnStartRearm and _consecutiveWatchdogTimeouts are NOT reset here.
         // AllowTurnStartRearm = true only belongs on the normal-completion path (CompleteResponse),
         // not on error/abort paths — setting it here would create a race window where a background
@@ -3976,14 +3986,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     Console.WriteLine($"[DEBUG] Reconnect+retry failed: {retryEx.Message}");
                     OnError?.Invoke(sessionName, $"Session disconnected and reconnect failed: {Models.ErrorMessageHelper.Humanize(retryEx)}");
                     CancelProcessingWatchdog(state);
-                    CancelTurnEndFallback(state);
-                    CancelToolHealthCheck(state);
                     FlushCurrentResponse(state);
                     Debug($"[ERROR] '{sessionName}' reconnect+retry failed, clearing IsProcessing");
-                    Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-                    state.HasUsedToolsThisTurn = false;
-                    ClearDeferredIdleTracking(state);
-                    Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                     ClearProcessingState(state, accumulateApiTime: false); // reconnect failure — no API call consumed
                     OnStateChanged?.Invoke();
                     throw;
@@ -3993,14 +3997,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             {
                 OnError?.Invoke(sessionName, $"SendAsync failed: {Models.ErrorMessageHelper.Humanize(ex)}");
                 CancelProcessingWatchdog(state);
-                CancelTurnEndFallback(state);
-                CancelToolHealthCheck(state);
                 FlushCurrentResponse(state);
                 Debug($"[ERROR] '{sessionName}' SendAsync failed, clearing IsProcessing (error={ex.Message})");
-                Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-                state.HasUsedToolsThisTurn = false;
-                ClearDeferredIdleTracking(state);
-                Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
                 ClearProcessingState(state, accumulateApiTime: false); // send failure — request may not have been consumed
                 OnStateChanged?.Invoke();
                 throw;
@@ -4140,20 +4138,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         ClearProcessingState(state, accumulateApiTime: false);
         state.WasUserAborted = true; // Suppress EVT-REARM for in-flight TurnStart events after abort
         state.AllowTurnStartRearm = false; // Abort is explicit terminal intent — do not revive on late TurnStart replays
-        Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
-        state.HasUsedToolsThisTurn = false;
-        ClearDeferredIdleTracking(state);
-        state.IsReconnectedSend = false; // INV-1: clear all per-turn flags on abort
-        Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
+        // Per-turn tracking fields are already cleared by ClearProcessingState.
         // Clear queued messages so they don't auto-send after abort
         state.Info.MessageQueue.Clear();
         _queuedImagePaths.TryRemove(sessionName, out _);
         _queuedAgentModes.TryRemove(sessionName, out _);
         _permissionRecoveryAttempts.TryRemove(sessionName, out _);
-        // Cancel any pending TurnEnd→Idle fallback so it doesn't fire CompleteResponse after abort
-        CancelTurnEndFallback(state);
         CancelProcessingWatchdog(state);
-        CancelToolHealthCheck(state);
         // Complete TCS AFTER state cleanup (INV-O3)
         state.ResponseCompletion?.TrySetCanceled();
         // Fire completion notification so orchestrator loops are unblocked (INV-O4)

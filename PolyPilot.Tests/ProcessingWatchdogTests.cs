@@ -2735,20 +2735,16 @@ public class ProcessingWatchdogTests
         Assert.True(watchdogBody.Contains("clearing IsProcessing after watchdog crash"),
             "Watchdog catch block must log that it is clearing IsProcessing on crash");
 
-        // The crash recovery must clear all INV-1 companion fields
-        // Search the full catch block (after the [WATCHDOG-CRASH] tag) for required patterns
+        // The crash recovery must call ClearProcessingState (which atomically clears all
+        // companion fields: IsProcessing, SendingFlag, ProcessingStartedAt, etc.)
         var crashIdx = watchdogBody.IndexOf("[WATCHDOG-CRASH]");
         var crashBlock = watchdogBody.Substring(crashIdx);
-        Assert.True(crashBlock.Contains("IsProcessing = false"),
-            "Watchdog crash recovery must set IsProcessing = false");
-        Assert.True(crashBlock.Contains("SendingFlag"),
-            "Watchdog crash recovery must clear SendingFlag (INV-1)");
-        Assert.True(crashBlock.Contains("ProcessingStartedAt = null"),
-            "Watchdog crash recovery must clear ProcessingStartedAt (INV-1)");
-        Assert.True(crashBlock.Contains("ProcessingPhase = 0"),
-            "Watchdog crash recovery must clear ProcessingPhase (INV-1)");
-        Assert.True(crashBlock.Contains("ClearPermissionDenials"),
-            "Watchdog crash recovery must clear permission denials (INV-1)");
+        Assert.True(crashBlock.Contains("ClearProcessingState(state"),
+            "Watchdog crash recovery must call ClearProcessingState to atomically clear all companion fields");
+        Assert.True(crashBlock.Contains("AllowTurnStartRearm = false"),
+            "Watchdog crash recovery must set AllowTurnStartRearm = false (terminal forced stop)");
+        Assert.True(crashBlock.Contains("ConsecutiveStuckCount++"),
+            "Watchdog crash recovery must increment ConsecutiveStuckCount");
     }
 
     [Fact]

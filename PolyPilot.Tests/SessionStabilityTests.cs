@@ -303,20 +303,13 @@ public class SessionStabilityTests
         var source = File.ReadAllText(TestPaths.EventsCs);
         var watchdogMethod = ExtractMethod(source, "RunProcessingWatchdogAsync");
 
-        // The crash recovery block (Case C kill) must clear companion fields
-        var companionFields = new[]
-        {
-            "IsProcessing = false",
-            "ProcessingPhase",
-            "ProcessingStartedAt",
-            "ToolCallCount",
-        };
-
-        foreach (var field in companionFields)
-        {
-            Assert.True(watchdogMethod.Contains(field, StringComparison.Ordinal),
-                $"Watchdog crash recovery must clear '{field}'");
-        }
+        // The crash recovery block must call ClearProcessingState (which atomically
+        // clears IsProcessing, ProcessingPhase, ProcessingStartedAt, ToolCallCount, etc.)
+        Assert.True(watchdogMethod.Contains("ClearProcessingState(state", StringComparison.Ordinal),
+            "Watchdog crash recovery must call ClearProcessingState to atomically clear all companion fields");
+        // Must also set AllowTurnStartRearm = false (terminal forced stop)
+        Assert.True(watchdogMethod.Contains("AllowTurnStartRearm = false", StringComparison.Ordinal),
+            "Watchdog crash recovery must set AllowTurnStartRearm = false");
     }
 
     // ─── Multi-Agent Fix Prompt Enhancement ───
