@@ -267,11 +267,13 @@ public partial class CopilotService
 
     private static ChatMessage? FindReasoningMessage(AgentSessionInfo info, string reasoningId)
     {
-        // Exact ID match first, then most recent incomplete reasoning message.
+        // Only reuse an already-open reasoning bubble. If a provider reuses the same
+        // reasoning ID on a later turn, do not reopen or mutate the older completed entry.
         if (!string.IsNullOrEmpty(reasoningId))
         {
             var exact = info.History.LastOrDefault(m =>
                 m.MessageType == ChatMessageType.Reasoning &&
+                !m.IsComplete &&
                 string.Equals(m.ReasoningId, reasoningId, StringComparison.Ordinal));
             if (exact != null) return exact;
         }

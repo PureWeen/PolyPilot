@@ -99,4 +99,22 @@ public class ReasoningDedupTests
         var first = results.First();
         Assert.All(results, r => Assert.Same(first, r));
     }
+
+    [Fact]
+    public void CompletedReasoningMessage_IsNotReusedAcrossTurns()
+    {
+        var history = new List<ChatMessage>();
+        var completed = ChatMessage.ReasoningMessage("reason-1");
+        completed.Content = "Old summary";
+        completed.IsComplete = true;
+        completed.IsCollapsed = true;
+        history.Add(completed);
+
+        var reused = history.LastOrDefault(m =>
+            m.MessageType == ChatMessageType.Reasoning &&
+            !m.IsComplete &&
+            string.Equals(m.ReasoningId, "reason-1", StringComparison.Ordinal));
+
+        Assert.Null(reused);
+    }
 }
