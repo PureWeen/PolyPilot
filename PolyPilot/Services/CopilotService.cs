@@ -792,9 +792,12 @@ public partial class CopilotService : IAsyncDisposable
         state.Info.LastUpdatedAt = DateTime.Now;
 
         Interlocked.Exchange(ref state.SendingFlag, 0);
-        Interlocked.Exchange(ref _consecutiveWatchdogTimeouts, 0);
-
-        state.AllowTurnStartRearm = true;
+        // NOTE: AllowTurnStartRearm and _consecutiveWatchdogTimeouts are NOT reset here.
+        // AllowTurnStartRearm = true only belongs on the normal-completion path (CompleteResponse),
+        // not on error/abort paths — setting it here would create a race window where a background
+        // TurnStart event could re-arm IsProcessing between ClearProcessingState and the caller's
+        // AllowTurnStartRearm = false override.
+        // _consecutiveWatchdogTimeouts reset only belongs on success (CompleteResponse), not errors.
     }
 
     /// <summary>Ping interval to prevent the headless server from killing idle sessions.
@@ -3981,8 +3984,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     state.HasUsedToolsThisTurn = false;
                     ClearDeferredIdleTracking(state);
                     Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
-                    ClearProcessingState(state);
-                    state.AllowTurnStartRearm = false; // Explicit reconnect failure is terminal for this turn
+                    ClearProcessingState(state, accumulateApiTime: false); // reconnect failure — no API call consumed
                     OnStateChanged?.Invoke();
                     throw;
                 }
@@ -3999,8 +4001,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 state.HasUsedToolsThisTurn = false;
                 ClearDeferredIdleTracking(state);
                 Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
-                ClearProcessingState(state);
-                state.AllowTurnStartRearm = false; // Explicit send failure is terminal for this turn
+                ClearProcessingState(state, accumulateApiTime: false); // send failure — request may not have been consumed
                 OnStateChanged?.Invoke();
                 throw;
             }

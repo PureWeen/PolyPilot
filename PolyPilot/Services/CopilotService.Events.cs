@@ -1641,8 +1641,14 @@ public partial class CopilotService
         // synchronously (e.g., in orchestrator reflection loops), the next SendPromptAsync
         // call must see IsProcessing=false or it throws "already processing".
         ClearProcessingState(state);
-        // A successful completion proves the server is healthy — reset the
+        // Success-only: allow EVT-REARM to re-arm IsProcessing if a late TurnStart arrives
+        // (premature session.idle recovery). This must be set AFTER ClearProcessingState to
+        // avoid the race where a background TurnStart thread reads AllowTurnStartRearm=true
+        // before error/abort callers can override it back to false.
+        state.AllowTurnStartRearm = true;
+        // Success-only: a successful completion proves the server is healthy — reset the
         // service-level watchdog timeout counter to prevent false recovery triggers.
+        Interlocked.Exchange(ref _consecutiveWatchdogTimeouts, 0);
         state.ResponseCompletion?.TrySetResult(fullResponse);
         
         // Fire completion notification BEFORE OnStateChanged — this ensures
