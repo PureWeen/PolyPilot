@@ -24,13 +24,13 @@ else
                 <button type="button"
                         class="diff-picker-toggle"
                         @onclick="ToggleFilePicker"
-                        aria-expanded="@(!_isFilePickerCollapsed)">
-                    @(_isFilePickerCollapsed ? "Show files" : "Hide files")
+                        aria-expanded="@(!_state.IsFilePickerCollapsed)">
+                    @(_state.IsFilePickerCollapsed ? "Show files" : "Hide files")
                 </button>
             }
         </div>
 
-        @if (!_isFilePickerCollapsed || Files.Count == 1)
+        @if (!_state.IsFilePickerCollapsed || Files.Count == 1)
         {
             <div class="diff-file-picker" role="tablist" aria-label="Changed files">
                 @for (var fileIdx = 0; fileIdx < Files.Count; fileIdx++)
@@ -39,10 +39,10 @@ else
                     var capturedIdx = fileIdx;
 
                     <button type="button"
-                            class="diff-file-tab @(capturedIdx == _selectedFileIdx ? "selected" : "")"
+                            class="diff-file-tab @(capturedIdx == _state.SelectedFileIndex ? "selected" : "")"
                             @onclick="() => SelectFile(capturedIdx)"
                             title="@listFile.DisplayName"
-                            aria-pressed="@(capturedIdx == _selectedFileIdx)">
+                            aria-pressed="@(capturedIdx == _state.SelectedFileIndex)">
                         <span class="diff-file-badge @listFile.StatusCssClass">@listFile.StatusLabel</span>
                         <span class="diff-file-tab-name">@listFile.DisplayName</span>
                         <span class="diff-file-tab-stats">
@@ -56,7 +56,7 @@ else
 
         @if (SelectedFile is { } selectedFile)
         {
-            var selectedIdx = _selectedFileIdx;
+            var selectedIdx = _state.SelectedFileIndex;
 
             <div class="diff-file" @key="selectedIdx">
                 <div class="diff-file-header">
@@ -67,20 +67,47 @@ else
                         <span class="stat-del">-@selectedFile.RemovedLineCount</span>
                     </span>
                     <span class="diff-view-toggle">
-                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(selectedIdx, DiffViewMode.Table) == DiffViewMode.Table ? "active" : "")"
+                        <button class="toggle-btn @(_state.GetViewMode(selectedIdx) == DiffViewMode.Table ? "active" : "")"
                                 @onclick="() => SetViewMode(selectedIdx, DiffViewMode.Table)"
                                 title="Table view">Table</button>
-                        <button class="toggle-btn @(_viewModes.GetValueOrDefault(selectedIdx, DiffViewMode.Table) == DiffViewMode.Editor ? "active" : "")"
+                        <button class="toggle-btn @(_state.GetViewMode(selectedIdx) == DiffViewMode.Editor ? "active" : "")"
                                 @onclick="() => SetViewMode(selectedIdx, DiffViewMode.Editor)"
                                 title="Editor view with syntax highlighting">Editor</button>
                     </span>
                 </div>
 
+                @if (CanComment)
+                {
+                    <div class="diff-comment-hint">Click any line number to send review feedback to chat.</div>
+                }
+
+                @if (_commentDraft is not null)
+                {
+                    <div class="diff-comment-box">
+                        <div class="diff-comment-title">
+                            Comment on <code>@_commentDraft.FileName:@_commentDraft.LineNumber</code>
+                        </div>
+                        <textarea class="diff-comment-input"
+                                  @bind="_commentText"
+                                  @bind:event="oninput"
+                                  placeholder="Tell Copilot what should change on this line…"></textarea>
+                        <div class="diff-comment-actions">
+                            <button type="button"
+                                    class="diff-comment-send"
+                                    @onclick="SubmitCommentAsync"
+                                    disabled="@string.IsNullOrWhiteSpace(_commentText)">
+                                Send to chat
+                            </button>
+                            <button type="button" class="diff-comment-cancel" @onclick="CancelComment">Cancel</button>
+                        </div>
+                    </div>
+                }
+
                 @if (selectedFile.Hunks.Count == 0)
                 {
                     <div class="diff-empty-body">No diff hunks available for this file.</div>
                 }
-                else if (_viewModes.GetValueOrDefault(selectedIdx, DiffViewMode.Table) == DiffViewMode.Editor)
+                else if (_state.GetViewMode(selectedIdx) == DiffViewMode.Editor)
                 {
                     <div class="diff-cm-container" id="cm-diff-@_instancePrefix-@selectedIdx"></div>
                 }
@@ -105,9 +132,31 @@ else
                                 @foreach (var row in DiffParser.PairLines(hunk))
                                 {
                                     <tr class="diff-row">
-                                        <td class="diff-ln @(row.Left?.Type == DiffLineType.Removed ? "ln-del" : "")">@(row.Left?.OldLineNo?.ToString() ?? "")</td>
+                                        <td class="diff-ln @(row.Left?.Type == DiffLineType.Removed ? "ln-del" : "")">
+                                            @if (row.Left?.OldLineNo is int oldLineNo)
+                                            {
+                                                <button type="button"
+                                                        class="diff-line-anchor"
+                                                        title="Comment on original line @oldLineNo"
+                                                        disabled="@(!CanComment)"
+                                                        @onclick="() => BeginLineComment(selectedIdx, selectedFile.FileName, oldLineNo, true)">
+                                                    @oldLineNo
+                                                </button>
+                                            }
+                                        </td>
                                         <td class="diff-code @(row.Left == null ? "diff-blank" : row.Left.Type == DiffLineType.Removed ? "diff-del" : "diff-ctx")"><pre>@(row.Left?.Content ?? "")</pre></td>
-                                        <td class="diff-ln @(row.Right?.Type == DiffLineType.Added ? "ln-add" : "")">@(row.Right?.NewLineNo?.ToString() ?? "")</td>
+                                        <td class="diff-ln @(row.Right?.Type == DiffLineType.Added ? "ln-add" : "")">
+                                            @if (row.Right?.NewLineNo is int newLineNo)
+                                            {
+                                                <button type="button"
+                                                        class="diff-line-anchor"
+                                                        title="Comment on modified line @newLineNo"
+                                                        disabled="@(!CanComment)"
+                                                        @onclick="() => BeginLineComment(selectedIdx, selectedFile.FileName, newLineNo, false)">
+                                                    @newLineNo
+                                                </button>
+                                            }
+                                        </td>
                                         <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right?.Content ?? "")</pre></td>
                                     </tr>
                                 }
@@ -122,25 +171,25 @@ else
 
 @code {
     [Parameter] public string RawDiff { get; set; } = "";
+    [Parameter] public EventCallback<DiffLineCommentRequest> OnCommentRequested { get; set; }
     private List<DiffFile> Files { get; set; } = new();
     private string? _lastRawDiff;
-    private readonly Dictionary<int, DiffViewMode> _viewModes = new();
+    private readonly DiffViewState _state = new();
     private readonly Dictionary<int, int> _cmInstances = new();
     private readonly HashSet<int> _pendingEditorInit = new();
     private readonly string _instancePrefix = Guid.NewGuid().ToString("N")[..8];
-    private int _generation;
-    private int _selectedFileIdx;
-    private bool _isFilePickerCollapsed;
+    private DotNetObjectReference<DiffView>? _dotNetRef;
+    private DiffLineCommentRequest? _commentDraft;
+    private string _commentText = "";
     private bool _disposed;
 
     private DiffFile? SelectedFile =>
-        _selectedFileIdx >= 0 && _selectedFileIdx < Files.Count ? Files[_selectedFileIdx] : null;
+        _state.SelectedFileIndex >= 0 && _state.SelectedFileIndex < Files.Count ? Files[_state.SelectedFileIndex] : null;
 
     private int TotalAdded => Files.Sum(file => file.AddedLineCount);
     private int TotalRemoved => Files.Sum(file => file.RemovedLineCount);
     private string SummaryLabel => Files.Count == 1 ? "1 file changed" : $"{Files.Count} files changed";
-
-    private enum DiffViewMode { Table, Editor }
+    private bool CanComment => OnCommentRequested.HasDelegate;
 
     protected override void OnParametersSet()
     {
@@ -148,13 +197,12 @@ else
         {
             _lastRawDiff = RawDiff;
             Files = DiffParser.Parse(RawDiff);
-            _generation++;
-            _selectedFileIdx = Files.Count > 0 ? 0 : -1;
-            _isFilePickerCollapsed = false;
+            _state.Reset(Files);
+            _commentDraft = null;
+            _commentText = "";
 
             // Snapshot IDs before clearing so fire-and-forget only disposes these exact instances
             var idsToDispose = _cmInstances.Values.ToArray();
-            _viewModes.Clear();
             _cmInstances.Clear();
             _pendingEditorInit.Clear();
 
@@ -162,30 +210,34 @@ else
         }
     }
 
-    private void ToggleFilePicker() => _isFilePickerCollapsed = !_isFilePickerCollapsed;
+    private void ToggleFilePicker() => _state.ToggleFilePicker();
 
     private void SelectFile(int fileIdx)
     {
-        if (fileIdx < 0 || fileIdx >= Files.Count || fileIdx == _selectedFileIdx)
+        var previousIdx = _state.SelectedFileIndex;
+        if (!_state.SelectFile(fileIdx, Files.Count))
             return;
 
-        DisposeEditorInstance(_selectedFileIdx);
-        _selectedFileIdx = fileIdx;
+        DisposeEditorInstance(previousIdx);
+        CancelComment();
 
-        if (_viewModes.GetValueOrDefault(fileIdx, DiffViewMode.Table) == DiffViewMode.Editor)
+        if (_state.GetViewMode(fileIdx) == DiffViewMode.Editor)
             _pendingEditorInit.Add(fileIdx);
     }
 
     private void SetViewMode(int fileIdx, DiffViewMode mode)
     {
+        CancelComment();
+
         if (mode == DiffViewMode.Editor)
         {
-            _viewModes[fileIdx] = mode;
+            DisposeEditorInstance(fileIdx);
+            _state.SetViewMode(fileIdx, mode);
             _pendingEditorInit.Add(fileIdx);
         }
         else
         {
-            _viewModes[fileIdx] = mode;
+            _state.SetViewMode(fileIdx, mode);
             _pendingEditorInit.Remove(fileIdx);
 
             // Snapshot and remove before the async JS call
@@ -203,6 +255,39 @@ else
 
         if (_cmInstances.Remove(fileIdx, out var instanceId))
             _ = DisposeJsInstancesByIdAsync(new[] { instanceId });
+    }
+
+    private void BeginLineComment(int fileIdx, string fileName, int lineNumber, bool isOriginalSide)
+    {
+        if (!CanComment)
+            return;
+
+        SelectFile(fileIdx);
+        _commentDraft = new DiffLineCommentRequest(fileName, lineNumber, "", isOriginalSide ? "original" : "modified");
+        _commentText = "";
+    }
+
+    private void CancelComment()
+    {
+        _commentDraft = null;
+        _commentText = "";
+    }
+
+    private async Task SubmitCommentAsync()
+    {
+        if (_commentDraft is null || string.IsNullOrWhiteSpace(_commentText))
+            return;
+
+        var request = _commentDraft with { Comment = _commentText.Trim() };
+        await OnCommentRequested.InvokeAsync(request);
+        CancelComment();
+    }
+
+    [JSInvokable]
+    public Task HandleEditorLineClick(int fileIdx, string fileName, string side, int lineNumber)
+    {
+        BeginLineComment(fileIdx, fileName, lineNumber, side.Equals("original", StringComparison.OrdinalIgnoreCase));
+        return InvokeAsync(StateHasChanged);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
@@ -226,7 +311,7 @@ else
         // Double-init guard: if an instance already exists for this file, skip
         if (_cmInstances.ContainsKey(fileIdx)) return;
 
-        var gen = _generation;
+        var gen = _state.Generation;
         var file = Files[fileIdx];
         var containerId = $"cm-diff-{_instancePrefix}-{fileIdx}";
         var original = DiffParser.ReconstructOriginal(file);
@@ -234,12 +319,20 @@ else
 
         try
         {
+            _dotNetRef ??= DotNetObjectReference.Create(this);
             var instanceId = await JS.InvokeAsync<int>(
                 "PolyPilotCodeMirror.createMergeView",
-                containerId, original, modified, file.FileName);
+                containerId, original, modified, file.FileName, fileIdx, _dotNetRef, CanComment);
+
+            if (instanceId < 0)
+            {
+                _state.SetViewMode(fileIdx, DiffViewMode.Table);
+                await InvokeAsync(StateHasChanged);
+                return;
+            }
 
             // Stale init guard: if generation changed during await, discard the orphan
-            if (_generation != gen || _disposed)
+            if (_state.Generation != gen || _disposed)
             {
                 try { await JS.InvokeVoidAsync("PolyPilotCodeMirror.dispose", instanceId); }
                 catch (Exception ex) { Console.Error.WriteLine($"[DiffView] Failed to dispose stale CM instance {instanceId}: {ex.Message}"); }
@@ -252,6 +345,8 @@ else
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[DiffView] Failed to create CM merge view for {file.FileName}: {ex.Message}");
+            _state.SetViewMode(fileIdx, DiffViewMode.Table);
+            await InvokeAsync(StateHasChanged);
         }
     }
 
@@ -281,6 +376,8 @@ else
 
         var idsToDispose = _cmInstances.Values.ToArray();
         _cmInstances.Clear();
+        _dotNetRef?.Dispose();
+        _dotNetRef = null;
         await DisposeJsInstancesByIdAsync(idsToDispose);
     }
 }

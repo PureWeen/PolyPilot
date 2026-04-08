@@ -151,6 +151,82 @@ public class DiffParserTests
     }
 
     [Fact]
+    public void DiffViewState_ResetSelectionAndModes_TracksGeneration()
+    {
+        var files = new List<DiffFile>
+        {
+            new() { FileName = "a.cs" },
+            new() { FileName = "b.cs" }
+        };
+        var state = new DiffViewState();
+
+        state.Reset(files);
+        state.SetViewMode(1, DiffViewMode.Editor);
+        var firstGeneration = state.Generation;
+
+        Assert.Equal(0, state.SelectedFileIndex);
+        Assert.Equal(DiffViewMode.Editor, state.GetViewMode(1));
+        Assert.True(state.SelectFile(1, files.Count));
+        Assert.Equal(1, state.SelectedFileIndex);
+
+        state.Reset(files);
+
+        Assert.Equal(firstGeneration + 1, state.Generation);
+        Assert.Equal(0, state.SelectedFileIndex);
+        Assert.Equal(DiffViewMode.Table, state.GetViewMode(1));
+        Assert.False(state.IsFilePickerCollapsed);
+    }
+
+    [Fact]
+    public void DiffLineCommentRequest_ToPrompt_FormatsReviewMessage()
+    {
+        var request = new DiffLineCommentRequest("src/ReviewPanel.cs", 42, "Please simplify this branch", "original");
+
+        Assert.Equal(
+            "On file src/ReviewPanel.cs, line 42 (original): Please simplify this branch",
+            request.ToPrompt());
+    }
+
+    [Fact]
+    public void Parse_BinaryDiffLikeOutput_CapturesFileMetadataWithoutHunks()
+    {
+        var diff = """
+            diff --git a/assets/logo.png b/assets/logo.png
+            index e69de29..1b2c3d4 100644
+            Binary files a/assets/logo.png and b/assets/logo.png differ
+            """;
+
+        var files = DiffParser.Parse(diff);
+
+        Assert.Single(files);
+        Assert.Equal("assets/logo.png", files[0].FileName);
+        Assert.Empty(files[0].Hunks);
+        Assert.Equal(0, files[0].AddedLineCount);
+        Assert.Equal(0, files[0].RemovedLineCount);
+    }
+
+    [Fact]
+    public void Parse_LargeDiff_AggregatesCountsAcrossHunks()
+    {
+        var removedLines = string.Join('\n', Enumerable.Range(1, 12).Select(i => $"-old {i}"));
+        var addedLines = string.Join('\n', Enumerable.Range(1, 15).Select(i => $"+new {i}"));
+        var diff = $$"""
+            diff --git a/huge.cs b/huge.cs
+            --- a/huge.cs
+            +++ b/huge.cs
+            @@ -1,12 +1,15 @@
+            {{removedLines}}
+            {{addedLines}}
+            """;
+
+        var files = DiffParser.Parse(diff);
+
+        Assert.Single(files);
+        Assert.Equal(12, files[0].RemovedLineCount);
+        Assert.Equal(15, files[0].AddedLineCount);
+    }
+
+    [Fact]
     public void Parse_HunkHeader_ExtractsLineNumbers()
     {
         var diff = """

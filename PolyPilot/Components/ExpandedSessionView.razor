@@ -244,9 +244,10 @@
                                  UserAvatarUrl="@UserAvatarUrl"
                                  Layout="@Layout"
                                  Style="@Style"
-                                 RepoUrl="@RepoUrl"
-                                 HasPermissionIssue="Session.HasPermissionIssue"
-                                 OnReconnectRequested="OnReconnectRequested" />
+                                  RepoUrl="@RepoUrl"
+                                  HasPermissionIssue="Session.HasPermissionIssue"
+                                  OnDiffCommentRequested="HandleDiffCommentAsync"
+                                  OnReconnectRequested="OnReconnectRequested" />
             </div>
 
             @if (!string.IsNullOrEmpty(Error))
@@ -472,7 +473,9 @@
                     }
                     else if (!string.IsNullOrWhiteSpace(_prDiffContent))
                     {
-                        <DiffView RawDiff="@_prDiffContent" @key="_prDiffCacheKey" />
+                        <DiffView RawDiff="@_prDiffContent"
+                                  OnCommentRequested="HandleDiffCommentAsync"
+                                  @key="_prDiffCacheKey" />
                     }
                     else
                     {
@@ -1030,6 +1033,14 @@
                 try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
             }
         }
+    }
+
+    private async Task HandleDiffCommentAsync(DiffLineCommentRequest request)
+    {
+        var inputId = $"input-{Session.Name.Replace(" ", "-")}";
+        await JS.InvokeVoidAsync("clearElementValue", inputId);
+        await JS.InvokeVoidAsync("appendSpeechText", inputId, request.ToPrompt());
+        await OnSend.InvokeAsync(Session.Name);
     }
 
     private async Task OnEffortChanged(ChangeEventArgs e)

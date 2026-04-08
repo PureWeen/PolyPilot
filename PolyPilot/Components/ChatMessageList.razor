@@ -12,7 +12,12 @@
     {
         @foreach (var msg in Messages.ToList())
         {
-            <ChatMessageItem @key="msg" Message="msg" Compact="Compact" UserAvatarUrl="@UserAvatarUrl" RepoUrl="@RepoUrl" />
+            <ChatMessageItem @key="msg"
+                             Message="msg"
+                             Compact="Compact"
+                             UserAvatarUrl="@UserAvatarUrl"
+                             RepoUrl="@RepoUrl"
+                             OnDiffCommentRequested="OnDiffCommentRequested" />
         }
 
         @* Current turn tool activity feed — skip activities already in history *@
@@ -135,6 +140,7 @@
     [Parameter] public string? RepoUrl { get; set; }
     [Parameter] public bool HasPermissionIssue { get; set; }
     [Parameter] public EventCallback OnReconnectRequested { get; set; }
+    [Parameter] public EventCallback<DiffLineCommentRequest> OnDiffCommentRequested { get; set; }
 
     private string GetProcessingStatus()
     {

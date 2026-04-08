@@ -2,6 +2,61 @@ using System.Text;
 
 namespace PolyPilot.Models;
 
+public enum DiffViewMode
+{
+    Table,
+    Editor
+}
+
+public sealed class DiffViewState
+{
+    private readonly Dictionary<int, DiffViewMode> _viewModes = new();
+
+    public int Generation { get; private set; }
+    public int SelectedFileIndex { get; private set; } = -1;
+    public bool IsFilePickerCollapsed { get; private set; }
+    public IReadOnlyDictionary<int, DiffViewMode> ViewModes => _viewModes;
+
+    public void Reset(IReadOnlyList<DiffFile> files)
+    {
+        Generation++;
+        SelectedFileIndex = files.Count > 0 ? 0 : -1;
+        IsFilePickerCollapsed = false;
+        _viewModes.Clear();
+    }
+
+    public void ToggleFilePicker() => IsFilePickerCollapsed = !IsFilePickerCollapsed;
+
+    public bool SelectFile(int fileIdx, int fileCount)
+    {
+        if (fileIdx < 0 || fileIdx >= fileCount || fileIdx == SelectedFileIndex)
+            return false;
+
+        SelectedFileIndex = fileIdx;
+        return true;
+    }
+
+    public DiffViewMode GetViewMode(int fileIdx) =>
+        _viewModes.TryGetValue(fileIdx, out var mode) ? mode : DiffViewMode.Table;
+
+    public void SetViewMode(int fileIdx, DiffViewMode mode) => _viewModes[fileIdx] = mode;
+}
+
+public sealed record DiffLineCommentRequest(string FileName, int LineNumber, string Comment, string Side = "modified")
+{
+    public string ToPrompt()
+    {
+        var sideLabel = Side.ToLowerInvariant() switch
+        {
+            "left" or "old" or "original" => "original",
+            "right" or "new" or "modified" => "modified",
+            _ => Side
+        };
+
+        return $"On file {FileName}, line {LineNumber} ({sideLabel}): {Comment.Trim()}";
+    }
+}
+
 public class DiffFile
 {
     public string FileName { get; set; } = "";
