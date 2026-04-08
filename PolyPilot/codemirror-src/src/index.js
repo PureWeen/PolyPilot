@@ -74,6 +74,9 @@ const polyPilotTheme = EditorView.theme({
     border: "none",
     borderRight: "1px solid var(--control-border, rgba(255,255,255,0.06))",
   },
+  ".cm-gutterElement": {
+    cursor: "pointer",
+  },
   ".cm-activeLineGutter": {
     backgroundColor: "rgba(78, 168, 209, 0.1)",
   },
@@ -182,6 +185,49 @@ function readOnlyExtensions(filename) {
   ];
 }
 
+function resolveClickedLineNumber(target, view, event) {
+  if (!(target instanceof Element)) return null;
+
+  const gutter = target.closest('.cm-gutterElement');
+  if (!gutter) return null;
+
+  const directText = (gutter.textContent || '').trim();
+  const parsed = Number.parseInt(directText, 10);
+  if (Number.isInteger(parsed) && parsed > 0) {
+    return parsed;
+  }
+
+  const contentRect = view.contentDOM.getBoundingClientRect();
+  const gutterRect = gutter.getBoundingClientRect();
+  const pos = view.posAtCoords({
+    x: contentRect.left + Math.max(8, Math.min(contentRect.width - 8, 12)),
+    y: event.clientY || (gutterRect.top + gutterRect.height / 2),
+  });
+
+  return pos == null ? null : view.state.doc.lineAt(pos).number;
+}
+
+function getLineClickExtensions(meta, side) {
+  if (!meta?.enableLineComments || !meta.dotNetRef) return [];
+
+  return [EditorView.domEventHandlers({
+    mousedown(event, view) {
+      const lineNumber = resolveClickedLineNumber(event.target, view, event);
+      if (lineNumber == null) return false;
+
+      event.preventDefault();
+      meta.dotNetRef.invokeMethodAsync(
+        'HandleEditorLineClick',
+        meta.fileIndex ?? -1,
+        meta.fileName ?? '',
+        side,
+        lineNumber
+      ).catch(err => console.error('[PolyPilotCodeMirror] Failed to send line click to .NET', err));
+      return true;
+    }
+  })];
+}
+
 // Global registry of active instances for cleanup
 const instances = new Map();
 let nextId = 1;
@@ -215,7 +261,7 @@ function createEditor(containerId, content, filename, options = {}) {
  * Create a side-by-side diff/merge view.
  * `original` is the old content, `modified` is the new content.
  */
-function createMergeView(containerId, original, modified, filename, options = {}) {
+function createMergeView(containerId, original, modified, filename, fileIndex = -1, dotNetRef = null, enableLineComments = false, options = {}) {
   const container = document.getElementById(containerId);
   if (!container) return -1;
   
@@ -223,6 +269,12 @@ function createMergeView(containerId, original, modified, filename, options = {}
   
   const lang = getLanguageForFile(filename);
   const collapseUnchanged = options.collapseUnchanged !== false ? { margin: 3, minSize: 4 } : undefined;
+  const commentMeta = {
+    dotNetRef,
+    fileIndex,
+    fileName: filename || '',
+    enableLineComments,
+  };
   
   const sharedExtensions = [
     lineNumbers(),
@@ -247,11 +299,11 @@ function createMergeView(containerId, original, modified, filename, options = {}
   const mergeView = new MergeView({
     a: {
       doc: original || '',
-      extensions: sharedExtensions,
+      extensions: [...sharedExtensions, ...getLineClickExtensions(commentMeta, 'original')],
     },
     b: {
       doc: modified || '',
-      extensions: sharedExtensions,
+      extensions: [...sharedExtensions, ...getLineClickExtensions(commentMeta, 'modified')],
     },
     parent: container,
     collapseUnchanged,

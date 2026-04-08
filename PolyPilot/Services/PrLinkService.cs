@@ -86,6 +86,12 @@ public class PrLinkService
         return diff;
     }
 
+    protected virtual Task<(string Output, string Error, int ExitCode)> RunGhAsync(
+        string workingDirectory,
+        CancellationToken cancellationToken,
+        params string[] args) =>
+        RunGhProcessAsync(workingDirectory, cancellationToken, args);
+
     private static async Task<string?> FetchPrUrlAsync(string workingDirectory)
     {
         Process? process = null;
@@ -173,7 +179,7 @@ public class PrLinkService
         }
     }
 
-    private static async Task<(string Output, string Error, int ExitCode)> RunGhAsync(
+    private static async Task<(string Output, string Error, int ExitCode)> RunGhProcessAsync(
         string workingDirectory,
         CancellationToken cancellationToken,
         params string[] args)

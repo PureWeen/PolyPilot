@@ -234,7 +234,8 @@
                             else if (_hasDiffOutput)
                             {
                                 <div class="action-output-diff">
-                                    <DiffView RawDiff="@Message.Content" />
+                                    <DiffView RawDiff="@Message.Content"
+                                              OnCommentRequested="OnDiffCommentRequested" />
                                 </div>
                             }
                             else if (DiffParser.TryExtractNumberedViewOutput(Message.Content, out var _plainViewOutput))
@@ -412,6 +413,7 @@
     [Parameter] public bool IsStreaming { get; set; }
     [Parameter] public string? UserAvatarUrl { get; set; }
     [Parameter] public string? RepoUrl { get; set; }
+    [Parameter] public EventCallback<DiffLineCommentRequest> OnDiffCommentRequested { get; set; }
 
     private static string? GetImageSource(ChatMessage msg) =>
         msg.ImageDataUri ?? (!string.IsNullOrEmpty(msg.ImagePath) ? ChatMessageList.FileToDataUri(msg.ImagePath) : null);

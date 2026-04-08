@@ -1493,9 +1493,8 @@
         };
     </script>
 
-    <script src="lib/codemirror/codemirror-bundle.js"
-            integrity="sha384-BItKoY1UmJa455+DJrmE14gwgq9dPiIA8eMI3Fxm9ORwBiFwZxy8kOSWqDd7R7nK"
-            crossorigin="anonymous"></script>
+    <!-- Local app asset: avoid SRI here so bundle rebuilds can't silently disable the editor. -->
+    <script src="lib/codemirror/codemirror-bundle.js"></script>
 
 </body>
 

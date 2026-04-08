@@ -172,6 +172,79 @@
     font-size: var(--type-caption1);
 }
 
+.diff-comment-hint {
+    padding: 0.45rem 0.8rem 0;
+    color: var(--text-dim, rgba(200,216,240,0.72));
+    font-family: var(--font-base);
+    font-size: var(--type-caption1);
+}
+
+.diff-comment-box {
+    margin: 0.45rem 0.8rem 0.7rem;
+    padding: 0.7rem;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--accent-primary, #4ea8d1) 35%, transparent);
+    background: color-mix(in srgb, var(--accent-primary, #4ea8d1) 8%, var(--bg-secondary, rgba(255,255,255,0.04)));
+}
+
+.diff-comment-title {
+    margin-bottom: 0.45rem;
+    color: var(--text-primary, #c8d8f0);
+    font-family: var(--font-base);
+    font-size: var(--type-caption1);
+    font-weight: 600;
+}
+
+.diff-comment-title code {
+    font-family: var(--font-mono);
+    font-size: inherit;
+}
+
+.diff-comment-input {
+    width: 100%;
+    min-height: 4.5rem;
+    resize: vertical;
+    border-radius: 8px;
+    border: 1px solid var(--control-border, rgba(255,255,255,0.12));
+    background: rgba(10, 16, 30, 0.55);
+    color: var(--text-primary, #c8d8f0);
+    padding: 0.6rem 0.7rem;
+    font: inherit;
+}
+
+.diff-comment-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.55rem;
+}
+
+.diff-comment-send,
+.diff-comment-cancel {
+    border-radius: 6px;
+    border: 1px solid var(--control-border, rgba(255,255,255,0.12));
+    padding: 0.3rem 0.7rem;
+    font-family: var(--font-base);
+    font-size: var(--type-caption1);
+    cursor: pointer;
+}
+
+.diff-comment-send {
+    background: var(--accent-primary, #4ea8d1);
+    color: #fff;
+    border-color: color-mix(in srgb, var(--accent-primary, #4ea8d1) 60%, transparent);
+}
+
+.diff-comment-send:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.diff-comment-cancel {
+    background: transparent;
+    color: var(--text-primary, #c8d8f0);
+}
+
 .diff-panes {
     overflow-x: auto;
     max-width: 100%;
@@ -214,6 +287,29 @@
     user-select: none;
     vertical-align: top;
     border-right: 1px solid var(--control-border, rgba(255,255,255,0.06));
+}
+
+.diff-line-anchor {
+    all: unset;
+    display: inline-block;
+    min-width: 100%;
+    cursor: pointer;
+    color: inherit;
+    text-align: right;
+    border-radius: 4px;
+    padding: 0 2px;
+}
+
+.diff-line-anchor:hover:not(:disabled),
+.diff-line-anchor:focus-visible {
+    color: var(--text-primary, #c8d8f0);
+    background: rgba(255,255,255,0.06);
+    outline: none;
+}
+
+.diff-line-anchor:disabled {
+    cursor: default;
+    opacity: 1;
 }
 
 .diff-code {
@@ -310,7 +406,10 @@
 
 .diff-file-tab:focus-visible,
 .diff-picker-toggle:focus-visible,
-.toggle-btn:focus-visible {
+.toggle-btn:focus-visible,
+.diff-comment-input:focus-visible,
+.diff-comment-send:focus-visible,
+.diff-comment-cancel:focus-visible {
     outline: 2px solid color-mix(in srgb, var(--accent-primary, #4ea8d1) 70%, white);
     outline-offset: 2px;
 }
