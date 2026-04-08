@@ -264,6 +264,27 @@ public class ConnectionRecoveryTests
             "client.CreateSessionAsync (Session not found fallback) must be after client = _client refresh");
     }
 
+    [Fact]
+    public void SendPromptAsync_SiblingReconnect_SkipsProviderAndVirtualSessions()
+    {
+        // STRUCTURAL REGRESSION GUARD: when the shared SDK client is recreated after a
+        // JSON-RPC transport loss, the sibling re-resume loop must skip provider sessions.
+        // Their synthetic SessionId values are for persistence only and are invalid for
+        // session.resume, which otherwise causes Papilot sessions to break after reconnect.
+        var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var loopIndex = source.IndexOf("foreach (var kvp in _sessions)", StringComparison.Ordinal);
+        Assert.True(loopIndex > 0, "Could not find sibling reconnect loop");
+
+        var skipIndex = source.IndexOf("if (otherState.Session == null || IsProviderSession(kvp.Key))", loopIndex, StringComparison.Ordinal);
+        Assert.True(skipIndex > loopIndex,
+            "Sibling reconnect loop must skip provider/virtual sessions before attempting ResumeSessionAsync");
+
+        var resumeIndex = source.IndexOf("ResumeSessionAsync(", loopIndex, StringComparison.Ordinal);
+        Assert.True(resumeIndex > skipIndex,
+            "Provider-session skip must appear before ResumeSessionAsync in the sibling reconnect path");
+    }
+
     // ===== Regression: Fresh session after "Session not found" must include MCP servers & skills =====
     // When the JSON-RPC connection is lost and the server-side session has expired,
     // SendPromptAsync falls back to creating a fresh session via CreateSessionAsync.
