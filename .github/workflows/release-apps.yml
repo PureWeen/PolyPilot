@@ -278,14 +278,14 @@ jobs:
             echo "CFBundleIdentifier already uses base ID: $CURRENT_ID"
           fi
 
-      - name: Re-sign nested binaries only (preserve MAUI's Catalyst signature)
+      - name: Re-sign app bundle (inside-out, preserving Catalyst entitlements)
         env:
           CODESIGN_KEY: ${{ secrets.IOS_CODESIGN_KEY }}
         run: |
           APP_PATH=$(find PolyPilot/bin/Release/net10.0-maccatalyst -name "PolyPilot.app" -type d | head -1)
           echo "App path: $APP_PATH"
 
-          echo "=== Original app signature ==="
+          echo "=== Original app entitlements ==="
           codesign -d --entitlements - "$APP_PATH" 2>/dev/null | head -30
 
           # Sign the copilot CLI binary with minimal helper entitlements (sandbox + inherit)
@@ -314,14 +314,18 @@ jobs:
               --sign "$CODESIGN_KEY" "$f"
           done
 
-          # Do NOT re-sign the top-level .app bundle — MAUI's original Catalyst
-          # signature contains the correct application-identifier entitlement format.
-          # Re-signing with custom entitlements overwrites it and breaks validation.
+          # Re-sign the top-level app bundle, preserving MAUI's original entitlements.
+          # MAUI already signed with the correct Catalyst application-identifier;
+          # we must not overwrite it with our custom entitlements file.
+          codesign --force --sign "$CODESIGN_KEY" \
+            --preserve-metadata=entitlements \
+            --options runtime --timestamp \
+            "$APP_PATH"
 
           echo "=== Verify signature ==="
           codesign --verify --deep --strict "$APP_PATH" 2>&1
-          echo "=== Signature details ==="
-          codesign -dvv "$APP_PATH" 2>&1 | head -20
+          echo "=== Final app entitlements ==="
+          codesign -d --entitlements - "$APP_PATH" 2>/dev/null | head -30
           echo "=== Verify copilot binary ==="
           codesign -dvv "$COPILOT_BIN" 2>&1 | head -10
 
