@@ -3,7 +3,8 @@
 #
 # Usage:
 #   ./use-local-sdk.sh [path-to-sdk]    # Switch to local SDK
-#   ./use-local-sdk.sh --revert         # Switch back to NuGet package
+#   ./use-local-sdk.sh --revert         # Switch back to NuGet package safely
+#   ./use-local-sdk.sh --force-revert   # Discard local edits to modified files
 #
 # The SDK path defaults to ../copilot-sdk (sibling directory). Override with:
 #   ./use-local-sdk.sh /path/to/copilot-sdk
@@ -34,6 +35,9 @@ set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 LOCAL_VERSION="0.3.0-local"
+STATE_DIR="$SCRIPT_DIR/.git/use-local-sdk"
+BACKUP_DIR="$STATE_DIR/original"
+APPLIED_DIR="$STATE_DIR/applied"
 
 # Cross-platform sed -i (BSD vs GNU)
 sedi() {
@@ -42,6 +46,17 @@ sedi() {
     else
         sed -i '' "$@"
     fi
+}
+
+escape_sed_replacement() {
+    printf '%s' "$1" | sed 's/[&|]/\\&/g'
+}
+
+copy_to_state_dir() {
+    local src="$1"
+    local dest_root="$2"
+    mkdir -p "$dest_root/$(dirname "$src")"
+    cp "$src" "$dest_root/$src"
 }
 
 MODIFIED_FILES=(
@@ -54,7 +69,7 @@ MODIFIED_FILES=(
 )
 
 # Resolve SDK path: argument > env var > default sibling directory
-if [ "$1" != "--revert" ] && [ -n "$1" ]; then
+if [ "$1" != "--revert" ] && [ "$1" != "--force-revert" ] && [ -n "$1" ]; then
     SDK_DIR="$1"
 elif [ -n "$COPILOT_SDK_PATH" ]; then
     SDK_DIR="$COPILOT_SDK_PATH"
@@ -63,14 +78,45 @@ else
 fi
 NUPKG_DIR="$SDK_DIR/dotnet/nupkg"
 
-if [ "$1" = "--revert" ]; then
+if [ "$1" = "--revert" ] || [ "$1" = "--force-revert" ]; then
+    FORCE_REVERT=false
+    if [ "$1" = "--force-revert" ]; then
+        FORCE_REVERT=true
+    fi
+
     echo "⏪ Reverting to NuGet package..."
     cd "$SCRIPT_DIR"
-    # Unmark files before reverting so git checkout works
+
+    if [ ! -d "$BACKUP_DIR" ]; then
+        echo "❌ No local SDK backup state found in $STATE_DIR"
+        echo "   Refusing to blindly reset tracked files."
+        echo "   If you really want to discard changes manually, review them first and use git yourself."
+        exit 1
+    fi
+
+    # Unmark files before restoring so git sees them normally again
     for f in "${MODIFIED_FILES[@]}"; do
         git update-index --no-assume-unchanged "$f" 2>/dev/null || true
     done
-    git checkout -- "${MODIFIED_FILES[@]}"
+
+    if [ "$FORCE_REVERT" != "true" ]; then
+        for f in "${MODIFIED_FILES[@]}"; do
+            if [ -f "$APPLIED_DIR/$f" ] && [ -f "$f" ] && ! cmp -s "$f" "$APPLIED_DIR/$f"; then
+                echo "❌ Refusing to revert because '$f' has changed since local SDK was activated."
+                echo "   Commit or stash those edits first, or run './use-local-sdk.sh --force-revert' to discard them."
+                exit 1
+            fi
+        done
+    fi
+
+    for f in "${MODIFIED_FILES[@]}"; do
+        if [ -f "$BACKUP_DIR/$f" ]; then
+            mkdir -p "$(dirname "$f")"
+            cp "$BACKUP_DIR/$f" "$f"
+        fi
+    done
+
+    rm -rf "$STATE_DIR"
     rm -rf ~/.nuget/packages/github.copilot.sdk/$LOCAL_VERSION
     echo "✅ Reverted to NuGet SDK. Run 'dotnet restore' to re-resolve."
     exit 0
@@ -104,6 +150,16 @@ fi
 echo "🔧 Updating PolyPilot references..."
 cd "$SCRIPT_DIR"
 
+rm -rf "$STATE_DIR"
+mkdir -p "$BACKUP_DIR" "$APPLIED_DIR"
+for f in "${MODIFIED_FILES[@]}"; do
+    if [ -f "$f" ]; then
+        copy_to_state_dir "$f" "$BACKUP_DIR"
+    fi
+done
+
+ESCAPED_NUPKG_DIR="$(escape_sed_replacement "$NUPKG_DIR")"
+
 # Update nuget.config — add local source if not present
 if ! grep -q "local-sdk" nuget.config; then
     sedi '/<clear \/>/a\
@@ -114,13 +170,20 @@ if ! grep -q "local-sdk" nuget.config; then
     </packageSource>' nuget.config
 else
     # Update the path in case SDK location changed
-    sedi 's|key="local-sdk" value="[^"]*"|key="local-sdk" value="'"$NUPKG_DIR"'"|' nuget.config
+    sedi 's|key="local-sdk" value="[^"]*"|key="local-sdk" value="'"$ESCAPED_NUPKG_DIR"'"|' nuget.config
 fi
 
 # Update all csproj files
 for f in "${MODIFIED_FILES[@]}"; do
     if [ -f "$f" ] && [ "$f" != "nuget.config" ]; then
         sedi 's/GitHub.Copilot.SDK" Version="[^"]*"/GitHub.Copilot.SDK" Version="'"$LOCAL_VERSION"'"/g' "$f"
+    fi
+done
+
+# Save the exact script-generated state so --revert can detect later user edits safely.
+for f in "${MODIFIED_FILES[@]}"; do
+    if [ -f "$f" ]; then
+        copy_to_state_dir "$f" "$APPLIED_DIR"
     fi
 done
 
@@ -141,6 +204,7 @@ echo "✅ PolyPilot now uses local Copilot SDK ($LOCAL_VERSION)"
 echo "   SDK source: $SDK_DIR"
 echo "   To rebuild after SDK changes: ./use-local-sdk.sh $([ "$SDK_DIR" != "$SCRIPT_DIR/../copilot-sdk" ] && echo "$SDK_DIR")"
 echo "   To revert to NuGet:           ./use-local-sdk.sh --revert"
+echo "   To discard local edits too:   ./use-local-sdk.sh --force-revert"
 echo ""
 echo "⚠️  Modified files are hidden from git status (--assume-unchanged)."
 echo "   Do NOT commit while local SDK is active. Use --revert first."
