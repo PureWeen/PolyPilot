@@ -292,7 +292,8 @@ jobs:
               --options runtime --timestamp \
               "$COPILOT_BIN"
           else
-            echo "Warning: copilot binary not found at $COPILOT_BIN"
+            echo "::error::Bundled copilot binary not found at $COPILOT_BIN"
+            exit 1
           fi
 
           # Re-sign all dylibs (inside-out)
