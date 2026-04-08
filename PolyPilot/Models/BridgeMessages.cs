@@ -259,6 +259,15 @@ public class SendMessagePayload
     public string Message { get; set; } = "";
     /// <summary>SDK agent mode: "interactive", "plan", "autopilot", "shell". Null = default (interactive).</summary>
     public string? AgentMode { get; set; }
+    /// <summary>Image attachments encoded as base64 for transmission over the bridge.</summary>
+    public List<ImageAttachment>? ImageAttachments { get; set; }
+}
+
+/// <summary>Base64-encoded image for bridge transmission.</summary>
+public class ImageAttachment
+{
+    public string Base64Data { get; set; } = "";
+    public string FileName { get; set; } = "image.png";
 }
 
 public class CreateSessionPayload

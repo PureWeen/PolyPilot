@@ -108,7 +108,7 @@ internal class StubWsBridgeClient : IWsBridgeClient
             SessionHistories[sessionName] = new List<ChatMessage>(existing);
         return Task.CompletedTask;
     }
-    public Task SendMessageAsync(string sessionName, string message, string? agentMode = null, CancellationToken ct = default)
+    public Task SendMessageAsync(string sessionName, string message, string? agentMode = null, List<ImageAttachment>? imageAttachments = null, CancellationToken ct = default)
     {
         if (ThrowOnSend)
             throw new InvalidOperationException("Not connected to server");

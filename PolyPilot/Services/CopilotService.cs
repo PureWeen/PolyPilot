@@ -3348,7 +3348,28 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             OnStateChanged?.Invoke();
             try
             {
-                await _bridgeClient.SendMessageAsync(sessionName, prompt, agentMode, cancellationToken);
+                // Encode images as base64 for bridge transmission
+                List<ImageAttachment>? imageAttachments = null;
+                if (imagePaths != null && imagePaths.Count > 0)
+                {
+                    imageAttachments = new();
+                    foreach (var path in imagePaths)
+                    {
+                        if (!File.Exists(path)) continue;
+                        try
+                        {
+                            var bytes = await File.ReadAllBytesAsync(path, cancellationToken);
+                            imageAttachments.Add(new ImageAttachment
+                            {
+                                Base64Data = Convert.ToBase64String(bytes),
+                                FileName = Path.GetFileName(path)
+                            });
+                        }
+                        catch (Exception ex) { Debug($"Failed to encode image '{path}': {ex.Message}"); }
+                    }
+                    if (imageAttachments.Count == 0) imageAttachments = null;
+                }
+                await _bridgeClient.SendMessageAsync(sessionName, prompt, agentMode, imageAttachments, cancellationToken);
             }
             catch
             {
