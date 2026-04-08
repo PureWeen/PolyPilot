@@ -553,12 +553,23 @@ jobs:
           echo "Found IPA at: $IPA_PATH"
 
       - name: Upload to TestFlight
-        uses: apple-actions/upload-testflight-build@v4
-        with:
-          app-path: ${{ steps.find_ipa.outputs.IPA_PATH }}
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        env:
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          IPA_PATH: ${{ steps.find_ipa.outputs.IPA_PATH }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          BUILD_NUMBER: ${{ steps.build.outputs.number }}
+        run: |
+          mkdir -p private_keys
+          echo "$APPSTORE_PRIVATE_KEY" > "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+
+          xcrun altool --upload-app -f "$IPA_PATH" \
+            -t ios \
+            --apiKey "$APPSTORE_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
+
+          rm -rf private_keys
 
       - name: Distribute to external testers (MAUI Team)
         continue-on-error: true
