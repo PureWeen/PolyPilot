@@ -971,6 +971,13 @@ public class WsBridgeServer : IDisposable
                         {
                             try { await DispatchBridgePromptAsync(sendSession, sendMessage, sendAgentMode, sendImagePaths, ct); }
                             catch (Exception ex) { BridgeLog($"[BRIDGE] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
+                            finally
+                            {
+                                // Clean up temp image files after send completes
+                                if (sendImagePaths != null)
+                                    foreach (var p in sendImagePaths)
+                                        try { File.Delete(p); } catch { }
+                            }
                         });
                     }
                     break;
