@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <!-- App Store / TestFlight requires sandbox enabled -->
+        <key>com.apple.security.app-sandbox</key>
+        <true/>
+
+        <!-- Network: outbound (copilot server, GitHub APIs) and inbound (WsBridge) -->
+        <key>com.apple.security.network.client</key>
+        <true/>
+        <key>com.apple.security.network.server</key>
+        <true/>
+
+        <!-- Microphone access for speech-to-text -->
+        <key>com.apple.security.device.audio-input</key>
+        <true/>
+
+        <!-- File access: user-selected files via open/save dialogs -->
+        <key>com.apple.security.files.user-selected.read-write</key>
+        <true/>
+
+        <!-- File access: read-only access to the user's home directory.
+             Required for reading ~/.copilot/ (session state), git repos,
+             and spawning the copilot CLI from its bundled location. -->
+        <key>com.apple.security.temporary-exception.files.home-relative-path.read-only</key>
+        <array>
+            <string>/</string>
+        </array>
+
+        <!-- File access: read-write to app-specific data directories.
+             ~/.polypilot/ stores settings, organization, active-sessions.
+             ~/.copilot/ stores SDK session state (events.jsonl). -->
+        <key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
+        <array>
+            <string>/.polypilot/</string>
+            <string>/.copilot/</string>
+        </array>
+    </dict>
+</plist>

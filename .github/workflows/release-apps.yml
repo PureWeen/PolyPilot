@@ -137,6 +137,156 @@ jobs:
           status: completed
 
   # ─────────────────────────────────────────────
+  # Mac Catalyst → TestFlight
+  # ─────────────────────────────────────────────
+  build-maccatalyst:
+    name: Build Mac Catalyst PKG
+    runs-on: macos-26
+    needs: check-changes
+    if: needs.check-changes.outputs.should_release == 'true'
+
+    steps:
+      - name: Compute build number
+        id: build
+        run: |
+          OFFSET=${{ inputs.build_number_offset || vars.BUILD_NUMBER_OFFSET || '0' }}
+          BUILD=$(( ${{ github.run_number }} + OFFSET ))
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+          echo "Build number: ${{ github.run_number }} + $OFFSET = $BUILD"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install MAUI workload
+        run: |
+          dotnet workload update
+          dotnet workload install maui
+
+      - name: Import signing certificate
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.MACCATALYST_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.MACCATALYST_CERTIFICATE_PASSWORD }}
+
+      - name: Install provisioning profile
+        run: |
+          PP_PATH="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PP_PATH"
+          echo "${{ secrets.MACCATALYST_PROVISIONING_PROFILE_BASE64 }}" | base64 -d > "$PP_PATH/maccatalyst.provisionprofile"
+
+      - name: Publish Mac Catalyst PKG
+        run: |
+          dotnet publish ${{ env.MAUI_PROJECT_PATH }} \
+            -f net10.0-maccatalyst \
+            -c Release \
+            -p:ApplicationId=nl.versluis.polypilot \
+            -p:CodesignKey="${{ secrets.MACCATALYST_CODESIGN_KEY }}" \
+            -p:CodesignProvision="${{ secrets.MACCATALYST_PROVISIONING_PROFILE_NAME }}" \
+            -p:CodesignEntitlements=Platforms/MacCatalyst/Entitlements.AppStore.plist \
+            -p:CreatePackage=true \
+            -p:EnableCodeSigning=true \
+            -p:EnablePackageSigning=true \
+            -p:PackageSigningKey="${{ secrets.MACCATALYST_INSTALLER_SIGNING_KEY }}" \
+            -p:ApplicationDisplayVersion='${{ env.APP_VERSION }}' \
+            -p:ApplicationVersion='${{ steps.build.outputs.number }}'
+
+      - name: Find PKG file
+        id: find_pkg
+        run: |
+          PKG_PATH=$(find PolyPilot/bin/Release/net10.0-maccatalyst -name "*.pkg" | head -1)
+          echo "PKG_PATH=$PKG_PATH" >> $GITHUB_OUTPUT
+          echo "Found PKG at: $PKG_PATH"
+
+      - name: Upload PKG artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: maccatalyst-pkg
+          path: ${{ steps.find_pkg.outputs.PKG_PATH }}
+          retention-days: 30
+
+  deploy-maccatalyst:
+    name: Deploy Mac Catalyst to TestFlight
+    runs-on: macos-26
+    needs: build-maccatalyst
+    environment: maccatalyst-release
+
+    steps:
+      - name: Compute build number
+        id: build
+        run: |
+          OFFSET=${{ inputs.build_number_offset || vars.BUILD_NUMBER_OFFSET || '0' }}
+          BUILD=$(( ${{ github.run_number }} + OFFSET ))
+          echo "number=$BUILD" >> $GITHUB_OUTPUT
+
+      - name: Download PKG artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: maccatalyst-pkg
+          path: ./maccatalyst-artifacts/
+
+      - name: Find PKG file
+        id: find_pkg
+        run: |
+          PKG_PATH=$(find ./maccatalyst-artifacts -name "*.pkg" | head -1)
+          echo "PKG_PATH=$PKG_PATH" >> $GITHUB_OUTPUT
+          echo "Found PKG at: $PKG_PATH"
+
+      - name: Upload to TestFlight
+        uses: apple-actions/upload-testflight-build@v3
+        with:
+          app-path: ${{ steps.find_pkg.outputs.PKG_PATH }}
+          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
+          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
+          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+
+      - name: Distribute to external testers (MAUI Team)
+        continue-on-error: true
+        env:
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          APP_BUNDLE_ID: 'nl.versluis.polypilot'
+          BUILD_NUMBER: ${{ steps.build.outputs.number }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          BETA_GROUP_NAME: 'MAUI Team'
+        run: |
+          set -euo pipefail
+
+          gem install fastlane --no-document
+
+          mkdir -p private_keys
+          echo "$APPSTORE_PRIVATE_KEY" > "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          cat > api_key.json <<APIEOF
+          {
+            "key_id": "${APPSTORE_KEY_ID}",
+            "issuer_id": "${APPSTORE_ISSUER_ID}",
+            "key_filepath": "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          }
+          APIEOF
+
+          echo "Waiting for build processing before distributing..."
+          fastlane pilot distribute \
+            --api_key_path api_key.json \
+            --app_identifier "$APP_BUNDLE_ID" \
+            --build_number "$BUILD_NUMBER" \
+            --app_version "$APP_VERSION" \
+            --groups "$BETA_GROUP_NAME" \
+            --distribute_only
+
+          rm -rf private_keys api_key.json
+
+  # ─────────────────────────────────────────────
   # iOS → TestFlight
   # ─────────────────────────────────────────────
   build-ios:
