@@ -231,6 +231,38 @@ jobs:
             -p:ApplicationDisplayVersion='${{ env.APP_VERSION }}' \
             -p:ApplicationVersion='${{ steps.build.outputs.number }}'
 
+      - name: Fix Mac Catalyst app icon
+        run: |
+          APP_PATH=$(find PolyPilot/bin/Release/net10.0-maccatalyst -name "PolyPilot.app" -type d | head -1)
+          RESOURCES="$APP_PATH/Contents/Resources"
+          PLIST="$APP_PATH/Contents/Info.plist"
+
+          # MAUI's resizetizer generates an icns with only 4 sizes (up to 128@2x).
+          # Mac App Store requires all 10 sizes including 512x512@2x (1024px).
+          # Generate a complete icns from the source 1024x1024 appicon.png.
+          ICONSET_DIR="$RUNNER_TEMP/appicon.iconset"
+          mkdir -p "$ICONSET_DIR"
+          SOURCE_PNG="PolyPilot/Resources/AppIcon/appicon.png"
+
+          for SIZE in 16 32 128 256 512; do
+            sips -z $SIZE $SIZE "$SOURCE_PNG" --out "$ICONSET_DIR/icon_${SIZE}x${SIZE}.png" > /dev/null
+            DOUBLE=$((SIZE * 2))
+            sips -z $DOUBLE $DOUBLE "$SOURCE_PNG" --out "$ICONSET_DIR/icon_${SIZE}x${SIZE}@2x.png" > /dev/null
+          done
+
+          iconutil --convert icns "$ICONSET_DIR" --output "$RESOURCES/appicon.icns"
+          echo "Generated full icns with all Mac sizes"
+          iconutil --convert iconset "$RESOURCES/appicon.icns" -o "$RUNNER_TEMP/verify.iconset"
+          ls "$RUNNER_TEMP/verify.iconset/"
+
+          # Ensure CFBundleIconName is set (MAUI usually adds this, but verify)
+          if ! /usr/libexec/PlistBuddy -c "Print :CFBundleIconName" "$PLIST" 2>/dev/null; then
+            /usr/libexec/PlistBuddy -c "Add :CFBundleIconName string appicon" "$PLIST"
+            echo "Added CFBundleIconName to Info.plist"
+          else
+            echo "CFBundleIconName already set: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$PLIST")"
+          fi
+
       - name: Patch bundle identifier for App Store
         run: |
           APP_PATH=$(find PolyPilot/bin/Release/net10.0-maccatalyst -name "PolyPilot.app" -type d | head -1)
