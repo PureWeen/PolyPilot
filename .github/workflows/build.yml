@@ -17,7 +17,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Select Xcode
         run: |
@@ -33,7 +33,7 @@ jobs:
           xcodebuild -version
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
           dotnet-quality: 'preview'
@@ -53,7 +53,7 @@ jobs:
             --logger "trx;LogFileName=test-results.trx"
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results
@@ -70,7 +70,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Select Xcode
         run: |
@@ -89,7 +89,7 @@ jobs:
           echo "MD_APPLE_SDK_ROOT=$XCODE_PATH" >> $GITHUB_ENV
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
           dotnet-quality: 'preview'
@@ -234,7 +234,7 @@ jobs:
           fi
 
       - name: Upload Mac Catalyst App
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PolyPilot.app
           path: ./artifacts/PolyPilot.zip
@@ -273,7 +273,7 @@ jobs:
 
     steps:
       - name: Download Mac Catalyst artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: PolyPilot.app
           path: ./artifacts
@@ -326,7 +326,7 @@ jobs:
           ls -lh ./artifacts/PolyPilot.zip
 
       - name: Upload notarized Mac Catalyst App
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PolyPilot.app
           path: ./artifacts/PolyPilot.zip
@@ -343,10 +343,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
           dotnet-quality: 'preview'
@@ -385,7 +385,7 @@ jobs:
           Get-Item ./artifacts/PolyPilot-Windows.zip | Select-Object Name, Length
 
       - name: Upload Windows App
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PolyPilot-Windows
           path: ./artifacts/PolyPilot-Windows.zip
@@ -421,10 +421,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
           dotnet-quality: 'preview'
@@ -433,7 +433,7 @@ jobs:
         run: dotnet workload install maui-android
 
       - name: Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'microsoft'
           java-version: '17'
@@ -469,7 +469,7 @@ jobs:
           ls -lh ./artifacts/
 
       - name: Upload Android APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PolyPilot-Android
           path: ./artifacts/PolyPilot-Android.apk
@@ -514,10 +514,10 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v5
         with:
           dotnet-version: '10.0.x'
           dotnet-quality: 'preview'
@@ -584,28 +584,28 @@ jobs:
           ls -lh ./artifacts/
 
       - name: Upload Linux tar.gz
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PolyPilot.${{ matrix.rid }}
           path: ./artifacts/PolyPilot.${{ matrix.rid }}.tar.gz
           retention-days: 30
 
       - name: Upload Linux .deb packages
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PolyPilot.linux-deb-${{ matrix.arch }}
           path: ./artifacts/*.deb
           retention-days: 30
 
       - name: Upload Linux AppImage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PolyPilot.linux-appimage-${{ matrix.arch }}
           path: ./artifacts/*.AppImage
           retention-days: 30
 
       - name: Upload Linux Flatpak
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: PolyPilot.linux-flatpak-${{ matrix.arch }}
           path: ./artifacts/*.flatpak
@@ -640,81 +640,81 @@ jobs:
 
     steps:
       - name: Download Mac Catalyst artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: PolyPilot.app
           path: ./release
 
       - name: Download Windows artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: PolyPilot-Windows
           path: ./release
 
       - name: Download Android artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: PolyPilot-Android
           path: ./release
 
       - name: Download Linux tar.gz (x64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: PolyPilot.linux-x64
           path: ./release
 
       - name: Download Linux tar.gz (arm64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: PolyPilot.linux-arm64
           path: ./release
 
       - name: Download Linux .deb packages (x64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: PolyPilot.linux-deb-x64
           path: ./release
 
       - name: Download Linux .deb packages (arm64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: PolyPilot.linux-deb-arm64
           path: ./release
 
       - name: Download Linux AppImage (x64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: PolyPilot.linux-appimage-x64
           path: ./release
 
       - name: Download Linux AppImage (arm64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: PolyPilot.linux-appimage-arm64
           path: ./release
 
       - name: Download Linux Flatpak (x64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: PolyPilot.linux-flatpak-x64
           path: ./release
 
       - name: Download Linux Flatpak (arm64)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         continue-on-error: true
         with:
           name: PolyPilot.linux-flatpak-arm64
           path: ./release
 
       - name: Create Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             ./release/PolyPilot.zip
