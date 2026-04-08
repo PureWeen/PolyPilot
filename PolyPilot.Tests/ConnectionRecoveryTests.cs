@@ -280,6 +280,10 @@ public class ConnectionRecoveryTests
         Assert.True(skipIndex > loopIndex,
             "Sibling reconnect loop must skip provider/virtual sessions before attempting ResumeSessionAsync");
 
+        var forceCompleteIndex = source.IndexOf("ForceCompleteProcessingAsync(kvp.Key", loopIndex, StringComparison.Ordinal);
+        Assert.True(forceCompleteIndex > skipIndex,
+            "Provider-session skip must appear before ForceCompleteProcessingAsync in the sibling reconnect path");
+
         var resumeIndex = source.IndexOf("ResumeSessionAsync(", loopIndex, StringComparison.Ordinal);
         Assert.True(resumeIndex > skipIndex,
             "Provider-session skip must appear before ResumeSessionAsync in the sibling reconnect path");
