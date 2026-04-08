@@ -274,13 +274,30 @@ jobs:
           echo "Found PKG at: $PKG_PATH"
 
       - name: Upload to TestFlight
-        uses: apple-actions/upload-testflight-build@v4
-        with:
-          app-path: ${{ steps.find_pkg.outputs.PKG_PATH }}
-          app-type: macos
-          issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
-          api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
-          api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+        env:
+          APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
+          APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
+          APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
+          PKG_PATH: ${{ steps.find_pkg.outputs.PKG_PATH }}
+        run: |
+          gem install fastlane --no-document
+
+          mkdir -p private_keys
+          echo "$APPSTORE_PRIVATE_KEY" > "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          cat > api_key.json <<APIEOF
+          {
+            "key_id": "${APPSTORE_KEY_ID}",
+            "issuer_id": "${APPSTORE_ISSUER_ID}",
+            "key_filepath": "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          }
+          APIEOF
+
+          fastlane pilot upload \
+            --api_key_path api_key.json \
+            --pkg "$PKG_PATH" \
+            --app_platform "osx"
+
+          rm -rf private_keys api_key.json
 
       - name: Distribute to external testers (MAUI Team)
         continue-on-error: true
