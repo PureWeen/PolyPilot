@@ -217,9 +217,7 @@ jobs:
           cp "$RUNNER_TEMP/maccatalyst.provisionprofile" "$PP_PATH/$PROFILE_UUID.provisionprofile"
           echo "Installed Mac Catalyst profile with UUID: $PROFILE_UUID"
 
-      - name: Publish Mac Catalyst PKG
-        env:
-          CODESIGN_KEY: ${{ secrets.IOS_CODESIGN_KEY }}
+      - name: Publish Mac Catalyst App
         run: |
           dotnet publish ${{ env.MAUI_PROJECT_PATH }} \
             -f net10.0-maccatalyst \
@@ -228,26 +226,71 @@ jobs:
             -p:CodesignKey="${{ secrets.IOS_CODESIGN_KEY }}" \
             -p:CodesignProvision="${{ secrets.MACCATALYST_PROVISIONING_PROFILE_NAME }}" \
             -p:CodesignEntitlements=Platforms/MacCatalyst/Entitlements.AppStore.plist \
-            -p:CreatePackage=true \
+            -p:CreatePackage=false \
             -p:EnableCodeSigning=true \
-            -p:EnablePackageSigning=true \
-            -p:PackageSigningKey="${{ secrets.MACCATALYST_INSTALLER_SIGNING_KEY }}" \
             -p:ApplicationDisplayVersion='${{ env.APP_VERSION }}' \
             -p:ApplicationVersion='${{ steps.build.outputs.number }}'
 
-          # Re-sign the bundled copilot CLI binary with the same identity and entitlements
+      - name: Re-sign app with copilot binary
+        env:
+          CODESIGN_KEY: ${{ secrets.IOS_CODESIGN_KEY }}
+        run: |
           APP_PATH=$(find PolyPilot/bin/Release/net10.0-maccatalyst -name "PolyPilot.app" -type d | head -1)
+          echo "App path: $APP_PATH"
+
+          # Sign the copilot CLI binary (inside-out: nested content first)
           COPILOT_BIN="$APP_PATH/Contents/MonoBundle/copilot"
           if [ -f "$COPILOT_BIN" ]; then
-            echo "Re-signing bundled copilot binary..."
+            echo "Signing bundled copilot binary..."
             codesign --force --sign "$CODESIGN_KEY" \
               --entitlements PolyPilot/Platforms/MacCatalyst/Entitlements.AppStore.plist \
-              --options runtime \
+              --options runtime --timestamp \
               "$COPILOT_BIN"
-            echo "Copilot binary signed successfully"
           else
             echo "Warning: copilot binary not found at $COPILOT_BIN"
           fi
+
+          # Re-sign all dylibs (inside-out)
+          find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.so" \) | while read f; do
+            echo "  Signing: $f"
+            codesign --force --options runtime --timestamp \
+              --sign "$CODESIGN_KEY" "$f"
+          done
+
+          # Re-sign frameworks
+          find "$APP_PATH" -type d -name "*.framework" | while read f; do
+            echo "  Signing: $f"
+            codesign --force --options runtime --timestamp \
+              --sign "$CODESIGN_KEY" "$f"
+          done
+
+          # Re-sign the top-level app bundle
+          codesign --force --sign "$CODESIGN_KEY" \
+            --entitlements PolyPilot/Platforms/MacCatalyst/Entitlements.AppStore.plist \
+            --options runtime --timestamp \
+            "$APP_PATH"
+
+          echo "=== Verify signature ==="
+          codesign -dvv "$APP_PATH" 2>&1 | head -20
+
+      - name: Create and sign PKG
+        env:
+          PKG_SIGN_KEY: ${{ secrets.MACCATALYST_INSTALLER_SIGNING_KEY }}
+        run: |
+          APP_PATH=$(find PolyPilot/bin/Release/net10.0-maccatalyst -name "PolyPilot.app" -type d | head -1)
+          PKG_DIR="PolyPilot/bin/Release/net10.0-maccatalyst"
+
+          # Create component package
+          productbuild --component "$APP_PATH" /Applications \
+            "$PKG_DIR/PolyPilot-unsigned.pkg"
+
+          # Sign the package with Mac Installer certificate
+          productsign --sign "$PKG_SIGN_KEY" \
+            "$PKG_DIR/PolyPilot-unsigned.pkg" \
+            "$PKG_DIR/PolyPilot-${{ env.APP_VERSION }}.pkg"
+
+          rm "$PKG_DIR/PolyPilot-unsigned.pkg"
+          echo "Created signed PKG"
 
       - name: Find PKG file
         id: find_pkg
