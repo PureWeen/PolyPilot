@@ -187,6 +187,18 @@ jobs:
           keychain: installer_temp
           create-keychain: true
 
+      - name: Fix keychain search list
+        run: |
+          # Each import-codesign-certs overwrites the search list with only its own keychain.
+          # Restore all keychains so dotnet build can find both the Distribution and Installer certs.
+          security list-keychains -d user -s signing_temp.keychain installer_temp.keychain login.keychain
+          echo "=== Keychain search list ==="
+          security list-keychains -d user
+          echo "=== Signing identities ==="
+          security find-identity -v -p codesigning
+          echo "=== All identities (including installer) ==="
+          security find-identity -v
+
       - name: Install provisioning profile
         env:
           PROVISIONING_PROFILE_BASE64: ${{ secrets.MACCATALYST_PROVISIONING_PROFILE_BASE64 }}
