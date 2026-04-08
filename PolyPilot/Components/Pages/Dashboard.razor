@@ -3060,31 +3060,27 @@
     {
         if (PlatformHelper.IsMobile)
         {
-            // On mobile, use MAUI FilePicker instead of HTML file input
-            // (Android WebView's <input type="file"> has limited FileReader support)
+            // On mobile, use MAUI MediaPicker for the native photo picker experience.
+            // Falls back to FilePicker if MediaPicker is unavailable.
             try
             {
-                var options = new PickOptions
+                var photo = await MediaPicker.PickPhotoAsync(new MediaPickerOptions
                 {
-                    PickerTitle = "Select an image",
-                    FileTypes = FilePickerFileType.Images
-                };
-                var results = await FilePicker.PickMultipleAsync(options);
-                if (results == null) return;
-                foreach (var result in results)
-                {
-                    using var stream = await result.OpenReadAsync();
-                    using var ms = new MemoryStream();
-                    await stream.CopyToAsync(ms);
-                    var base64 = Convert.ToBase64String(ms.ToArray());
-                    var ext = Path.GetExtension(result.FileName)?.TrimStart('.') ?? "png";
-                    var inputId = $"input-{sessionName.Replace(" ", "-")}";
-                    await JsImagePasted(base64, result.FileName, ext, inputId);
-                }
+                    Title = "Select an image"
+                });
+                if (photo == null) return;
+
+                using var stream = await photo.OpenReadAsync();
+                using var ms = new MemoryStream();
+                await stream.CopyToAsync(ms);
+                var base64 = Convert.ToBase64String(ms.ToArray());
+                var ext = Path.GetExtension(photo.FileName)?.TrimStart('.') ?? "png";
+                var inputId = $"input-{sessionName.Replace(" ", "-")}";
+                await JsImagePasted(base64, photo.FileName, ext, inputId);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"FilePicker error: {ex.Message}");
+                Console.WriteLine($"MediaPicker error: {ex.Message}");
             }
         }
         else
