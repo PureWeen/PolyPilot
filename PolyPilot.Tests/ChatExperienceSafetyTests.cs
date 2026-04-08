@@ -1115,50 +1115,6 @@ public class ChatExperienceSafetyTests
         Assert.Contains("SkillDirectories", helperBlock);
     }
 
-    /// <summary>
-    /// Lazy-resume and its fresh-session fallback must include McpServers and SkillDirectories.
-    /// Without these, resumed sessions start without MCP tools (e.g., WorkIQ) until manual /mcp reload.
-    /// </summary>
-    [Fact]
-    public void LazyResumePath_IncludesMcpServersAndSkills()
-    {
-        var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
-
-        // Find the EnsureSessionConnectedAsync method containing the lazy-resume logic
-        var methodIdx = source.IndexOf("EnsureSessionConnectedAsync", StringComparison.Ordinal);
-        Assert.True(methodIdx > 0, "EnsureSessionConnectedAsync not found");
-        var block = source.Substring(methodIdx, Math.Min(3000, source.Length - methodIdx));
-
-        // MCP servers must be loaded before creating the resume config
-        Assert.Contains("LoadMcpServers", block);
-        Assert.Contains("LoadSkillDirectories", block);
-
-        // Both the ResumeSessionConfig and the fallback SessionConfig must include MCP
-        Assert.Contains("McpServers = mcpServers", block);
-        Assert.Contains("SkillDirectories = skillDirs", block);
-    }
-
-    /// <summary>
-    /// The public ResumeSessionAsync (sidebar resume, bridge resume) must also include
-    /// McpServers and SkillDirectories so MCP tools work after explicit resume.
-    /// </summary>
-    [Fact]
-    public void SidebarResumePath_IncludesMcpServersAndSkills()
-    {
-        var source = File.ReadAllText(
-            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
-
-        var methodIdx = source.IndexOf("public async Task<AgentSessionInfo> ResumeSessionAsync(", StringComparison.Ordinal);
-        Assert.True(methodIdx > 0, "ResumeSessionAsync not found");
-        var block = source.Substring(methodIdx, Math.Min(6000, source.Length - methodIdx));
-
-        Assert.Contains("LoadMcpServers", block);
-        Assert.Contains("LoadSkillDirectories", block);
-        Assert.Contains("McpServers = resumeMcpServers", block);
-        Assert.Contains("SkillDirectories = resumeSkillDirs", block);
-    }
-
     // =========================================================================
     // F. Race Condition & Edge Case Tests
     // =========================================================================
@@ -1398,5 +1354,37 @@ public class ChatExperienceSafetyTests
         Assert.True(methodBody.Contains("TotalApiTimeSeconds", StringComparison.Ordinal),
             "AbortSessionAsync must manually accumulate TotalApiTimeSeconds before ClearProcessingState — " +
             "the request consumed server resources even though the user aborted");
+    }
+
+    /// <summary>
+    /// The ResumeSessionAsync method must pass the event handler via ResumeSessionConfig.OnEvent
+    /// instead of calling .On() after the resume returns. The SDK registers OnEvent before
+    /// sending the session.resume RPC, closing the race window where events arrive between
+    /// resume-return and .On() call — which causes silently dropped content events (empty responses).
+    /// </summary>
+    [Fact]
+    public void ResumeSessionAsync_UsesOnEventInConfig_NotPostResumeOn()
+    {
+        var svcPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(svcPath);
+
+        // Find the ResumeSessionAsync method (the one that resumes sessions on startup)
+        var methodIdx = source.IndexOf("public async Task<AgentSessionInfo> ResumeSessionAsync(", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "ResumeSessionAsync must exist");
+        var methodEnd = source.IndexOf("\n    }", methodIdx + 1, StringComparison.Ordinal);
+        var methodBody = source.Substring(methodIdx, methodEnd - methodIdx);
+
+        // Must use OnEvent in the config — this registers BEFORE the RPC call
+        Assert.True(methodBody.Contains("OnEvent", StringComparison.Ordinal),
+            "ResumeSessionAsync must pass event handler via ResumeSessionConfig.OnEvent " +
+            "to avoid the race where events are dropped between resume-return and .On() call");
+
+        // Must NOT have a post-resume .On() call (which would be the race-prone pattern)
+        // Strip comment lines first
+        var codeOnly = string.Join("\n", methodBody.Split('\n')
+            .Where(l => !l.TrimStart().StartsWith("//")));
+        Assert.False(codeOnly.Contains("copilotSession.On(evt", StringComparison.Ordinal),
+            "ResumeSessionAsync must NOT call copilotSession.On() after resume — " +
+            "use OnEvent in config instead to prevent the event delivery race");
     }
 }

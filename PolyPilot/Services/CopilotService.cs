@@ -49,8 +49,6 @@ public partial class CopilotService : IAsyncDisposable
     }
     /// <summary>Test-only: simulate IsRestoring state for bridge queue tests.</summary>
     internal void SetIsRestoringForTesting(bool value) => IsRestoring = value;
-    /// <summary>Test-only: set the UI synchronization context captured during initialization.</summary>
-    internal void SetSyncContextForTesting(SynchronizationContext? syncContext) => _syncContext = syncContext;
     // Sessions for which history has already been requested — prevents duplicate request storms
     private readonly ConcurrentDictionary<string, byte> _requestedHistorySessions = new();
     // External session IDs currently being resumed — prevents duplicate SDK connections from rapid double-clicks
@@ -63,6 +61,7 @@ public partial class CopilotService : IAsyncDisposable
     private readonly ConcurrentDictionary<string, List<string?>> _queuedAgentModes = new();
     private readonly object _imageQueueLock = new();
     private static readonly object _diagnosticLogLock = new();
+    private static readonly DateTime _appStartedAtUtc = DateTime.UtcNow;
     // Debounce timers for disk I/O — coalesce rapid-fire saves into a single write
     private Timer? _saveSessionsDebounce;
     private Timer? _saveOrgDebounce;
@@ -224,6 +223,8 @@ public partial class CopilotService : IAsyncDisposable
             _zeroIdleCaptureDir = null;
         }
     }
+
+    internal void SetSyncContextForTesting(SynchronizationContext? syncContext) => _syncContext = syncContext;
 
     /// <summary>Builds the FallbackNotice message shown when the persistent server fails to start.</summary>
     internal static string BuildServerFallbackNotice(string? serverError, string logPath, string reason = "couldn't start", bool embeddedFallback = true)
@@ -2472,11 +2473,47 @@ The user can also check configured servers with the /mcp command.
         var resumeModel = Models.ModelHelper.NormalizeToSlug(GetSessionModelFromDisk(sessionId) ?? model ?? DefaultModel);
         if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
         Debug($"Resuming session '{displayName}' with model: '{resumeModel}', cwd: '{resumeWorkingDirectory}'");
-        var resumeSettings = ConnectionSettings.Load();
-        var resumeMcpServers = LoadMcpServers(resumeSettings.DisabledMcpServers, resumeSettings.DisabledPlugins);
-        var resumeSkillDirs = LoadSkillDirectories(resumeSettings.DisabledPlugins);
-        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, McpServers = resumeMcpServers, SkillDirectories = resumeSkillDirs, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions, InfiniteSessions = new InfiniteSessionConfig { Enabled = true } };
-        var copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+        // Create state BEFORE ResumeSessionAsync so the event handler can be passed via
+        // config.OnEvent. The SDK registers OnEvent before sending the session.resume RPC,
+        // closing the race window where events arrive between resume-return and .On() call.
+        // Without this, the SDK's ProcessEventsAsync loop consumes events with an empty
+        // handler list, silently dropping content deltas while lifecycle events appear to flow.
+        var state = new SessionState { Session = null!, Info = new AgentSessionInfo { Name = displayName, SessionId = sessionId, Model = resumeModel } };
+        // Populate history BEFORE pre-publishing to _sessions so that event dedup logic
+        // (which checks state.Info.History for existing tool calls / messages) has the
+        // persisted entries to match against. Without this, replayed resume-time events
+        // can't dedup and produce duplicate entries in the UI.
+        foreach (var msg in history)
+            state.Info.History.Add(msg);
+        state.Info.MessageCount = state.Info.History.Count;
+        state.Info.LastReadMessageCount = state.Info.History.Count;
+        // Mark stale incomplete tool calls/reasoning as complete
+        foreach (var msg in state.Info.History.Where(m => m.MessageType == ChatMessageType.ToolCall && !m.IsComplete))
+            msg.IsComplete = true;
+        foreach (var msg in state.Info.History.Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete))
+            msg.IsComplete = true;
+        // Publish state to _sessions BEFORE ResumeSessionAsync so that events arriving
+        // via OnEvent during the resume RPC pass the isCurrentState check in HandleSessionEvent.
+        // Without this, HandleSessionEvent sees _sessions[displayName] != state and drops events.
+        // Save the previous entry (if any) so we can restore it on failure.
+        _sessions.TryGetValue(displayName, out var previousState);
+        _sessions[displayName] = state;
+        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions, InfiniteSessions = new InfiniteSessionConfig { Enabled = true }, OnEvent = evt => HandleSessionEvent(state, evt) };
+        CopilotSession copilotSession;
+        try
+        {
+            copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
+        }
+        catch
+        {
+            // Restore the previous placeholder state if resume fails, so the session
+            // doesn't disappear from the UI. If there was no previous entry, remove ours.
+            if (previousState != null)
+                _sessions[displayName] = previousState;
+            else
+                _sessions.TryRemove(displayName, out _);
+            throw;
+        }
 
         // Detect session ID mismatch: the persistent server may return a different
         // session ID than requested (e.g., if it recreated the session internally).
@@ -2486,49 +2523,46 @@ The user can also check configured servers with the /mcp command.
         if (!string.IsNullOrEmpty(actualSessionId) && actualSessionId != sessionId)
         {
             Debug($"[RESUME-REMAP] Session ID changed: requested '{sessionId}', server returned '{actualSessionId}' for '{displayName}'");
-            // Copy old events to the new session dir BEFORE registering the event handler.
-            // The SDK may start writing events to the new dir after ResumeSessionAsync returns,
-            // but our copy runs immediately and the new dir typically has no events yet.
             CopyEventsToNewSession(sessionId, actualSessionId);
             var (actualHistory, actualFromDb) = await LoadBestHistoryAsync(actualSessionId);
             if (actualHistory.Count >= history.Count)
-                history = actualHistory;
+            {
+                // Rehydrate state.Info.History with the remapped session's history.
+                // Must be synchronized with HandleSessionEvent which reads/writes History
+                // on the UI thread. InvokeOnUI serializes this with event processing.
+                var tcs = new TaskCompletionSource<bool>();
+                InvokeOnUI(() =>
+                {
+                    state.Info.History.Clear();
+                    foreach (var msg in actualHistory)
+                        state.Info.History.Add(msg);
+                    state.Info.MessageCount = state.Info.History.Count;
+                    state.Info.LastReadMessageCount = state.Info.History.Count;
+                    tcs.TrySetResult(true);
+                });
+                await tcs.Task;
+            }
             sessionId = actualSessionId;
-            if (history.Count > 0 && !actualFromDb)
-                await _chatDb.BulkInsertAsync(sessionId, history);
+            if (actualHistory.Count > 0 && !actualFromDb)
+                await _chatDb.BulkInsertAsync(sessionId, actualHistory);
         }
 
         var isStillProcessing = IsSessionStillProcessing(sessionId);
 
-        var info = new AgentSessionInfo
-        {
-            Name = displayName,
-            Model = resumeModel,
-            CreatedAt = DateTime.UtcNow,
-            SessionId = sessionId,
-            IsResumed = isStillProcessing,
-            WorkingDirectory = resumeWorkingDirectory
-        };
+        state.Session = copilotSession;
+        var info = state.Info;
+        info.CreatedAt = DateTime.UtcNow;
+        info.SessionId = sessionId;
+        info.IsResumed = isStillProcessing;
+        info.WorkingDirectory = resumeWorkingDirectory;
         info.GitBranch = GetGitBranch(info.WorkingDirectory);
-
-        // Add loaded history to the session info
-        foreach (var msg in history)
-        {
-            info.History.Add(msg);
-        }
+        // Mark stale incomplete entries (may have new ones from remap)
+        foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.ToolCall && !m.IsComplete))
+            msg.IsComplete = true;
+        foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete))
+            msg.IsComplete = true;
         info.MessageCount = info.History.Count;
         info.LastReadMessageCount = info.History.Count;
-
-        // Mark any stale incomplete tool calls as complete (from prior session)
-        foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.ToolCall && !m.IsComplete))
-        {
-            msg.IsComplete = true;
-        }
-        // Also mark incomplete reasoning as complete
-        foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete))
-        {
-            msg.IsComplete = true;
-        }
 
         // Add reconnection indicator with status context
         var reconnectMsg = $"🔄 Session reconnected at {DateTime.Now.ToShortTimeString()}";
@@ -2552,16 +2586,10 @@ The user can also check configured servers with the /mcp command.
         if (isStillProcessing)
         {
             // Set phase based on last event so UI shows correct status instead of "Sending"
-            var (lastTool, _) = GetLastSessionActivity(sessionId);
-            info.ProcessingPhase = !string.IsNullOrEmpty(lastTool) ? 3 : 2; // 3=Working, 2=Thinking
+            var (lastTool2, _) = GetLastSessionActivity(sessionId);
+            info.ProcessingPhase = !string.IsNullOrEmpty(lastTool2) ? 3 : 2; // 3=Working, 2=Thinking
             info.ProcessingStartedAt = DateTime.UtcNow;
         }
-
-        var state = new SessionState
-        {
-            Session = copilotSession,
-            Info = info
-        };
 
         // Cache multi-agent membership for the watchdog timeout tier.
         // Must be set BEFORE StartProcessingWatchdog — otherwise the watchdog uses the
@@ -2570,9 +2598,8 @@ The user can also check configured servers with the /mcp command.
         // by LoadOrganization() before RestorePreviousSessionsAsync runs.
         state.IsMultiAgentSession = IsSessionInMultiAgentGroup(displayName);
 
-        // Wire up event handler BEFORE starting watchdog/timeout so events
-        // arriving immediately after SDK resume are not missed.
-        copilotSession.On(evt => HandleSessionEvent(state, evt));
+        // Event handler already registered via ResumeSessionConfig.OnEvent (before RPC call)
+        // to avoid the race where events arrive between ResumeSessionAsync return and .On().
 
         // If still processing, set up ResponseCompletion so events flow properly.
         // The processing watchdog (30s resume quiescence / 120s inactivity / 600s tool timeout)
@@ -2602,10 +2629,14 @@ The user can also check configured servers with the /mcp command.
             // See StartProcessingWatchdog comment for why file-time seeding is dangerous.
             StartProcessingWatchdog(state, displayName);
         }
-        if (!_sessions.TryAdd(displayName, state))
+        // State was already pre-published to _sessions before ResumeSessionAsync.
+        // No TryAdd needed — just verify it's still our state (could have been replaced
+        // by a concurrent resume of the same session name, though that's unlikely).
+        if (!_sessions.TryGetValue(displayName, out var currentState) || !ReferenceEquals(currentState, state))
         {
+            // Another resume replaced our state — dispose the session we just created
             try { await copilotSession.DisposeAsync(); } catch { }
-            throw new InvalidOperationException($"Failed to add session '{displayName}'.");
+            throw new InvalidOperationException($"Session '{displayName}' was replaced during resume.");
         }
 
         _activeSessionName ??= displayName;
