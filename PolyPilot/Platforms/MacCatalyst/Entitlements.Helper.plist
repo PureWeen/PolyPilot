@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+    <dict>
+        <!-- Minimal entitlements for helper executables (e.g., bundled copilot CLI).
+             app-sandbox is required by Apple for ALL executables in App Store builds.
+             inherit means the helper inherits the parent app's sandbox permissions. -->
+        <key>com.apple.security.app-sandbox</key>
+        <true/>
+        <key>com.apple.security.inherit</key>
+        <true/>
+    </dict>
+</plist>
