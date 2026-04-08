@@ -3559,6 +3559,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                             if (kvp.Key == sessionName) continue;
                                             var otherState = kvp.Value;
                                             if (string.IsNullOrEmpty(otherState.Info.SessionId)) continue;
+                                            // Provider/virtual sessions are not backed by the SDK client that
+                                            // was just recreated. Their SessionId values are persistence keys,
+                                            // not CLI-resumable session IDs, so trying to ResumeSessionAsync
+                                            // them produces invalid-session errors and can destabilize recovery.
+                                            if (otherState.Session == null || IsProviderSession(kvp.Key))
+                                            {
+                                                Debug($"[RECONNECT] Skipping non-SDK sibling '{kvp.Key}' during client recreation");
+                                                continue;
+                                            }
                                             // INV-O14: IsProcessing siblings have dead event streams —
                                             // their CopilotSession was tied to the old client which was
                                             // just disposed. Force-abort so the orchestrator retries
