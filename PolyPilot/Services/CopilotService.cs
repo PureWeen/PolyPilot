@@ -2472,7 +2472,10 @@ The user can also check configured servers with the /mcp command.
         var resumeModel = Models.ModelHelper.NormalizeToSlug(GetSessionModelFromDisk(sessionId) ?? model ?? DefaultModel);
         if (string.IsNullOrEmpty(resumeModel)) resumeModel = DefaultModel;
         Debug($"Resuming session '{displayName}' with model: '{resumeModel}', cwd: '{resumeWorkingDirectory}'");
-        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions, InfiniteSessions = new InfiniteSessionConfig { Enabled = true } };
+        var resumeSettings = ConnectionSettings.Load();
+        var resumeMcpServers = LoadMcpServers(resumeSettings.DisabledMcpServers, resumeSettings.DisabledPlugins);
+        var resumeSkillDirs = LoadSkillDirectories(resumeSettings.DisabledPlugins);
+        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, McpServers = resumeMcpServers, SkillDirectories = resumeSkillDirs, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions, InfiniteSessions = new InfiniteSessionConfig { Enabled = true } };
         var copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
 
         // Detect session ID mismatch: the persistent server may return a different

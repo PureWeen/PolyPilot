@@ -1139,6 +1139,26 @@ public class ChatExperienceSafetyTests
         Assert.Contains("SkillDirectories = skillDirs", block);
     }
 
+    /// <summary>
+    /// The public ResumeSessionAsync (sidebar resume, bridge resume) must also include
+    /// McpServers and SkillDirectories so MCP tools work after explicit resume.
+    /// </summary>
+    [Fact]
+    public void SidebarResumePath_IncludesMcpServersAndSkills()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+
+        var methodIdx = source.IndexOf("public async Task<AgentSessionInfo> ResumeSessionAsync(", StringComparison.Ordinal);
+        Assert.True(methodIdx > 0, "ResumeSessionAsync not found");
+        var block = source.Substring(methodIdx, Math.Min(6000, source.Length - methodIdx));
+
+        Assert.Contains("LoadMcpServers", block);
+        Assert.Contains("LoadSkillDirectories", block);
+        Assert.Contains("McpServers = resumeMcpServers", block);
+        Assert.Contains("SkillDirectories = resumeSkillDirs", block);
+    }
+
     // =========================================================================
     // F. Race Condition & Edge Case Tests
     // =========================================================================
