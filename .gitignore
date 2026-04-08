@@ -39,6 +39,7 @@ launchSettings.json
 
 ## .NET
 *.binlog
+Directory.Build.props.local
 
 ## Test results
 **/TestResults/
