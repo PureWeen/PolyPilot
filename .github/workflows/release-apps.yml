@@ -222,7 +222,7 @@ jobs:
           dotnet publish ${{ env.MAUI_PROJECT_PATH }} \
             -f net10.0-maccatalyst \
             -c Release \
-            -p:ApplicationId=nl.versluis.polypilot \
+            -p:ApplicationId=maccatalyst.nl.versluis.polypilot \
             -p:CodesignKey="${{ secrets.IOS_CODESIGN_KEY }}" \
             -p:CodesignProvision="${{ secrets.MACCATALYST_PROVISIONING_PROFILE_NAME }}" \
             -p:CodesignEntitlements=Platforms/MacCatalyst/Entitlements.AppStore.plist \
