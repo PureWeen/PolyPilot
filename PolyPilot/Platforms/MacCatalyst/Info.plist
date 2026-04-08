@@ -9,8 +9,8 @@
 
     <!-- Specify the category for your app here. -->
     <!-- Please consult https://developer.apple.com/documentation/bundleresources/information_property_list/lsapplicationcategorytype -->
-    <!-- <key>LSApplicationCategoryType</key> -->
-    <!-- <string>public.app-category.YOUR-CATEGORY-HERE</string> -->
+    <key>LSApplicationCategoryType</key>
+    <string>public.app-category.developer-tools</string>
     <key>UIDeviceFamily</key>
     <array>
         <integer>2</integer>
