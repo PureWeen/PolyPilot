@@ -279,28 +279,22 @@ jobs:
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
           PKG_PATH: ${{ steps.find_pkg.outputs.PKG_PATH }}
+          APP_VERSION: ${{ env.APP_VERSION }}
+          BUILD_NUMBER: ${{ steps.build.outputs.number }}
         run: |
-          gem install fastlane --no-document
+          mkdir -p private_keys
+          echo "$APPSTORE_PRIVATE_KEY" > "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
 
-          # Write API key JSON with inline key content (from_json_file requires 'key', not 'key_filepath')
-          python3 -c "
-          import json, os
-          key = {
-            'key_id': os.environ['APPSTORE_KEY_ID'],
-            'issuer_id': os.environ['APPSTORE_ISSUER_ID'],
-            'key': os.environ['APPSTORE_PRIVATE_KEY']
-          }
-          with open('api_key.json', 'w') as f:
-            json.dump(key, f)
-          "
+          xcrun altool --upload-package "$PKG_PATH" \
+            -t macos \
+            --apple-id "6759370598" \
+            --bundle-id "maccatalyst.nl.versluis.polypilot" \
+            --bundle-version "$BUILD_NUMBER" \
+            --bundle-short-version-string "$APP_VERSION" \
+            --apiKey "$APPSTORE_KEY_ID" \
+            --apiIssuer "$APPSTORE_ISSUER_ID"
 
-          fastlane pilot upload \
-            --api_key_path api_key.json \
-            --pkg "$PKG_PATH" \
-            --app_platform "osx" \
-            --app_identifier "nl.versluis.polypilot"
-
-          rm -f api_key.json
+          rm -rf private_keys
 
       - name: Distribute to external testers (MAUI Team)
         continue-on-error: true
