@@ -927,7 +927,7 @@ public class WsBridgeServer : IDisposable
 
                 case BridgeMessageTypes.SendMessage:
                     var sendReq = msg.GetPayload<SendMessagePayload>();
-                    if (sendReq != null && !string.IsNullOrWhiteSpace(sendReq.SessionName) && !string.IsNullOrWhiteSpace(sendReq.Message))
+                    if (sendReq != null && !string.IsNullOrWhiteSpace(sendReq.SessionName) && (!string.IsNullOrWhiteSpace(sendReq.Message) || sendReq.ImageAttachments is { Count: > 0 }))
                     {
                         BridgeLog($"[BRIDGE] Client sending message to '{sendReq.SessionName}'");
 
