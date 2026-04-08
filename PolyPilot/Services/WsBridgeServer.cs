@@ -871,9 +871,9 @@ public class WsBridgeServer : IDisposable
 
                 messageBuffer.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
 
-                if (messageBuffer.Length > 256 * 1024)
+                if (messageBuffer.Length > 16 * 1024 * 1024)
                 {
-                    try { await ws.CloseAsync(WebSocketCloseStatus.MessageTooBig, "Message exceeds 256KB limit", CancellationToken.None); } catch { }
+                    try { await ws.CloseAsync(WebSocketCloseStatus.MessageTooBig, "Message exceeds 16MB limit", CancellationToken.None); } catch { }
                     break; // guard against unbounded frames
                 }
 
