@@ -223,7 +223,7 @@ jobs:
             -f net10.0-maccatalyst \
             -c Release \
             -r maccatalyst-arm64 \
-            -p:ApplicationId=maccatalyst.nl.versluis.polypilot \
+            -p:ApplicationId=nl.versluis.polypilot \
             -p:CodesignKey="${{ secrets.IOS_CODESIGN_KEY }}" \
             -p:CodesignProvision="${{ secrets.MACCATALYST_PROVISIONING_PROFILE_NAME }}" \
             -p:CodesignEntitlements=Platforms/MacCatalyst/Entitlements.AppStore.plist \
@@ -257,36 +257,12 @@ jobs:
           cp "$RUNNER_TEMP/maccatalyst.provisionprofile" "$APP_PATH/Contents/embedded.provisionprofile"
           echo "Embedded provisioning profile in app bundle"
 
-      - name: Patch bundle identifier for App Store
-        run: |
-          APP_PATH=$(find PolyPilot/bin/Release/net10.0-maccatalyst -name "PolyPilot.app" -type d | head -1)
-          echo "App path: $APP_PATH"
-
-          # MAUI builds with maccatalyst.nl.versluis.polypilot to match the provisioning
-          # profile, but App Store Connect expects the base bundle ID without the prefix.
-          # Apple's tooling understands the maccatalyst. prefix convention in profiles,
-          # but the binary's CFBundleIdentifier must be the base ID.
-          PLIST="$APP_PATH/Contents/Info.plist"
-          CURRENT_ID=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$PLIST")
-          echo "Current CFBundleIdentifier: $CURRENT_ID"
-
-          if [[ "$CURRENT_ID" == maccatalyst.* ]]; then
-            BASE_ID="${CURRENT_ID#maccatalyst.}"
-            /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier $BASE_ID" "$PLIST"
-            echo "Patched CFBundleIdentifier to: $BASE_ID"
-          else
-            echo "CFBundleIdentifier already uses base ID: $CURRENT_ID"
-          fi
-
-      - name: Re-sign app bundle (inside-out, preserving Catalyst entitlements)
+      - name: Re-sign app bundle (inside-out)
         env:
           CODESIGN_KEY: ${{ secrets.IOS_CODESIGN_KEY }}
         run: |
           APP_PATH=$(find PolyPilot/bin/Release/net10.0-maccatalyst -name "PolyPilot.app" -type d | head -1)
           echo "App path: $APP_PATH"
-
-          echo "=== Original app entitlements ==="
-          codesign -d --entitlements - "$APP_PATH" 2>/dev/null | head -30
 
           # Sign the copilot CLI binary with minimal helper entitlements (sandbox + inherit)
           COPILOT_BIN="$APP_PATH/Contents/MonoBundle/copilot"
@@ -314,17 +290,15 @@ jobs:
               --sign "$CODESIGN_KEY" "$f"
           done
 
-          # Re-sign the top-level app bundle, preserving MAUI's original entitlements.
-          # MAUI already signed with the correct Catalyst application-identifier;
-          # we must not overwrite it with our custom entitlements file.
+          # Re-sign the top-level app bundle with full entitlements
           codesign --force --sign "$CODESIGN_KEY" \
-            --preserve-metadata=entitlements \
+            --entitlements PolyPilot/Platforms/MacCatalyst/Entitlements.AppStore.plist \
             --options runtime --timestamp \
             "$APP_PATH"
 
           echo "=== Verify signature ==="
           codesign --verify --deep --strict "$APP_PATH" 2>&1
-          echo "=== Final app entitlements ==="
+          echo "=== App entitlements ==="
           codesign -d --entitlements - "$APP_PATH" 2>/dev/null | head -30
           echo "=== Verify copilot binary ==="
           codesign -dvv "$COPILOT_BIN" 2>&1 | head -10
