@@ -120,9 +120,6 @@
             }
         }, true);
 
-        // Global image drop handler for chat input areas
-        document.addEventListener('dragover', function(e) {
-
         // File picker change handler — reads selected images and sends to Blazor.
         // Covers the attach button on all platforms (especially mobile where
         // paste/drag-drop aren't available).
@@ -150,6 +147,7 @@
             e.target.value = '';
         });
 
+        // Global image drop handler for chat input areas
         document.addEventListener('dragover', function(e) {
             var zone = e.target.closest && (e.target.closest('.input-area') || e.target.closest('.card-input'));
             if (zone && e.dataTransfer && Array.from(e.dataTransfer.types).includes('Files')) {
