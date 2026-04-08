@@ -439,8 +439,8 @@ public partial class CopilotService
                 var freshConfig = BuildFreshSessionConfig(state);
                 copilotSession = await GetClientForGroup(groupId).CreateSessionAsync(freshConfig, cancellationToken);
                 // Attach event handler on the fresh session so it isn't deaf.
-                // BuildFreshSessionConfig returns a SessionConfig (no OnEvent), and the
-                // old post-resume .On() was removed, so we must register explicitly here.
+                // BuildFreshSessionConfig doesn't set OnEvent on the SessionConfig, and
+                // the old post-resume .On() was removed, so we must register explicitly here.
                 copilotSession.On(evt => HandleSessionEvent(state, evt));
                 state.Info.SessionId = copilotSession.SessionId;
                 FlushSaveActiveSessionsToDisk();
