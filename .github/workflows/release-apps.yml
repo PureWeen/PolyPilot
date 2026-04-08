@@ -176,8 +176,8 @@ jobs:
       - name: Import signing certificate
         uses: apple-actions/import-codesign-certs@v2
         with:
-          p12-file-base64: ${{ secrets.MACCATALYST_CERTIFICATE_BASE64 }}
-          p12-password: ${{ secrets.MACCATALYST_CERTIFICATE_PASSWORD }}
+          p12-file-base64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
+          p12-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
 
       - name: Install provisioning profile
         run: |
@@ -191,13 +191,13 @@ jobs:
             -f net10.0-maccatalyst \
             -c Release \
             -p:ApplicationId=nl.versluis.polypilot \
-            -p:CodesignKey="${{ secrets.MACCATALYST_CODESIGN_KEY }}" \
+            -p:CodesignKey="${{ secrets.IOS_CODESIGN_KEY }}" \
             -p:CodesignProvision="${{ secrets.MACCATALYST_PROVISIONING_PROFILE_NAME }}" \
             -p:CodesignEntitlements=Platforms/MacCatalyst/Entitlements.AppStore.plist \
             -p:CreatePackage=true \
             -p:EnableCodeSigning=true \
             -p:EnablePackageSigning=true \
-            -p:PackageSigningKey="${{ secrets.MACCATALYST_CODESIGN_KEY }}" \
+            -p:PackageSigningKey="${{ secrets.IOS_CODESIGN_KEY }}" \
             -p:ApplicationDisplayVersion='${{ env.APP_VERSION }}' \
             -p:ApplicationVersion='${{ steps.build.outputs.number }}'
 
