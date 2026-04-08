@@ -2498,7 +2498,7 @@ The user can also check configured servers with the /mcp command.
         // Save the previous entry (if any) so we can restore it on failure.
         _sessions.TryGetValue(displayName, out var previousState);
         _sessions[displayName] = state;
-        var resumeConfig = new ResumeSessionConfig { Model = resumeModel, WorkingDirectory = resumeWorkingDirectory, Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() }, OnPermissionRequest = AutoApprovePermissions, InfiniteSessions = new InfiniteSessionConfig { Enabled = true }, OnEvent = evt => HandleSessionEvent(state, evt) };
+        var resumeConfig = BuildResumeSessionConfig(state, resumeWorkingDirectory, evt => HandleSessionEvent(state, evt));
         CopilotSession copilotSession;
         try
         {
@@ -2548,27 +2548,19 @@ The user can also check configured servers with the /mcp command.
         }
 
         var isStillProcessing = IsSessionStillProcessing(sessionId);
+        var resumeGitBranch = GetGitBranch(resumeWorkingDirectory);
+        string? lastTool = null;
+        string? lastContent = null;
+        var processingPhase = 0;
 
         state.Session = copilotSession;
-        var info = state.Info;
-        info.CreatedAt = DateTime.UtcNow;
-        info.SessionId = sessionId;
-        info.IsResumed = isStillProcessing;
-        info.WorkingDirectory = resumeWorkingDirectory;
-        info.GitBranch = GetGitBranch(info.WorkingDirectory);
-        // Mark stale incomplete entries (may have new ones from remap)
-        foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.ToolCall && !m.IsComplete))
-            msg.IsComplete = true;
-        foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete))
-            msg.IsComplete = true;
-        info.MessageCount = info.History.Count;
-        info.LastReadMessageCount = info.History.Count;
 
         // Add reconnection indicator with status context
         var reconnectMsg = $"🔄 Session reconnected at {DateTime.Now.ToShortTimeString()}";
         if (isStillProcessing)
         {
-            var (lastTool, lastContent) = GetLastSessionActivity(sessionId);
+            (lastTool, lastContent) = GetLastSessionActivity(sessionId);
+            processingPhase = !string.IsNullOrEmpty(lastTool) ? 3 : 2; // 3=Working, 2=Thinking
             if (!string.IsNullOrEmpty(lastTool))
                 reconnectMsg += $" — running {lastTool}";
             if (!string.IsNullOrEmpty(lastContent))
@@ -2579,17 +2571,15 @@ The user can also check configured servers with the /mcp command.
                 reconnectMsg += $"\n📝 Last message: \"{truncated}\"";
             }
         }
-        info.History.Add(ChatMessage.SystemMessage(reconnectMsg));
-
-        // Set processing state if session was mid-turn when app died
-        info.IsProcessing = isStillProcessing;
-        if (isStillProcessing)
-        {
-            // Set phase based on last event so UI shows correct status instead of "Sending"
-            var (lastTool2, _) = GetLastSessionActivity(sessionId);
-            info.ProcessingPhase = !string.IsNullOrEmpty(lastTool2) ? 3 : 2; // 3=Working, 2=Thinking
-            info.ProcessingStartedAt = DateTime.UtcNow;
-        }
+        await FinalizeResumedSessionUiStateAsync(
+            state,
+            sessionId,
+            resumeWorkingDirectory,
+            resumeGitBranch,
+            isStillProcessing,
+            processingPhase,
+            reconnectMsg);
+        var info = state.Info;
 
         // Cache multi-agent membership for the watchdog timeout tier.
         // Must be set BEFORE StartProcessingWatchdog — otherwise the watchdog uses the
@@ -4092,6 +4082,73 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 Interlocked.Exchange(ref state.SendingFlag, 0);
             throw;
         }
+    }
+
+    /// <summary>
+    /// Build a ResumeSessionConfig with the same MCP servers and skill directories used for
+    /// fresh sessions so resumed sessions keep their external tool surface after restart.
+    /// </summary>
+    private ResumeSessionConfig BuildResumeSessionConfig(
+        SessionState state,
+        string? workingDirectory = null,
+        SessionEventHandler? onEvent = null)
+    {
+        var settings = _currentSettings ?? ConnectionSettings.Load();
+        var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+        var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
+        return new ResumeSessionConfig
+        {
+            Model = Models.ModelHelper.NormalizeToSlug(state.Info.Model) ?? DefaultModel,
+            WorkingDirectory = workingDirectory ?? state.Info.WorkingDirectory,
+            McpServers = mcpServers,
+            SkillDirectories = skillDirs,
+            Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
+            OnPermissionRequest = AutoApprovePermissions,
+            InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
+            OnEvent = onEvent,
+        };
+    }
+
+    /// <summary>
+    /// Finalize resumed-session state on the UI thread so history/count updates stay serialized
+    /// with live OnEvent callbacks that may already be replaying during resume.
+    /// </summary>
+    private Task FinalizeResumedSessionUiStateAsync(
+        SessionState state,
+        string sessionId,
+        string? workingDirectory,
+        string? gitBranch,
+        bool isStillProcessing,
+        int processingPhase,
+        string reconnectMsg)
+    {
+        return InvokeOnUIAsync(() =>
+        {
+            var info = state.Info;
+            info.CreatedAt = DateTime.UtcNow;
+            info.SessionId = sessionId;
+            info.IsResumed = isStillProcessing;
+            info.WorkingDirectory = workingDirectory;
+            info.GitBranch = gitBranch;
+
+            // Mark stale incomplete entries (may have new ones from remap) while serialized
+            // with any live event-driven history mutations.
+            foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.ToolCall && !m.IsComplete))
+                msg.IsComplete = true;
+            foreach (var msg in info.History.Where(m => m.MessageType == ChatMessageType.Reasoning && !m.IsComplete))
+                msg.IsComplete = true;
+
+            info.MessageCount = info.History.Count;
+            info.LastReadMessageCount = info.History.Count;
+            info.History.Add(ChatMessage.SystemMessage(reconnectMsg));
+
+            info.IsProcessing = isStillProcessing;
+            if (isStillProcessing)
+            {
+                info.ProcessingPhase = processingPhase;
+                info.ProcessingStartedAt = DateTime.UtcNow;
+            }
+        });
     }
 
     /// <summary>

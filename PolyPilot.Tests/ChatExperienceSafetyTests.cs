@@ -72,6 +72,31 @@ public class ChatExperienceSafetyTests
         method.Invoke(svc, new object?[] { sessionState });
     }
 
+    /// <summary>Invokes the private FinalizeResumedSessionUiStateAsync helper via reflection.</summary>
+    private static async Task InvokeFinalizeResumedSessionUiStateAsync(
+        CopilotService svc,
+        object sessionState,
+        string sessionId,
+        string? workingDirectory,
+        string? gitBranch,
+        bool isStillProcessing,
+        int processingPhase,
+        string reconnectMsg)
+    {
+        var method = typeof(CopilotService).GetMethod("FinalizeResumedSessionUiStateAsync", NonPublic)!;
+        var task = (Task)method.Invoke(svc, new object?[]
+        {
+            sessionState,
+            sessionId,
+            workingDirectory,
+            gitBranch,
+            isStillProcessing,
+            processingPhase,
+            reconnectMsg
+        })!;
+        await task;
+    }
+
     /// <summary>Invokes the private ClearFlushedReplayDedup helper to simulate a tool/sub-turn boundary.</summary>
     private static void InvokeClearFlushedReplayDedup(object sessionState)
     {
@@ -1092,14 +1117,16 @@ public class ChatExperienceSafetyTests
     }
 
     /// <summary>
-    /// The "Session not found" reconnect path must include McpServers and SkillDirectories
-    /// in the fresh session config (PR #330 regression guard).
+    /// Fresh create + lazy/explicit resume paths must all preserve MCP servers and skill
+    /// directories so restarted sessions do not silently lose tool availability.
     /// </summary>
     [Fact]
-    public void ReconnectPath_IncludesMcpServersAndSkills()
+    public void ResumeAndReconnectPaths_IncludeMcpServersAndSkills()
     {
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
+        var persistence = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
 
         // After extraction to BuildFreshSessionConfig, verify the reconnect path calls the helper
         var sessionNotFoundIdx = source.IndexOf("resumeEx.Message.Contains(\"Session not found\"", StringComparison.Ordinal);
@@ -1113,6 +1140,54 @@ public class ChatExperienceSafetyTests
         var helperBlock = source.Substring(helperIdx, Math.Min(2000, source.Length - helperIdx));
         Assert.Contains("McpServers", helperBlock);
         Assert.Contains("SkillDirectories", helperBlock);
+
+        var resumeHelperIdx = source.IndexOf("private ResumeSessionConfig BuildResumeSessionConfig", StringComparison.Ordinal);
+        Assert.True(resumeHelperIdx > 0);
+        var resumeHelperBlock = source.Substring(resumeHelperIdx, Math.Min(2000, source.Length - resumeHelperIdx));
+        Assert.Contains("McpServers", resumeHelperBlock);
+        Assert.Contains("SkillDirectories", resumeHelperBlock);
+        Assert.Contains("BuildResumeSessionConfig(state, resumeWorkingDirectory", source);
+        Assert.Contains("BuildResumeSessionConfig(state, resumeWorkDir", persistence);
+    }
+
+    /// <summary>
+    /// Finalizing resumed session state should complete stale entries and append the reconnect
+    /// message through the dedicated UI-thread helper instead of mutating History inline.
+    /// </summary>
+    [Fact]
+    public async Task FinalizeResumedSessionUiState_CompletesStaleEntriesAndAppendsReconnectMessage()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("resume-ui-finalize");
+        var state = GetSessionState(svc, "resume-ui-finalize");
+
+        var staleTool = ChatMessage.ToolCallMessage("bash", "call-1", "echo hi");
+        staleTool.IsComplete = false;
+        var staleReasoning = ChatMessage.ReasoningMessage("reason-1");
+        staleReasoning.Content = "thinking...";
+        staleReasoning.IsComplete = false;
+        session.History.Add(ChatMessage.UserMessage("resume me"));
+        session.History.Add(staleTool);
+        session.History.Add(staleReasoning);
+
+        await InvokeFinalizeResumedSessionUiStateAsync(
+            svc,
+            state,
+            Guid.NewGuid().ToString(),
+            "/tmp/worktree",
+            "main",
+            isStillProcessing: true,
+            processingPhase: 3,
+            reconnectMsg: "🔄 Session reconnected at 12:34 — running bash");
+
+        Assert.True(staleTool.IsComplete);
+        Assert.True(staleReasoning.IsComplete);
+        Assert.True(session.IsProcessing);
+        Assert.Equal(3, session.ProcessingPhase);
+        Assert.Equal("/tmp/worktree", session.WorkingDirectory);
+        Assert.Equal("main", session.GitBranch);
+        Assert.Contains(session.History, m => m.Content?.Contains("Session reconnected", StringComparison.Ordinal) == true);
     }
 
     // =========================================================================
