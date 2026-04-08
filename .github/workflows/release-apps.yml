@@ -285,8 +285,14 @@ jobs:
           PROFILE_PLIST=$(security cms -D -i "$RUNNER_TEMP/maccatalyst.provisionprofile")
           APP_ID=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.application-identifier" /dev/stdin)
           TEAM_ID=$(echo "$PROFILE_PLIST" | /usr/libexec/PlistBuddy -c "Print :Entitlements:com.apple.developer.team-identifier" /dev/stdin)
-          echo "Application identifier: $APP_ID"
+          echo "Profile application identifier: $APP_ID"
           echo "Team identifier: $TEAM_ID"
+
+          # The profile uses maccatalyst-prefixed ID (e.g., AY5KBJ6RN9.maccatalyst.nl.versluis.polypilot)
+          # but Apple requires TEAMID.bundleID format (e.g., AY5KBJ6RN9.nl.versluis.polypilot).
+          # Strip the maccatalyst. prefix to match the patched CFBundleIdentifier.
+          APP_ID=$(echo "$APP_ID" | sed "s/${TEAM_ID}\.maccatalyst\./${TEAM_ID}./")
+          echo "Patched application identifier: $APP_ID"
 
           ENTITLEMENTS="PolyPilot/Platforms/MacCatalyst/Entitlements.AppStore.plist"
           /usr/libexec/PlistBuddy -c "Add :com.apple.application-identifier string $APP_ID" "$ENTITLEMENTS" 2>/dev/null || \
