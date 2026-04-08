@@ -438,6 +438,10 @@ public partial class CopilotService
                 state.Info.WorkingDirectory = resumeWorkDir;
                 var freshConfig = BuildFreshSessionConfig(state);
                 copilotSession = await GetClientForGroup(groupId).CreateSessionAsync(freshConfig, cancellationToken);
+                // Attach event handler on the fresh session so it isn't deaf.
+                // BuildFreshSessionConfig returns a SessionConfig (no OnEvent), and the
+                // old post-resume .On() was removed, so we must register explicitly here.
+                copilotSession.On(evt => HandleSessionEvent(state, evt));
                 state.Info.SessionId = copilotSession.SessionId;
                 FlushSaveActiveSessionsToDisk();
             }
@@ -468,8 +472,9 @@ public partial class CopilotService
                 copilotSession = await GetClientForGroup(groupId).ResumeSessionAsync(sessionId, resumeConfig, cancellationToken);
             }
 
-            // INV-16: the event handler is already registered via ResumeSessionConfig.OnEvent
-            // before the session.resume RPC is sent, so early replay events are preserved.
+            // INV-16: For the happy-path resume, the event handler is registered via
+            // ResumeSessionConfig.OnEvent before the RPC. For the fallback fresh-create
+            // path, .On() is called explicitly right after CreateSessionAsync.
             state.Session = copilotSession;
             state.IsMultiAgentSession = IsSessionInMultiAgentGroup(sessionName);
 

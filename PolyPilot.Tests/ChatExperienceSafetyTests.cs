@@ -1190,6 +1190,31 @@ public class ChatExperienceSafetyTests
         Assert.Contains(session.History, m => m.Content?.Contains("Session reconnected", StringComparison.Ordinal) == true);
     }
 
+    /// <summary>
+    /// The lazy-resume fallback path (session not found / corrupt / process error)
+    /// must attach an event handler on the fresh session so it is not deaf.
+    /// When the old post-resume .On() was removed in favor of ResumeSessionConfig.OnEvent,
+    /// the fallback branch that creates a fresh SessionConfig must still call .On() explicitly.
+    /// </summary>
+    [Fact]
+    public void LazyResumeFallback_AttachesEventHandler()
+    {
+        var persistence = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        // Find the fallback create path ("Lazy-resume failed" → CreateSessionAsync)
+        var fallbackIdx = persistence.IndexOf("Lazy-resume failed for", StringComparison.Ordinal);
+        Assert.True(fallbackIdx > 0, "Could not find the lazy-resume fallback path");
+
+        // Grab the block from the fallback through the next FlushSaveActiveSessionsToDisk
+        var afterFallback = persistence.Substring(fallbackIdx, Math.Min(800, persistence.Length - fallbackIdx));
+        Assert.Contains("CreateSessionAsync", afterFallback);
+
+        // The critical invariant: .On(evt => HandleSessionEvent(...)) must appear
+        // between CreateSessionAsync and the end of this catch block
+        Assert.Contains("copilotSession.On(evt => HandleSessionEvent(state, evt))", afterFallback);
+    }
+
     // =========================================================================
     // F. Race Condition & Edge Case Tests
     // =========================================================================
