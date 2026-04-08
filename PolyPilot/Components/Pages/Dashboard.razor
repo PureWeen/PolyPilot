@@ -2344,6 +2344,11 @@
                 break;
 
             case "reload":
+                if (CopilotService.IsRemoteMode)
+                {
+                    session.History.Add(ChatMessage.SystemMessage("⚠️ `/mcp reload` is not available in Remote mode. Use the desktop app to reload MCP servers."));
+                    break;
+                }
                 session.History.Add(ChatMessage.SystemMessage("🔄 Reloading MCP servers — replacing SDK session in-place (history preserved)..."));
                 _ = ReloadMcpServersAsync(session);
                 break;

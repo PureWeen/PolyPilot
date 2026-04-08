@@ -414,10 +414,18 @@ public partial class CopilotService
             var resumeModel = state.Info.Model ?? DefaultModel;
             var resumeWorkDir = state.Info.WorkingDirectory;
 
+            // Load MCP servers and skill directories so resumed sessions have full tool access.
+            // Without this, lazily-resumed sessions start without MCP tools until manual /mcp reload.
+            var settings = ConnectionSettings.Load();
+            var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+            var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
+
             var resumeConfig = new ResumeSessionConfig
             {
                 Model = resumeModel,
                 WorkingDirectory = resumeWorkDir,
+                McpServers = mcpServers,
+                SkillDirectories = skillDirs,
                 Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
                 OnPermissionRequest = AutoApprovePermissions,
                 InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
@@ -441,6 +449,8 @@ public partial class CopilotService
                 {
                     Model = resumeModel,
                     WorkingDirectory = resumeWorkDir,
+                    McpServers = mcpServers,
+                    SkillDirectories = skillDirs,
                     Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
                     OnPermissionRequest = AutoApprovePermissions,
                     InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
