@@ -222,6 +222,7 @@ jobs:
           dotnet publish ${{ env.MAUI_PROJECT_PATH }} \
             -f net10.0-maccatalyst \
             -c Release \
+            -r maccatalyst-arm64 \
             -p:ApplicationId=maccatalyst.nl.versluis.polypilot \
             -p:CodesignKey="${{ secrets.IOS_CODESIGN_KEY }}" \
             -p:CodesignProvision="${{ secrets.MACCATALYST_PROVISIONING_PROFILE_NAME }}" \
@@ -248,6 +249,13 @@ jobs:
           else
             echo "CFBundleIconName already set: $(/usr/libexec/PlistBuddy -c 'Print :CFBundleIconName' "$PLIST")"
           fi
+
+      - name: Embed provisioning profile
+        run: |
+          APP_PATH=$(find PolyPilot/bin/Release/net10.0-maccatalyst -name "PolyPilot.app" -type d | head -1)
+          # CreatePackage=false doesn't embed the profile. TestFlight requires it.
+          cp "$RUNNER_TEMP/maccatalyst.provisionprofile" "$APP_PATH/Contents/embedded.provisionprofile"
+          echo "Embedded provisioning profile in app bundle"
 
       - name: Patch bundle identifier for App Store
         run: |
