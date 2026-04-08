@@ -274,9 +274,10 @@ jobs:
           echo "Found PKG at: $PKG_PATH"
 
       - name: Upload to TestFlight
-        uses: apple-actions/upload-testflight-build@v3
+        uses: apple-actions/upload-testflight-build@v4
         with:
           app-path: ${{ steps.find_pkg.outputs.PKG_PATH }}
+          app-type: macos
           issuer-id: ${{ secrets.APPSTORE_ISSUER_ID }}
           api-key-id: ${{ secrets.APPSTORE_KEY_ID }}
           api-private-key: ${{ secrets.APPSTORE_PRIVATE_KEY }}
@@ -287,7 +288,7 @@ jobs:
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
-          APP_BUNDLE_ID: 'nl.versluis.polypilot'
+          APP_BUNDLE_ID: 'maccatalyst.nl.versluis.polypilot'
           BUILD_NUMBER: ${{ steps.build.outputs.number }}
           APP_VERSION: ${{ env.APP_VERSION }}
           BETA_GROUP_NAME: 'MAUI Team'
@@ -310,6 +311,7 @@ jobs:
           fastlane pilot distribute \
             --api_key_path api_key.json \
             --app_identifier "$APP_BUNDLE_ID" \
+            --app_platform "osx" \
             --build_number "$BUILD_NUMBER" \
             --app_version "$APP_VERSION" \
             --groups "$BETA_GROUP_NAME" \
