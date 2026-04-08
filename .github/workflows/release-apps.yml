@@ -173,11 +173,19 @@ jobs:
           dotnet workload update
           dotnet workload install maui
 
-      - name: Import signing certificate
+      - name: Import Apple Distribution certificate
         uses: apple-actions/import-codesign-certs@v2
         with:
           p12-file-base64: ${{ secrets.IOS_CERTIFICATE_BASE64 }}
           p12-password: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+
+      - name: Import Mac Installer certificate
+        uses: apple-actions/import-codesign-certs@v2
+        with:
+          p12-file-base64: ${{ secrets.MACCATALYST_INSTALLER_CERT_BASE64 }}
+          p12-password: ${{ secrets.MACCATALYST_INSTALLER_CERT_PASSWORD }}
+          keychain: signing_temp
+          create-keychain: false
 
       - name: Install provisioning profile
         env:
@@ -209,7 +217,7 @@ jobs:
             -p:CreatePackage=true \
             -p:EnableCodeSigning=true \
             -p:EnablePackageSigning=true \
-            -p:PackageSigningKey="${{ secrets.IOS_CODESIGN_KEY }}" \
+            -p:PackageSigningKey="${{ secrets.MACCATALYST_INSTALLER_SIGNING_KEY }}" \
             -p:ApplicationDisplayVersion='${{ env.APP_VERSION }}' \
             -p:ApplicationVersion='${{ steps.build.outputs.number }}'
 
