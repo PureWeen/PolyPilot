@@ -282,22 +282,24 @@ jobs:
         run: |
           gem install fastlane --no-document
 
-          mkdir -p private_keys
-          echo "$APPSTORE_PRIVATE_KEY" > "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
-          cat > api_key.json <<APIEOF
-          {
-            "key_id": "${APPSTORE_KEY_ID}",
-            "issuer_id": "${APPSTORE_ISSUER_ID}",
-            "key_filepath": "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          # Write API key JSON with inline key content (from_json_file requires 'key', not 'key_filepath')
+          python3 -c "
+          import json, os
+          key = {
+            'key_id': os.environ['APPSTORE_KEY_ID'],
+            'issuer_id': os.environ['APPSTORE_ISSUER_ID'],
+            'key': os.environ['APPSTORE_PRIVATE_KEY']
           }
-          APIEOF
+          with open('api_key.json', 'w') as f:
+            json.dump(key, f)
+          "
 
           fastlane pilot upload \
             --api_key_path api_key.json \
             --pkg "$PKG_PATH" \
             --app_platform "osx"
 
-          rm -rf private_keys api_key.json
+          rm -f api_key.json
 
       - name: Distribute to external testers (MAUI Team)
         continue-on-error: true
@@ -314,15 +316,16 @@ jobs:
 
           gem install fastlane --no-document
 
-          mkdir -p private_keys
-          echo "$APPSTORE_PRIVATE_KEY" > "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
-          cat > api_key.json <<APIEOF
-          {
-            "key_id": "${APPSTORE_KEY_ID}",
-            "issuer_id": "${APPSTORE_ISSUER_ID}",
-            "key_filepath": "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          python3 -c "
+          import json, os
+          key = {
+            'key_id': os.environ['APPSTORE_KEY_ID'],
+            'issuer_id': os.environ['APPSTORE_ISSUER_ID'],
+            'key': os.environ['APPSTORE_PRIVATE_KEY']
           }
-          APIEOF
+          with open('api_key.json', 'w') as f:
+            json.dump(key, f)
+          "
 
           echo "Waiting for build processing before distributing..."
           fastlane pilot distribute \
@@ -334,7 +337,7 @@ jobs:
             --groups "$BETA_GROUP_NAME" \
             --distribute_only
 
-          rm -rf private_keys api_key.json
+          rm -f api_key.json
 
   # ─────────────────────────────────────────────
   # iOS → TestFlight
@@ -463,16 +466,17 @@ jobs:
           # Install fastlane
           gem install fastlane --no-document
 
-          # Write API key JSON for fastlane
-          mkdir -p private_keys
-          echo "$APPSTORE_PRIVATE_KEY" > "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
-          cat > api_key.json <<APIEOF
-          {
-            "key_id": "${APPSTORE_KEY_ID}",
-            "issuer_id": "${APPSTORE_ISSUER_ID}",
-            "key_filepath": "private_keys/AuthKey_${APPSTORE_KEY_ID}.p8"
+          # Write API key JSON for fastlane (from_json_file requires 'key', not 'key_filepath')
+          python3 -c "
+          import json, os
+          key = {
+            'key_id': os.environ['APPSTORE_KEY_ID'],
+            'issuer_id': os.environ['APPSTORE_ISSUER_ID'],
+            'key': os.environ['APPSTORE_PRIVATE_KEY']
           }
-          APIEOF
+          with open('api_key.json', 'w') as f:
+            json.dump(key, f)
+          "
 
           echo "Waiting for build processing before distributing..."
           fastlane pilot distribute \
@@ -483,4 +487,4 @@ jobs:
             --groups "$BETA_GROUP_NAME" \
             --distribute_only
 
-          rm -rf private_keys api_key.json
+          rm -f api_key.json
