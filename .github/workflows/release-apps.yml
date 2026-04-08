@@ -297,7 +297,8 @@ jobs:
           fastlane pilot upload \
             --api_key_path api_key.json \
             --pkg "$PKG_PATH" \
-            --app_platform "osx"
+            --app_platform "osx" \
+            --app_identifier "nl.versluis.polypilot"
 
           rm -f api_key.json
 
@@ -307,7 +308,7 @@ jobs:
           APPSTORE_ISSUER_ID: ${{ secrets.APPSTORE_ISSUER_ID }}
           APPSTORE_KEY_ID: ${{ secrets.APPSTORE_KEY_ID }}
           APPSTORE_PRIVATE_KEY: ${{ secrets.APPSTORE_PRIVATE_KEY }}
-          APP_BUNDLE_ID: 'maccatalyst.nl.versluis.polypilot'
+          APP_BUNDLE_ID: 'nl.versluis.polypilot'
           BUILD_NUMBER: ${{ steps.build.outputs.number }}
           APP_VERSION: ${{ env.APP_VERSION }}
           BETA_GROUP_NAME: 'MAUI Team'
