@@ -1,0 +1,6 @@
+{
+  "name": "the-review-squad",
+  "version": "1.0.0",
+  "description": "A squad for comprehensive code review",
+  "agents": ["security-reviewer", "perf-analyst"]
+}

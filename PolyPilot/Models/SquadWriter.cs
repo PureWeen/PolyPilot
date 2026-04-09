@@ -12,10 +12,17 @@ public static class SquadWriter
     /// <summary>
     /// Write a GroupPreset to .squad/ format in the given worktree root.
     /// Creates .squad/ directory if it doesn't exist. Overwrites existing files.
+    /// Returns the .squad/ directory path, or throws if squad.config.ts is present.
     /// </summary>
     public static string WritePreset(string worktreeRoot, GroupPreset preset,
         List<(string Name, string? SystemPrompt)> workers)
     {
+        // Warn if squad.config.ts exists — edits may be lost on next `squad build`
+        if (File.Exists(Path.Combine(worktreeRoot, "squad.config.ts")))
+            throw new InvalidOperationException(
+                "This repo has a squad.config.ts — edits to .squad/ may be overwritten by `squad build`. " +
+                "Modify squad.config.ts instead, or remove it before saving presets to .squad/.");
+
         var squadDir = Path.Combine(worktreeRoot, ".squad");
         Directory.CreateDirectory(squadDir);
 

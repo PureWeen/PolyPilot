@@ -14,6 +14,13 @@ public partial class CopilotService
     // ── Provider State ──────────────────────────────────────
     private readonly ConcurrentDictionary<string, ISessionProvider> _providers = new();
     private readonly ConcurrentDictionary<string, string> _sessionToProviderId = new();
+    private readonly ConcurrentDictionary<string, ProviderPermissionRequest> _pendingPermissions = new();
+
+    /// <summary>Fires when a provider requests permission for a tool execution.</summary>
+    public event Action<string, ProviderPermissionRequest>? OnPermissionRequested;
+
+    /// <summary>Fires when a pending permission is resolved (approved/denied/timed out). Args: (providerId, permissionId)</summary>
+    public event Action<string, string>? OnPermissionResolved;
 
     /// <summary>
     /// Resolves all ISessionProvider instances from DI, registers them into the session model,
@@ -137,6 +144,10 @@ public partial class CopilotService
 
         // Wire member-scoped streaming events
         WireProviderMemberEvents(provider);
+
+        // Wire permission events (if provider supports them)
+        if (provider is IPermissionAwareProvider permProvider)
+            WirePermissionEvents(permProvider);
 
         // Wire member changes
         provider.OnMembersChanged += () => InvokeOnUI(() =>
@@ -573,5 +584,80 @@ public partial class CopilotService
                 Debug($"Provider '{provider.ProviderId}' shutdown failed: {ex.Message}");
             }
         }
+        _pendingPermissions.Clear();
     }
+
+    // ── Permission Flow ─────────────────────────────────────
+
+    /// <summary>
+    /// Wires OnPermissionRequested/OnPermissionResolved events from an IPermissionAwareProvider
+    /// into the CopilotService event system for UI display.
+    /// </summary>
+    private void WirePermissionEvents(IPermissionAwareProvider provider)
+    {
+        provider.OnPermissionRequested += request => InvokeOnUI(() =>
+        {
+            _pendingPermissions[request.Id] = request;
+            Debug($"[PERMISSION] Provider '{provider.ProviderId}' requested permission: {request.ToolName} (id={request.Id})");
+            OnPermissionRequested?.Invoke(provider.ProviderId, request);
+            OnStateChanged?.Invoke();
+        });
+
+        provider.OnPermissionResolved += permissionId => InvokeOnUI(() =>
+        {
+            _pendingPermissions.TryRemove(permissionId, out _);
+            Debug($"[PERMISSION] Permission resolved: {permissionId}");
+            OnPermissionResolved?.Invoke(provider.ProviderId, permissionId);
+            OnStateChanged?.Invoke();
+        });
+    }
+
+    /// <summary>
+    /// Returns all currently pending permission requests across all providers.
+    /// </summary>
+    public IReadOnlyList<(string ProviderId, ProviderPermissionRequest Request)> GetPendingPermissions()
+    {
+        var result = new List<(string, ProviderPermissionRequest)>();
+        foreach (var (providerId, provider) in _providers)
+        {
+            if (provider is IPermissionAwareProvider permProvider)
+            {
+                foreach (var req in permProvider.GetPendingPermissions())
+                    result.Add((providerId, req));
+            }
+        }
+        return result;
+    }
+
+    /// <summary>
+    /// Approve a pending permission request from a provider.
+    /// </summary>
+    public async Task ApproveProviderPermissionAsync(string providerId, string permissionId, CancellationToken ct = default)
+    {
+        if (!_providers.TryGetValue(providerId, out var provider) || provider is not IPermissionAwareProvider permProvider)
+            throw new InvalidOperationException($"Provider '{providerId}' not found or does not support permissions.");
+
+        await permProvider.ApprovePermissionAsync(permissionId, ct);
+        _pendingPermissions.TryRemove(permissionId, out _);
+        Debug($"[PERMISSION] Approved: {permissionId} (provider: {providerId})");
+    }
+
+    /// <summary>
+    /// Deny a pending permission request from a provider.
+    /// </summary>
+    public async Task DenyProviderPermissionAsync(string providerId, string permissionId, CancellationToken ct = default)
+    {
+        if (!_providers.TryGetValue(providerId, out var provider) || provider is not IPermissionAwareProvider permProvider)
+            throw new InvalidOperationException($"Provider '{providerId}' not found or does not support permissions.");
+
+        await permProvider.DenyPermissionAsync(permissionId, ct);
+        _pendingPermissions.TryRemove(permissionId, out _);
+        Debug($"[PERMISSION] Denied: {permissionId} (provider: {providerId})");
+    }
+
+    /// <summary>
+    /// Returns true if the given provider supports permission flows.
+    /// </summary>
+    public bool IsPermissionAwareProvider(string providerId) =>
+        _providers.TryGetValue(providerId, out var p) && p is IPermissionAwareProvider;
 }

@@ -338,4 +338,161 @@ public class SquadDiscoveryTests
         var result = UserPresets.DeleteRepoPreset(Path.GetTempPath(), "NonExistent-Preset-12345");
         Assert.False(result);
     }
+
+    // --- SquadMetadata discovery ---
+
+    [Fact]
+    public void Discover_ReadsManifest()
+    {
+        var presets = SquadDiscovery.Discover(SquadSampleDir);
+        Assert.Single(presets);
+        var metadata = presets[0].Metadata;
+        Assert.NotNull(metadata);
+        Assert.NotNull(metadata.Manifest);
+        Assert.Equal("the-review-squad", metadata.Manifest.Name);
+        Assert.Equal("1.0.0", metadata.Manifest.Version);
+        Assert.Equal("A squad for comprehensive code review", metadata.Manifest.Description);
+        Assert.NotNull(metadata.Manifest.Agents);
+        Assert.Contains("security-reviewer", metadata.Manifest.Agents);
+        Assert.Contains("perf-analyst", metadata.Manifest.Agents);
+    }
+
+    [Fact]
+    public void Discover_ReadsUpstreams()
+    {
+        var presets = SquadDiscovery.Discover(SquadSampleDir);
+        var metadata = presets[0].Metadata;
+        Assert.NotNull(metadata?.Upstreams);
+        Assert.Single(metadata.Upstreams);
+        Assert.Equal("core-platform", metadata.Upstreams[0].Name);
+        Assert.Contains("example/core-platform-squad", metadata.Upstreams[0].Url);
+    }
+
+    [Fact]
+    public void Discover_ReadsIdentity()
+    {
+        var presets = SquadDiscovery.Discover(SquadSampleDir);
+        var metadata = presets[0].Metadata;
+        Assert.NotNull(metadata?.Identity);
+        Assert.Contains("Professor Farnsworth", metadata.Identity);
+    }
+
+    [Fact]
+    public void DiscoverMetadata_ReturnsNull_WhenNoExtraFiles()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"squad-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, ".squad", "agents", "worker"));
+            File.WriteAllText(Path.Combine(tempDir, ".squad", "team.md"),
+                "# Bare Team\n| Member | Role |\n|---|---|\n| worker | Worker |");
+            File.WriteAllText(Path.Combine(tempDir, ".squad", "agents", "worker", "charter.md"),
+                "You are a worker.");
+
+            var presets = SquadDiscovery.Discover(tempDir);
+            Assert.Single(presets);
+            // No manifest.json, upstream.json, identity/now.md, or squad.config.ts → null metadata
+            Assert.Null(presets[0].Metadata);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void DiscoverMetadata_DetectsConfigTs()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"squad-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, ".squad", "agents", "worker"));
+            File.WriteAllText(Path.Combine(tempDir, ".squad", "team.md"),
+                "# Config TS Test\n| Member | Role |\n|---|---|\n| worker | Worker |");
+            File.WriteAllText(Path.Combine(tempDir, ".squad", "agents", "worker", "charter.md"),
+                "You are a worker.");
+            File.WriteAllText(Path.Combine(tempDir, "squad.config.ts"),
+                "export default {}");
+
+            var presets = SquadDiscovery.Discover(tempDir);
+            Assert.Single(presets);
+            Assert.NotNull(presets[0].Metadata);
+            Assert.True(presets[0].Metadata.HasConfigTs);
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // --- IsSquadInitialized ---
+
+    [Fact]
+    public void IsSquadInitialized_ReturnsFalse_WhenNoSquadDir()
+    {
+        Assert.False(SquadDiscovery.IsSquadInitialized(Path.GetTempPath()));
+    }
+
+    [Fact]
+    public void IsSquadInitialized_ReturnsFalse_WhenNoSkillsDir()
+    {
+        // Has .squad/ but no .copilot/skills/
+        var tempDir = Path.Combine(Path.GetTempPath(), $"squad-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, ".squad"));
+            File.WriteAllText(Path.Combine(tempDir, ".squad", "team.md"), "# Test");
+
+            Assert.False(SquadDiscovery.IsSquadInitialized(tempDir));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void IsSquadInitialized_ReturnsTrue_WhenBothExist()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"squad-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(tempDir, ".squad"));
+            File.WriteAllText(Path.Combine(tempDir, ".squad", "team.md"), "# Test");
+            Directory.CreateDirectory(Path.Combine(tempDir, ".copilot", "skills", "some-skill"));
+
+            Assert.True(SquadDiscovery.IsSquadInitialized(tempDir));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
+
+    // --- CountSquadSkills ---
+
+    [Fact]
+    public void CountSquadSkills_ReturnsZero_WhenNoSkillsDir()
+    {
+        Assert.Equal(0, SquadDiscovery.CountSquadSkills(Path.GetTempPath()));
+    }
+
+    [Fact]
+    public void CountSquadSkills_CountsSkillDirs()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"squad-test-{Guid.NewGuid():N}");
+        try
+        {
+            var skillsDir = Path.Combine(tempDir, ".copilot", "skills");
+            Directory.CreateDirectory(Path.Combine(skillsDir, "skill-a"));
+            Directory.CreateDirectory(Path.Combine(skillsDir, "skill-b"));
+            Directory.CreateDirectory(Path.Combine(skillsDir, "skill-c"));
+
+            Assert.Equal(3, SquadDiscovery.CountSquadSkills(tempDir));
+        }
+        finally
+        {
+            Directory.Delete(tempDir, true);
+        }
+    }
 }

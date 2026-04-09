@@ -1946,11 +1946,12 @@ public partial class CopilotService : IAsyncDisposable
 
     /// <summary>
     /// Load MCP server configurations for per-session registration via SessionConfig.McpServers.
-    /// Merges servers from ~/.copilot/mcp-servers.json, ~/.copilot/mcp-config.json, and installed plugins.
+    /// Merges servers from project-local .copilot/mcp-config.json (highest priority),
+    /// ~/.copilot/mcp-servers.json, ~/.copilot/mcp-config.json, and installed plugins.
     /// Returns McpLocalServerConfig or McpRemoteServerConfig objects that the SDK can serialize properly.
     /// Skips servers in the disabled list.
     /// </summary>
-    internal static Dictionary<string, object>? LoadMcpServers(IReadOnlyCollection<string>? disabledServers = null, IReadOnlyCollection<string>? disabledPlugins = null)
+    internal static Dictionary<string, object>? LoadMcpServers(IReadOnlyCollection<string>? disabledServers = null, IReadOnlyCollection<string>? disabledPlugins = null, string? workingDirectory = null)
     {
         var servers = new Dictionary<string, object>();
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
@@ -1966,6 +1967,24 @@ public partial class CopilotService : IAsyncDisposable
                 if (servers.ContainsKey(prop.Name)) continue;
                 if (disabled.Contains(prop.Name)) continue;
                 servers[prop.Name] = ParseMcpServerConfig(prop.Value);
+            }
+        }
+
+        // Read project-level .copilot/mcp-config.json (highest priority — Squad installs MCP tools here)
+        if (!string.IsNullOrEmpty(workingDirectory))
+        {
+            try
+            {
+                var projectMcpPath = Path.Combine(workingDirectory, ".copilot", "mcp-config.json");
+                if (File.Exists(projectMcpPath))
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllText(projectMcpPath));
+                    AddServersFromJson(doc.RootElement, isWrapped: true);
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MCP] Failed to read project-level mcp-config.json: {ex.Message}");
             }
         }
 
@@ -2081,6 +2100,9 @@ The user can also check configured servers with the /mcp command.
     /// <summary>
     /// Discover all available skills from installed plugins and project-level skill directories.
     /// Returns a list of (Name, Description, Source) tuples.
+    /// Source is "project" for .claude/skills/ and .github/skills/,
+    /// "squad" for .copilot/skills/ when Squad is initialized,
+    /// or the plugin name for plugin-level skills.
     /// </summary>
     public static List<SkillInfo> DiscoverAvailableSkills(string? workingDirectory = null)
     {
@@ -2092,7 +2114,16 @@ The user can also check configured servers with the /mcp command.
             // Project-level skills (.claude/skills/ or .copilot/skills/)
             if (!string.IsNullOrEmpty(workingDirectory))
             {
-                foreach (var subdir in new[] { ".claude/skills", ".copilot/skills", ".github/skills" })
+                // .copilot/skills/ — label as "squad" if Squad is initialized, otherwise "project"
+                var copilotSkillsDir = Path.Combine(workingDirectory, ".copilot", "skills");
+                if (Directory.Exists(copilotSkillsDir))
+                {
+                    var isSquad = SquadDiscovery.IsSquadInitialized(workingDirectory);
+                    ScanSkillDirectory(copilotSkillsDir, isSquad ? "squad" : "project", skills, seen);
+                }
+
+                // .claude/skills/ and .github/skills/ — always "project"
+                foreach (var subdir in new[] { ".claude/skills", ".github/skills" })
                 {
                     var projSkillsDir = Path.Combine(workingDirectory, subdir);
                     if (Directory.Exists(projSkillsDir))
@@ -2749,7 +2780,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
 
         var settings = ConnectionSettings.Load();
-        var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+        var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins, sessionDir);
         var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
 
         // Add MCP server awareness so the model can guide users when MCP tools fail
@@ -3727,7 +3758,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     await siblingThrottle.WaitAsync(cancellationToken).ConfigureAwait(false);
                                                     acquired = true;
                                                     var settings = _currentSettings ?? ConnectionSettings.Load();
-                                                    var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+                                                    var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins, capturedOtherState.Info.WorkingDirectory);
                                                     var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
                                                     var cfg = new ResumeSessionConfig
                                                     {
@@ -3844,7 +3875,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
 
                     var reconnectModel = Models.ModelHelper.NormalizeToSlug(state.Info.Model);
                     var reconnectSettings = _currentSettings ?? ConnectionSettings.Load();
-                    var reconnectMcpServers = LoadMcpServers(reconnectSettings.DisabledMcpServers, reconnectSettings.DisabledPlugins);
+                    var reconnectMcpServers = LoadMcpServers(reconnectSettings.DisabledMcpServers, reconnectSettings.DisabledPlugins, state.Info.WorkingDirectory);
                     var reconnectSkillDirs = LoadSkillDirectories(reconnectSettings.DisabledPlugins);
                     var reconnectConfig = new ResumeSessionConfig();
                     reconnectConfig.Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
@@ -4115,7 +4146,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         SessionEventHandler? onEvent = null)
     {
         var settings = _currentSettings ?? ConnectionSettings.Load();
-        var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+        var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins, workingDirectory ?? state.Info.WorkingDirectory);
         var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
         return new ResumeSessionConfig
         {
@@ -4180,7 +4211,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     private SessionConfig BuildFreshSessionConfig(SessionState state, List<Microsoft.Extensions.AI.AIFunction>? tools = null)
     {
         var settings = _currentSettings ?? ConnectionSettings.Load();
-        var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins);
+        var mcpServers = LoadMcpServers(settings.DisabledMcpServers, settings.DisabledPlugins, state.Info.WorkingDirectory);
         var skillDirs = LoadSkillDirectories(settings.DisabledPlugins);
         var systemContent = new StringBuilder();
         var workDir = state.Info.WorkingDirectory;
