@@ -301,9 +301,9 @@ public class SquadBridgeClient : IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
-        _disposed = true;
 
         await DisconnectAsync();
+        _disposed = true;
         _sendLock.Dispose();
     }
 }

@@ -3200,8 +3200,8 @@ else
                 _squadInitResult = "❌ Failed to start squad CLI. Is it installed? Run: npm install -g @bradygaster/squad-cli";
                 return;
             }
-            var stdout = await proc.StandardOutput.ReadToEndAsync();
-            var stderr = await proc.StandardError.ReadToEndAsync();
+            var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+            var stderrTask = proc.StandardError.ReadToEndAsync();
 
             // Timeout after 60 seconds to avoid hanging forever
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
@@ -3215,6 +3215,9 @@ else
                 _squadInitResult = "❌ squad init timed out after 60 seconds";
                 return;
             }
+
+            var stdout = await stdoutTask;
+            var stderr = await stderrTask;
 
             _squadInitResult = proc.ExitCode == 0
                 ? "✅ Squad initialized! Refresh to see your team."
