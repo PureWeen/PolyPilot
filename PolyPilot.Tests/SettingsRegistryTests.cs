@@ -52,6 +52,26 @@ public class SettingsRegistryTests
     }
 
     [Fact]
+    public void CustomCliSettings_Hidden_WhenSourceIsNotCustom()
+    {
+        var ctx = CreateContext(new ConnectionSettings { CliSource = CliSourceMode.BuiltIn });
+        var devSettings = SettingsRegistry.ForCategory("Developer", ctx).ToList();
+
+        Assert.DoesNotContain(devSettings, s => s.Id == "cli.customPath");
+        Assert.DoesNotContain(devSettings, s => s.Id == "cli.customArguments");
+    }
+
+    [Fact]
+    public void CustomCliSettings_Visible_WhenSourceIsCustom()
+    {
+        var ctx = CreateContext(new ConnectionSettings { CliSource = CliSourceMode.Custom });
+        var devSettings = SettingsRegistry.ForCategory("Developer", ctx).ToList();
+
+        Assert.Contains(devSettings, s => s.Id == "cli.customPath");
+        Assert.Contains(devSettings, s => s.Id == "cli.customArguments");
+    }
+
+    [Fact]
     public void Search_MatchesByLabel()
     {
         var ctx = CreateContext();

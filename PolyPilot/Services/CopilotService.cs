@@ -357,8 +357,7 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>Returns the full `copilot login` command using the resolved CLI path.</summary>
     public string GetLoginCommand()
     {
-        var cliPath = ResolveCopilotCliPath(_currentSettings?.CliSource ?? CliSourceMode.BuiltIn);
-        return string.IsNullOrEmpty(cliPath) ? "copilot login" : $"\"{cliPath}\" login";
+        return BuildCliCommand(_currentSettings, "login");
     }
 
     /// <summary>
@@ -1119,7 +1118,7 @@ public partial class CopilotService : IAsyncDisposable
             if (!_serverManager.CheckServerRunning("127.0.0.1", settings.Port))
             {
                 Debug($"Persistent server not running, auto-starting on port {settings.Port}...");
-                var started = await _serverManager.StartServerAsync(settings.Port, _resolvedGitHubToken);
+                var started = await _serverManager.StartServerAsync(settings, _resolvedGitHubToken);
                 if (!started)
                 {
                     Debug("Failed to auto-start server, falling back to Embedded mode");
@@ -1179,7 +1178,7 @@ public partial class CopilotService : IAsyncDisposable
                 await Task.Delay(250, cancellationToken);
             }
 
-            var restarted = await _serverManager.StartServerAsync(settings.Port, _resolvedGitHubToken);
+            var restarted = await _serverManager.StartServerAsync(settings, _resolvedGitHubToken);
             if (restarted)
             {
                 Debug("Server restarted, retrying connection...");
@@ -1511,7 +1510,7 @@ public partial class CopilotService : IAsyncDisposable
             // authenticate on its own via its native credential store.
             var tokenToForward = _resolvedGitHubToken;
 
-            var started = await _serverManager.StartServerAsync(settings.Port, tokenToForward);
+            var started = await _serverManager.StartServerAsync(settings, tokenToForward);
             if (!started)
             {
                 Debug("[SERVER-RECOVERY] Failed to restart persistent server");
@@ -1610,7 +1609,7 @@ public partial class CopilotService : IAsyncDisposable
             }
 
             // 5. Start fresh server (will extract current native modules)
-            var started = await _serverManager.StartServerAsync(restartSettings.Port, _resolvedGitHubToken);
+            var started = await _serverManager.StartServerAsync(restartSettings, _resolvedGitHubToken);
             if (!started)
             {
                 Debug("[SERVER-RESTART] Failed to restart server");
@@ -1678,16 +1677,15 @@ public partial class CopilotService : IAsyncDisposable
         else
         {
             // Embedded mode: spawn copilot as a child process via stdio
-            var cliPath = ResolveCopilotCliPath(settings.CliSource);
+            var cliPath = ResolveCopilotCliPath(settings.CliSource, settings.CustomCliPath);
+            if (settings.CliSource == CliSourceMode.Custom && string.IsNullOrWhiteSpace(cliPath))
+                throw new InvalidOperationException("Custom CLI source is selected, but no executable path is configured.");
             if (cliPath != null)
                 options.CliPath = cliPath;
 
-            // Pass additional MCP server configs via CLI args.
-            // The CLI auto-reads ~/.copilot/mcp-config.json, but mcp-servers.json
-            // uses a different format that needs to be passed explicitly.
-            var mcpArgs = GetMcpCliArgs();
-            if (mcpArgs.Length > 0)
-                options.CliArgs = mcpArgs;
+            var cliArgs = GetConfiguredCliArgs(settings);
+            if (cliArgs.Length > 0)
+                options.CliArgs = cliArgs;
         }
 
         return new CopilotClient(options);
@@ -1698,9 +1696,13 @@ public partial class CopilotService : IAsyncDisposable
     /// Resolves the copilot CLI path based on user preference.
     /// BuiltIn: bundled binary first, then system fallback.
     /// System: system-installed binary first, then bundled fallback.
+    /// Custom: caller-provided executable path, with no implicit fallback.
     /// </summary>
-    internal static string? ResolveCopilotCliPath(CliSourceMode source = CliSourceMode.BuiltIn)
+    internal static string? ResolveCopilotCliPath(CliSourceMode source = CliSourceMode.BuiltIn, string? customPath = null)
     {
+        if (source == CliSourceMode.Custom)
+            return ConnectionSettings.NormalizeCustomCliPath(customPath);
+
         if (source == CliSourceMode.System)
         {
             // Prefer system CLI, fall back to built-in
@@ -1862,6 +1864,49 @@ public partial class CopilotService : IAsyncDisposable
             builtInPath, GetCliVersion(builtInPath),
             systemPath, GetCliVersion(systemPath)
         );
+    }
+
+    internal static string[] GetCustomCliArgs(ConnectionSettings? settings)
+    {
+        if (settings?.CliSource != CliSourceMode.Custom)
+            return Array.Empty<string>();
+
+        return ConnectionSettings.SplitCommandLineArguments(settings.CustomCliArguments).ToArray();
+    }
+
+    internal static string[] GetConfiguredCliArgs(ConnectionSettings settings)
+    {
+        var args = new List<string>();
+        args.AddRange(GetCustomCliArgs(settings));
+        args.AddRange(GetMcpCliArgs());
+        return args.ToArray();
+    }
+
+    internal static string BuildCliCommand(ConnectionSettings? settings, params string[] tailArgs)
+    {
+        var source = settings?.CliSource ?? CliSourceMode.BuiltIn;
+        var cliPath = ResolveCopilotCliPath(source, settings?.CustomCliPath);
+        if (source == CliSourceMode.Custom && string.IsNullOrWhiteSpace(cliPath))
+            return "Set a Custom CLI Path in Settings first";
+
+        var args = new List<string>();
+        args.AddRange(GetCustomCliArgs(settings));
+        args.AddRange(tailArgs);
+
+        var parts = new List<string> { QuoteCliCommandArg(cliPath ?? "copilot") };
+        parts.AddRange(args.Select(QuoteCliCommandArg));
+        return string.Join(" ", parts);
+    }
+
+    private static string QuoteCliCommandArg(string arg)
+    {
+        if (string.IsNullOrEmpty(arg))
+            return "\"\"";
+
+        if (arg.IndexOfAny([' ', '\t', '"']) == -1)
+            return arg;
+
+        return $"\"{arg.Replace("\\", "\\\\").Replace("\"", "\\\"")}\"";
     }
 
     /// <summary>
@@ -2850,7 +2895,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 if (!_serverManager.CheckServerRunning("127.0.0.1", settings.Port))
                 {
                     Debug("Persistent server not running, restarting...");
-                    var started = await _serverManager.StartServerAsync(settings.Port, _resolvedGitHubToken);
+                    var started = await _serverManager.StartServerAsync(settings, _resolvedGitHubToken);
                     if (!started)
                     {
                         Debug("Failed to restart persistent server");
@@ -3596,7 +3641,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                             if (CurrentMode == ConnectionMode.Persistent &&
                                 !_serverManager.CheckServerRunning("127.0.0.1", reinitSettings.Port))
                             {
-                                await _serverManager.StartServerAsync(reinitSettings.Port, _resolvedGitHubToken);
+                                await _serverManager.StartServerAsync(reinitSettings, _resolvedGitHubToken);
                             }
                             _client = CreateClient(reinitSettings);
                             await _client.StartAsync(cancellationToken);
@@ -3637,7 +3682,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                     !_serverManager.CheckServerRunning("127.0.0.1", connSettings.Port))
                                 {
                                     Debug("Persistent server not running, restarting...");
-                                    var started = await _serverManager.StartServerAsync(connSettings.Port, _resolvedGitHubToken);
+                                    var started = await _serverManager.StartServerAsync(connSettings, _resolvedGitHubToken);
                                     if (!started)
                                     {
                                         Debug("Failed to restart persistent server");

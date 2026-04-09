@@ -137,6 +137,21 @@ public class ProviderPluginTests
     }
 
     [Fact]
+    public void ProviderHostContext_Maps_CustomCliSource()
+    {
+        var settings = new ConnectionSettings
+        {
+            Mode = ConnectionMode.Embedded,
+            CliSource = CliSourceMode.Custom,
+            CustomCliPath = "/custom/copilot-wrapper"
+        };
+        var ctx = new ProviderHostContext(settings);
+
+        Assert.Equal(ProviderConnectionMode.Embedded, ctx.ConnectionMode);
+        Assert.Equal(ProviderCliSource.Custom, ctx.CliSource);
+    }
+
+    [Fact]
     public void ProviderHostContext_Maps_Persistent()
     {
         var settings = new ConnectionSettings { Mode = ConnectionMode.Persistent, CliSource = CliSourceMode.System };

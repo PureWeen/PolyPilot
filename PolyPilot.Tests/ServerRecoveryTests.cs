@@ -211,7 +211,7 @@ public class ServerRecoveryTests
         // Verify the stub properly records the token parameter
         var mgr = new StubServerManager();
         mgr.StartServerResult = true;
-        mgr.StartServerAsync(4321, "test-token-123").GetAwaiter().GetResult();
+        mgr.StartServerAsync(new ConnectionSettings { Port = 4321 }, "test-token-123").GetAwaiter().GetResult();
         Assert.Equal("test-token-123", mgr.LastGitHubToken);
     }
 
@@ -220,7 +220,7 @@ public class ServerRecoveryTests
     {
         var mgr = new StubServerManager();
         mgr.StartServerResult = true;
-        mgr.StartServerAsync(4321).GetAwaiter().GetResult();
+        mgr.StartServerAsync(new ConnectionSettings { Port = 4321 }).GetAwaiter().GetResult();
         Assert.Null(mgr.LastGitHubToken);
     }
 

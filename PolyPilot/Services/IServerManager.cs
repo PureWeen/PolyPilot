@@ -1,3 +1,5 @@
+using PolyPilot.Models;
+
 namespace PolyPilot.Services;
 
 /// <summary>
@@ -13,7 +15,7 @@ public interface IServerManager
     event Action? OnStatusChanged;
 
     bool CheckServerRunning(string host = "127.0.0.1", int? port = null);
-    Task<bool> StartServerAsync(int port, string? githubToken = null);
+    Task<bool> StartServerAsync(ConnectionSettings settings, string? githubToken = null);
     void StopServer();
     bool DetectExistingServer();
 }

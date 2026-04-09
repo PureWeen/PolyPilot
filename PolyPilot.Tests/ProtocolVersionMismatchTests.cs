@@ -37,10 +37,10 @@ public class ProtocolVersionMismatchTests
     public async Task StubServerManager_StartServerAsync_ReturnsConfiguredResult()
     {
         _serverManager.StartServerResult = true;
-        Assert.True(await _serverManager.StartServerAsync(4321));
+        Assert.True(await _serverManager.StartServerAsync(new ConnectionSettings { Port = 4321 }));
 
         _serverManager.StartServerResult = false;
-        Assert.False(await _serverManager.StartServerAsync(4321));
+        Assert.False(await _serverManager.StartServerAsync(new ConnectionSettings { Port = 4321 }));
     }
 
     [Fact]

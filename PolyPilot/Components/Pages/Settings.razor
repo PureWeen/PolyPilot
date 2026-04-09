@@ -576,7 +576,7 @@
             }
             @if (cliSourceChanged)
             {
-                <div class="cli-restart-hint">⟳ Restart the app to apply the change</div>
+                <div class="cli-restart-hint">⟳ Reconnect or restart the persistent server to apply the change</div>
             }
         </div>
         }
@@ -831,7 +831,7 @@
         {
             "connection" => SectionVisible("transport mode embedded persistent remote server port start stop pid devtunnel share tunnel mobile qr url token connect save reconnect"),
             "ui" => SectionVisible("chat message layout default reversed both left theme font size text zoom"),
-            "developer" => SectionVisible("auto update main git watch relaunch rebuild cli source built-in system repository repo clone worktree storage root directory dev drive"),
+            "developer" => SectionVisible("auto update main git watch relaunch rebuild cli source built-in system custom executable path launcher wrapper repository repo clone worktree storage root directory dev drive"),
             "plugins" => SectionVisible("plugins provider extension dll assembly trust enable disable"),
             "diagnostics" => SectionVisible("logs diagnostics troubleshoot crash event console"),
             _ => true
@@ -1121,7 +1121,7 @@
     private void SetCliSource(CliSourceMode source)
     {
         // Only block selection if no CLI is available at all (both modes have fallback logic)
-        if (cliInfo.builtInPath == null && cliInfo.systemPath == null) return;
+        if (source != CliSourceMode.Custom && cliInfo.builtInPath == null && cliInfo.systemPath == null) return;
         settings.CliSource = source;
         cliSourceChanged = source != _initialCliSource;
         settings.Save();
@@ -1140,6 +1140,31 @@
 
     private static bool IsStorageRootValid(string? path) =>
         string.IsNullOrWhiteSpace(path) || Path.IsPathRooted(path.Trim());
+
+    private bool ValidateCustomCliConfiguration()
+    {
+        settings.CustomCliPath = ConnectionSettings.NormalizeCustomCliPath(settings.CustomCliPath);
+        settings.CustomCliArguments = ConnectionSettings.NormalizeCustomCliArguments(settings.CustomCliArguments);
+
+        if (settings.CliSource != CliSourceMode.Custom
+            || settings.Mode == ConnectionMode.Remote
+            || settings.Mode == ConnectionMode.Demo)
+            return true;
+
+        if (string.IsNullOrWhiteSpace(settings.CustomCliPath))
+        {
+            ShowStatus("Enter a custom CLI path or executable name first", "error", 5000);
+            return false;
+        }
+
+        if (Path.IsPathRooted(settings.CustomCliPath) && !File.Exists(settings.CustomCliPath))
+        {
+            ShowStatus($"Custom CLI path not found: {settings.CustomCliPath}", "error", 8000);
+            return false;
+        }
+
+        return true;
+    }
 
     private async Task BrowseRepositoryStorageRoot()
     {
@@ -1293,10 +1318,14 @@
 
     private async Task StartServer()
     {
+        if (!ValidateCustomCliConfiguration())
+            return;
+
+        settings.Save();
         starting = true;
         StateHasChanged();
 
-        var success = await ServerManager.StartServerAsync(settings.Port);
+        var success = await ServerManager.StartServerAsync(settings);
         serverAlive = success;
         starting = false;
 
@@ -1656,6 +1685,9 @@
             ShowStatus("Repository storage root must be an absolute path", "error", 5000);
             return;
         }
+
+        if (!ValidateCustomCliConfiguration())
+            return;
 
         if (settings.Mode == ConnectionMode.Persistent && !serverAlive)
         {

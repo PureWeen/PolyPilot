@@ -918,8 +918,8 @@ public partial class CopilotService
 
     private async Task<IReadOnlyList<string>> GetDirectCliAvailableModelsAsync()
     {
-        var cliPath = ResolveCopilotCliPath(_currentSettings?.CliSource ?? CliSourceMode.BuiltIn);
-        if (string.IsNullOrWhiteSpace(cliPath) || !File.Exists(cliPath))
+        var cliPath = ResolveCopilotCliPath(_currentSettings?.CliSource ?? CliSourceMode.BuiltIn, _currentSettings?.CustomCliPath);
+        if (string.IsNullOrWhiteSpace(cliPath) || (Path.IsPathRooted(cliPath) && !File.Exists(cliPath)))
             return Array.Empty<string>();
 
         var tempDir = Path.Combine(Path.GetTempPath(), "polypilot-model-probe");
@@ -936,6 +936,8 @@ public partial class CopilotService
             CreateNoWindow = true,
             WorkingDirectory = tempDir
         };
+        foreach (var arg in GetCustomCliArgs(_currentSettings))
+            process.StartInfo.ArgumentList.Add(arg);
         process.StartInfo.ArgumentList.Add("-p");
         process.StartInfo.ArgumentList.Add("Return exactly the list of model IDs shown in the /model Available tab as a JSON array. Use the current CLI runtime model availability. Do not inspect files or use tools. Return only JSON.");
         process.StartInfo.ArgumentList.Add("--add-dir");

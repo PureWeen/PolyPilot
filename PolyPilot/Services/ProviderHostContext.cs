@@ -27,9 +27,12 @@ public class ProviderHostContext : IProviderHostContext
                 options.UseStdio = true;
                 options.AutoStart = true;
                 options.AutoRestart = true;
-                options.CliPath = _settings.CliSource == CliSourceMode.BuiltIn
-                    ? CopilotService.ResolveBundledCliPath()
-                    : null;
+                options.CliPath = CopilotService.ResolveCopilotCliPath(_settings.CliSource, _settings.CustomCliPath);
+                if (_settings.CliSource == CliSourceMode.Custom && string.IsNullOrWhiteSpace(options.CliPath))
+                    throw new InvalidOperationException("Custom CLI source is selected, but no executable path is configured.");
+                var cliArgs = CopilotService.GetConfiguredCliArgs(_settings);
+                if (cliArgs.Length > 0)
+                    options.CliArgs = cliArgs;
                 break;
 
             case Models.ConnectionMode.Persistent:
@@ -115,6 +118,7 @@ public class ProviderHostContext : IProviderHostContext
     {
         CliSourceMode.BuiltIn => ProviderCliSource.BuiltIn,
         CliSourceMode.System => ProviderCliSource.System,
+        CliSourceMode.Custom => ProviderCliSource.Custom,
         _ => ProviderCliSource.BuiltIn
     };
 

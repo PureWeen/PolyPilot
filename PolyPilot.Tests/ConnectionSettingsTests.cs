@@ -142,6 +142,8 @@ public class ConnectionSettingsTests
         Assert.Null(settings.ServerPassword);
         Assert.False(settings.DirectSharingEnabled);
         Assert.Equal(CliSourceMode.BuiltIn, settings.CliSource);
+        Assert.Null(settings.CustomCliPath);
+        Assert.Null(settings.CustomCliArguments);
         Assert.Null(settings.RepositoryStorageRoot);
     }
 
@@ -155,7 +157,9 @@ public class ConnectionSettingsTests
             Port = 4321,
             ServerPassword = "mypass",
             DirectSharingEnabled = true,
-            CliSource = CliSourceMode.System,
+            CliSource = CliSourceMode.Custom,
+            CustomCliPath = "/custom/copilot-wrapper",
+            CustomCliArguments = "copilot --profile work",
             RepositoryStorageRoot = "D:\\DevDrive\\PolyPilot"
         };
 
@@ -165,7 +169,9 @@ public class ConnectionSettingsTests
         Assert.NotNull(loaded);
         Assert.Equal("mypass", loaded!.ServerPassword);
         Assert.True(loaded.DirectSharingEnabled);
-        Assert.Equal(CliSourceMode.System, loaded.CliSource);
+        Assert.Equal(CliSourceMode.Custom, loaded.CliSource);
+        Assert.Equal("/custom/copilot-wrapper", loaded.CustomCliPath);
+        Assert.Equal("copilot --profile work", loaded.CustomCliArguments);
         Assert.Equal("D:\\DevDrive\\PolyPilot", loaded.RepositoryStorageRoot);
     }
 
@@ -181,6 +187,8 @@ public class ConnectionSettingsTests
         Assert.Null(loaded.ServerPassword);
         Assert.False(loaded.DirectSharingEnabled);
         Assert.Equal(CliSourceMode.BuiltIn, loaded.CliSource);
+        Assert.Null(loaded.CustomCliPath);
+        Assert.Null(loaded.CustomCliArguments);
         Assert.Null(loaded.RepositoryStorageRoot);
     }
 
@@ -194,6 +202,58 @@ public class ConnectionSettingsTests
     public void NormalizeRepositoryStorageRoot_TrimmedPath_ReturnsTrimmed()
     {
         Assert.Equal("C:\\Dev", ConnectionSettings.NormalizeRepositoryStorageRoot("  C:\\Dev  "));
+    }
+
+    [Fact]
+    public void NormalizeCustomCliPath_Whitespace_ReturnsNull()
+    {
+        Assert.Null(ConnectionSettings.NormalizeCustomCliPath("   "));
+    }
+
+    [Fact]
+    public void NormalizeCustomCliArguments_Trimmed_ReturnsTrimmed()
+    {
+        Assert.Equal("--flag value", ConnectionSettings.NormalizeCustomCliArguments("  --flag value  "));
+    }
+
+    [Fact]
+    public void SplitCommandLineArguments_HandlesQuotesAndSpaces()
+    {
+        var args = ConnectionSettings.SplitCommandLineArguments("wrapper subcommand --label \"two words\" 'three words'");
+
+        Assert.Equal(new[] { "wrapper", "subcommand", "--label", "two words", "three words" }, args);
+    }
+
+    [Fact]
+    public void SplitCommandLineArguments_PreservesBackslashesInUnquotedPaths()
+    {
+        var args = ConnectionSettings.SplitCommandLineArguments("--launcher C:\\Tools\\wrapper.exe --flag");
+
+        Assert.Equal(new[] { "--launcher", "C:\\Tools\\wrapper.exe", "--flag" }, args);
+    }
+
+    [Fact]
+    public void SplitCommandLineArguments_PreservesBackslashesInDoubleQuotedPaths()
+    {
+        var args = ConnectionSettings.SplitCommandLineArguments("--config \"C:\\Users\\me\\.copilot\\config.json\"");
+
+        Assert.Equal(new[] { "--config", "C:\\Users\\me\\.copilot\\config.json" }, args);
+    }
+
+    [Fact]
+    public void SplitCommandLineArguments_PreservesBackslashesInQuotedUncPaths()
+    {
+        var args = ConnectionSettings.SplitCommandLineArguments("--config \"\\\\server\\share\\tool.json\"");
+
+        Assert.Equal(new[] { "--config", "\\\\server\\share\\tool.json" }, args);
+    }
+
+    [Fact]
+    public void SplitCommandLineArguments_StillSupportsEscapedWhitespace()
+    {
+        var args = ConnectionSettings.SplitCommandLineArguments("one\\ two three");
+
+        Assert.Equal(new[] { "one two", "three" }, args);
     }
 
     [Fact]

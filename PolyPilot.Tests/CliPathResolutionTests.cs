@@ -27,6 +27,12 @@ public class CliPathResolutionTests
     }
 
     [Fact]
+    public void CliSourceMode_Custom_IsTwo()
+    {
+        Assert.Equal(2, (int)CliSourceMode.Custom);
+    }
+
+    [Fact]
     public void CopilotClientOptions_CliPath_AcceptsNonExistentPath()
     {
         // Setting CliPath to a non-existent path doesn't throw at construction time;
@@ -408,6 +414,22 @@ public class CliPathResolutionTests
         Assert.False(string.IsNullOrWhiteSpace(path),
             "ResolveCopilotCliPath(System) should find a copilot binary " +
             "(system install or bundled fallback)");
+    }
+
+    [Fact]
+    public void ResolveCopilotCliPath_Custom_ReturnsConfiguredPath()
+    {
+        var path = CopilotService.ResolveCopilotCliPath(CliSourceMode.Custom, "/tmp/custom-copilot");
+
+        Assert.Equal("/tmp/custom-copilot", path);
+    }
+
+    [Fact]
+    public void ResolveCopilotCliPath_Custom_Blank_ReturnsNull()
+    {
+        var path = CopilotService.ResolveCopilotCliPath(CliSourceMode.Custom, "   ");
+
+        Assert.Null(path);
     }
 
     [Fact]

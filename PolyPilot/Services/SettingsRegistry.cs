@@ -358,15 +358,16 @@ public static class SettingsRegistry
         {
             Id = "cli.source",
             Label = "CLI Source",
-            Description = "Use the CLI bundled with the app or one installed on your system.",
+            Description = "Use the CLI bundled with the app, one installed on your system, or a custom executable.",
             Category = "Developer",
             Type = SettingType.CardEnum,
             Order = 5,
-            SearchKeywords = "cli source built-in system version binary copilot",
+            SearchKeywords = "cli source built-in system custom executable path launcher wrapper version binary copilot",
             Options = new[]
             {
                 new SettingOption("BuiltIn", "📦 Built-in"),
                 new SettingOption("System", "💻 System"),
+                new SettingOption("Custom", "🛠️ Custom"),
             },
             GetValue = ctx => ctx.Settings.CliSource.ToString(),
             SetValue = (ctx, v) =>
@@ -375,6 +376,38 @@ public static class SettingsRegistry
                     ctx.Settings.CliSource = src;
             },
             IsVisible = ctx => ctx.Settings.Mode != ConnectionMode.Remote
+                            && ctx.Settings.Mode != ConnectionMode.Demo
+        });
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "cli.customPath",
+            Label = "Custom CLI Path",
+            Description = "Path or executable name for a custom CLI launcher. Required when CLI Source is set to Custom.",
+            Category = "Developer",
+            Type = SettingType.String,
+            Order = 6,
+            SearchKeywords = "custom cli path executable binary launcher wrapper headless",
+            GetValue = ctx => ctx.Settings.CustomCliPath,
+            SetValue = (ctx, v) => ctx.Settings.CustomCliPath = ConnectionSettings.NormalizeCustomCliPath(v as string),
+            IsVisible = ctx => ctx.Settings.CliSource == CliSourceMode.Custom
+                            && ctx.Settings.Mode != ConnectionMode.Remote
+                            && ctx.Settings.Mode != ConnectionMode.Demo
+        });
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "cli.customArguments",
+            Label = "Custom CLI Arguments",
+            Description = "Optional arguments inserted before PolyPilot's normal CLI flags. Useful when the launcher needs a subcommand or extra switches.",
+            Category = "Developer",
+            Type = SettingType.String,
+            Order = 7,
+            SearchKeywords = "custom cli arguments args wrapper subcommand launch flags headless",
+            GetValue = ctx => ctx.Settings.CustomCliArguments,
+            SetValue = (ctx, v) => ctx.Settings.CustomCliArguments = ConnectionSettings.NormalizeCustomCliArguments(v as string),
+            IsVisible = ctx => ctx.Settings.CliSource == CliSourceMode.Custom
+                            && ctx.Settings.Mode != ConnectionMode.Remote
                             && ctx.Settings.Mode != ConnectionMode.Demo
         });
 
