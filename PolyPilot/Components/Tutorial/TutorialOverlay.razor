@@ -63,6 +63,7 @@
 
     private ElementReference _overlayRef;
     private string _animDirection = "";
+    private int _animCounter;
 
     private bool IsLastStep =>
         Tutorial.CurrentChapterIndex == TutorialContent.Chapters.Count - 1
@@ -114,13 +115,15 @@
 
     private void HandleNext()
     {
-        _animDirection = "slide-left";
+        _animCounter++;
+        _animDirection = $"slide-left anim-{_animCounter}";
         Tutorial.NextStep();
     }
 
     private void HandlePrevious()
     {
-        _animDirection = "slide-right";
+        _animCounter++;
+        _animDirection = $"slide-right anim-{_animCounter}";
         Tutorial.PreviousStep();
     }
 
