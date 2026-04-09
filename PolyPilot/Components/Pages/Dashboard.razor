@@ -73,6 +73,51 @@
                     </div>
                 </div>
             }
+            @{
+                var pendingPerms = CopilotService.GetPendingPermissions();
+            }
+            @if (pendingPerms.Count > 0)
+            {
+                @foreach (var (providerId, perm) in pendingPerms)
+                {
+                    var capturedProviderId = providerId;
+                    var capturedPermId = perm.Id;
+                    <div class="permission-card">
+                        <div class="permission-card-header">
+                            <span class="permission-icon">🔐</span>
+                            <span class="permission-title">Permission Request</span>
+                            @if (perm.AgentName != null)
+                            {
+                                <span class="permission-agent">from @perm.AgentName</span>
+                            }
+                        </div>
+                        <div class="permission-card-body">
+                            <div class="permission-tool">
+                                <span class="permission-tool-label">Tool:</span>
+                                <code class="permission-tool-name">@perm.ToolName</code>
+                            </div>
+                            @if (!string.IsNullOrEmpty(perm.Description))
+                            {
+                                <div class="permission-desc">@perm.Description</div>
+                            }
+                            @if (!string.IsNullOrEmpty(perm.Arguments))
+                            {
+                                <div class="permission-args">
+                                    <code>@perm.Arguments</code>
+                                </div>
+                            }
+                        </div>
+                        <div class="permission-card-actions">
+                            <button class="permission-approve-btn" @onclick="() => ApprovePermission(capturedProviderId, capturedPermId)">
+                                ✅ Approve
+                            </button>
+                            <button class="permission-deny-btn" @onclick="() => DenyPermission(capturedProviderId, capturedPermId)">
+                                ❌ Deny
+                            </button>
+                        </div>
+                    </div>
+                }
+            }
             @if (PlatformHelper.IsMobile && !CopilotService.IsInitialized && !_initializationComplete)
             {
                 <div class="restoring-indicator">
@@ -849,6 +894,32 @@
     private void DismissAuthNotice()
     {
         CopilotService.ClearAuthNotice();
+        StateHasChanged();
+    }
+
+    private async Task ApprovePermission(string providerId, string permissionId)
+    {
+        try
+        {
+            await CopilotService.ApproveProviderPermissionAsync(providerId, permissionId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PERMISSION] Approve failed: {ex.Message}");
+        }
+        StateHasChanged();
+    }
+
+    private async Task DenyPermission(string providerId, string permissionId)
+    {
+        try
+        {
+            await CopilotService.DenyProviderPermissionAsync(providerId, permissionId);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PERMISSION] Deny failed: {ex.Message}");
+        }
         StateHasChanged();
     }
 
