@@ -4,6 +4,7 @@
   </Folder>
   <Project Path="PolyPilot.Gtk/PolyPilot.Gtk.csproj" />
   <Project Path="PolyPilot.Provider.Abstractions/PolyPilot.Provider.Abstractions.csproj" />
+  <Project Path="PolyPilot.Provider.Squad/PolyPilot.Provider.Squad.csproj" />
   <Project Path="PolyPilot.Tests/PolyPilot.Tests.csproj" />
   <Project Path="PolyPilot/PolyPilot.csproj" />
 </Solution>
