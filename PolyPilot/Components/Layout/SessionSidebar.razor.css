@@ -2192,6 +2192,30 @@
     text-overflow: ellipsis;
 }
 
+.squad-upstream-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.4rem;
+    padding: 0 0.4rem 0.2rem 1.2rem;
+}
+
+.squad-upstream-entry {
+    font-size: var(--type-caption2);
+    color: var(--accent-primary, #4ea8d1);
+    opacity: 0.8;
+    cursor: default;
+}
+
+.squad-manifest-desc {
+    font-size: var(--type-caption2);
+    color: var(--text-muted);
+    padding: 0 0.4rem 0.3rem 1.2rem;
+    opacity: 0.6;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 .squad-init-badge {
     font-size: var(--type-caption2);
     color: var(--accent-success, #00c35b);

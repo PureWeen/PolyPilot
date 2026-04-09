@@ -750,6 +750,21 @@ else
                     {
                         <div class="squad-identity-line" title="Squad casting identity">🎭 @(p.Metadata.Identity.Split('\n').FirstOrDefault(l => l.StartsWith("# "))?.TrimStart('#', ' ') ?? "Custom identity")</div>
                     }
+                    @if (p.Metadata?.Upstreams?.Count > 0)
+                    {
+                        <div class="squad-upstream-list">
+                            @foreach (var upstream in p.Metadata.Upstreams)
+                            {
+                                <span class="squad-upstream-entry" title="@upstream.Url">
+                                    🔗 @(upstream.Name ?? "upstream")
+                                </span>
+                            }
+                        </div>
+                    }
+                    @if (p.Metadata?.Manifest?.Description != null)
+                    {
+                        <div class="squad-manifest-desc">@p.Metadata.Manifest.Description</div>
+                    }
                 }
             }
             else if (repoWorktree != null)
