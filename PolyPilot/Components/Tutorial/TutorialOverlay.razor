@@ -60,7 +60,6 @@
     [Inject] private TutorialService Tutorial { get; set; } = default!;
     [Inject] private NavigationManager NavManager { get; set; } = default!;
     [Inject] private CopilotService CopilotService { get; set; } = default!;
-    [Inject] private IJSRuntime JS { get; set; } = default!;
 
     private ElementReference _overlayRef;
     private string _animDirection = "";
@@ -84,17 +83,23 @@
         Tutorial.OnStateChanged += HandleStateChanged;
     }
 
+    private bool _wasPreviouslyActive;
+
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (Tutorial.IsActive)
+        if (Tutorial.IsActive && !_wasPreviouslyActive)
         {
-            try { await JS.InvokeVoidAsync("eval", "document.querySelector('.tutorial-overlay')?.focus()"); }
+            try { await _overlayRef.FocusAsync(); }
             catch { /* ignore if element not found */ }
         }
+        _wasPreviouslyActive = Tutorial.IsActive;
     }
 
     private void HandleStateChanged()
     {
+        if (!Tutorial.IsActive)
+            _animDirection = "";
+
         if (Tutorial.IsActive && Tutorial.CurrentStep?.Action == StepAction.Navigate
             && Tutorial.CurrentStep.NavigateTo != null)
         {
@@ -129,7 +134,8 @@
                 break;
             case "ArrowLeft":
             case "ArrowUp":
-                HandlePrevious();
+                if (Tutorial.CurrentStepIndex > 0 || Tutorial.CurrentChapterIndex > 0)
+                    HandlePrevious();
                 break;
             case "Escape":
                 Tutorial.EndTutorial();

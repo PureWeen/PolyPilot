@@ -598,7 +598,7 @@
     private DotNetObjectReference<Dashboard>? _dotNetRef;
     private string? initError;
     private bool _initializationComplete = false;
-    private bool _hasSeenTutorialPrompt = true;
+    private bool _hasSeenTutorialPrompt = false;
     private readonly Dictionary<string, ChatMessage> _fiestaStreamingMessages = new(StringComparer.Ordinal);
     private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
 
