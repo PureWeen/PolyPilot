@@ -85,6 +85,9 @@ if [ ! -f "$SDK_PROJECT" ]; then
     exit 1
 fi
 
+# Canonicalize to absolute path so MSBuild resolves it correctly from any project directory
+SDK_PROJECT="$(cd "$(dirname "$SDK_PROJECT")" && pwd)/$(basename "$SDK_PROJECT")"
+
 cd "$SCRIPT_DIR"
 
 cat > "$OVERRIDE_FILE" <<EOF
