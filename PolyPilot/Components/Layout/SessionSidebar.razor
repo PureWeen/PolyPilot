@@ -781,6 +781,12 @@ else
                             Set up Squad
                         </button>
                     </div>
+                    @if (!string.IsNullOrEmpty(_squadInitResult))
+                    {
+                        <div class="squad-init-result @(_squadInitResult.StartsWith("✅") ? "squad-init-success" : "squad-init-error")">
+                            @_squadInitResult
+                        </div>
+                    }
                 }
             }
             @if (builtInPresets.Any())

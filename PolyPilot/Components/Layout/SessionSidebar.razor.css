@@ -2241,6 +2241,20 @@
 .squad-init-btn:hover {
     background: rgba(78, 168, 209, 0.1);
 }
+.squad-init-result {
+    font-size: var(--type-caption2);
+    padding: 3px 8px;
+    border-radius: 3px;
+    word-break: break-word;
+}
+.squad-init-success {
+    color: var(--accent-success, #00c35b);
+    background: rgba(0, 195, 91, 0.08);
+}
+.squad-init-error {
+    color: var(--accent-danger, #e04545);
+    background: rgba(224, 69, 69, 0.08);
+}
 
 .preset-divider {
     font-size: var(--type-caption2);
