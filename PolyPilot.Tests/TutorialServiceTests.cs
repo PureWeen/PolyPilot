@@ -164,6 +164,87 @@ public class TutorialServiceTests
 
         Assert.Equal(3, count);
     }
+
+    [Fact]
+    public void TotalChapters_ReturnsExpectedCount()
+    {
+        var svc = new TutorialService();
+        Assert.Equal(TutorialContent.Chapters.Count, svc.TotalChapters);
+    }
+
+    [Fact]
+    public void TotalSteps_ReturnsAllStepsAcrossChapters()
+    {
+        var svc = new TutorialService();
+        var expected = TutorialContent.Chapters.Sum(c => c.Steps.Count);
+        Assert.Equal(expected, svc.TotalSteps);
+    }
+
+    [Fact]
+    public void GlobalStepIndex_TracksPositionAcrossChapters()
+    {
+        var svc = new TutorialService();
+        svc.StartTutorial();
+        Assert.Equal(0, svc.GlobalStepIndex);
+
+        // Advance through first chapter
+        var stepsInFirst = svc.CurrentChapter!.Steps.Count;
+        for (int i = 0; i < stepsInFirst; i++)
+            svc.NextStep();
+
+        // Should now be at the first step of the second chapter
+        Assert.Equal(stepsInFirst, svc.GlobalStepIndex);
+    }
+
+    [Fact]
+    public void OverallProgressPercent_ZeroWhenNoneCompleted()
+    {
+        var svc = new TutorialService();
+        Assert.Equal(0, svc.OverallProgressPercent);
+    }
+
+    [Fact]
+    public void OverallProgressPercent_IncreasesOnChapterCompletion()
+    {
+        var svc = new TutorialService();
+        svc.StartTutorial();
+
+        // Complete first chapter
+        var stepsInFirst = svc.CurrentChapter!.Steps.Count;
+        for (int i = 0; i < stepsInFirst; i++)
+            svc.NextStep();
+
+        Assert.True(svc.OverallProgressPercent > 0);
+        Assert.True(svc.OverallProgressPercent <= 100);
+    }
+
+    [Fact]
+    public void OverallProgressPercent_100WhenAllCompleted()
+    {
+        var svc = new TutorialService();
+        svc.StartTutorial();
+
+        // Complete all chapters
+        int totalSteps = TutorialContent.Chapters.Sum(c => c.Steps.Count);
+        for (int i = 0; i < totalSteps; i++)
+            svc.NextStep();
+
+        Assert.Equal(100, svc.OverallProgressPercent);
+    }
+
+    [Fact]
+    public void CompletedChapterCount_TracksCompletions()
+    {
+        var svc = new TutorialService();
+        Assert.Equal(0, svc.CompletedChapterCount);
+
+        svc.StartTutorial();
+        var stepsInFirst = svc.CurrentChapter!.Steps.Count;
+        for (int i = 0; i < stepsInFirst; i++)
+            svc.NextStep();
+
+        Assert.Equal(1, svc.CompletedChapterCount);
+    }
 }
 
 public class TutorialContentTests
@@ -224,5 +305,18 @@ public class TutorialContentTests
     public void Content_HasExpectedChapterCount()
     {
         Assert.Equal(8, TutorialContent.Chapters.Count);
+    }
+
+    [Fact]
+    public void TipsAreNotEmpty_WhenPresent()
+    {
+        foreach (var chapter in TutorialContent.Chapters)
+        {
+            foreach (var step in chapter.Steps.Where(s => s.Tip != null))
+            {
+                Assert.False(string.IsNullOrWhiteSpace(step.Tip),
+                    $"Step {step.Id} in {chapter.Id} has a non-null but empty Tip");
+            }
+        }
     }
 }

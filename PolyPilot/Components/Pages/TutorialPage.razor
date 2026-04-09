@@ -6,11 +6,36 @@
     <div class="tutorial-page-header">
         <h1>Tutorial</h1>
         <p class="tutorial-page-subtitle">Learn how to use PolyPilot with guided walkthroughs.</p>
+
+        @if (Tutorial.CompletedChapterCount > 0)
+        {
+            <div class="tutorial-overall-progress">
+                <div class="progress-label">
+                    <span>Overall progress</span>
+                    <span class="progress-value">@Tutorial.CompletedChapterCount / @Tutorial.TotalChapters chapters</span>
+                </div>
+                <div class="progress-track">
+                    <div class="progress-fill" style="width: @Tutorial.OverallProgressPercent%"></div>
+                </div>
+            </div>
+        }
+
         <div class="tutorial-page-actions">
             <button class="tutorial-btn tutorial-btn-primary tutorial-start-all" @onclick="StartFullTour">
-                Start Full Tour
+                @if (Tutorial.CompletedChapterCount == Tutorial.TotalChapters)
+                {
+                    <text>Replay Full Tour</text>
+                }
+                else if (Tutorial.CompletedChapterCount > 0)
+                {
+                    <text>Continue Tour</text>
+                }
+                else
+                {
+                    <text>Start Full Tour</text>
+                }
             </button>
-            @if (Tutorial.CompletedChapters.Count > 0)
+            @if (Tutorial.CompletedChapterCount > 0)
             {
                 <button class="tutorial-btn tutorial-btn-secondary" @onclick="ResetProgress">
                     Reset Progress
@@ -20,10 +45,14 @@
     </div>
 
     <div class="tutorial-chapters-grid">
+        @{ var chapterNum = 0; }
         @foreach (var chapter in TutorialContent.Chapters)
         {
+            chapterNum++;
             var isCompleted = Tutorial.CompletedChapters.Contains(chapter.Id);
+            var num = chapterNum;
             <div class="tutorial-chapter-card @(isCompleted ? "completed" : "")" @onclick="() => StartChapter(chapter.Id)">
+                <div class="chapter-number">@num</div>
                 <div class="chapter-card-body">
                     <h3>@chapter.Title</h3>
                     <p>@chapter.Description</p>
@@ -31,10 +60,16 @@
                 </div>
                 @if (isCompleted)
                 {
-                    <div class="chapter-completed-badge">✓</div>
+                    <div class="chapter-completed-badge">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                    </div>
                 }
             </div>
         }
+    </div>
+
+    <div class="tutorial-page-footer">
+        <p>Use arrow keys to navigate during a walkthrough. Press Escape to exit.</p>
     </div>
 </div>
 
@@ -45,6 +80,16 @@
     private void StartFullTour()
     {
         NavManager.NavigateTo("/");
+        if (Tutorial.CompletedChapterCount > 0 && Tutorial.CompletedChapterCount < Tutorial.TotalChapters)
+        {
+            // Resume from first incomplete chapter
+            var firstIncomplete = TutorialContent.Chapters.FirstOrDefault(c => !Tutorial.CompletedChapters.Contains(c.Id));
+            if (firstIncomplete != null)
+            {
+                Tutorial.StartChapter(firstIncomplete.Id);
+                return;
+            }
+        }
         Tutorial.StartTutorial();
     }
 

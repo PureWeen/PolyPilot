@@ -23,6 +23,37 @@ public class TutorialService
 
     public int TotalStepsInChapter => CurrentChapter?.Steps.Count ?? 0;
 
+    public int TotalChapters => TutorialContent.Chapters.Count;
+
+    public int CompletedChapterCount => CompletedChapters.Count;
+
+    /// <summary>Overall progress as a value from 0 to 100.</summary>
+    public int OverallProgressPercent
+    {
+        get
+        {
+            var total = TutorialContent.Chapters.Count;
+            if (total == 0) return 0;
+            return (int)((double)CompletedChapters.Count / total * 100);
+        }
+    }
+
+    /// <summary>Returns the global step index (0-based) across all chapters.</summary>
+    public int GlobalStepIndex
+    {
+        get
+        {
+            int index = 0;
+            for (int i = 0; i < CurrentChapterIndex && i < TutorialContent.Chapters.Count; i++)
+                index += TutorialContent.Chapters[i].Steps.Count;
+            index += CurrentStepIndex;
+            return index;
+        }
+    }
+
+    /// <summary>Total number of steps across all chapters.</summary>
+    public int TotalSteps => TutorialContent.Chapters.Sum(c => c.Steps.Count);
+
     public void StartTutorial()
     {
         CurrentChapterIndex = 0;

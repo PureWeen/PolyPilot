@@ -11,6 +11,7 @@
 @inject GitAutoUpdateService GitAutoUpdate
 @inject QrScannerService QrScanner
 @inject FiestaService FiestaService
+@inject TutorialService TutorialService
 @implements IAsyncDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")" style="--card-min-height: @(_cardMinHeight)px">
@@ -19,6 +20,16 @@
         <div class="no-sessions-dash">
             <img src="PolyPilot_logo_lg.png" alt="PolyPilot" class="empty-logo" />
             <p class="welcome-title">Welcome to PolyPilot</p>
+            @if (!_hasSeenTutorialPrompt && PlatformHelper.IsDesktop)
+            {
+                <div class="tutorial-nudge">
+                    <span class="tutorial-nudge-text">New here? Take a quick tour to learn the basics.</span>
+                    <button class="tutorial-nudge-btn" @onclick="StartTutorialFromDashboard">Start Tutorial</button>
+                    <button class="tutorial-nudge-dismiss" @onclick="DismissTutorialNudge" title="Dismiss">
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                    </button>
+                </div>
+            }
             @if (CopilotService.IsRestoring)
             {
                 <div class="restoring-indicator">
@@ -587,6 +598,7 @@
     private DotNetObjectReference<Dashboard>? _dotNetRef;
     private string? initError;
     private bool _initializationComplete = false;
+    private bool _hasSeenTutorialPrompt = false;
     private readonly Dictionary<string, ChatMessage> _fiestaStreamingMessages = new(StringComparer.Ordinal);
     private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
 
@@ -668,6 +680,9 @@
                 
                 // Restore card min height (default 250, range 150-600)
                 _cardMinHeight = uiState.CardMinHeight is >= 150 and <= 600 ? uiState.CardMinHeight : 250;
+                
+                // Restore tutorial prompt visibility
+                _hasSeenTutorialPrompt = uiState.HasSeenTutorialPrompt;
                 
                 // Restore expanded session state
                 if (!string.IsNullOrEmpty(uiState.ExpandedSession))
@@ -815,6 +830,20 @@
     private void DismissFallbackNotice()
     {
         CopilotService.ClearFallbackNotice();
+        StateHasChanged();
+    }
+
+    private void StartTutorialFromDashboard()
+    {
+        _hasSeenTutorialPrompt = true;
+        CopilotService.SaveUiState("/", hasSeenTutorialPrompt: true);
+        TutorialService.StartTutorial();
+    }
+
+    private void DismissTutorialNudge()
+    {
+        _hasSeenTutorialPrompt = true;
+        CopilotService.SaveUiState("/", hasSeenTutorialPrompt: true);
         StateHasChanged();
     }
 

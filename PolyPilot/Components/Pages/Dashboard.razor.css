@@ -236,6 +236,64 @@
     letter-spacing: 0.02em;
 }
 
+.tutorial-nudge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    background: rgba(var(--accent-rgb), 0.08);
+    border: 1px solid rgba(var(--accent-rgb), 0.2);
+    border-radius: 8px;
+    margin-top: 12px;
+    animation: tutorialNudgeFadeIn 0.4s ease;
+}
+
+@keyframes tutorialNudgeFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.tutorial-nudge-text {
+    font-size: var(--type-callout);
+    color: var(--text-secondary);
+    flex: 1;
+}
+
+.tutorial-nudge-btn {
+    padding: 5px 14px;
+    border-radius: 6px;
+    font-size: var(--type-callout);
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    background: var(--accent-primary);
+    color: #fff;
+    white-space: nowrap;
+    transition: filter 0.15s;
+}
+
+.tutorial-nudge-btn:hover {
+    filter: brightness(1.15);
+}
+
+.tutorial-nudge-dismiss {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+
+.tutorial-nudge-dismiss:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary);
+}
+
 .empty-logo {
     width: 120px;
     height: auto;

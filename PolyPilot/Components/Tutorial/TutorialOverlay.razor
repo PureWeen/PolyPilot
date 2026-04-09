@@ -4,22 +4,47 @@
 
 @if (Tutorial.IsActive && Tutorial.CurrentStep != null)
 {
-    <div class="tutorial-overlay" @onclick="HandleBackdropClick">
+    <div class="tutorial-overlay" @onclick="HandleBackdropClick" @onkeydown="HandleKeyDown" tabindex="0" @ref="_overlayRef">
         <div class="tutorial-backdrop"></div>
 
-        <div class="tutorial-tooltip" @onclick:stopPropagation="true">
+        <div class="tutorial-tooltip @(_animDirection)" @onclick:stopPropagation="true">
             <div class="tutorial-tooltip-header">
-                <span class="tutorial-chapter-badge">@Tutorial.CurrentChapter?.Title</span>
-                <button class="tutorial-close-btn" @onclick="Tutorial.EndTutorial" aria-label="Close tutorial">✕</button>
+                <span class="tutorial-chapter-badge">Chapter @(Tutorial.CurrentChapterIndex + 1) of @Tutorial.TotalChapters</span>
+                <button class="tutorial-close-btn" @onclick="Tutorial.EndTutorial" aria-label="Close tutorial">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
             </div>
+
+            <div class="tutorial-chapter-name">@Tutorial.CurrentChapter?.Title</div>
             <h3 class="tutorial-step-title">@Tutorial.CurrentStep.Title</h3>
             <p class="tutorial-step-desc">@Tutorial.CurrentStep.Description</p>
+
+            @if (!string.IsNullOrEmpty(Tutorial.CurrentStep.Tip))
+            {
+                <div class="tutorial-tip">
+                    <svg class="tutorial-tip-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 0 0-4 12.7V17h8v-2.3A7 7 0 0 0 12 2z"/></svg>
+                    <span>@Tutorial.CurrentStep.Tip</span>
+                </div>
+            }
+
+            <div class="tutorial-step-dots">
+                @for (int i = 0; i < Tutorial.TotalStepsInChapter; i++)
+                {
+                    var idx = i;
+                    <span class="tutorial-dot @(idx == Tutorial.CurrentStepIndex ? "active" : idx < Tutorial.CurrentStepIndex ? "done" : "")"></span>
+                }
+            </div>
+
+            <div class="tutorial-progress-bar">
+                <div class="tutorial-progress-fill" style="width: @(OverallProgressWidth)%"></div>
+            </div>
+
             <div class="tutorial-tooltip-footer">
-                <span class="tutorial-step-counter">@(Tutorial.CurrentStepIndex + 1) / @Tutorial.TotalStepsInChapter</span>
+                <span class="tutorial-step-counter">Step @(Tutorial.GlobalStepIndex + 1) of @Tutorial.TotalSteps</span>
                 <div class="tutorial-nav-buttons">
                     @if (Tutorial.CurrentStepIndex > 0 || Tutorial.CurrentChapterIndex > 0)
                     {
-                        <button class="tutorial-btn tutorial-btn-secondary" @onclick="Tutorial.PreviousStep">Back</button>
+                        <button class="tutorial-btn tutorial-btn-secondary" @onclick="HandlePrevious">Back</button>
                     }
                     <button class="tutorial-btn tutorial-btn-secondary" @onclick="Tutorial.EndTutorial">Skip</button>
                     <button class="tutorial-btn tutorial-btn-primary" @onclick="HandleNext">
@@ -36,17 +61,46 @@
     [Inject] private NavigationManager NavManager { get; set; } = default!;
     [Inject] private CopilotService CopilotService { get; set; } = default!;
 
+    private ElementReference _overlayRef;
+    private string _animDirection = "";
+    private int _animCounter;
+
     private bool IsLastStep =>
         Tutorial.CurrentChapterIndex == TutorialContent.Chapters.Count - 1
         && Tutorial.CurrentStepIndex == (Tutorial.CurrentChapter?.Steps.Count ?? 1) - 1;
+
+    private double OverallProgressWidth
+    {
+        get
+        {
+            var totalSteps = Tutorial.TotalSteps;
+            if (totalSteps == 0) return 0;
+            return (double)(Tutorial.GlobalStepIndex + 1) / totalSteps * 100;
+        }
+    }
 
     protected override void OnInitialized()
     {
         Tutorial.OnStateChanged += HandleStateChanged;
     }
 
+    private bool _wasPreviouslyActive;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (Tutorial.IsActive && !_wasPreviouslyActive)
+        {
+            try { await _overlayRef.FocusAsync(); }
+            catch { /* ignore if element not found */ }
+        }
+        _wasPreviouslyActive = Tutorial.IsActive;
+    }
+
     private void HandleStateChanged()
     {
+        if (!Tutorial.IsActive)
+            _animDirection = "";
+
         if (Tutorial.IsActive && Tutorial.CurrentStep?.Action == StepAction.Navigate
             && Tutorial.CurrentStep.NavigateTo != null)
         {
@@ -59,7 +113,38 @@
 
     private void HandleBackdropClick() => Tutorial.EndTutorial();
 
-    private void HandleNext() => Tutorial.NextStep();
+    private void HandleNext()
+    {
+        _animCounter++;
+        _animDirection = $"slide-left anim-{_animCounter}";
+        Tutorial.NextStep();
+    }
+
+    private void HandlePrevious()
+    {
+        _animCounter++;
+        _animDirection = $"slide-right anim-{_animCounter}";
+        Tutorial.PreviousStep();
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        switch (e.Key)
+        {
+            case "ArrowRight":
+            case "ArrowDown":
+                HandleNext();
+                break;
+            case "ArrowLeft":
+            case "ArrowUp":
+                if (Tutorial.CurrentStepIndex > 0 || Tutorial.CurrentChapterIndex > 0)
+                    HandlePrevious();
+                break;
+            case "Escape":
+                Tutorial.EndTutorial();
+                break;
+        }
+    }
 
     public void Dispose()
     {

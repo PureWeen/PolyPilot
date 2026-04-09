@@ -11,6 +11,7 @@ public class TutorialStep
     public string Id { get; set; } = "";
     public string Title { get; set; } = "";
     public string Description { get; set; } = "";
+    public string? Tip { get; set; }
     public StepAction Action { get; set; } = StepAction.None;
     public string? NavigateTo { get; set; }
 }
@@ -38,13 +39,15 @@ public static class TutorialContent
                 {
                     Id = "welcome",
                     Title = "Welcome to PolyPilot",
-                    Description = "PolyPilot is a native GUI for managing multiple GitHub Copilot CLI sessions. Let's take a quick tour of the key features."
+                    Description = "PolyPilot is a native GUI for managing multiple GitHub Copilot CLI sessions. Let's take a quick tour of the key features.",
+                    Tip = "You can revisit this tutorial anytime from the question mark icon in the sidebar."
                 },
                 new TutorialStep
                 {
                     Id = "connection-status",
                     Title = "Connection Status",
-                    Description = "The indicator in the sidebar shows whether you're connected to the Copilot backend. It displays the current connection mode (Persistent, Embedded, Remote, or Demo)."
+                    Description = "The indicator in the sidebar shows whether you're connected to the Copilot backend. It displays the current connection mode (Persistent, Embedded, Remote, or Demo).",
+                    Tip = "Persistent mode is recommended for desktop — it keeps the server running across app restarts."
                 },
                 new TutorialStep
                 {
@@ -65,7 +68,8 @@ public static class TutorialContent
                 {
                     Id = "new-session",
                     Title = "Create a Session",
-                    Description = "Use the session form at the top of the sidebar to create a new Copilot session. You can optionally set a name, choose a model, and pick a working directory."
+                    Description = "Use the session form at the top of the sidebar to create a new Copilot session. You can optionally set a name, choose a model, and pick a working directory.",
+                    Tip = "Each session maintains its own conversation history and context independently."
                 },
                 new TutorialStep
                 {
@@ -73,20 +77,22 @@ public static class TutorialContent
                     Title = "Send a Prompt",
                     Description = "Type your message in the input area at the bottom and press Enter (or click the send button) to send a prompt to Copilot.",
                     Action = StepAction.Navigate,
-                    NavigateTo = "/"
+                    NavigateTo = "/",
+                    Tip = "Press Up/Down arrows in the input to cycle through your prompt history."
                 },
                 new TutorialStep
                 {
                     Id = "response-area",
                     Title = "View Responses",
-                    Description = "Copilot's responses stream in real-time. You'll see a status indicator showing the current phase: Sending, Thinking, Working (with tool call counts)."
+                    Description = "Copilot's responses stream in real-time. You'll see a status indicator showing the current phase: Sending, Thinking, Working (with tool call counts).",
+                    Tip = "Press Ctrl+C or click the stop button to abort a running request."
                 }
             }
         },
         new TutorialChapter
         {
             Id = "groups",
-            Title = "Groups & Organization",
+            Title = "Groups and Organization",
             Description = "Organize your sessions into groups for better workflow management.",
             Steps = new()
             {
@@ -96,7 +102,8 @@ public static class TutorialContent
                     Title = "Create a Group",
                     Description = "Use the toolbar buttons below the session form to create a new group, add a multi-agent team, or add a repository. Groups help you organize sessions by project or task.",
                     Action = StepAction.Navigate,
-                    NavigateTo = "/"
+                    NavigateTo = "/",
+                    Tip = "Drag and drop sessions between groups to reorganize them."
                 },
                 new TutorialStep
                 {
@@ -119,7 +126,8 @@ public static class TutorialContent
                     Title = "Choose a Model",
                     Description = "The model selector lets you pick which AI model to use. Click '+ New Session' to expand the form and see the model dropdown. Models are set at session creation time.",
                     Action = StepAction.Navigate,
-                    NavigateTo = "/"
+                    NavigateTo = "/",
+                    Tip = "The model list is fetched dynamically from the Copilot backend."
                 },
                 new TutorialStep
                 {
@@ -140,13 +148,15 @@ public static class TutorialContent
                 {
                     Id = "preset-picker",
                     Title = "Agent Presets",
-                    Description = "Presets let you spin up a team of specialized agents. Look for the multi-agent button in the sidebar toolbar -- it shows built-in presets, your saved presets, and repo-level Squad teams."
+                    Description = "Presets let you spin up a team of specialized agents. Look for the multi-agent button in the sidebar toolbar — it shows built-in presets, your saved presets, and repo-level Squad teams.",
+                    Tip = "You can save your own custom agent team configurations as presets."
                 },
                 new TutorialStep
                 {
                     Id = "squad-integration",
                     Title = "Squad Integration",
-                    Description = "If your repository has a .squad/ directory, PolyPilot automatically discovers team definitions and shows them as presets in the 'From Repo' section."
+                    Description = "If your repository has a .squad/ directory, PolyPilot automatically discovers team definitions and shows them as presets in the 'From Repo' section.",
+                    Tip = "Squad teams are shared with your whole team via the repository."
                 }
             }
         },
@@ -168,8 +178,9 @@ public static class TutorialContent
                 new TutorialStep
                 {
                     Id = "devtunnel-qr",
-                    Title = "DevTunnel & QR Code",
-                    Description = "Use DevTunnel to expose your session over the internet, then scan the QR code from the mobile app for easy setup."
+                    Title = "DevTunnel and QR Code",
+                    Description = "Use DevTunnel to expose your session over the internet, then scan the QR code from the mobile app for easy setup.",
+                    Tip = "DevTunnel handles authentication automatically — no port forwarding needed."
                 }
             }
         },
@@ -186,7 +197,8 @@ public static class TutorialContent
                     Title = "Working Directory",
                     Description = "Each session can have a working directory. When creating a session, click the folder icon to pick a repository or directory for Copilot to work in.",
                     Action = StepAction.Navigate,
-                    NavigateTo = "/"
+                    NavigateTo = "/",
+                    Tip = "Recently used repositories appear at the top of the picker."
                 },
                 new TutorialStep
                 {
@@ -207,7 +219,8 @@ public static class TutorialContent
                 {
                     Id = "session-shortcuts",
                     Title = "Session Navigation",
-                    Description = "Use Cmd+1-9 to quickly switch between sessions. Press Cmd+E to focus the session search. Use Up/Down arrows to cycle through your prompt history."
+                    Description = "Use Cmd+1-9 to quickly switch between sessions. Press Cmd+E to focus the session search. Use Up/Down arrows to cycle through your prompt history.",
+                    Tip = "Cmd+N creates a new session instantly."
                 },
                 new TutorialStep
                 {
@@ -219,7 +232,8 @@ public static class TutorialContent
                 {
                     Id = "info-popover",
                     Title = "Quick Reference",
-                    Description = "You can always find the full shortcut list in Settings by clicking the info icon in the top right corner."
+                    Description = "You can always find the full shortcut list in Settings by clicking the info icon in the top right corner.",
+                    Tip = "Hover over the info icon (i) in the sidebar header for a quick shortcut reference."
                 }
             }
         }
