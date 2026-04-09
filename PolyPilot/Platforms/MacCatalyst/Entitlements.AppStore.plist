@@ -20,13 +20,10 @@
         <key>com.apple.security.files.user-selected.read-write</key>
         <true/>
 
-        <!-- File access: read-write to app-specific data directories.
-             ~/.polypilot/ stores settings, organization, active-sessions.
-             ~/.copilot/ stores SDK session state (events.jsonl). -->
-        <key>com.apple.security.temporary-exception.files.home-relative-path.read-write</key>
-        <array>
-            <string>/.polypilot/</string>
-            <string>/.copilot/</string>
-        </array>
+        <!-- No temporary-exception needed for ~/.polypilot/ and ~/.copilot/:
+             the sandbox remaps HOME to ~/Library/Containers/<bundle-id>/Data/
+             so UserProfile-based paths resolve inside the container automatically.
+             The copilot helper process inherits the sandbox (Entitlements.Helper.plist)
+             and sees the same remapped HOME. -->
     </dict>
 </plist>
