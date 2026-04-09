@@ -280,4 +280,19 @@ public class SquadWriterTests : IDisposable
     private static GroupPreset MakePreset(string name) => new(
         name, "Test", "🧪", MultiAgentMode.OrchestratorReflect,
         "claude-opus-4.6", new[] { "gpt-5", "claude-sonnet-4.5" });
+
+    [Fact]
+    public void WritePreset_ThrowsWhenConfigTsExists()
+    {
+        File.WriteAllText(Path.Combine(_tempDir, "squad.config.ts"), "export default {}");
+        var preset = MakePreset("Blocked Team");
+        var workers = new List<(string Name, string? SystemPrompt)>
+        {
+            ("worker", "You are a worker.")
+        };
+
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => SquadWriter.WritePreset(_tempDir, preset, workers));
+        Assert.Contains("squad.config.ts", ex.Message);
+    }
 }

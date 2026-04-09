@@ -2162,6 +2162,62 @@
     opacity: 0.7;
 }
 
+.squad-badge-tag {
+    background: rgba(99, 102, 241, 0.2);
+    color: rgba(191, 198, 255, 0.9);
+    padding: 0 4px;
+    border-radius: 3px;
+    font-size: var(--type-caption2);
+    font-weight: 600;
+}
+
+.skill-count-badge,
+.upstream-badge {
+    font-size: var(--type-caption2);
+    opacity: 0.6;
+}
+
+.config-ts-badge {
+    font-size: var(--type-caption2);
+    opacity: 0.8;
+}
+
+.squad-identity-line {
+    font-size: var(--type-caption2);
+    color: var(--text-muted);
+    padding: 0 0.4rem 0.2rem 1.2rem;
+    opacity: 0.7;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.squad-init-badge {
+    font-size: var(--type-caption2);
+    color: var(--accent-success, #00c35b);
+    margin-left: 4px;
+}
+
+.squad-setup-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.squad-init-btn {
+    all: unset;
+    cursor: pointer;
+    font-size: var(--type-caption2);
+    font-weight: 600;
+    color: var(--accent-primary, #4ea8d1);
+    padding: 1px 6px;
+    border-radius: 3px;
+    border: 1px solid rgba(78, 168, 209, 0.3);
+}
+.squad-init-btn:hover {
+    background: rgba(78, 168, 209, 0.1);
+}
+
 .preset-divider {
     font-size: var(--type-caption2);
     color: var(--text-muted);

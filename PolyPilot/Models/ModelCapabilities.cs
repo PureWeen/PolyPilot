@@ -191,6 +191,12 @@ public record GroupPreset(string Name, string Description, string Emoji, MultiAg
     /// </summary>
     public string?[]? WorkerDisplayNames { get; init; }
 
+    /// <summary>
+    /// Squad runtime metadata (manifest.json, upstream.json, identity, squad.config.ts presence).
+    /// Only populated for repo-level presets discovered from .squad/ directories.
+    /// </summary>
+    public SquadMetadata? Metadata { get; init; }
+
     internal const string WorkerReviewPrompt = """
         You are a PR reviewer. When assigned a PR, do a thorough multi-model code review.
 

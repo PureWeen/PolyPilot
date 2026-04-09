@@ -719,7 +719,7 @@ else
             }
             @if (repoPresets.Any())
             {
-                <div class="preset-section-header">From repo</div>
+                <div class="preset-section-header">📂 From repo</div>
                 @foreach (var preset in repoPresets)
                 {
                     var p = preset;
@@ -727,9 +727,44 @@ else
                         <button class="preset-item preset-repo" @onclick="() => CreateFromPresetForRepo(p, pendingMultiAgentRepo)" title="@p.Description — 🎯 @p.OrchestratorModel · 👷 @string.Join(", ", p.WorkerModels)">
                             <span class="preset-emoji">@p.Emoji</span>
                             <span class="preset-name">@p.Name</span>
-                            <span class="preset-badge">Repo</span>
+                            <span class="preset-badge squad-badge-tag">Squad</span>
+                            @if (p.Metadata != null)
+                            {
+                                @if (p.Metadata.SkillCount > 0)
+                                {
+                                    <span class="preset-badge skill-count-badge" title="@p.Metadata.SkillCount Squad skills installed">🛠️ @p.Metadata.SkillCount</span>
+                                }
+                                @if (p.Metadata.Upstreams?.Count > 0)
+                                {
+                                    <span class="preset-badge upstream-badge" title="Connected to @p.Metadata.Upstreams.Count upstream squad(s)">🔗 @p.Metadata.Upstreams.Count</span>
+                                }
+                                @if (p.Metadata.HasConfigTs)
+                                {
+                                    <span class="preset-badge config-ts-badge" title="Has squad.config.ts — edits to .squad/ may be overwritten by squad build">⚠️</span>
+                                }
+                            }
                         </button>
                         <button class="preset-delete-btn" @onclick="() => DeleteRepoPreset(p, repoWorktree)" title="Delete repo preset">Delete</button>
+                    </div>
+                    @if (p.Metadata?.Identity != null)
+                    {
+                        <div class="squad-identity-line" title="Squad casting identity">🎭 @(p.Metadata.Identity.Split('\n').FirstOrDefault(l => l.StartsWith("# "))?.TrimStart('#', ' ') ?? "Custom identity")</div>
+                    }
+                }
+            }
+            else if (repoWorktree != null)
+            {
+                @if (SquadDiscovery.IsSquadInitialized(repoWorktree.Path))
+                {
+                    <div class="preset-section-header">📂 From repo <span class="squad-init-badge" title="Squad is initialized in this repo">✅ Squad</span></div>
+                }
+                else
+                {
+                    <div class="preset-section-header squad-setup-row">
+                        <span>📂 From repo</span>
+                        <button class="squad-init-btn" @onclick="() => RunSquadInit(repoWorktree)" title="Run 'squad init --no-workflows' to set up Squad in this repo">
+                            Set up Squad
+                        </button>
                     </div>
                 }
             }
@@ -3114,6 +3149,55 @@ else
         if (worktree?.Path == null) return;
         if (UserPresets.DeleteRepoPreset(worktree.Path, preset.Name))
             StateHasChanged();
+    }
+
+    private bool _squadInitRunning;
+    private string? _squadInitResult;
+
+    private async Task RunSquadInit(WorktreeInfo worktree)
+    {
+        if (_squadInitRunning || worktree?.Path == null) return;
+        _squadInitRunning = true;
+        _squadInitResult = null;
+        StateHasChanged();
+
+        try
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "squad",
+                Arguments = "init --no-workflows",
+                WorkingDirectory = worktree.Path,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var proc = System.Diagnostics.Process.Start(psi);
+            if (proc == null)
+            {
+                _squadInitResult = "❌ Failed to start squad CLI. Is it installed? Run: npm install -g @bradygaster/squad-cli";
+                return;
+            }
+            var stdout = await proc.StandardOutput.ReadToEndAsync();
+            var stderr = await proc.StandardError.ReadToEndAsync();
+            await proc.WaitForExitAsync();
+
+            _squadInitResult = proc.ExitCode == 0
+                ? "✅ Squad initialized! Refresh to see your team."
+                : $"❌ squad init failed (exit {proc.ExitCode}): {(stderr.Length > 0 ? stderr : stdout).Trim()}";
+        }
+        catch (Exception ex)
+        {
+            _squadInitResult = ex is System.ComponentModel.Win32Exception
+                ? "❌ Squad CLI not found. Install it with: npm install -g @bradygaster/squad-cli"
+                : $"❌ {ex.Message}";
+        }
+        finally
+        {
+            _squadInitRunning = false;
+            StateHasChanged();
+        }
     }
 
     private static string ShortenPath(string path)
