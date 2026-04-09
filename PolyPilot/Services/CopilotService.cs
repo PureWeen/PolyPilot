@@ -797,7 +797,7 @@ public partial class CopilotService : IAsyncDisposable
         Interlocked.Exchange(ref state.SendingFlag, 0);
         Interlocked.Exchange(ref state.ActiveToolCallCount, 0);
         state.HasUsedToolsThisTurn = false;
-        ClearDeferredIdleTracking(state);
+        ClearDeferredIdleTracking(state, preserveCarryOver: true);
         Interlocked.Exchange(ref state.SuccessfulToolCountThisTurn, 0);
         Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
         Interlocked.Exchange(ref state.EventCountThisTurn, 0);
