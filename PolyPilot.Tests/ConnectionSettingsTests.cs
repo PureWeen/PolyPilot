@@ -225,6 +225,38 @@ public class ConnectionSettingsTests
     }
 
     [Fact]
+    public void SplitCommandLineArguments_PreservesBackslashesInUnquotedPaths()
+    {
+        var args = ConnectionSettings.SplitCommandLineArguments("--launcher C:\\Tools\\wrapper.exe --flag");
+
+        Assert.Equal(new[] { "--launcher", "C:\\Tools\\wrapper.exe", "--flag" }, args);
+    }
+
+    [Fact]
+    public void SplitCommandLineArguments_PreservesBackslashesInDoubleQuotedPaths()
+    {
+        var args = ConnectionSettings.SplitCommandLineArguments("--config \"C:\\Users\\me\\.copilot\\config.json\"");
+
+        Assert.Equal(new[] { "--config", "C:\\Users\\me\\.copilot\\config.json" }, args);
+    }
+
+    [Fact]
+    public void SplitCommandLineArguments_PreservesBackslashesInQuotedUncPaths()
+    {
+        var args = ConnectionSettings.SplitCommandLineArguments("--config \"\\\\server\\share\\tool.json\"");
+
+        Assert.Equal(new[] { "--config", "\\\\server\\share\\tool.json" }, args);
+    }
+
+    [Fact]
+    public void SplitCommandLineArguments_StillSupportsEscapedWhitespace()
+    {
+        var args = ConnectionSettings.SplitCommandLineArguments("one\\ two three");
+
+        Assert.Equal(new[] { "one two", "three" }, args);
+    }
+
+    [Fact]
     public void ServerPassword_NotInCliUrl()
     {
         var settings = new ConnectionSettings

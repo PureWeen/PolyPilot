@@ -324,8 +324,9 @@ public class ConnectionSettings
         char? quote = null;
         var escaping = false;
 
-        foreach (var ch in raw)
+        for (var i = 0; i < raw.Length; i++)
         {
+            var ch = raw[i];
             if (escaping)
             {
                 current.Append(ch);
@@ -333,9 +334,22 @@ public class ConnectionSettings
                 continue;
             }
 
-            if (ch == '\\' && quote != '\'')
+            if (ch == '\\')
             {
-                escaping = true;
+                var next = i + 1 < raw.Length ? raw[i + 1] : '\0';
+                // This settings field is tokenized directly into ProcessStartInfo.ArgumentList,
+                // so preserve literal backslashes (paths, UNC shares, regexes) and only treat
+                // backslash as an escape for whitespace or quotes the user typed explicitly.
+                var shouldEscapeNext = next != '\0'
+                    && (next == '"' || next == '\'' || char.IsWhiteSpace(next));
+
+                if (quote != '\'' && shouldEscapeNext)
+                {
+                    escaping = true;
+                    continue;
+                }
+
+                current.Append(ch);
                 continue;
             }
 
