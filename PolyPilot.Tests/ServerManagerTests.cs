@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Sockets;
+using PolyPilot.Models;
 using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
@@ -87,5 +88,34 @@ public class ServerManagerTests
         var customResult = manager.CheckServerRunning("localhost", 19998);
         Assert.True(defaultResult || !defaultResult); // completed without throwing
         Assert.False(customResult);
+    }
+
+    [Fact]
+    public void BuildLaunchArguments_PrependsCustomArgs_BeforeHeadlessFlags()
+    {
+        var settings = new ConnectionSettings
+        {
+            CliSource = CliSourceMode.Custom,
+            CustomCliPath = "/custom/copilot-wrapper",
+            CustomCliArguments = "copilot --profile work"
+        };
+
+        var args = ServerManager.BuildLaunchArguments(settings, 4567);
+
+        Assert.Equal("copilot", args[0]);
+        Assert.Equal("--profile", args[1]);
+        Assert.Equal("work", args[2]);
+        Assert.Contains("--headless", args);
+        Assert.Contains("4567", args);
+    }
+
+    [Fact]
+    public void CreateStartInfo_ForwardsGitHubToken()
+    {
+        var settings = new ConnectionSettings();
+        var psi = ServerManager.CreateStartInfo(settings, "/tmp/copilot", 4321, "token-123");
+
+        Assert.Equal("/tmp/copilot", psi.FileName);
+        Assert.Equal("token-123", psi.Environment["COPILOT_GITHUB_TOKEN"]);
     }
 }

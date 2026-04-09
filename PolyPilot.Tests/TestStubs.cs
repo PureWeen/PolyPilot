@@ -46,13 +46,15 @@ internal class StubServerManager : IServerManager
 
     public bool CheckServerRunning(string host = "localhost", int? port = null) => IsServerRunning;
 
-    public Task<bool> StartServerAsync(int port, string? githubToken = null)
+    public Task<bool> StartServerAsync(ConnectionSettings settings, string? githubToken = null)
     {
-        ServerPort = port;
+        ServerPort = settings.Port;
         LastGitHubToken = githubToken;
+        LastStartSettings = settings;
         return Task.FromResult(StartServerResult);
     }
     public string? LastGitHubToken { get; private set; }
+    public ConnectionSettings? LastStartSettings { get; private set; }
 
     public void StopServer() { IsServerRunning = false; StopServerCallCount++; }
     public int StopServerCallCount { get; private set; }

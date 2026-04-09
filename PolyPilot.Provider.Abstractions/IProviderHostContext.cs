@@ -47,5 +47,6 @@ public enum ProviderConnectionMode
 public enum ProviderCliSource
 {
     BuiltIn,
-    System
+    System,
+    Custom
 }

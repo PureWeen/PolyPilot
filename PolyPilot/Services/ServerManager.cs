@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.Net.Sockets;
-using GitHub.Copilot.SDK;
 using PolyPilot.Models;
 
 namespace PolyPilot.Services;
@@ -64,8 +63,9 @@ public class ServerManager : IServerManager
     /// <summary>
     /// Start copilot in headless server mode, detached from app lifecycle
     /// </summary>
-    public async Task<bool> StartServerAsync(int port = 4321, string? githubToken = null)
+    public async Task<bool> StartServerAsync(ConnectionSettings settings, string? githubToken = null)
     {
+        var port = settings.Port;
         ServerPort = port;
         LastError = null;
 
@@ -78,39 +78,18 @@ public class ServerManager : IServerManager
 
         try
         {
-            // Use the native binary directly for better detachment
-            var copilotPath = FindCopilotBinary();
-            var psi = new ProcessStartInfo
+            // Use the configured binary directly for better detachment.
+            var copilotPath = FindCopilotBinary(settings);
+            if (string.IsNullOrWhiteSpace(copilotPath))
             {
-                FileName = copilotPath,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                RedirectStandardInput = false
-            };
-
-            // Forward the GitHub token via environment variable so the headless server
-            // can authenticate even when the macOS Keychain is inaccessible (e.g., the
-            // Keychain entry was created in a terminal session and the ACL dialog can't
-            // be shown for a background process).
-            if (!string.IsNullOrEmpty(githubToken))
-            {
-                psi.Environment["COPILOT_GITHUB_TOKEN"] = githubToken;
-                Console.WriteLine("[ServerManager] Passing COPILOT_GITHUB_TOKEN to headless server");
+                LastError = settings.CliSource == CliSourceMode.Custom
+                    ? "Custom CLI source is selected, but no executable path is configured."
+                    : "Failed to locate a Copilot CLI executable.";
+                Console.WriteLine($"[ServerManager] {LastError}");
+                return false;
             }
 
-            // Use ArgumentList for proper escaping (especially MCP JSON)
-            psi.ArgumentList.Add("--headless");
-            psi.ArgumentList.Add("--no-auto-update");
-            psi.ArgumentList.Add("--log-level");
-            psi.ArgumentList.Add("info");
-            psi.ArgumentList.Add("--port");
-            psi.ArgumentList.Add(port.ToString());
-
-            // Pass additional MCP server configs so tools are available
-            foreach (var arg in CopilotService.GetMcpCliArgs())
-                psi.ArgumentList.Add(arg);
+            var psi = CreateStartInfo(settings, copilotPath, port, githubToken);
 
             var process = Process.Start(psi);
             if (process == null)
@@ -167,6 +146,46 @@ public class ServerManager : IServerManager
             Console.WriteLine($"[ServerManager] Error starting server: {ex.Message}");
             return false;
         }
+    }
+
+    internal static ProcessStartInfo CreateStartInfo(ConnectionSettings settings, string cliPath, int port, string? githubToken = null)
+    {
+        var psi = new ProcessStartInfo
+        {
+            FileName = cliPath,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            RedirectStandardInput = false
+        };
+
+        // Forward the GitHub token via environment variable so the headless server
+        // can authenticate without the app trying to read platform credential stores.
+        if (!string.IsNullOrEmpty(githubToken))
+        {
+            psi.Environment["COPILOT_GITHUB_TOKEN"] = githubToken;
+            Console.WriteLine("[ServerManager] Passing COPILOT_GITHUB_TOKEN to headless server");
+        }
+
+        foreach (var arg in BuildLaunchArguments(settings, port))
+            psi.ArgumentList.Add(arg);
+
+        return psi;
+    }
+
+    internal static string[] BuildLaunchArguments(ConnectionSettings settings, int port)
+    {
+        var args = new List<string>();
+        args.AddRange(CopilotService.GetCustomCliArgs(settings));
+        args.Add("--headless");
+        args.Add("--no-auto-update");
+        args.Add("--log-level");
+        args.Add("info");
+        args.Add("--port");
+        args.Add(port.ToString());
+        args.AddRange(CopilotService.GetMcpCliArgs());
+        return args.ToArray();
     }
 
     /// <summary>
@@ -248,51 +267,20 @@ public class ServerManager : IServerManager
         try { File.Delete(PidFilePath); } catch { }
     }
 
-    private static string FindCopilotBinary()
+    private static string? FindCopilotBinary(ConnectionSettings settings)
     {
-        // Prefer the SDK-bundled binary — it's guaranteed to match the SDK's protocol version.
-        // System-installed CLIs may have been updated independently and could have a mismatched protocol.
-        var bundledPath = CopilotService.ResolveBundledCliPath();
-        if (bundledPath != null)
-            return bundledPath;
-
-        Console.WriteLine($"[ServerManager] Bundled copilot binary not found. " +
-            $"Assembly.Location='{typeof(CopilotClient).Assembly.Location}', " +
-            $"AppContext.BaseDirectory='{AppContext.BaseDirectory}'");
-
-        // Fall back to platform-specific native binaries (system-installed)
-        var nativePaths = new List<string>();
-
-        if (OperatingSystem.IsWindows())
+        var resolvedPath = CopilotService.ResolveCopilotCliPath(settings.CliSource, settings.CustomCliPath);
+        if (!string.IsNullOrWhiteSpace(resolvedPath))
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            nativePaths.AddRange(new[]
-            {
-                Path.Combine(appData, "npm", "node_modules", "@github", "copilot", "node_modules", "@github", "copilot-win-x64", "copilot.exe"),
-                Path.Combine(localAppData, "npm", "node_modules", "@github", "copilot", "node_modules", "@github", "copilot-win-x64", "copilot.exe"),
-                Path.Combine(appData, "npm", "copilot.cmd"),
-            });
-        }
-        else
-        {
-            nativePaths.AddRange(new[]
-            {
-                "/opt/homebrew/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
-                "/usr/local/lib/node_modules/@github/copilot/node_modules/@github/copilot-darwin-arm64/copilot",
-            });
+            if (settings.CliSource == CliSourceMode.Custom)
+                Console.WriteLine($"[ServerManager] Using configured custom CLI: {resolvedPath}");
+            return resolvedPath;
         }
 
-        foreach (var path in nativePaths)
-        {
-            if (File.Exists(path))
-            {
-                Console.WriteLine($"[ServerManager] Using system copilot binary: {path}");
-                return path;
-            }
-        }
+        if (settings.CliSource == CliSourceMode.Custom)
+            return null;
 
-        // Fallback to node wrapper (works if copilot is on PATH)
+        // Final PATH lookup fallback.
         Console.WriteLine("[ServerManager] WARNING: No copilot binary found at any known path, falling back to PATH lookup");
         return OperatingSystem.IsWindows() ? "copilot.cmd" : "copilot";
     }

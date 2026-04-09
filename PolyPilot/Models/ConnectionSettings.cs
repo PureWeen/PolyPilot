@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -41,7 +42,8 @@ public enum UiTheme
 public enum CliSourceMode
 {
     BuiltIn,   // Use the CLI bundled with the app
-    System     // Use the CLI installed on the system (PATH, homebrew, npm)
+    System,    // Use the CLI installed on the system (PATH, homebrew, npm)
+    Custom     // Use a user-specified executable path (plus optional launcher args)
 }
 
 public enum VsCodeVariant
@@ -116,6 +118,8 @@ public class ConnectionSettings
     public UiTheme Theme { get; set; } = UiTheme.System;
     public bool AutoUpdateFromMain { get; set; } = false;
     public CliSourceMode CliSource { get; set; } = CliSourceMode.BuiltIn;
+    public string? CustomCliPath { get; set; }
+    public string? CustomCliArguments { get; set; }
     public VsCodeVariant Editor { get; set; } = VsCodeVariant.Stable;
     public string? RepositoryStorageRoot { get; set; }
     public List<string> DisabledMcpServers { get; set; } = new();
@@ -269,6 +273,8 @@ public class ConnectionSettings
         if (!PlatformHelper.AvailableModes.Contains(settings.Mode))
             settings.Mode = PlatformHelper.DefaultMode;
         settings.RepositoryStorageRoot = NormalizeRepositoryStorageRoot(settings.RepositoryStorageRoot);
+        settings.CustomCliPath = NormalizeCustomCliPath(settings.CustomCliPath);
+        settings.CustomCliArguments = NormalizeCustomCliArguments(settings.CustomCliArguments);
 
         NormalizeEnumFields(settings);
 
@@ -292,6 +298,85 @@ public class ConnectionSettings
         if (string.IsNullOrWhiteSpace(path))
             return null;
         return path.Trim();
+    }
+
+    public static string? NormalizeCustomCliPath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path))
+            return null;
+        return path.Trim();
+    }
+
+    public static string? NormalizeCustomCliArguments(string? args)
+    {
+        if (string.IsNullOrWhiteSpace(args))
+            return null;
+        return args.Trim();
+    }
+
+    internal static IReadOnlyList<string> SplitCommandLineArguments(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+            return Array.Empty<string>();
+
+        var args = new List<string>();
+        var current = new StringBuilder();
+        char? quote = null;
+        var escaping = false;
+
+        foreach (var ch in raw)
+        {
+            if (escaping)
+            {
+                current.Append(ch);
+                escaping = false;
+                continue;
+            }
+
+            if (ch == '\\' && quote != '\'')
+            {
+                escaping = true;
+                continue;
+            }
+
+            if (quote is not null)
+            {
+                if (ch == quote.Value)
+                {
+                    quote = null;
+                    continue;
+                }
+
+                current.Append(ch);
+                continue;
+            }
+
+            if (ch == '"' || ch == '\'')
+            {
+                quote = ch;
+                continue;
+            }
+
+            if (char.IsWhiteSpace(ch))
+            {
+                if (current.Length > 0)
+                {
+                    args.Add(current.ToString());
+                    current.Clear();
+                }
+                continue;
+            }
+
+            current.Append(ch);
+        }
+
+        if (escaping)
+            current.Append('\\');
+
+        if (current.Length > 0)
+            args.Add(current.ToString());
+
+        return args;
     }
 
     /// <summary>Normalize invalid enum values to safe defaults. Testable separately from Load().</summary>
