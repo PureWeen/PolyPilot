@@ -21,6 +21,37 @@
     margin: 0 0 16px;
 }
 
+.tutorial-overall-progress {
+    margin-bottom: 16px;
+}
+
+.progress-label {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--type-footnote);
+    color: var(--text-muted);
+    margin-bottom: 6px;
+}
+
+.progress-value {
+    font-variant-numeric: tabular-nums;
+    color: var(--text-secondary);
+}
+
+.progress-track {
+    height: 6px;
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent-primary), var(--accent-success));
+    border-radius: 3px;
+    transition: width 0.4s ease;
+}
+
 .tutorial-page-actions {
     display: flex;
     gap: 10px;
@@ -46,16 +77,42 @@
     border: 1px solid var(--border-subtle);
     border-radius: 8px;
     cursor: pointer;
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color 0.15s, background 0.15s, transform 0.15s;
 }
 
 .tutorial-chapter-card:hover {
     border-color: var(--accent-primary);
     background: var(--bg-tertiary);
+    transform: translateY(-1px);
 }
 
 .tutorial-chapter-card.completed {
     border-color: var(--accent-success);
+}
+
+.tutorial-chapter-card.completed:hover {
+    border-color: var(--accent-success);
+}
+
+.chapter-number {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    background: var(--bg-tertiary);
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--type-callout);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    margin-top: 1px;
+}
+
+.tutorial-chapter-card.completed .chapter-number {
+    background: rgba(var(--accent-rgb), 0.12);
+    color: var(--accent-primary);
 }
 
 .chapter-card-body {
@@ -92,9 +149,18 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: var(--type-footnote);
-    font-weight: 700;
     margin-top: 2px;
+}
+
+.tutorial-page-footer {
+    margin-top: 24px;
+    text-align: center;
+}
+
+.tutorial-page-footer p {
+    font-size: var(--type-footnote);
+    color: var(--text-muted);
+    margin: 0;
 }
 
 /* Shared button styles (also used by overlay) */
@@ -125,4 +191,10 @@
 .tutorial-btn-secondary:hover {
     background: var(--hover-bg);
     color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+    .tutorial-chapters-grid {
+        grid-template-columns: 1fr;
+    }
 }

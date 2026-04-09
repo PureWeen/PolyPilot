@@ -5252,6 +5252,7 @@ public class UiState
     public int GridColumns { get; set; } = 3;
     public int CardMinHeight { get; set; } = 250;
     public bool SidebarRailMode { get; set; }
+    public bool HasSeenTutorialPrompt { get; set; }
 }
 
 public class ActiveSessionEntry
