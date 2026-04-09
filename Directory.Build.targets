@@ -1,0 +1,15 @@
+<Project>
+  <ItemGroup Condition="'$(CopilotSdkProjectPath)' != ''">
+    <PackageReference Remove="GitHub.Copilot.SDK" />
+    <ProjectReference Include="$(CopilotSdkProjectPath)" />
+  </ItemGroup>
+
+  <Target Name="_ValidateLocalCopilotSdkProject"
+          BeforeTargets="CollectPackageReferences;ResolveReferences"
+          Condition="'$(CopilotSdkProjectPath)' != ''">
+    <Error Condition="!Exists('$(CopilotSdkProjectPath)')"
+           Text="CopilotSdkProjectPath points to '$(CopilotSdkProjectPath)', but that project file was not found. Update Directory.Build.props.local or remove the override." />
+    <Message Importance="High"
+             Text="Using local GitHub.Copilot.SDK project reference: $(CopilotSdkProjectPath)" />
+  </Target>
+</Project>

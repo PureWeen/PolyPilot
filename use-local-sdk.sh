@@ -1,118 +1,112 @@
 #!/bin/bash
-# Builds PolyPilot against a local source build of the Copilot SDK.
+# Opt in to building PolyPilot against a local copilot-sdk checkout via ProjectReference.
 #
 # Usage:
-#   ./use-local-sdk.sh [path-to-sdk]    # Switch to local SDK
-#   ./use-local-sdk.sh --revert         # Switch back to NuGet package
+#   ./use-local-sdk.sh [path-to-sdk]    # Create/update Directory.Build.props.local
+#   ./use-local-sdk.sh --revert         # Remove the local override
+#   ./use-local-sdk.sh --help           # Show help
 #
-# The SDK path defaults to ../copilot-sdk (sibling directory). Override with:
+# The SDK path defaults to ../copilot-sdk (a sibling directory). Override with:
 #   ./use-local-sdk.sh /path/to/copilot-sdk
 #   COPILOT_SDK_PATH=/path/to/copilot-sdk ./use-local-sdk.sh
 #
-# First-time setup:
-#   git clone https://github.com/github/copilot-sdk.git ../copilot-sdk
-#   # Or use PureWeen's fork with PolyPilot-specific fixes:
-#   git clone https://github.com/PureWeen/copilot-sdk.git ../copilot-sdk
-#   cd ../copilot-sdk && git checkout upstream_validation
-#
-# What it does:
-#   1. Packs the local SDK as a NuGet package (version 0.3.0-local)
-#   2. Adds a local NuGet source to nuget.config
-#   3. Updates all csproj references to 0.3.0-local
-#   4. Clears NuGet cache to force re-resolve
-#
-# To iterate on SDK changes:
-#   1. Edit code in the copilot-sdk/dotnet/src/ directory
-#   2. Re-run ./use-local-sdk.sh (rebuilds + re-packs automatically)
-#   3. Build PolyPilot normally (dotnet build or ./relaunch.sh)
+# This is compile-time only: it changes which GitHub.Copilot.SDK project PolyPilot builds
+# against. Runtime CLI selection still comes from PolyPilot settings (Global vs Built-in).
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-LOCAL_VERSION="0.3.0-local"
+OVERRIDE_FILE="$SCRIPT_DIR/Directory.Build.props.local"
 
-# Resolve SDK path: argument > env var > default sibling directory
-if [ "$1" != "--revert" ] && [ -n "$1" ]; then
+usage() {
+    cat <<EOF
+Build PolyPilot against a local copilot-sdk checkout from source.
+
+Usage:
+  ./use-local-sdk.sh [path-to-sdk]
+  ./use-local-sdk.sh --revert
+
+Examples:
+  ./use-local-sdk.sh
+  ./use-local-sdk.sh /Users/you/Projects/copilot-sdk
+  COPILOT_SDK_PATH=/Users/you/src/copilot-sdk ./use-local-sdk.sh
+
+What this does:
+  - writes a gitignored Directory.Build.props.local file
+  - sets CopilotSdkProjectPath to the local GitHub.Copilot.SDK.csproj
+  - runs dotnet restore so PolyPilot starts building the SDK from source
+
+What it does NOT do:
+  - it does not modify tracked csproj files or nuget.config
+  - it does not change PolyPilot's runtime CLI source (Global vs Built-in)
+EOF
+}
+
+if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
+    usage
+    exit 0
+fi
+
+if [ "$1" = "--revert" ]; then
+    echo "Removing local copilot-sdk override..."
+    cd "$SCRIPT_DIR"
+
+    if [ -f "$OVERRIDE_FILE" ]; then
+        rm "$OVERRIDE_FILE"
+        dotnet restore PolyPilot.slnx --force --nologo
+        echo "Done. PolyPilot is back to the normal package-based SDK reference."
+    else
+        echo "No Directory.Build.props.local file was present. Nothing to do."
+    fi
+
+    exit 0
+fi
+
+if [ -n "$1" ]; then
     SDK_DIR="$1"
 elif [ -n "$COPILOT_SDK_PATH" ]; then
     SDK_DIR="$COPILOT_SDK_PATH"
 else
     SDK_DIR="$SCRIPT_DIR/../copilot-sdk"
 fi
-NUPKG_DIR="$SDK_DIR/dotnet/nupkg"
 
-if [ "$1" = "--revert" ]; then
-    echo "⏪ Reverting to NuGet package..."
-    cd "$SCRIPT_DIR"
-    git checkout -- nuget.config \
-        PolyPilot/PolyPilot.csproj \
-        PolyPilot.Tests/PolyPilot.Tests.csproj \
-        PolyPilot.Provider.Abstractions/PolyPilot.Provider.Abstractions.csproj \
-        PolyPilot.Gtk/PolyPilot.Gtk.csproj \
-        PolyPilot.Console/PolyPilot.csproj 2>/dev/null || true
-    rm -rf ~/.nuget/packages/github.copilot.sdk/$LOCAL_VERSION
-    echo "✅ Reverted to NuGet SDK. Run 'dotnet restore' to re-resolve."
-    exit 0
-fi
+SDK_PROJECT="$SDK_DIR/dotnet/src/GitHub.Copilot.SDK.csproj"
 
-# Validate SDK path
-if [ ! -d "$SDK_DIR/dotnet/src" ]; then
-    echo "❌ Copilot SDK not found at: $SDK_DIR"
-    echo ""
-    echo "Clone it first:"
+if [ ! -f "$SDK_PROJECT" ]; then
+    echo "Copilot SDK project not found at:"
+    echo "  $SDK_PROJECT"
+    echo
+    echo "Clone it first, for example:"
     echo "  git clone https://github.com/PureWeen/copilot-sdk.git $SDK_DIR"
     echo "  cd $SDK_DIR && git checkout upstream_validation"
-    echo ""
-    echo "Or specify a custom path:"
+    echo
+    echo "Or pass a custom path:"
     echo "  ./use-local-sdk.sh /path/to/copilot-sdk"
-    echo "  COPILOT_SDK_PATH=/path/to/sdk ./use-local-sdk.sh"
     exit 1
 fi
 
-echo "📦 Building local Copilot SDK..."
-echo "   Source: $SDK_DIR (branch: $(cd "$SDK_DIR" && git branch --show-current 2>/dev/null || echo 'detached'))"
-cd "$SDK_DIR/dotnet"
-rm -rf nupkg
-dotnet pack src/GitHub.Copilot.SDK.csproj -c Debug -o ./nupkg -p:Version=$LOCAL_VERSION --nologo 2>&1 | tail -3
+# Canonicalize to absolute path so MSBuild resolves it correctly from any project directory
+SDK_PROJECT="$(cd "$(dirname "$SDK_PROJECT")" && pwd)/$(basename "$SDK_PROJECT")"
 
-if [ ! -f "$NUPKG_DIR/GitHub.Copilot.SDK.$LOCAL_VERSION.nupkg" ]; then
-    echo "❌ Pack failed — nupkg not found"
-    exit 1
-fi
-
-echo "🔧 Updating PolyPilot references..."
 cd "$SCRIPT_DIR"
 
-# Update nuget.config — add local source if not present
-if ! grep -q "local-sdk" nuget.config; then
-    sed -i '' '/<clear \/>/a\
-    <add key="local-sdk" value="'"$NUPKG_DIR"'" />' nuget.config
-    sed -i '' '/<packageSourceMapping>/a\
-    <packageSource key="local-sdk">\
-      <package pattern="GitHub.Copilot.SDK" />\
-    </packageSource>' nuget.config
-else
-    # Update the path in case SDK location changed
-    sed -i '' 's|key="local-sdk" value="[^"]*"|key="local-sdk" value="'"$NUPKG_DIR"'"|' nuget.config
-fi
+cat > "$OVERRIDE_FILE" <<EOF
+<Project>
+  <PropertyGroup>
+    <!-- Local-only override generated by use-local-sdk.sh. This file is gitignored. -->
+    <CopilotSdkProjectPath>$SDK_PROJECT</CopilotSdkProjectPath>
+  </PropertyGroup>
+</Project>
+EOF
 
-# Update all csproj files
-for f in PolyPilot/PolyPilot.csproj PolyPilot.Tests/PolyPilot.Tests.csproj \
-         PolyPilot.Provider.Abstractions/PolyPilot.Provider.Abstractions.csproj \
-         PolyPilot.Gtk/PolyPilot.Gtk.csproj PolyPilot.Console/PolyPilot.csproj; do
-    if [ -f "$f" ]; then
-        sed -i '' 's/GitHub.Copilot.SDK" Version="[^"]*"/GitHub.Copilot.SDK" Version="'"$LOCAL_VERSION"'"/g' "$f"
-    fi
-done
+dotnet restore PolyPilot.slnx --force --nologo
 
-# Clear cached local package so dotnet picks up the fresh build
-rm -rf ~/.nuget/packages/github.copilot.sdk/$LOCAL_VERSION
-
-echo "🔄 Restoring..."
-dotnet restore PolyPilot/PolyPilot.csproj --force --nologo 2>&1 | tail -3
-
-echo ""
-echo "✅ PolyPilot now uses local Copilot SDK ($LOCAL_VERSION)"
-echo "   SDK source: $SDK_DIR"
-echo "   To rebuild after SDK changes: ./use-local-sdk.sh $([ "$SDK_DIR" != "$SCRIPT_DIR/../copilot-sdk" ] && echo "$SDK_DIR")"
-echo "   To revert to NuGet:           ./use-local-sdk.sh --revert"
+echo
+echo "PolyPilot is now configured to build GitHub.Copilot.SDK from source:"
+echo "  $SDK_PROJECT"
+echo
+echo "This only affects compile-time references."
+echo "Runtime CLI selection still comes from PolyPilot settings."
+echo
+echo "To switch back to the package reference later:"
+echo "  ./use-local-sdk.sh --revert"
