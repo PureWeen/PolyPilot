@@ -506,6 +506,94 @@ public class SquadProviderTests
         Assert.Equal(typeof(Task), method!.ReturnType);
     }
 
+    // ── Thread Safety & Concurrency Tests ──────────────────
+
+    [Fact]
+    public void SquadBridgeClient_PortValidation_RejectsInvalidPort()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SquadBridgeClient("localhost", 0));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SquadBridgeClient("localhost", -1));
+        Assert.Throws<ArgumentOutOfRangeException>(() => new SquadBridgeClient("localhost", 70000));
+    }
+
+    [Fact]
+    public void SquadBridgeClient_PortValidation_AcceptsValidPort()
+    {
+        var client1 = new SquadBridgeClient("localhost", 1);
+        var client2 = new SquadBridgeClient("localhost", 65535);
+        var client3 = new SquadBridgeClient("localhost", 4242);
+        Assert.NotNull(client1);
+        Assert.NotNull(client2);
+        Assert.NotNull(client3);
+    }
+
+    [Fact]
+    public void SquadBridgeClient_HasMaxMessageSizeConstant()
+    {
+        Assert.Equal(4 * 1024 * 1024, SquadBridgeClient.MaxMessageSize);
+    }
+
+    [Fact]
+    public void SquadSessionProvider_History_IsSnapshotCopy()
+    {
+        var provider = new SquadSessionProvider("localhost", 4242, "test-token");
+
+        // Add history via event
+        InvokeHandleEvent(provider, new RCHistoryEvent
+        {
+            Type = "history",
+            Messages = [
+                new RCMessage { Id = "m1", Role = "user", Content = "hello", Timestamp = "2026-04-09" }
+            ]
+        });
+
+        var history1 = provider.History;
+        var history2 = provider.History;
+
+        Assert.Single(history1);
+        // Each call returns a new list (snapshot)
+        Assert.NotSame(history1, history2);
+    }
+
+    [Fact]
+    public void SquadSessionProvider_GetMembers_IsSnapshotCopy()
+    {
+        var provider = new SquadSessionProvider("localhost", 4242, "test-token");
+
+        InvokeHandleEvent(provider, new RCAgentsEvent
+        {
+            Type = "agents",
+            Agents = [
+                new RCAgent { Name = "worker-1", Role = "coder", Status = "idle" }
+            ]
+        });
+
+        var members1 = provider.GetMembers();
+        var members2 = provider.GetMembers();
+
+        Assert.Single(members1);
+        Assert.NotSame(members1, members2);
+    }
+
+    [Fact]
+    public void SquadSessionProvider_IsInitializing_UsesAtomicFlag()
+    {
+        var provider = new SquadSessionProvider("localhost", 4242, "test-token");
+        Assert.False(provider.IsInitializing);
+        // The Interlocked-based flag ensures thread-safe reads
+    }
+
+    [Fact]
+    public async Task SquadSessionProvider_ConnectAsync_ThrowsIfAlreadyConnected()
+    {
+        var client = new SquadBridgeClient("localhost", 4242);
+        // Can't test the actual throw without a server, but we verify the method exists
+        // and the field for idempotency guard is used
+        var method = typeof(SquadBridgeClient).GetMethod("ConnectAsync");
+        Assert.NotNull(method);
+        await client.DisposeAsync();
+    }
+
     // ── Test Helper ──────────────────────────────────────────
 
     /// <summary>

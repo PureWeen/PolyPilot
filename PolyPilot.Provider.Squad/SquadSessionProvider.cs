@@ -28,13 +28,17 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
 
     // ── Lifecycle ────────────────────────────────────────────
     public bool IsInitialized { get; private set; }
-    public bool IsInitializing { get; private set; }
+    public bool IsInitializing => Interlocked.CompareExchange(ref _initializing, 0, 0) == 1;
+    private int _initializing;
 
     // ── Leader Session ──────────────────────────────────────
     public string LeaderDisplayName => "Squad Coordinator";
     public string LeaderIcon => "🫡";
     public bool IsProcessing { get; private set; }
-    public IReadOnlyList<ProviderChatMessage> History => _history;
+    public IReadOnlyList<ProviderChatMessage> History
+    {
+        get { lock (_historyLock) return _history.ToList(); }
+    }
 
     // ── Configuration ────────────────────────────────────────
     private readonly string _host;
@@ -46,7 +50,9 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
     private SquadBridgeClient? _client;
     private RCStatusEvent? _statusInfo;
     private readonly List<ProviderChatMessage> _history = [];
+    private readonly object _historyLock = new();
     private readonly List<ProviderMember> _members = [];
+    private readonly object _membersLock = new();
     private readonly ConcurrentDictionary<string, ProviderPermissionRequest> _pendingPermissions = new();
 
     // Track which agents have active turns for member event routing
@@ -96,8 +102,9 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
 
     public async Task InitializeAsync(CancellationToken ct = default)
     {
-        if (IsInitialized || IsInitializing) return;
-        IsInitializing = true;
+        if (IsInitialized) return;
+        if (Interlocked.CompareExchange(ref _initializing, 1, 0) != 0) return;
+
         OnStateChanged?.Invoke();
 
         try
@@ -124,12 +131,19 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
         }
         catch (Exception ex)
         {
+            // Clean up on failure so client isn't leaked
+            if (_client != null)
+            {
+                _client.OnEvent -= HandleEvent;
+                try { await _client.DisposeAsync(); } catch { /* best effort */ }
+                _client = null;
+            }
             _logger?.Error($"Failed to connect to Squad RemoteBridge: {ex.Message}", ex);
             throw;
         }
         finally
         {
-            IsInitializing = false;
+            Interlocked.Exchange(ref _initializing, 0);
             OnStateChanged?.Invoke();
         }
     }
@@ -138,8 +152,8 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
     {
         if (_client != null)
         {
-            await _client.DisconnectAsync();
             _client.OnEvent -= HandleEvent;
+            await _client.DisconnectAsync();
         }
         IsInitialized = false;
         IsProcessing = false;
@@ -155,8 +169,8 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
         _logger?.Info("Reconnecting to Squad RemoteBridge...");
         await ShutdownAsync();
 
-        _members.Clear();
-        _history.Clear();
+        lock (_membersLock) _members.Clear();
+        lock (_historyLock) _history.Clear();
         _pendingPermissions.Clear();
         _activeTurns.Clear();
         _activeToolCalls.Clear();
@@ -175,13 +189,16 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
 
         IsProcessing = true;
 
-        _history.Add(new ProviderChatMessage
+        lock (_historyLock)
         {
-            Role = "user",
-            Content = message,
-            Timestamp = DateTime.UtcNow,
-            Type = ProviderMessageType.User
-        });
+            _history.Add(new ProviderChatMessage
+            {
+                Role = "user",
+                Content = message,
+                Timestamp = DateTime.UtcNow,
+                Type = ProviderMessageType.User
+            });
+        }
 
         OnTurnStart?.Invoke();
         OnStateChanged?.Invoke();
@@ -200,7 +217,10 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
         return message;
     }
 
-    public IReadOnlyList<ProviderMember> GetMembers() => _members;
+    public IReadOnlyList<ProviderMember> GetMembers()
+    {
+        lock (_membersLock) return _members.ToList();
+    }
 
     // ── Custom Actions ───────────────────────────────────────
 
@@ -315,18 +335,21 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
 
     private void HandleHistory(RCHistoryEvent history)
     {
-        _history.Clear();
-        foreach (var msg in history.Messages)
+        lock (_historyLock)
         {
-            _history.Add(new ProviderChatMessage
+            _history.Clear();
+            foreach (var msg in history.Messages)
             {
-                Role = msg.Role == "user" ? "user" : "assistant",
-                Content = msg.Content,
-                Timestamp = DateTime.TryParse(msg.Timestamp, out var ts) ? ts : DateTime.UtcNow,
-                Type = msg.Role == "user" ? ProviderMessageType.User
-                     : msg.Role == "system" ? ProviderMessageType.System
-                     : ProviderMessageType.Assistant,
-            });
+                _history.Add(new ProviderChatMessage
+                {
+                    Role = msg.Role == "user" ? "user" : "assistant",
+                    Content = msg.Content,
+                    Timestamp = DateTime.TryParse(msg.Timestamp, out var ts) ? ts : DateTime.UtcNow,
+                    Type = msg.Role == "user" ? ProviderMessageType.User
+                         : msg.Role == "system" ? ProviderMessageType.System
+                         : ProviderMessageType.Assistant,
+                });
+            }
         }
         OnStateChanged?.Invoke();
     }
@@ -353,13 +376,16 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
     private void HandleComplete(RCCompleteEvent complete)
     {
         var msg = complete.Message;
-        _history.Add(new ProviderChatMessage
+        lock (_historyLock)
         {
-            Role = msg.Role == "user" ? "user" : "assistant",
-            Content = msg.Content,
-            Timestamp = DateTime.TryParse(msg.Timestamp, out var ts) ? ts : DateTime.UtcNow,
-            Type = msg.Role == "user" ? ProviderMessageType.User : ProviderMessageType.Assistant,
-        });
+            _history.Add(new ProviderChatMessage
+            {
+                Role = msg.Role == "user" ? "user" : "assistant",
+                Content = msg.Content,
+                Timestamp = DateTime.TryParse(msg.Timestamp, out var ts) ? ts : DateTime.UtcNow,
+                Type = msg.Role == "user" ? ProviderMessageType.User : ProviderMessageType.Assistant,
+            });
+        }
 
         // Check if this is from a member
         var memberId = msg.AgentName != null ? FindMemberId(msg.AgentName) : null;
@@ -379,24 +405,27 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
 
     private void HandleAgents(RCAgentsEvent agents)
     {
-        _members.Clear();
-        foreach (var agent in agents.Agents)
+        lock (_membersLock)
         {
-            _members.Add(new ProviderMember
+            _members.Clear();
+            foreach (var agent in agents.Agents)
             {
-                Id = agent.Name,
-                Name = agent.Name,
-                Role = agent.Role,
-                Icon = agent.Status switch
+                _members.Add(new ProviderMember
                 {
-                    "working" => "⚡",
-                    "streaming" => "✍️",
-                    "error" => "❌",
-                    _ => "👤"
-                },
-                IsActive = agent.Status is "working" or "streaming",
-                StatusText = agent.Status,
-            });
+                    Id = agent.Name,
+                    Name = agent.Name,
+                    Role = agent.Role,
+                    Icon = agent.Status switch
+                    {
+                        "working" => "⚡",
+                        "streaming" => "✍️",
+                        "error" => "❌",
+                        _ => "👤"
+                    },
+                    IsActive = agent.Status is "working" or "streaming",
+                    StatusText = agent.Status,
+                });
+            }
         }
         OnMembersChanged?.Invoke();
         OnStateChanged?.Invoke();
@@ -474,7 +503,8 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
     private string? FindMemberId(string? agentName)
     {
         if (string.IsNullOrEmpty(agentName)) return null;
-        return _members.Any(m => m.Id == agentName) ? agentName : null;
+        lock (_membersLock)
+            return _members.Any(m => m.Id == agentName) ? agentName : null;
     }
 
     public async ValueTask DisposeAsync()

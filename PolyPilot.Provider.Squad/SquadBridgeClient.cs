@@ -18,6 +18,11 @@ public class SquadBridgeClient : IAsyncDisposable
     private Task? _pingLoop;
     private readonly IPluginLogger? _logger;
     private string? _sessionToken;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private bool _disposed;
+
+    /// <summary>Maximum WebSocket message size (4 MB). Messages exceeding this are rejected.</summary>
+    public const int MaxMessageSize = 4 * 1024 * 1024;
 
     public bool IsConnected => _ws?.State == WebSocketState.Open;
     public string? Repo { get; private set; }
@@ -35,6 +40,8 @@ public class SquadBridgeClient : IAsyncDisposable
 
     public SquadBridgeClient(string host, int port, IPluginLogger? logger = null)
     {
+        if (port is < 1 or > 65535)
+            throw new ArgumentOutOfRangeException(nameof(port), port, "Port must be between 1 and 65535");
         _baseUri = new Uri($"http://{host}:{port}");
         _logger = logger;
     }
@@ -45,24 +52,38 @@ public class SquadBridgeClient : IAsyncDisposable
     /// </summary>
     public async Task ConnectAsync(string sessionToken, CancellationToken ct = default)
     {
+        if (_ws?.State == WebSocketState.Open)
+            throw new InvalidOperationException("Already connected. Call DisconnectAsync first.");
+
         _sessionToken = sessionToken;
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         // Step 1: Exchange session token for a one-time WebSocket ticket
         var ticket = await AcquireTicketAsync(_cts.Token);
 
-        // Step 2: Connect WebSocket with the ticket
+        // Step 2: Connect WebSocket with the ticket (prefer ticket over token-in-URL)
         _ws = new ClientWebSocket();
         var wsUri = new UriBuilder(_baseUri)
         {
             Scheme = _baseUri.Scheme == "https" ? "wss" : "ws",
             Path = "/",
-            Query = ticket != null ? $"ticket={ticket}" : $"token={sessionToken}"
+            Query = ticket != null ? $"ticket={ticket}" : ""
         }.Uri;
 
-        await _ws.ConnectAsync(wsUri, _cts.Token);
-        _logger?.Info($"WebSocket connected to {_baseUri}");
+        try
+        {
+            await _ws.ConnectAsync(wsUri, _cts.Token);
+        }
+        catch
+        {
+            _ws.Dispose();
+            _ws = null;
+            _cts.Dispose();
+            _cts = null;
+            throw;
+        }
 
+        _logger?.Info($"WebSocket connected to {_baseUri}");
         OnConnected?.Invoke();
 
         // Start receive and ping loops
@@ -78,7 +99,7 @@ public class SquadBridgeClient : IAsyncDisposable
             http.DefaultRequestHeaders.Authorization =
                 new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", _sessionToken);
 
-            var response = await http.PostAsync(new Uri(_baseUri, "/api/auth/ticket"), null, ct);
+            using var response = await http.PostAsync(new Uri(_baseUri, "/api/auth/ticket"), null, ct);
             if (!response.IsSuccessStatusCode)
             {
                 _logger?.Warning($"Ticket endpoint returned {response.StatusCode}, falling back to token auth");
@@ -87,7 +108,11 @@ public class SquadBridgeClient : IAsyncDisposable
 
             var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
-            return doc.RootElement.GetProperty("ticket").GetString();
+            if (doc.RootElement.TryGetProperty("ticket", out var ticketProp))
+                return ticketProp.GetString();
+
+            _logger?.Warning("Ticket response missing 'ticket' property");
+            return null;
         }
         catch (Exception ex)
         {
@@ -99,7 +124,7 @@ public class SquadBridgeClient : IAsyncDisposable
     private async Task ReceiveLoopAsync(CancellationToken ct)
     {
         var buffer = new byte[16 * 1024];
-        var messageBuffer = new MemoryStream();
+        using var messageBuffer = new MemoryStream();
 
         try
         {
@@ -114,6 +139,18 @@ public class SquadBridgeClient : IAsyncDisposable
                 }
 
                 messageBuffer.Write(buffer, 0, result.Count);
+
+                // Enforce max message size to prevent OOM
+                if (messageBuffer.Length > MaxMessageSize)
+                {
+                    _logger?.Warning($"Message exceeds {MaxMessageSize} bytes, dropping");
+                    messageBuffer.SetLength(0);
+                    // Drain remaining frames of this message
+                    while (!result.EndOfMessage && !ct.IsCancellationRequested)
+                        result = await _ws.ReceiveAsync(buffer, ct);
+                    continue;
+                }
+
                 if (!result.EndOfMessage) continue;
 
                 var text = Encoding.UTF8.GetString(messageBuffer.GetBuffer(), 0, (int)messageBuffer.Length);
@@ -135,7 +172,12 @@ public class SquadBridgeClient : IAsyncDisposable
         try
         {
             using var doc = JsonDocument.Parse(json);
-            var type = doc.RootElement.GetProperty("type").GetString();
+            if (!doc.RootElement.TryGetProperty("type", out var typeProp))
+            {
+                _logger?.Debug("RC event missing 'type' property");
+                return;
+            }
+            var type = typeProp.GetString();
 
             RCEvent? evt = type switch
             {
@@ -206,30 +248,62 @@ public class SquadBridgeClient : IAsyncDisposable
         if (_ws?.State != WebSocketState.Open) return;
         var json = JsonSerializer.Serialize(command, SquadProtocol.JsonOptions);
         var bytes = Encoding.UTF8.GetBytes(json);
-        await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+
+        await _sendLock.WaitAsync(ct);
+        try
+        {
+            if (_ws?.State == WebSocketState.Open)
+                await _ws.SendAsync(bytes, WebSocketMessageType.Text, true, ct);
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
     }
 
     public async Task DisconnectAsync()
     {
+        if (_disposed) return;
+
         _cts?.Cancel();
+
+        // Await background loops to prevent dispose races
+        if (_receiveLoop != null)
+        {
+            try { await _receiveLoop.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch { /* timeout or cancellation — proceed */ }
+            _receiveLoop = null;
+        }
+        if (_pingLoop != null)
+        {
+            try { await _pingLoop.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch { /* timeout or cancellation — proceed */ }
+            _pingLoop = null;
+        }
 
         if (_ws?.State == WebSocketState.Open)
         {
             try
             {
-                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Client disconnect",
-                    new CancellationTokenSource(TimeSpan.FromSeconds(3)).Token);
+                using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(3));
+                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Client disconnect", closeCts.Token);
             }
             catch { /* best effort */ }
         }
 
         _ws?.Dispose();
         _ws = null;
+
+        _cts?.Dispose();
+        _cts = null;
     }
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         await DisconnectAsync();
-        _cts?.Dispose();
+        _sendLock.Dispose();
     }
 }

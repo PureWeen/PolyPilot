@@ -3202,7 +3202,19 @@ else
             }
             var stdout = await proc.StandardOutput.ReadToEndAsync();
             var stderr = await proc.StandardError.ReadToEndAsync();
-            await proc.WaitForExitAsync();
+
+            // Timeout after 60 seconds to avoid hanging forever
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+            try
+            {
+                await proc.WaitForExitAsync(cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                try { proc.Kill(entireProcessTree: true); } catch { }
+                _squadInitResult = "❌ squad init timed out after 60 seconds";
+                return;
+            }
 
             _squadInitResult = proc.ExitCode == 0
                 ? "✅ Squad initialized! Refresh to see your team."
