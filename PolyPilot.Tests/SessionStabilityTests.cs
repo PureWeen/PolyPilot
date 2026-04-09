@@ -139,7 +139,7 @@ public class SessionStabilityTests
     {
         // ForceCompleteProcessingAsync must delegate to ClearProcessingState rather than
         // manually clearing fields. ClearProcessingState calls ClearDeferredIdleTracking
-        // internally (without preserveCarryOver, which is only needed in SendPromptAsync).
+        // with preserveCarryOver: true so stale shell fingerprints survive across turns.
         var source = File.ReadAllText(TestPaths.OrganizationCs);
         var method = ExtractMethod(source, "Task ForceCompleteProcessingAsync");
 
