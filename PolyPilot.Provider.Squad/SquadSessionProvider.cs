@@ -52,6 +52,12 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
     // Track which agents have active turns for member event routing
     private readonly ConcurrentDictionary<string, bool> _activeTurns = new();
 
+    // Track active tool calls for callId correlation between running → completed/error
+    private readonly ConcurrentDictionary<(string Agent, string Tool), string> _activeToolCalls = new();
+
+    // Server protocol version (set on HandleStatus)
+    public string? ServerVersion { get; private set; }
+
     // ── Events ───────────────────────────────────────────────
     public event Action? OnMembersChanged;
     public event Action<string>? OnContentReceived;
@@ -138,6 +144,26 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
         IsInitialized = false;
         IsProcessing = false;
         _logger?.Info("SquadSessionProvider shut down");
+    }
+
+    /// <summary>
+    /// Disconnect and reconnect to the RemoteBridge. Clears local state
+    /// (members, history, pending permissions) and re-initializes.
+    /// </summary>
+    public async Task ReconnectAsync(CancellationToken ct = default)
+    {
+        _logger?.Info("Reconnecting to Squad RemoteBridge...");
+        await ShutdownAsync();
+
+        _members.Clear();
+        _history.Clear();
+        _pendingPermissions.Clear();
+        _activeTurns.Clear();
+        _activeToolCalls.Clear();
+        _statusInfo = null;
+        ServerVersion = null;
+
+        await InitializeAsync(ct);
     }
 
     // ── Messaging ────────────────────────────────────────────
@@ -270,7 +296,20 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
     private void HandleStatus(RCStatusEvent status)
     {
         _statusInfo = status;
-        _logger?.Info($"Squad status: {status.Repo} ({status.Branch}) on {status.Machine}");
+        ServerVersion = status.Version;
+        _logger?.Info($"Squad status: {status.Repo} ({status.Branch}) on {status.Machine}, protocol v{status.Version}");
+
+        // Protocol version check — warn if major version differs
+        var serverMajor = status.Version.Split('.').FirstOrDefault();
+        var clientMajor = SquadProtocol.ProtocolVersion.Split('.').FirstOrDefault();
+        if (serverMajor != clientMajor)
+        {
+            var msg = $"Protocol version mismatch: server v{status.Version}, client v{SquadProtocol.ProtocolVersion}. " +
+                      "Some features may not work correctly.";
+            _logger?.Warning(msg);
+            OnError?.Invoke(msg);
+        }
+
         OnStateChanged?.Invoke();
     }
 
@@ -365,7 +404,7 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
 
     private void HandleToolCall(RCToolCallEvent toolCall)
     {
-        var callId = $"{toolCall.AgentName}:{toolCall.Tool}:{DateTime.UtcNow.Ticks}";
+        var key = (toolCall.AgentName, toolCall.Tool);
         var argsStr = toolCall.Args?.ValueKind == JsonValueKind.Object
             ? toolCall.Args.Value.ToString()
             : null;
@@ -373,13 +412,17 @@ public class SquadSessionProvider : IPermissionAwareProvider, IAsyncDisposable
         switch (toolCall.Status)
         {
             case "running":
+                var callId = $"{toolCall.AgentName}:{toolCall.Tool}:{DateTime.UtcNow.Ticks}";
+                _activeToolCalls[key] = callId;
                 OnToolStarted?.Invoke(callId, toolCall.Tool, argsStr);
                 break;
             case "completed":
-                OnToolCompleted?.Invoke(callId, toolCall.Tool, true);
+                if (_activeToolCalls.TryRemove(key, out var completedId))
+                    OnToolCompleted?.Invoke(completedId, toolCall.Tool, true);
                 break;
             case "error":
-                OnToolCompleted?.Invoke(callId, toolCall.Tool, false);
+                if (_activeToolCalls.TryRemove(key, out var errorId))
+                    OnToolCompleted?.Invoke(errorId, toolCall.Tool, false);
                 break;
         }
         OnStateChanged?.Invoke();

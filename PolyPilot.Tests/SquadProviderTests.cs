@@ -378,4 +378,145 @@ public class SquadProviderTests
         Assert.Equal("perm-42", parsed.Id);
         Assert.False(parsed.Approved);
     }
+
+    // ── Tool Call ID Correlation Tests ────────────────────────
+
+    [Fact]
+    public void SquadSessionProvider_ToolCallId_CorrelatesBetweenStartAndComplete()
+    {
+        // Use reflection to invoke HandleEvent with synthetic events
+        var provider = new SquadSessionProvider("localhost", 4242, "test-token");
+
+        string? startedCallId = null;
+        string? completedCallId = null;
+        provider.OnToolStarted += (callId, tool, args) => startedCallId = callId;
+        provider.OnToolCompleted += (callId, tool, success) => completedCallId = callId;
+
+        // Simulate running → completed for the same agent+tool
+        var runningEvent = new RCToolCallEvent
+        {
+            Type = "tool_call",
+            AgentName = "worker-1",
+            Tool = "bash",
+            Status = "running"
+        };
+        var completedEvent = new RCToolCallEvent
+        {
+            Type = "tool_call",
+            AgentName = "worker-1",
+            Tool = "bash",
+            Status = "completed"
+        };
+
+        // Call HandleEvent via the internal dispatch path
+        InvokeHandleEvent(provider, runningEvent);
+        InvokeHandleEvent(provider, completedEvent);
+
+        Assert.NotNull(startedCallId);
+        Assert.NotNull(completedCallId);
+        Assert.Equal(startedCallId, completedCallId);
+    }
+
+    [Fact]
+    public void SquadSessionProvider_ToolCallId_CorrelatesBetweenStartAndError()
+    {
+        var provider = new SquadSessionProvider("localhost", 4242, "test-token");
+
+        string? startedCallId = null;
+        string? errorCallId = null;
+        provider.OnToolStarted += (callId, tool, args) => startedCallId = callId;
+        provider.OnToolCompleted += (callId, tool, success) =>
+        {
+            errorCallId = callId;
+            Assert.False(success);
+        };
+
+        InvokeHandleEvent(provider, new RCToolCallEvent
+        {
+            Type = "tool_call", AgentName = "worker-2", Tool = "file_write", Status = "running"
+        });
+        InvokeHandleEvent(provider, new RCToolCallEvent
+        {
+            Type = "tool_call", AgentName = "worker-2", Tool = "file_write", Status = "error"
+        });
+
+        Assert.NotNull(startedCallId);
+        Assert.Equal(startedCallId, errorCallId);
+    }
+
+    // ── Protocol Version Check Tests ─────────────────────────
+
+    [Fact]
+    public void SquadSessionProvider_VersionCheck_MatchingVersion_NoError()
+    {
+        var provider = new SquadSessionProvider("localhost", 4242, "test-token");
+        string? errorMsg = null;
+        provider.OnError += msg => errorMsg = msg;
+
+        InvokeHandleEvent(provider, new RCStatusEvent
+        {
+            Type = "status", Version = "1.0", Repo = "test", Branch = "main", Machine = "m1"
+        });
+
+        Assert.Null(errorMsg);
+        Assert.Equal("1.0", provider.ServerVersion);
+    }
+
+    [Fact]
+    public void SquadSessionProvider_VersionCheck_MismatchFiresError()
+    {
+        var provider = new SquadSessionProvider("localhost", 4242, "test-token");
+        string? errorMsg = null;
+        provider.OnError += msg => errorMsg = msg;
+
+        InvokeHandleEvent(provider, new RCStatusEvent
+        {
+            Type = "status", Version = "2.0", Repo = "test", Branch = "main", Machine = "m1"
+        });
+
+        Assert.NotNull(errorMsg);
+        Assert.Contains("Protocol version mismatch", errorMsg!);
+        Assert.Contains("2.0", errorMsg!);
+        Assert.Equal("2.0", provider.ServerVersion);
+    }
+
+    [Fact]
+    public void SquadSessionProvider_VersionCheck_MinorDiff_NoError()
+    {
+        var provider = new SquadSessionProvider("localhost", 4242, "test-token");
+        string? errorMsg = null;
+        provider.OnError += msg => errorMsg = msg;
+
+        InvokeHandleEvent(provider, new RCStatusEvent
+        {
+            Type = "status", Version = "1.5", Repo = "test", Branch = "main", Machine = "m1"
+        });
+
+        Assert.Null(errorMsg); // same major version, no error
+        Assert.Equal("1.5", provider.ServerVersion);
+    }
+
+    // ── ReconnectAsync Tests ─────────────────────────────────
+
+    [Fact]
+    public void SquadSessionProvider_HasReconnectAsyncMethod()
+    {
+        var method = typeof(SquadSessionProvider).GetMethod("ReconnectAsync");
+        Assert.NotNull(method);
+        Assert.Equal(typeof(Task), method!.ReturnType);
+    }
+
+    // ── Test Helper ──────────────────────────────────────────
+
+    /// <summary>
+    /// Invokes the private HandleEvent method via reflection to test event handling
+    /// without a live WebSocket connection.
+    /// </summary>
+    private static void InvokeHandleEvent(SquadSessionProvider provider, RCEvent evt)
+    {
+        var method = typeof(SquadSessionProvider).GetMethod("HandleEvent",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(method);
+        method!.Invoke(provider, [evt]);
+    }
 }
