@@ -77,7 +77,7 @@ else if (IsFlyoutPanel)
 }
 else
 {
-    <div class="sidebar-content desktop-sidebar @(IsDesktopRailMode ? "desktop-rail-mode" : "desktop-expanded-mode") @(IsSupportPanelOpen ? "support-open" : "")">
+    <div class="sidebar-content desktop-sidebar @(IsDesktopRailMode ? "desktop-rail-mode" : "desktop-expanded-mode") @(IsSupportPanelOpen ? "support-open" : "") @(openMenuSession != null || openGroupMenuId != null ? "has-open-menu" : "")">
         <div class="sidebar-header desktop-shell">
             <div class="sidebar-header-row">
                 <a href="/" class="header-logo-link header-brand @(currentPage == "/" || currentPage == "/dashboard" ? "active" : "")"
