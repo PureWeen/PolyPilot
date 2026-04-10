@@ -1000,7 +1000,7 @@
                             if ((e.key === 'ArrowUp' && atStart) || (e.key === 'ArrowDown' && (atEnd || histNavActive))) {
                                 if (sessionName && window.__dashRef) {
                                     e.preventDefault();
-                                    window.__dashRef.invokeMethodAsync('JsNavigateHistory', sessionName, e.key === 'ArrowUp').then(function(isNav) {
+                                    window.__dashRef.invokeMethodAsync('JsNavigateHistory', sessionName, e.key === 'ArrowUp', ta.value || '').then(function(isNav) {
                                         if (!window.__histNavActive) window.__histNavActive = {};
                                         window.__histNavActive[sessionName] = isNav;
                                     }).catch(function() {
@@ -3640,12 +3640,12 @@
     }
 
     [JSInvokable]
-    public async Task<bool> JsNavigateHistory(string sessionName, bool up)
+    public async Task<bool> JsNavigateHistory(string sessionName, bool up, string? currentText = null)
     {
         if (!commandHistoryBySession.TryGetValue(sessionName, out var hist))
             return false;
 
-        var result = hist.Navigate(up);
+        var result = hist.Navigate(up, currentText);
         if (result == null) return false;
 
         var (text, cursorAtStart) = result.Value;

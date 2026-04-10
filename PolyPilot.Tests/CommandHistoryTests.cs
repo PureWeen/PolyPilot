@@ -9,7 +9,7 @@ public class CommandHistoryTests
     public void Navigate_EmptyHistory_ReturnsNull()
     {
         var history = new CommandHistory();
-        Assert.Null(history.Navigate(up: true));
+        Assert.Null(history.Navigate(up: true, currentText: "draft"));
         Assert.Null(history.Navigate(up: false));
     }
 
@@ -58,19 +58,19 @@ public class CommandHistoryTests
     }
 
     [Fact]
-    public void Navigate_UpThenDown_NavigatesCorrectly()
+    public void Navigate_UpThenDown_RestoresDraft()
     {
         var history = new CommandHistory();
         history.Add("first");
         history.Add("second");
         history.Add("third");
 
-        Assert.Equal("third", history.Navigate(up: true)!.Value.Text);
+        Assert.Equal("third", history.Navigate(up: true, currentText: "my draft")!.Value.Text);
         Assert.Equal("second", history.Navigate(up: true)!.Value.Text);
         // Down goes back toward newest
         Assert.Equal("third", history.Navigate(up: false)!.Value.Text);
-        // Past end clears to empty
-        Assert.Equal("", history.Navigate(up: false)!.Value.Text);
+        // Past end restores the original draft
+        Assert.Equal("my draft", history.Navigate(up: false)!.Value.Text);
     }
 
     [Fact]
@@ -148,14 +148,58 @@ public class CommandHistoryTests
     }
 
     [Fact]
-    public void Navigate_Down_PastEnd_ReturnsEmpty()
+    public void Navigate_Down_PastEnd_RestoresDraftOrEmpty()
     {
         var history = new CommandHistory();
         history.Add("cmd");
 
-        // Already past end, navigate down
+        // Already past end, navigate down — no draft saved, returns empty
         var result = history.Navigate(up: false);
         Assert.NotNull(result);
         Assert.Equal("", result!.Value.Text);
+    }
+
+    [Fact]
+    public void Navigate_DraftPreservedThroughFullCycle()
+    {
+        var history = new CommandHistory();
+        history.Add("old1");
+        history.Add("old2");
+
+        // User is typing "work in progress", presses up
+        Assert.Equal("old2", history.Navigate(up: true, currentText: "work in progress")!.Value.Text);
+        Assert.Equal("old1", history.Navigate(up: true)!.Value.Text);
+        // All the way back down
+        Assert.Equal("old2", history.Navigate(up: false)!.Value.Text);
+        Assert.Equal("work in progress", history.Navigate(up: false)!.Value.Text);
+        Assert.False(history.IsNavigating);
+    }
+
+    [Fact]
+    public void Navigate_EmptyDraftPreserved()
+    {
+        var history = new CommandHistory();
+        history.Add("cmd");
+
+        // User presses up with empty input
+        Assert.Equal("cmd", history.Navigate(up: true, currentText: "")!.Value.Text);
+        // Down restores empty draft
+        Assert.Equal("", history.Navigate(up: false)!.Value.Text);
+    }
+
+    [Fact]
+    public void Add_ClearsDraft()
+    {
+        var history = new CommandHistory();
+        history.Add("old");
+
+        // Navigate up with a draft
+        history.Navigate(up: true, currentText: "my draft");
+        // Send a message — this should clear the draft
+        history.Add("new message");
+
+        // Navigate up then down — draft should be gone (empty, not "my draft")
+        Assert.Equal("new message", history.Navigate(up: true, currentText: "")!.Value.Text);
+        Assert.Equal("", history.Navigate(up: false)!.Value.Text);
     }
 }
