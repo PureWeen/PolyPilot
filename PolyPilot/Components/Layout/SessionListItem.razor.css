@@ -811,7 +811,6 @@
     display: inline-flex;
     gap: 0.14rem;
     align-self: auto;
-    z-index: 2;
 }
 
 .session-context-ring {
