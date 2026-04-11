@@ -840,6 +840,30 @@ public partial class CopilotService
                             RestoreUsageStats(entry);
                             // Check if session is still actively processing on the headless server.
                             var isStillActive = IsSessionStillProcessing(entry.SessionId);
+                            // Even if the last event looks active, check if events.jsonl
+                            // has been written to recently. After a relaunch, the CLI may
+                            // have finished the turn during the restart window — session.idle
+                            // is ephemeral (not written to disk), so IsSessionStillProcessing
+                            // sees the last tool event and thinks it's active. If the file
+                            // hasn't been modified in 30s, the CLI is done.
+                            if (isStillActive)
+                            {
+                                try
+                                {
+                                    var eventsPath = Path.Combine(SessionStatePath, entry.SessionId, "events.jsonl");
+                                    if (File.Exists(eventsPath))
+                                    {
+                                        var fileAge = (DateTime.UtcNow - File.GetLastWriteTimeUtc(eventsPath)).TotalSeconds;
+                                        if (fileAge > 30)
+                                        {
+                                            Debug($"[RESTORE] '{entry.DisplayName}' events.jsonl looks active but is {fileAge:F0}s old — " +
+                                                  $"CLI likely finished during relaunch window, downgrading to eager resume");
+                                            isStillActive = false;
+                                        }
+                                    }
+                                }
+                                catch { /* filesystem error — keep isStillActive=true, safer */ }
+                            }
                             if (isStillActive)
                             {
                                 // Session is actively running on the copilot server (tool calls in

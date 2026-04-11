@@ -34,6 +34,64 @@ public class PrLinkService
             ? entry.Url : null;
     }
 
+    public static int? ExtractPrNumber(string? prUrl)
+    {
+        if (string.IsNullOrWhiteSpace(prUrl) ||
+            !Uri.TryCreate(prUrl, UriKind.Absolute, out var uri))
+        {
+            return null;
+        }
+
+        var segments = uri.AbsolutePath
+            .Split('/', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+        for (var i = 0; i < segments.Length - 1; i++)
+        {
+            if ((segments[i].Equals("pull", StringComparison.OrdinalIgnoreCase) ||
+                 segments[i].Equals("pulls", StringComparison.OrdinalIgnoreCase)) &&
+                int.TryParse(segments[i + 1], out var number) &&
+                number > 0)
+            {
+                return number;
+            }
+        }
+
+        return null;
+    }
+
+    public async Task<string> GetPrDiffAsync(string workingDirectory, int prNumber, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(workingDirectory))
+            throw new ArgumentException("A working directory is required to load a PR diff.", nameof(workingDirectory));
+        if (prNumber <= 0)
+            throw new ArgumentOutOfRangeException(nameof(prNumber), "PR number must be greater than zero.");
+
+        var (output, error, exitCode) = await RunGhAsync(
+            workingDirectory,
+            cancellationToken,
+            "pr", "diff", prNumber.ToString(), "--color", "never");
+
+        if (exitCode != 0)
+        {
+            var reason = string.IsNullOrWhiteSpace(error)
+                ? $"Failed to load the diff for PR #{prNumber}."
+                : error.Trim();
+            throw new InvalidOperationException(reason);
+        }
+
+        var diff = output.Trim();
+        if (string.IsNullOrWhiteSpace(diff))
+            throw new InvalidOperationException($"PR #{prNumber} does not have any diff content to display.");
+
+        return diff;
+    }
+
+    protected virtual Task<(string Output, string Error, int ExitCode)> RunGhAsync(
+        string workingDirectory,
+        CancellationToken cancellationToken,
+        params string[] args) =>
+        RunGhProcessAsync(workingDirectory, cancellationToken, args);
+
     private static async Task<string?> FetchPrUrlAsync(string workingDirectory)
     {
         Process? process = null;
@@ -118,6 +176,49 @@ public class PrLinkService
                     try { process.Kill(true); } catch { }
                 process.Dispose();
             }
+        }
+    }
+
+    private static async Task<(string Output, string Error, int ExitCode)> RunGhProcessAsync(
+        string workingDirectory,
+        CancellationToken cancellationToken,
+        params string[] args)
+    {
+        Process? process = null;
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = "gh",
+                WorkingDirectory = workingDirectory,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+
+            foreach (var arg in args)
+                psi.ArgumentList.Add(arg);
+
+            process = Process.Start(psi)
+                ?? throw new InvalidOperationException("Failed to start the GitHub CLI process.");
+
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromSeconds(20));
+
+            var outputTask = process.StandardOutput.ReadToEndAsync(timeoutCts.Token);
+            var errorTask = process.StandardError.ReadToEndAsync(timeoutCts.Token);
+            await process.WaitForExitAsync(timeoutCts.Token);
+
+            return (await outputTask, await errorTask, process.ExitCode);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException("Timed out while loading the PR diff from GitHub.");
+        }
+        finally
+        {
+            ProcessHelper.SafeKillAndDispose(process);
         }
     }
 }

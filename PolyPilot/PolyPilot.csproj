@@ -68,6 +68,14 @@
     </ItemGroup>
 
     <ItemGroup>
+        <!-- Keep the CodeMirror source workspace out of the app bundle; only the built
+             bundle under wwwroot is needed at runtime. -->
+        <None Remove="codemirror-src\package.json;codemirror-src\package-lock.json" />
+        <Content Remove="codemirror-src\package.json;codemirror-src\package-lock.json" />
+        <MauiAsset Remove="codemirror-src\package.json;codemirror-src\package-lock.json" />
+    </ItemGroup>
+
+    <ItemGroup>
         <ProjectReference Include="..\PolyPilot.Provider.Abstractions\PolyPilot.Provider.Abstractions.csproj" />
     </ItemGroup>
 
