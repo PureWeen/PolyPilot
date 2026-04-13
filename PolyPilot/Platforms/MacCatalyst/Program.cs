@@ -121,7 +121,8 @@ public class Program
 	/// the container so settings, sessions, and chat history are preserved.
 	///
 	/// Best-effort: if the sandbox blocks access to the real home directory, we skip
-	/// gracefully. The marker file prevents repeated attempts on every launch.
+	/// gracefully. The marker file is only written after a fully successful migration,
+	/// so blocked or partial migrations retry safely on subsequent launches.
 	/// </summary>
 	static void MigrateLegacyDataIfNeeded()
 	{
@@ -145,15 +146,13 @@ public class Program
 
 			Directory.CreateDirectory(containerPolypilot);
 
-			bool migratedAny = false;
+			int copiedFiles = 0;
+			bool hadErrors = false;
 
 			// Migrate .polypilot/ (settings, organization, sessions, chat history)
 			var legacyPolypilot = Path.Combine(realHome, ".polypilot");
 			if (Directory.Exists(legacyPolypilot))
-			{
-				CopyDirectoryRecursive(legacyPolypilot, containerPolypilot);
-				migratedAny = true;
-			}
+				CopyDirectoryRecursive(legacyPolypilot, containerPolypilot, ref copiedFiles, ref hadErrors);
 
 			// Migrate .copilot/ (SDK session state — events.jsonl files)
 			var legacyCopilot = Path.Combine(realHome, ".copilot");
@@ -161,14 +160,14 @@ public class Program
 			if (Directory.Exists(legacyCopilot))
 			{
 				Directory.CreateDirectory(containerCopilot);
-				CopyDirectoryRecursive(legacyCopilot, containerCopilot);
-				migratedAny = true;
+				CopyDirectoryRecursive(legacyCopilot, containerCopilot, ref copiedFiles, ref hadErrors);
 			}
 
-			// Write marker so we don't repeat on every launch
-			File.WriteAllText(markerFile, migratedAny
-				? $"Migrated legacy data at {DateTime.UtcNow:O}"
-				: $"No legacy data found at {DateTime.UtcNow:O}");
+			// Only write marker when files were actually copied and no errors occurred.
+			// This keeps retries safe (don't-clobber semantics) and avoids permanently
+			// sealing a failed or blocked migration.
+			if (copiedFiles > 0 && !hadErrors)
+				File.WriteAllText(markerFile, $"Migrated {copiedFiles} files at {DateTime.UtcNow:O}");
 		}
 		catch
 		{
@@ -181,28 +180,42 @@ public class Program
 	/// Recursively copies directory contents without overwriting existing files.
 	/// Preserves the "don't clobber" invariant so container data always wins if
 	/// the user has already created new data in the sandboxed location.
+	/// Skips symlinks to avoid infinite recursion (StackOverflowException is uncatchable).
 	/// </summary>
-	static void CopyDirectoryRecursive(string source, string destination)
+	static void CopyDirectoryRecursive(string source, string destination, ref int copiedFiles, ref bool hadErrors, int depth = 0)
 	{
+		const int maxDepth = 32;
+		if (depth >= maxDepth)
+			return;
+
 		foreach (var file in Directory.GetFiles(source))
 		{
 			var destFile = Path.Combine(destination, Path.GetFileName(file));
 			if (!File.Exists(destFile))
 			{
-				try { File.Copy(file, destFile); }
-				catch { /* skip files we can't read */ }
+				try
+				{
+					File.Copy(file, destFile);
+					copiedFiles++;
+				}
+				catch { hadErrors = true; }
 			}
 		}
 
 		foreach (var dir in Directory.GetDirectories(source))
 		{
+			// Skip symlinks to prevent infinite recursion from circular links
+			var dirInfo = new DirectoryInfo(dir);
+			if (dirInfo.LinkTarget != null)
+				continue;
+
 			var destDir = Path.Combine(destination, Path.GetFileName(dir));
 			try
 			{
 				Directory.CreateDirectory(destDir);
-				CopyDirectoryRecursive(dir, destDir);
+				CopyDirectoryRecursive(dir, destDir, ref copiedFiles, ref hadErrors, depth + 1);
 			}
-			catch { /* skip directories we can't access */ }
+			catch { hadErrors = true; }
 		}
 	}
 }
