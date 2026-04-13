@@ -74,7 +74,8 @@ public class ConnectionSettings
     public string? RemoteUrl { get; set; }
 
     // Secrets: stored in SecureStorage on iOS/Android; plain JSON on desktop (incl. Mac Catalyst).
-    // Mac Catalyst runs without app sandbox, making Keychain unreliable for SecureStorage.
+    // Mac Catalyst's Keychain is unreliable for SecureStorage regardless of sandbox state,
+    // so secrets are stored in plain JSON and protected by the sandbox container on App Store builds.
 #if IOS || ANDROID
     private string? _remoteToken;
     [System.Text.Json.Serialization.JsonIgnore]
@@ -339,8 +340,8 @@ public class ConnectionSettings
 #if MACCATALYST
     /// <summary>
     /// One-time reverse migration: PR 341 moved ServerPassword/RemoteToken/LanToken to
-    /// SecureStorage on Mac Catalyst. Since Mac Catalyst runs without sandbox, Keychain
-    /// is unreliable. This recovers any values and writes them back to plain JSON.
+    /// SecureStorage on Mac Catalyst. Keychain is unreliable for SecureStorage on Mac Catalyst
+    /// regardless of sandbox state. This recovers any values and writes them back to plain JSON.
     /// Only removes each Keychain entry after confirming that specific value was recovered.
     /// </summary>
     private static void RecoverSecretsFromSecureStorage(ConnectionSettings settings)

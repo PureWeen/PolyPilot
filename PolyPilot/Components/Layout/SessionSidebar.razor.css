@@ -2623,6 +2623,11 @@
     transform: translateY(0);
 }
 
+.sidebar-header:has(.header-overflow:hover),
+.sidebar-header:has(.header-overflow:focus-within) {
+    z-index: 50;
+}
+
 .header-overflow-panel::before {
     content: "";
     position: absolute;
@@ -4649,6 +4654,13 @@
 
 .sidebar-top-tools {
     z-index: 24;
+}
+
+.has-open-menu ::deep .sidebar-top-tools,
+.has-open-menu ::deep .sidebar-compose-panel,
+.has-open-menu ::deep .sidebar-organize-shell-compact,
+.has-open-menu ::deep .sidebar-support-fab {
+    z-index: auto;
 }
 
 .sidebar-create-popover {

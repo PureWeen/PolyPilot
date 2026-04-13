@@ -19,6 +19,9 @@ public class Program
 			return;
 		}
 
+		// One-time migration from non-sandboxed data to sandbox container.
+		MigrateLegacyDataIfNeeded();
+
 		UIApplication.Main(args, null, typeof(AppDelegate));
 	}
 
@@ -108,5 +111,111 @@ public class Program
 				return arg[prefix.Length..];
 		}
 		return null;
+	}
+
+	/// <summary>
+	/// One-time migration from non-sandboxed (~/.polypilot/, ~/.copilot/) to the sandbox
+	/// container. When the App Store (sandboxed) build launches for the first time, HOME
+	/// is remapped to ~/Library/Containers/&lt;bundle-id&gt;/Data/. If the user previously
+	/// ran a sideloaded/dev build, their data lives at the real home. This copies it into
+	/// the container so settings, sessions, and chat history are preserved.
+	///
+	/// Best-effort: if the sandbox blocks access to the real home directory, we skip
+	/// gracefully. The marker file is only written after a fully successful migration,
+	/// so blocked or partial migrations retry safely on subsequent launches.
+	/// </summary>
+	static void MigrateLegacyDataIfNeeded()
+	{
+		try
+		{
+			var containerHome = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+
+			// Detect sandbox: the container path contains /Library/Containers/<id>/Data
+			const string containerMarker = "/Library/Containers/";
+			var containersIdx = containerHome.IndexOf(containerMarker, StringComparison.Ordinal);
+			if (containersIdx < 0)
+				return; // Not sandboxed — nothing to migrate
+
+			var realHome = containerHome[..containersIdx];
+			var containerPolypilot = Path.Combine(containerHome, ".polypilot");
+
+			// Check if we already attempted migration
+			var markerFile = Path.Combine(containerPolypilot, ".sandbox-migrated");
+			if (File.Exists(markerFile))
+				return;
+
+			Directory.CreateDirectory(containerPolypilot);
+
+			int copiedFiles = 0;
+			bool hadErrors = false;
+
+			// Migrate .polypilot/ (settings, organization, sessions, chat history)
+			var legacyPolypilot = Path.Combine(realHome, ".polypilot");
+			if (Directory.Exists(legacyPolypilot))
+				CopyDirectoryRecursive(legacyPolypilot, containerPolypilot, ref copiedFiles, ref hadErrors);
+
+			// Migrate .copilot/ (SDK session state — events.jsonl files)
+			var legacyCopilot = Path.Combine(realHome, ".copilot");
+			var containerCopilot = Path.Combine(containerHome, ".copilot");
+			if (Directory.Exists(legacyCopilot))
+			{
+				Directory.CreateDirectory(containerCopilot);
+				CopyDirectoryRecursive(legacyCopilot, containerCopilot, ref copiedFiles, ref hadErrors);
+			}
+
+			// Only write marker when files were actually copied and no errors occurred.
+			// This keeps retries safe (don't-clobber semantics) and avoids permanently
+			// sealing a failed or blocked migration.
+			if (copiedFiles > 0 && !hadErrors)
+				File.WriteAllText(markerFile, $"Migrated {copiedFiles} files at {DateTime.UtcNow:O}");
+		}
+		catch
+		{
+			// Best-effort: the sandbox may block access to the real home directory.
+			// Never block app startup for migration.
+		}
+	}
+
+	/// <summary>
+	/// Recursively copies directory contents without overwriting existing files.
+	/// Preserves the "don't clobber" invariant so container data always wins if
+	/// the user has already created new data in the sandboxed location.
+	/// Skips symlinks to avoid infinite recursion (StackOverflowException is uncatchable).
+	/// </summary>
+	static void CopyDirectoryRecursive(string source, string destination, ref int copiedFiles, ref bool hadErrors, int depth = 0)
+	{
+		const int maxDepth = 32;
+		if (depth >= maxDepth)
+			return;
+
+		foreach (var file in Directory.GetFiles(source))
+		{
+			var destFile = Path.Combine(destination, Path.GetFileName(file));
+			if (!File.Exists(destFile))
+			{
+				try
+				{
+					File.Copy(file, destFile);
+					copiedFiles++;
+				}
+				catch { hadErrors = true; }
+			}
+		}
+
+		foreach (var dir in Directory.GetDirectories(source))
+		{
+			// Skip symlinks to prevent infinite recursion from circular links
+			var dirInfo = new DirectoryInfo(dir);
+			if (dirInfo.LinkTarget != null)
+				continue;
+
+			var destDir = Path.Combine(destination, Path.GetFileName(dir));
+			try
+			{
+				Directory.CreateDirectory(destDir);
+				CopyDirectoryRecursive(dir, destDir, ref copiedFiles, ref hadErrors, depth + 1);
+			}
+			catch { hadErrors = true; }
+		}
 	}
 }
