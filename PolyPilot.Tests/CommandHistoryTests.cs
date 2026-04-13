@@ -148,15 +148,14 @@ public class CommandHistoryTests
     }
 
     [Fact]
-    public void Navigate_Down_PastEnd_RestoresDraftOrEmpty()
+    public void Navigate_Down_PastEnd_ReturnsNull()
     {
         var history = new CommandHistory();
         history.Add("cmd");
 
-        // Already past end, navigate down — no draft saved, returns empty
+        // Already past end, navigate down — no-op, returns null
         var result = history.Navigate(up: false);
-        Assert.NotNull(result);
-        Assert.Equal("", result!.Value.Text);
+        Assert.Null(result);
     }
 
     [Fact]
@@ -188,7 +187,7 @@ public class CommandHistoryTests
     }
 
     [Fact]
-    public void Navigate_Down_AtLivePosition_DoesNotReturnStaleDraft()
+    public void Navigate_Down_AtLivePosition_ReturnsNull()
     {
         var history = new CommandHistory();
         history.Add("old");
@@ -197,10 +196,9 @@ public class CommandHistoryTests
         history.Navigate(up: true, currentText: "my draft");
         history.Navigate(up: false); // returns "my draft", back at live
 
-        // Spurious down at live position — should NOT return stale "my draft"
+        // Spurious down at live position — returns null (no-op, doesn't touch textarea)
         var result = history.Navigate(up: false, currentText: "new text");
-        Assert.NotNull(result);
-        Assert.Equal("", result!.Value.Text);
+        Assert.Null(result);
     }
 
     [Fact]

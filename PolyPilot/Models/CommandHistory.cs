@@ -33,13 +33,16 @@ public class CommandHistory
     /// Navigate history. Returns (text, cursorAtStart).
     /// cursorAtStart is true when navigating up (so next ArrowUp fires immediately),
     /// false when navigating down (so next ArrowDown fires immediately).
-    /// Returns null if history is empty.
+    /// Returns null if history is empty or already at live position going down.
     /// </summary>
     /// <param name="up">True for ArrowUp (older), false for ArrowDown (newer).</param>
     /// <param name="currentText">The current input text — saved as draft on first up-navigation.</param>
     public (string Text, bool CursorAtStart)? Navigate(bool up, string? currentText = null)
     {
         if (_entries.Count == 0) return null;
+
+        // Already at live position going down — nothing to navigate
+        if (!up && !IsNavigating) return null;
 
         // Stash the draft when first entering history mode
         if (up && !IsNavigating)
