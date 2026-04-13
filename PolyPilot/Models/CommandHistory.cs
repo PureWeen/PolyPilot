@@ -51,6 +51,9 @@ public class CommandHistory
             _index = Math.Min(_entries.Count, _index + 1);
 
         var text = _index < _entries.Count ? _entries[_index] : (_draft ?? "");
+        // Clear draft after restoring it — prevents stale re-use on spurious ArrowDown
+        if (_index == _entries.Count)
+            _draft = null;
         return (text, up);
     }
 }

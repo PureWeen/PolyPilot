@@ -188,6 +188,22 @@ public class CommandHistoryTests
     }
 
     [Fact]
+    public void Navigate_Down_AtLivePosition_DoesNotReturnStaleDraft()
+    {
+        var history = new CommandHistory();
+        history.Add("old");
+
+        // Full cycle: up with draft, back down
+        history.Navigate(up: true, currentText: "my draft");
+        history.Navigate(up: false); // returns "my draft", back at live
+
+        // Spurious down at live position — should NOT return stale "my draft"
+        var result = history.Navigate(up: false, currentText: "new text");
+        Assert.NotNull(result);
+        Assert.Equal("", result!.Value.Text);
+    }
+
+    [Fact]
     public void Add_ClearsDraft()
     {
         var history = new CommandHistory();
