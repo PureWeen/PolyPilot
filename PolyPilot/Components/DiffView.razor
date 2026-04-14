@@ -97,28 +97,6 @@ else
                     <div class="diff-comment-hint">Click any line number to send review feedback to chat.</div>
                 }
 
-                @if (_commentDraft is not null)
-                {
-                    <div class="diff-comment-box">
-                        <div class="diff-comment-title">
-                            Comment on <code>@_commentDraft.FileName:@_commentDraft.LineNumber</code>
-                        </div>
-                        <textarea class="diff-comment-input"
-                                  @bind="_commentText"
-                                  @bind:event="oninput"
-                                  placeholder="Tell Copilot what should change on this line…"></textarea>
-                        <div class="diff-comment-actions">
-                            <button type="button"
-                                    class="diff-comment-send"
-                                    @onclick="SubmitCommentAsync"
-                                    disabled="@string.IsNullOrWhiteSpace(_commentText)">
-                                Send to chat
-                            </button>
-                            <button type="button" class="diff-comment-cancel" @onclick="CancelComment">Cancel</button>
-                        </div>
-                    </div>
-                }
-
                 @if (selectedFile.Hunks.Count == 0)
                 {
                     <div class="diff-empty-body">No diff hunks available for this file.</div>
@@ -126,6 +104,28 @@ else
                 else if (_state.GetViewMode(selectedIdx) == DiffViewMode.Editor)
                 {
                     <div class="diff-cm-container" id="cm-diff-@_instancePrefix-@selectedIdx"></div>
+                    @if (_commentDraft is not null)
+                    {
+                        <div class="diff-comment-box">
+                            <div class="diff-comment-title">
+                                Comment on <code>@_commentDraft.FileName:@_commentDraft.LineNumber</code>
+                                <span class="diff-comment-side">(@_commentDraft.Side)</span>
+                            </div>
+                            <textarea class="diff-comment-input"
+                                      @bind="_commentText"
+                                      @bind:event="oninput"
+                                      placeholder="Tell Copilot what should change on this line…"></textarea>
+                            <div class="diff-comment-actions">
+                                <button type="button"
+                                        class="diff-comment-send"
+                                        @onclick="SubmitCommentAsync"
+                                        disabled="@string.IsNullOrWhiteSpace(_commentText)">
+                                    Send to chat
+                                </button>
+                                <button type="button" class="diff-comment-cancel" @onclick="CancelComment">Cancel</button>
+                            </div>
+                        </div>
+                    }
                 }
                 else
                 {
@@ -175,6 +175,34 @@ else
                                         </td>
                                         <td class="diff-code @(row.Right == null ? "diff-blank" : row.Right.Type == DiffLineType.Added ? "diff-add" : "diff-ctx")"><pre>@(row.Right?.Content ?? "")</pre></td>
                                     </tr>
+                                    @if (_commentDraft is not null &&
+                                         ((_commentDraft.Side is "original" && row.Left?.OldLineNo == _commentDraft.LineNumber) ||
+                                          (_commentDraft.Side is "modified" && row.Right?.NewLineNo == _commentDraft.LineNumber)))
+                                    {
+                                        <tr class="diff-comment-row">
+                                            <td colspan="4">
+                                                <div class="diff-comment-box">
+                                                    <div class="diff-comment-title">
+                                                        Comment on <code>@_commentDraft.FileName:@_commentDraft.LineNumber</code>
+                                                        <span class="diff-comment-side">(@_commentDraft.Side)</span>
+                                                    </div>
+                                                    <textarea class="diff-comment-input"
+                                                              @bind="_commentText"
+                                                              @bind:event="oninput"
+                                                              placeholder="Tell Copilot what should change on this line…"></textarea>
+                                                    <div class="diff-comment-actions">
+                                                        <button type="button"
+                                                                class="diff-comment-send"
+                                                                @onclick="SubmitCommentAsync"
+                                                                disabled="@string.IsNullOrWhiteSpace(_commentText)">
+                                                            Send to chat
+                                                        </button>
+                                                        <button type="button" class="diff-comment-cancel" @onclick="CancelComment">Cancel</button>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    }
                                 }
                             }
                         </table>
@@ -198,6 +226,7 @@ else
     private DotNetObjectReference<DiffView>? _dotNetRef;
     private DiffLineCommentRequest? _commentDraft;
     private string _commentText = "";
+    private bool _scrollCommentIntoView;
     private bool _disposed;
     private bool _applySaving;
     private string _applySaveStatus = "";
@@ -277,7 +306,7 @@ else
             _ = DisposeJsInstancesByIdAsync(new[] { instanceId });
     }
 
-    private void BeginLineComment(int fileIdx, string fileName, int lineNumber, bool isOriginalSide)
+    private async Task BeginLineComment(int fileIdx, string fileName, int lineNumber, bool isOriginalSide)
     {
         if (!CanComment)
             return;
@@ -285,6 +314,7 @@ else
         SelectFile(fileIdx);
         _commentDraft = new DiffLineCommentRequest(fileName, lineNumber, "", isOriginalSide ? "original" : "modified");
         _commentText = "";
+        _scrollCommentIntoView = true;
     }
 
     private void CancelComment()
@@ -369,6 +399,17 @@ else
             {
                 await InitCodeMirrorForFile(fileIdx);
             }
+        }
+
+        if (_scrollCommentIntoView)
+        {
+            _scrollCommentIntoView = false;
+            try
+            {
+                await JS.InvokeVoidAsync("eval",
+                    "setTimeout(()=>{var el=document.querySelector('.diff-comment-box');if(el){el.scrollIntoView({behavior:'smooth',block:'nearest'});var ta=el.querySelector('textarea');if(ta)ta.focus();}},50)");
+            }
+            catch { /* ignore if JS interop fails during dispose */ }
         }
     }
 

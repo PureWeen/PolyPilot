@@ -81,6 +81,9 @@ public class FontSizingEnforcementTests
 
         // Worker child items scale relative to parent — em is correct here
         ("SessionListItem.razor.css", @"^0\.85em$", "Worker child items scale relative to parent text"),
+
+        // Diff comment side label scales relative to parent text
+        ("DiffView.razor.css", @"^0\.85em$", "Comment side label scales relative to parent text"),
     };
 
     /// <summary>
