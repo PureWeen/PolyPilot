@@ -292,7 +292,8 @@ function createMergeView(containerId, original, modified, filename, fileIndex = 
     oneDark,
     polyPilotTheme,
     EditorState.readOnly.of(true),
-    EditorView.editable.of(false),
+    // Note: EditorView.editable remains true (default) so users can click,
+    // select text, and interact with gutter line numbers. readOnly prevents edits.
     ...lang,
   ];
 
