@@ -442,7 +442,14 @@ public partial class CopilotService
                 // BuildFreshSessionConfig doesn't set OnEvent on the SessionConfig, and
                 // the old post-resume .On() was removed, so we must register explicitly here.
                 copilotSession.On(evt => HandleSessionEvent(state, evt));
+                // Record that this fresh session replaced the old one so MergeSessionEntries
+                // drops the old persisted entry instead of renaming it "(previous)".
+                state.Info.RecoveredFromSessionId ??= sessionId;
                 state.Info.SessionId = copilotSession.SessionId;
+                // Add the old session ID to the closed set so SaveActiveSessionsToDisk's
+                // merge logic drops it instead of creating a "(previous)" phantom entry.
+                if (!string.IsNullOrEmpty(sessionId))
+                    _closedSessionIds.TryAdd(sessionId, 0);
                 FlushSaveActiveSessionsToDisk();
             }
             catch (Exception ex) when (IsAuthError(ex))
