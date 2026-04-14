@@ -17,7 +17,8 @@
                              Compact="Compact"
                              UserAvatarUrl="@UserAvatarUrl"
                              RepoUrl="@RepoUrl"
-                             OnDiffCommentRequested="OnDiffCommentRequested" />
+                             OnDiffCommentRequested="OnDiffCommentRequested"
+                             OnApplyEdit="OnApplyEdit" />
         }
 
         @* Current turn tool activity feed — skip activities already in history *@
@@ -141,6 +142,7 @@
     [Parameter] public bool HasPermissionIssue { get; set; }
     [Parameter] public EventCallback OnReconnectRequested { get; set; }
     [Parameter] public EventCallback<DiffLineCommentRequest> OnDiffCommentRequested { get; set; }
+    [Parameter] public EventCallback<DiffApplyEditRequest> OnApplyEdit { get; set; }
 
     private string GetProcessingStatus()
     {

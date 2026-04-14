@@ -404,9 +404,48 @@
     border-radius: 0 0 8px 8px;
 }
 
+/* Apply/Save button */
+.diff-apply-btn {
+    margin-left: 0.4rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent-primary, #4ea8d1) 40%, transparent);
+    background: color-mix(in srgb, var(--accent-primary, #4ea8d1) 12%, transparent);
+    color: var(--text-primary, #c8d8f0);
+    font-family: var(--font-base);
+    font-size: var(--type-caption1, 0.6rem);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.diff-apply-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-primary, #4ea8d1) 25%, transparent);
+    border-color: var(--accent-primary, #4ea8d1);
+}
+
+.diff-apply-btn:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.diff-apply-btn.saved {
+    border-color: rgba(63, 185, 80, 0.5);
+    background: rgba(63, 185, 80, 0.15);
+    color: #6fdd8b;
+}
+
+.diff-apply-btn.error {
+    border-color: rgba(248, 81, 73, 0.5);
+    background: rgba(248, 81, 73, 0.15);
+    color: #fca5a5;
+}
+
 .diff-file-tab:focus-visible,
 .diff-picker-toggle:focus-visible,
 .toggle-btn:focus-visible,
+.diff-apply-btn:focus-visible,
 .diff-comment-input:focus-visible,
 .diff-comment-send:focus-visible,
 .diff-comment-cancel:focus-visible {

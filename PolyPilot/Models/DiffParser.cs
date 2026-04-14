@@ -42,6 +42,8 @@ public sealed class DiffViewState
     public void SetViewMode(int fileIdx, DiffViewMode mode) => _viewModes[fileIdx] = mode;
 }
 
+public sealed record DiffApplyEditRequest(string FileName, string Content);
+
 public sealed record DiffLineCommentRequest(string FileName, int LineNumber, string Comment, string Side = "modified")
 {
     public string ToPrompt()

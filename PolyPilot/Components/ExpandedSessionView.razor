@@ -247,6 +247,7 @@
                                   RepoUrl="@RepoUrl"
                                   HasPermissionIssue="Session.HasPermissionIssue"
                                   OnDiffCommentRequested="HandleDiffCommentAsync"
+                                  OnApplyEdit="HandleApplyEditAsync"
                                   OnReconnectRequested="OnReconnectRequested" />
             </div>
 
@@ -475,6 +476,7 @@
                     {
                         <DiffView RawDiff="@_prDiffContent"
                                   OnCommentRequested="HandleDiffCommentAsync"
+                                  OnApplyEdit="HandleApplyEditAsync"
                                   @key="_prDiffCacheKey" />
                     }
                     else
@@ -1041,6 +1043,40 @@
         await JS.InvokeVoidAsync("clearElementValue", inputId);
         await JS.InvokeVoidAsync("appendSpeechText", inputId, request.ToPrompt());
         await OnSend.InvokeAsync(Session.Name);
+    }
+
+    private async Task HandleApplyEditAsync(DiffApplyEditRequest request)
+    {
+        var workDir = Session.WorkingDirectory;
+        if (string.IsNullOrWhiteSpace(workDir))
+        {
+            Console.Error.WriteLine($"[DiffView] Cannot apply edit: no working directory for session '{Session.Name}'");
+            return;
+        }
+
+        var filePath = Path.GetFullPath(Path.Combine(workDir, request.FileName));
+
+        // Security: ensure resolved path is under the working directory
+        if (!filePath.StartsWith(Path.GetFullPath(workDir), StringComparison.Ordinal))
+        {
+            Console.Error.WriteLine($"[DiffView] Path traversal blocked: {request.FileName}");
+            return;
+        }
+
+        try
+        {
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            await File.WriteAllTextAsync(filePath, request.Content);
+            Console.WriteLine($"[DiffView] Applied edit to {filePath}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DiffView] Failed to write {filePath}: {ex.Message}");
+            throw; // Re-throw so DiffView's catch block can show the error status
+        }
     }
 
     private async Task OnEffortChanged(ChangeEventArgs e)

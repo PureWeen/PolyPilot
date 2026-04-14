@@ -74,6 +74,22 @@ else
                                 @onclick="() => SetViewMode(selectedIdx, DiffViewMode.Editor)"
                                 title="Editor view with syntax highlighting">Editor</button>
                     </span>
+                    @if (_state.GetViewMode(selectedIdx) == DiffViewMode.Editor && CanApplyEdit)
+                    {
+                        <button type="button"
+                                class="diff-apply-btn @(_applySaveStatus)"
+                                @onclick="() => ApplyEditAsync(selectedIdx)"
+                                @onclick:stopPropagation="true"
+                                disabled="@(_applySaving)"
+                                title="Save edited content back to file">
+                            @(_applySaveStatus switch
+                            {
+                                "saved" => "✅ Saved",
+                                "error" => "❌ Error",
+                                _ => "💾 Apply"
+                            })
+                        </button>
+                    }
                 </div>
 
                 @if (CanComment)
@@ -172,6 +188,7 @@ else
 @code {
     [Parameter] public string RawDiff { get; set; } = "";
     [Parameter] public EventCallback<DiffLineCommentRequest> OnCommentRequested { get; set; }
+    [Parameter] public EventCallback<DiffApplyEditRequest> OnApplyEdit { get; set; }
     private List<DiffFile> Files { get; set; } = new();
     private string? _lastRawDiff;
     private readonly DiffViewState _state = new();
@@ -182,6 +199,8 @@ else
     private DiffLineCommentRequest? _commentDraft;
     private string _commentText = "";
     private bool _disposed;
+    private bool _applySaving;
+    private string _applySaveStatus = "";
 
     private DiffFile? SelectedFile =>
         _state.SelectedFileIndex >= 0 && _state.SelectedFileIndex < Files.Count ? Files[_state.SelectedFileIndex] : null;
@@ -190,6 +209,7 @@ else
     private int TotalRemoved => Files.Sum(file => file.RemovedLineCount);
     private string SummaryLabel => Files.Count == 1 ? "1 file changed" : $"{Files.Count} files changed";
     private bool CanComment => OnCommentRequested.HasDelegate;
+    private bool CanApplyEdit => OnApplyEdit.HasDelegate;
 
     protected override void OnParametersSet()
     {
@@ -281,6 +301,54 @@ else
         var request = _commentDraft with { Comment = _commentText.Trim() };
         await OnCommentRequested.InvokeAsync(request);
         CancelComment();
+    }
+
+    private async Task ApplyEditAsync(int fileIdx)
+    {
+        if (!CanApplyEdit || _applySaving || !_cmInstances.TryGetValue(fileIdx, out var instanceId))
+            return;
+
+        if (fileIdx >= Files.Count) return;
+        var file = Files[fileIdx];
+
+        _applySaving = true;
+        _applySaveStatus = "";
+
+        try
+        {
+            var content = await JS.InvokeAsync<string?>("PolyPilotCodeMirror.getModifiedContent", instanceId);
+            if (content is null)
+            {
+                _applySaveStatus = "error";
+                return;
+            }
+
+            await OnApplyEdit.InvokeAsync(new DiffApplyEditRequest(file.FileName, content));
+            _applySaveStatus = "saved";
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DiffView] Apply edit failed for {file.FileName}: {ex.Message}");
+            _applySaveStatus = "error";
+        }
+        finally
+        {
+            _applySaving = false;
+            StateHasChanged();
+
+            // Clear status after 2 seconds
+            _ = ClearApplyStatusAsync();
+        }
+    }
+
+    private async Task ClearApplyStatusAsync()
+    {
+        await Task.Delay(2000);
+        if (!_disposed)
+        {
+            _applySaveStatus = "";
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     [JSInvokable]
