@@ -3890,10 +3890,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                             newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                             // Mark the old session as superseded so MergeSessionEntries drops it
                             // instead of renaming it to "(previous)".
-                            state.Info.RecoveredFromSessionId ??= oldSessionId;
+                            state.Info.RecoveredFromSessionId = oldSessionId;
                             state.Info.SessionId = newSession.SessionId;
                             if (!string.IsNullOrEmpty(oldSessionId))
-                                _closedSessionIds.TryAdd(oldSessionId, 0);
+                                _closedSessionIds[oldSessionId] = 0;
                             FlushSaveActiveSessionsToDisk();
                         }
                         catch (Exception createEx)
@@ -3922,10 +3922,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                             newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
                             // Mark the old session as superseded so MergeSessionEntries drops it
                             // instead of renaming it to "(previous)".
-                            state.Info.RecoveredFromSessionId ??= oldSessionId;
+                            state.Info.RecoveredFromSessionId = oldSessionId;
                             state.Info.SessionId = newSession.SessionId;
                             if (!string.IsNullOrEmpty(oldSessionId))
-                                _closedSessionIds.TryAdd(oldSessionId, 0);
+                                _closedSessionIds[oldSessionId] = 0;
                             FlushSaveActiveSessionsToDisk();
                         }
                         catch (Exception createEx)
