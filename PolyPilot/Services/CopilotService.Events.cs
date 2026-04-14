@@ -2623,6 +2623,35 @@ public partial class CopilotService
 
                 var useToolTimeout = hasActiveTool || (state.Info.IsResumed && !useResumeQuiescence);
                 var useUsedToolsTimeout = !useToolTimeout && hasUsedTools && !hasActiveTool;
+
+                // When tools were used this turn but ActiveToolCallCount is 0, the SDK may have
+                // failed to deliver ToolExecutionStartEvent for an in-flight tool (events only
+                // appear in events.jsonl, not the live stream). Check events.jsonl freshness:
+                // if the CLI is still actively writing (< 60s), upgrade to the full tool timeout
+                // so long-running tools like read_bash aren't prematurely killed at 180s.
+                if (useUsedToolsTimeout && !IsDemoMode && !IsRemoteMode)
+                {
+                    try
+                    {
+                        var sid = state.Info.SessionId;
+                        if (!string.IsNullOrEmpty(sid))
+                        {
+                            var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                            if (File.Exists(ep))
+                            {
+                                var fileAge = (DateTime.UtcNow - File.GetLastWriteTimeUtc(ep)).TotalSeconds;
+                                if (fileAge < 60)
+                                {
+                                    // CLI is actively writing — tool is likely running but SDK
+                                    // didn't deliver the start event. Use the full tool timeout.
+                                    useUsedToolsTimeout = false;
+                                    useToolTimeout = true;
+                                }
+                            }
+                        }
+                    }
+                    catch { /* filesystem errors → keep useUsedToolsTimeout */ }
+                }
                 
                 // After the first Case A reset (tool running + server alive but no events arrived),
                 // switch to the escalation timeout. This allows the first 600s for legitimate long-running
