@@ -401,7 +401,7 @@ public static class DiffParser
             // Fill gap between current position and hunk start with empty lines
             while (currentLine < hunk.OldStart)
             {
-                sb.AppendLine();
+                sb.Append('\n');
                 currentLine++;
             }
 
@@ -409,12 +409,12 @@ public static class DiffParser
             {
                 if (line.Type == DiffLineType.Context || line.Type == DiffLineType.Removed)
                 {
-                    sb.AppendLine(line.Content);
+                    sb.Append(line.Content).Append('\n');
                     currentLine++;
                 }
             }
         }
-        return sb.ToString().TrimEnd('\r', '\n');
+        return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>
@@ -432,7 +432,7 @@ public static class DiffParser
             // Fill gap between current position and hunk start with empty lines
             while (currentLine < hunk.NewStart)
             {
-                sb.AppendLine();
+                sb.Append('\n');
                 currentLine++;
             }
 
@@ -440,11 +440,11 @@ public static class DiffParser
             {
                 if (line.Type == DiffLineType.Context || line.Type == DiffLineType.Added)
                 {
-                    sb.AppendLine(line.Content);
+                    sb.Append(line.Content).Append('\n');
                     currentLine++;
                 }
             }
         }
-        return sb.ToString().TrimEnd('\r', '\n');
+        return sb.ToString().TrimEnd('\n');
     }
 }

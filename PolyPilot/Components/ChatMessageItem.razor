@@ -335,7 +335,9 @@
 
     case ChatMessageType.Diff:
         <div class="chat-msg diff-msg">
-            <DiffView RawDiff="@Message.Content" />
+            <DiffView RawDiff="@Message.Content"
+                      OnCommentRequested="OnDiffCommentRequested"
+                      OnApplyEdit="OnApplyEdit" />
         </div>
         break;
 
