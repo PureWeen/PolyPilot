@@ -276,7 +276,8 @@ function createMergeView(containerId, original, modified, filename, fileIndex = 
     enableLineComments,
   };
   
-  const sharedExtensions = [
+  // Shared visual extensions (no editability config)
+  const visualExtensions = [
     lineNumbers(),
     highlightSpecialChars(),
     foldGutter(),
@@ -291,20 +292,39 @@ function createMergeView(containerId, original, modified, filename, fileIndex = 
     ]),
     oneDark,
     polyPilotTheme,
-    EditorState.readOnly.of(true),
-    // Note: EditorView.editable remains true (default) so users can click,
-    // select text, and interact with gutter line numbers. readOnly prevents edits.
     ...lang,
+  ];
+
+  // Original (a/left) side: readonly, non-editable
+  const originalExtensions = [
+    ...visualExtensions,
+    EditorState.readOnly.of(true),
+    EditorView.editable.of(false),
+  ];
+
+  // Modified (b/right) side: fully editable with history/undo
+  const modifiedExtensions = [
+    ...visualExtensions,
+    highlightActiveLineGutter(),
+    highlightActiveLine(),
+    history(),
+    indentOnInput(),
+    closeBrackets(),
+    keymap.of([
+      ...closeBracketsKeymap,
+      ...historyKeymap,
+      indentWithTab,
+    ]),
   ];
 
   const mergeView = new MergeView({
     a: {
       doc: original || '',
-      extensions: [...sharedExtensions, ...getLineClickExtensions(commentMeta, 'original')],
+      extensions: [...originalExtensions, ...getLineClickExtensions(commentMeta, 'original')],
     },
     b: {
       doc: modified || '',
-      extensions: [...sharedExtensions, ...getLineClickExtensions(commentMeta, 'modified')],
+      extensions: [...modifiedExtensions, ...getLineClickExtensions(commentMeta, 'modified')],
     },
     parent: container,
     collapseUnchanged,
@@ -355,6 +375,16 @@ function disposeAll() {
 }
 
 /**
+ * Get the current content of the modified (b/right) side of a merge view.
+ * Returns the edited text, or null if the instance doesn't exist or isn't a merge view.
+ */
+function getModifiedContent(instanceId) {
+  const inst = instances.get(instanceId);
+  if (!inst || inst.type !== 'merge') return null;
+  return inst.mergeView.b.state.doc.toString();
+}
+
+/**
  * Open the search panel for an instance.
  */
 function openSearch(instanceId) {
@@ -374,6 +404,7 @@ window.PolyPilotCodeMirror = {
   createEditor,
   createMergeView,
   updateContent,
+  getModifiedContent,
   dispose,
   disposeAll,
   openSearch,
