@@ -332,7 +332,7 @@ function createMergeView(containerId, original, modified, filename, fileIndex = 
   });
   
   const id = nextId++;
-  instances.set(id, { type: 'merge', mergeView, container });
+  instances.set(id, { type: 'merge', mergeView, container, commentMeta });
   return id;
 }
 
@@ -399,6 +399,24 @@ function openSearch(instanceId) {
   }
 }
 
+/**
+ * Simulate a line-number click for testing (bypasses DOM event limitations in WebView).
+ */
+function simulateLineClick(instanceId, side, lineNumber) {
+  const inst = instances.get(instanceId);
+  if (!inst || inst.type !== 'merge' || !inst.commentMeta) return false;
+  const meta = inst.commentMeta;
+  if (!meta.enableLineComments || !meta.dotNetRef) return false;
+  meta.dotNetRef.invokeMethodAsync(
+    'HandleEditorLineClick',
+    meta.fileIndex ?? -1,
+    meta.fileName ?? '',
+    side,
+    lineNumber
+  ).catch(err => console.error('[PolyPilotCodeMirror] simulateLineClick failed', err));
+  return true;
+}
+
 // Expose API globally for Blazor JS interop
 window.PolyPilotCodeMirror = {
   createEditor,
@@ -408,4 +426,5 @@ window.PolyPilotCodeMirror = {
   dispose,
   disposeAll,
   openSearch,
+  simulateLineClick,
 };
