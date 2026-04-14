@@ -477,6 +477,7 @@
                         <DiffView RawDiff="@_prDiffContent"
                                   OnCommentRequested="HandleDiffCommentAsync"
                                   OnApplyEdit="HandleApplyEditAsync"
+                                  FileContentProvider="LoadFileContentAsync"
                                   @key="_prDiffCacheKey" />
                     }
                     else
@@ -1056,8 +1057,10 @@
 
         var filePath = Path.GetFullPath(Path.Combine(workDir, request.FileName));
 
-        // Security: ensure resolved path is under the working directory
-        if (!filePath.StartsWith(Path.GetFullPath(workDir), StringComparison.Ordinal))
+        // Security: ensure resolved path is under the working directory (with trailing separator to prevent sibling-dir bypass)
+        var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                + Path.DirectorySeparatorChar;
+        if (!filePath.StartsWith(normalizedWorkDir, StringComparison.OrdinalIgnoreCase))
         {
             Console.Error.WriteLine($"[DiffView] Path traversal blocked: {request.FileName}");
             return;
@@ -1075,7 +1078,33 @@
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[DiffView] Failed to write {filePath}: {ex.Message}");
-            throw; // Re-throw so DiffView's catch block can show the error status
+            throw;
+        }
+    }
+
+    private async Task<string?> LoadFileContentAsync(string relativePath)
+    {
+        var workDir = Session.WorkingDirectory;
+        if (string.IsNullOrWhiteSpace(workDir))
+            return null;
+
+        try
+        {
+            var filePath = Path.GetFullPath(Path.Combine(workDir, relativePath));
+            var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                    + Path.DirectorySeparatorChar;
+            if (!filePath.StartsWith(normalizedWorkDir, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (!File.Exists(filePath))
+                return null;
+
+            return await File.ReadAllTextAsync(filePath);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DiffView] Failed to load file content for {relativePath}: {ex.Message}");
+            return null;
         }
     }
 

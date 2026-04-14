@@ -1185,5 +1185,5 @@ h1:focus {
 }
 
 .diff-cm-container .cm-merge-revert {
-    display: none; /* read-only view — hide revert buttons */
+    display: none; /* hide revert buttons — changes are applied via the Apply button instead */
 }

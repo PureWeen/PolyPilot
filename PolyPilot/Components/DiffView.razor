@@ -155,7 +155,7 @@ else
                                                         class="diff-line-anchor"
                                                         title="Comment on original line @oldLineNo"
                                                         disabled="@(!CanComment)"
-                                                        @onclick="() => BeginLineComment(selectedIdx, selectedFile.FileName, oldLineNo, true)">
+                                                        @onclick="() => BeginLineComment(selectedIdx, selectedFile.IsRenamed && selectedFile.OldFileName is not null ? selectedFile.OldFileName : selectedFile.FileName, oldLineNo, true)">
                                                     @oldLineNo
                                                 </button>
                                             }
@@ -217,6 +217,11 @@ else
     [Parameter] public string RawDiff { get; set; } = "";
     [Parameter] public EventCallback<DiffLineCommentRequest> OnCommentRequested { get; set; }
     [Parameter] public EventCallback<DiffApplyEditRequest> OnApplyEdit { get; set; }
+    /// <summary>
+    /// Optional provider that loads full file content by filename (for filling inter-hunk gaps).
+    /// When provided, Apply writes correct content instead of blank placeholder lines.
+    /// </summary>
+    [Parameter] public Func<string, Task<string?>>? FileContentProvider { get; set; }
     private List<DiffFile> Files { get; set; } = new();
     private string? _lastRawDiff;
     private readonly DiffViewState _state = new();
@@ -269,6 +274,7 @@ else
 
         DisposeEditorInstance(previousIdx);
         CancelComment();
+        _applySaveStatus = "";
 
         if (_state.GetViewMode(fileIdx) == DiffViewMode.Editor)
             _pendingEditorInit.Add(fileIdx);
@@ -423,8 +429,38 @@ else
         var gen = _state.Generation;
         var file = Files[fileIdx];
         var containerId = $"cm-diff-{_instancePrefix}-{fileIdx}";
-        var original = DiffParser.ReconstructOriginal(file);
-        var modified = DiffParser.ReconstructModified(file);
+
+        // Load actual file content for gap-filling (prevents blank placeholder lines in Apply)
+        string[]? modifiedFileLines = null;
+        string[]? originalFileLines = null;
+        if (FileContentProvider is not null)
+        {
+            try
+            {
+                var content = await FileContentProvider(file.FileName);
+                if (content is not null)
+                    modifiedFileLines = content.Split('\n');
+
+                // For renamed files, load old file content for original side
+                if (file.IsRenamed && !string.IsNullOrWhiteSpace(file.OldFileName))
+                {
+                    var oldContent = await FileContentProvider(file.OldFileName);
+                    if (oldContent is not null)
+                        originalFileLines = oldContent.Split('\n');
+                }
+                else
+                {
+                    originalFileLines = modifiedFileLines;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[DiffView] Failed to load file content for {file.FileName}: {ex.Message}");
+            }
+        }
+
+        var original = DiffParser.ReconstructOriginal(file, originalFileLines);
+        var modified = DiffParser.ReconstructModified(file, modifiedFileLines);
 
         try
         {

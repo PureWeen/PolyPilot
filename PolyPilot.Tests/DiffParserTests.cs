@@ -1461,4 +1461,232 @@ public class DiffParserTests
         Assert.Contains("1. first", text);
         Assert.Contains("2. second", text);
     }
+
+    // ========== RECONSTRUCT WITH FILE CONTENT (gap-fill) ==========
+
+    [Fact]
+    public void ReconstructModified_WithFileLines_FillsGapsWithRealContent()
+    {
+        var diff = """
+            diff --git a/gap.cs b/gap.cs
+            --- a/gap.cs
+            +++ b/gap.cs
+            @@ -1,3 +1,3 @@
+             line1
+            -old2
+            +new2
+             line3
+            @@ -10,3 +10,3 @@
+             line10
+            -old11
+            +new11
+             line12
+            """;
+        var files = DiffParser.Parse(diff);
+
+        // Simulate actual file content (12 lines)
+        var fileLines = new[]
+        {
+            "line1", "new2", "line3",
+            "real4", "real5", "real6", "real7", "real8", "real9",
+            "line10", "new11", "line12"
+        };
+
+        var modified = DiffParser.ReconstructModified(files[0], fileLines);
+        var lines = modified.Split('\n');
+
+        // Hunk lines should come from the diff
+        Assert.Equal("line1", lines[0]);
+        Assert.Equal("new2", lines[1]);
+        Assert.Equal("line3", lines[2]);
+        // Gap lines should come from the file (not blank)
+        Assert.Equal("real4", lines[3]);
+        Assert.Equal("real5", lines[4]);
+        Assert.Equal("real6", lines[5]);
+        Assert.Equal("real7", lines[6]);
+        Assert.Equal("real8", lines[7]);
+        Assert.Equal("real9", lines[8]);
+        // Second hunk
+        Assert.Equal("line10", lines[9]);
+        Assert.Equal("new11", lines[10]);
+        Assert.Equal("line12", lines[11]);
+    }
+
+    [Fact]
+    public void ReconstructOriginal_WithFileLines_FillsGapsWithRealContent()
+    {
+        var diff = """
+            diff --git a/gap.cs b/gap.cs
+            --- a/gap.cs
+            +++ b/gap.cs
+            @@ -1,3 +1,3 @@
+             line1
+            -old2
+            +new2
+             line3
+            @@ -10,3 +10,3 @@
+             line10
+            -old11
+            +new11
+             line12
+            """;
+        var files = DiffParser.Parse(diff);
+
+        // Original file content (before changes)
+        var fileLines = new[]
+        {
+            "line1", "old2", "line3",
+            "real4", "real5", "real6", "real7", "real8", "real9",
+            "line10", "old11", "line12"
+        };
+
+        var original = DiffParser.ReconstructOriginal(files[0], fileLines);
+        var lines = original.Split('\n');
+
+        Assert.Equal("line1", lines[0]);
+        Assert.Equal("old2", lines[1]);
+        Assert.Equal("line3", lines[2]);
+        // Gap lines filled from file
+        Assert.Equal("real4", lines[3]);
+        Assert.Equal("real5", lines[4]);
+        Assert.Equal("real6", lines[5]);
+        Assert.Equal("real7", lines[6]);
+        Assert.Equal("real8", lines[7]);
+        Assert.Equal("real9", lines[8]);
+        Assert.Equal("line10", lines[9]);
+        Assert.Equal("old11", lines[10]);
+        Assert.Equal("line12", lines[11]);
+    }
+
+    [Fact]
+    public void ReconstructModified_WithFileLines_AppendsTrailingLines()
+    {
+        // Diff only covers lines 1-3, but file has 6 lines total
+        var diff = """
+            diff --git a/f.cs b/f.cs
+            --- a/f.cs
+            +++ b/f.cs
+            @@ -1,3 +1,3 @@
+             line1
+            -old2
+            +new2
+             line3
+            """;
+        var files = DiffParser.Parse(diff);
+
+        var fileLines = new[] { "line1", "new2", "line3", "line4", "line5", "line6" };
+
+        var modified = DiffParser.ReconstructModified(files[0], fileLines);
+        var lines = modified.Split('\n');
+
+        Assert.Equal(6, lines.Length);
+        Assert.Equal("line4", lines[3]);
+        Assert.Equal("line5", lines[4]);
+        Assert.Equal("line6", lines[5]);
+    }
+
+    [Fact]
+    public void ReconstructModified_WithoutFileLines_GapsAreBlank()
+    {
+        // Backward compatibility: calling without fileLines still produces blank gaps
+        var diff = """
+            diff --git a/gap.cs b/gap.cs
+            --- a/gap.cs
+            +++ b/gap.cs
+            @@ -1,3 +1,3 @@
+             line1
+            -old2
+            +new2
+             line3
+            @@ -10,3 +10,3 @@
+             line10
+            -old11
+            +new11
+             line12
+            """;
+        var files = DiffParser.Parse(diff);
+
+        var modified = DiffParser.ReconstructModified(files[0]); // no fileLines
+        var lines = modified.Split('\n');
+
+        // Gap lines should still be blank (backward compat)
+        for (int i = 3; i < 9; i++)
+            Assert.Equal("", lines[i]);
+    }
+
+    // ========== CACHED LINE COUNTS ==========
+
+    [Fact]
+    public void DiffFile_AddedAndRemovedLineCounts_AreCached()
+    {
+        var file = new DiffFile
+        {
+            FileName = "test.cs",
+            Hunks = new List<DiffHunk>
+            {
+                new()
+                {
+                    OldStart = 1, NewStart = 1,
+                    Lines = new List<DiffLine>
+                    {
+                        new() { Type = DiffLineType.Removed, Content = "old" },
+                        new() { Type = DiffLineType.Added, Content = "new1" },
+                        new() { Type = DiffLineType.Added, Content = "new2" },
+                        new() { Type = DiffLineType.Context, Content = "ctx" },
+                    }
+                }
+            }
+        };
+
+        // First access computes
+        Assert.Equal(2, file.AddedLineCount);
+        Assert.Equal(1, file.RemovedLineCount);
+
+        // Second access returns same cached values
+        Assert.Equal(2, file.AddedLineCount);
+        Assert.Equal(1, file.RemovedLineCount);
+    }
+
+    // ========== PATH TRAVERSAL GUARD ==========
+
+    [Fact]
+    public void PathTraversal_SiblingDirectory_IsBlocked()
+    {
+        // Verify that a sibling directory like "projectEvil" doesn't pass
+        // StartsWith("C:\project") without trailing separator
+        var workDir = Path.Combine(Path.GetTempPath(), "testproject");
+        var siblingPath = "..\\testprojectEvil\\secret.txt";
+
+        var filePath = Path.GetFullPath(Path.Combine(workDir, siblingPath));
+        var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                + Path.DirectorySeparatorChar;
+
+        Assert.False(filePath.StartsWith(normalizedWorkDir, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void PathTraversal_ValidSubpath_IsAllowed()
+    {
+        var workDir = Path.Combine(Path.GetTempPath(), "testproject");
+        var validPath = "src\\Models\\User.cs";
+
+        var filePath = Path.GetFullPath(Path.Combine(workDir, validPath));
+        var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                + Path.DirectorySeparatorChar;
+
+        Assert.True(filePath.StartsWith(normalizedWorkDir, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void PathTraversal_DotDotEscape_IsBlocked()
+    {
+        var workDir = Path.Combine(Path.GetTempPath(), "testproject");
+        var escapePath = "..\\..\\etc\\passwd";
+
+        var filePath = Path.GetFullPath(Path.Combine(workDir, escapePath));
+        var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                + Path.DirectorySeparatorChar;
+
+        Assert.False(filePath.StartsWith(normalizedWorkDir, StringComparison.OrdinalIgnoreCase));
+    }
 }

@@ -68,8 +68,11 @@ public class DiffFile
     public bool IsRenamed { get; set; }
     public List<DiffHunk> Hunks { get; set; } = new();
 
-    public int AddedLineCount => Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Added);
-    public int RemovedLineCount => Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Removed);
+    private int? _addedLineCount;
+    private int? _removedLineCount;
+
+    public int AddedLineCount => _addedLineCount ??= Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Added);
+    public int RemovedLineCount => _removedLineCount ??= Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Removed);
 
     public string StatusLabel => IsNew ? "NEW" : IsDeleted ? "DEL" : IsRenamed ? "REN" : "MOD";
 
@@ -389,18 +392,20 @@ public static class DiffParser
     /// <summary>
     /// Reconstructs the original (before) content from parsed diff hunks.
     /// Context + Removed lines form the original text.
-    /// Inserts blank placeholder lines for inter-hunk gaps to preserve line numbering.
+    /// If <paramref name="fileLines"/> is provided, inter-hunk gaps are filled with real file content;
+    /// otherwise blank placeholder lines are inserted to preserve line numbering.
     /// </summary>
-    public static string ReconstructOriginal(DiffFile file)
+    public static string ReconstructOriginal(DiffFile file, string[]? fileLines = null)
     {
         var sb = new StringBuilder();
         int currentLine = 1;
 
         foreach (var hunk in file.Hunks)
         {
-            // Fill gap between current position and hunk start with empty lines
             while (currentLine < hunk.OldStart)
             {
+                if (fileLines is not null && currentLine - 1 < fileLines.Length)
+                    sb.Append(fileLines[currentLine - 1]);
                 sb.Append('\n');
                 currentLine++;
             }
@@ -414,24 +419,37 @@ public static class DiffParser
                 }
             }
         }
+
+        // Append any remaining lines after the last hunk
+        if (fileLines is not null)
+        {
+            while (currentLine - 1 < fileLines.Length)
+            {
+                sb.Append(fileLines[currentLine - 1]).Append('\n');
+                currentLine++;
+            }
+        }
+
         return sb.ToString().TrimEnd('\n');
     }
 
     /// <summary>
     /// Reconstructs the modified (after) content from parsed diff hunks.
     /// Context + Added lines form the modified text.
-    /// Inserts blank placeholder lines for inter-hunk gaps to preserve line numbering.
+    /// If <paramref name="fileLines"/> is provided, inter-hunk gaps are filled with real file content;
+    /// otherwise blank placeholder lines are inserted to preserve line numbering.
     /// </summary>
-    public static string ReconstructModified(DiffFile file)
+    public static string ReconstructModified(DiffFile file, string[]? fileLines = null)
     {
         var sb = new StringBuilder();
         int currentLine = 1;
 
         foreach (var hunk in file.Hunks)
         {
-            // Fill gap between current position and hunk start with empty lines
             while (currentLine < hunk.NewStart)
             {
+                if (fileLines is not null && currentLine - 1 < fileLines.Length)
+                    sb.Append(fileLines[currentLine - 1]);
                 sb.Append('\n');
                 currentLine++;
             }
@@ -445,6 +463,17 @@ public static class DiffParser
                 }
             }
         }
+
+        // Append any remaining lines after the last hunk
+        if (fileLines is not null)
+        {
+            while (currentLine - 1 < fileLines.Length)
+            {
+                sb.Append(fileLines[currentLine - 1]).Append('\n');
+                currentLine++;
+            }
+        }
+
         return sb.ToString().TrimEnd('\n');
     }
 }
