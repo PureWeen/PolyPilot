@@ -2670,8 +2670,8 @@ public partial class CopilotService
                 // failed to deliver ToolExecutionStartEvent for an in-flight tool (events only
                 // appear in events.jsonl, not the live stream). Check events.jsonl freshness:
                 // if the CLI wrote recently (within the Case B freshness window AND after this
-                // turn started), upgrade to the full tool timeout so the session isn't prematurely
-                // completed at 180s while the CLI is still executing a long-running tool.
+                // turn started), upgrade the effective timeout to 600s so the session isn't
+                // prematurely completed at 180s while the CLI is still executing a long tool.
                 if (useUsedToolsTimeout && !IsDemoMode && !IsRemoteMode && startedAt.HasValue)
                 {
                     try
@@ -2688,15 +2688,13 @@ public partial class CopilotService
                                 {
                                     // CLI wrote to events.jsonl after this turn started and within
                                     // the freshness window — a tool is likely still running but the
-                                    // SDK didn't deliver the start event. Use the full tool timeout
-                                    // to match what Case B would do anyway (defer based on freshness).
-                                    useUsedToolsTimeout = false;
-                                    useToolTimeout = true;
+                                    // SDK didn't deliver the start event.
+                                    effectiveTimeout = WatchdogToolExecutionTimeoutSeconds;
                                 }
                             }
                         }
                     }
-                    catch { /* filesystem errors → keep useUsedToolsTimeout */ }
+                    catch { /* filesystem errors → keep original timeout */ }
                 }
 
                 if (elapsed >= effectiveTimeout)
