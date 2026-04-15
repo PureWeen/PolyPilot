@@ -675,27 +675,64 @@ public class RepoManager
 
         // Point BareClonePath at the user's existing repo — no bare clone needed.
         var url = NormalizeRepoUrl(remoteUrl);
-        var id = RepoIdFromUrl(url);
+        var baseId = RepoIdFromUrl(url);
 
         RepositoryInfo repo;
         lock (_stateLock)
         {
-            var existing = _state.Repositories.FirstOrDefault(r => r.Id == id);
-            if (existing != null)
+            // Check if an existing repo with this remote already uses a different BareClonePath
+            // (e.g., a managed bare clone created via "Add from URL"). If so, the local folder
+            // needs its OWN RepositoryInfo with a distinct ID — otherwise both entries would
+            // share the same BareClonePath and the local folder would never be used directly.
+            var existing = _state.Repositories.FirstOrDefault(r => r.Id == baseId);
+
+            // Check if this exact local path is already registered (idempotent re-add)
+            var existingLocal = _state.Repositories.FirstOrDefault(r =>
+                !string.IsNullOrWhiteSpace(r.BareClonePath) && PathsEqual(r.BareClonePath, localPath));
+
+            if (existingLocal != null)
             {
-                // A repo with this remote already exists (e.g., added via "Add from URL").
-                // Keep it as-is — don't overwrite its BareClonePath, which would destroy
-                // the managed bare clone and break any worktrees that depend on it.
-                // The local folder will be registered as an external worktree below,
-                // and the UI caller (AddLocalFolderAsync) will create a 📁 local folder group.
+                // Already have a repo pointing at this local folder — reuse it
+                repo = existingLocal;
+            }
+            else if (existing != null && !PathsEqual(existing.BareClonePath, localPath))
+            {
+                // A repo with this remote already exists but points elsewhere (managed bare clone).
+                // Create a SEPARATE repo for the local folder with a unique ID.
+                var pathHash = localPath.GetHashCode().ToString("x8");
+                var localId = $"{baseId}-local-{pathHash}";
+
+                // Ensure we don't collide with an existing entry with this generated ID
+                var alreadyLocal = _state.Repositories.FirstOrDefault(r => r.Id == localId);
+                if (alreadyLocal != null)
+                {
+                    repo = alreadyLocal;
+                }
+                else
+                {
+                    repo = new RepositoryInfo
+                    {
+                        Id = localId,
+                        Name = RepoNameFromUrl(url, fallbackId: baseId),
+                        Url = url,
+                        BareClonePath = localPath,
+                        AddedAt = DateTime.UtcNow
+                    };
+                    _state.Repositories.Add(repo);
+                }
+            }
+            else if (existing != null)
+            {
+                // Same repo, same BareClonePath — nothing to change
                 repo = existing;
             }
             else
             {
+                // No existing repo for this remote — create one pointing at the local folder
                 repo = new RepositoryInfo
                 {
-                    Id = id,
-                    Name = RepoNameFromUrl(url, fallbackId: id),
+                    Id = baseId,
+                    Name = RepoNameFromUrl(url, fallbackId: baseId),
                     Url = url,
                     BareClonePath = localPath,
                     AddedAt = DateTime.UtcNow

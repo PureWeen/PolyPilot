@@ -252,12 +252,11 @@ public class AddExistingRepoTests
     }
 
     [Fact]
-    public async Task AddRepositoryFromLocal_DoesNotOverwriteExistingUrlBasedRepo()
+    public async Task AddRepositoryFromLocal_CreatesSeparateRepoWhenUrlBasedExists()
     {
-        // Regression: adding a local folder for a repo that was already added via URL
-        // must NOT overwrite the existing repo's BareClonePath. The URL-based repo
-        // (with its managed bare clone) should be preserved; the local folder is only
-        // registered as an external worktree.
+        // When a repo was already added via "Add from URL" (managed bare clone),
+        // adding the same repo from a local folder must create a SEPARATE RepositoryInfo
+        // with a distinct ID and BareClonePath pointing at the local folder.
         var tempDir = Path.Combine(Path.GetTempPath(), $"local-overwrite-test-{Guid.NewGuid():N}");
         var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
         Directory.CreateDirectory(tempDir);
@@ -278,12 +277,12 @@ public class AddExistingRepoTests
             try
             {
                 // Simulate a repo already added via "Add from URL" with a managed bare clone.
-                var id = RepoManager.RepoIdFromUrl(remoteUrl);
-                var barePath = Path.Combine(testBaseDir, "repos", $"{id}.git");
+                var urlId = RepoManager.RepoIdFromUrl(remoteUrl);
+                var barePath = Path.Combine(testBaseDir, "repos", $"{urlId}.git");
                 Directory.CreateDirectory(barePath);
                 var urlRepo = new RepositoryInfo
                 {
-                    Id = id,
+                    Id = urlId,
                     Name = "overwrite-test",
                     Url = remoteUrl,
                     BareClonePath = barePath,
@@ -297,25 +296,70 @@ public class AddExistingRepoTests
                 rm.Load();
 
                 // Now add the same repo from a local folder
-                var repo = await rm.AddRepositoryFromLocalAsync(tempDir);
+                var localRepo = await rm.AddRepositoryFromLocalAsync(tempDir);
 
-                // The returned repo should be the SAME repo (same ID)
-                Assert.Equal(id, repo.Id);
+                // The returned repo should have a DIFFERENT ID from the URL-based repo
+                Assert.NotEqual(urlId, localRepo.Id);
+                Assert.StartsWith(urlId, localRepo.Id); // e.g. "test-owner-overwrite-test-local-..."
 
-                // CRITICAL: BareClonePath must still point at the managed bare clone,
-                // NOT at the local folder. The local folder should only be registered
-                // as an external worktree.
-                Assert.Equal(Path.GetFullPath(barePath), Path.GetFullPath(repo.BareClonePath));
+                // The local repo's BareClonePath must point at the local folder
+                Assert.True(PathsEqual(localRepo.BareClonePath, tempDir),
+                    $"Expected local repo BareClonePath to be '{tempDir}' but got '{localRepo.BareClonePath}'");
 
-                // The managed bare clone directory must still exist (not deleted)
+                // The original URL-based repo must be untouched
+                var originalRepo = rm.Repositories.FirstOrDefault(r => r.Id == urlId);
+                Assert.NotNull(originalRepo);
+                Assert.Equal(Path.GetFullPath(barePath), Path.GetFullPath(originalRepo.BareClonePath));
+
+                // The managed bare clone directory must still exist
                 Assert.True(Directory.Exists(barePath));
 
-                // There should still be exactly ONE repo (not duplicated)
-                Assert.Single(rm.Repositories.Where(r => r.Id == id));
+                // There should be TWO repos total
+                Assert.Equal(2, rm.Repositories.Count);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            ForceDeleteDirectory(tempDir);
+            ForceDeleteDirectory(testBaseDir);
+        }
+    }
 
-                // The local folder should be registered as an external worktree
-                Assert.Contains(rm.Worktrees, w =>
-                    w.RepoId == id && PathsEqual(w.Path, tempDir));
+    [Fact]
+    public async Task AddRepositoryFromLocal_IdempotentForSameLocalFolder()
+    {
+        // Adding the same local folder twice should return the same repo, not create duplicates.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"local-idempotent-{Guid.NewGuid():N}");
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(testBaseDir);
+        try
+        {
+            var remoteUrl = "https://github.com/test-owner/idempotent-test.git";
+            await RunProcess("git", "init", tempDir);
+            await RunProcess("git", "-C", tempDir, "config", "user.email", "test@test.com");
+            await RunProcess("git", "-C", tempDir, "config", "user.name", "Test");
+            await RunProcess("git", "-C", tempDir, "commit", "--allow-empty", "-m", "init");
+            await RunProcess("git", "-C", tempDir, "remote", "add", "origin", remoteUrl);
+
+            var rm = new RepoManager();
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                // Add the local folder twice
+                var repo1 = await rm.AddRepositoryFromLocalAsync(tempDir);
+                var repo2 = await rm.AddRepositoryFromLocalAsync(tempDir);
+
+                // Both should return the same repo
+                Assert.Equal(repo1.Id, repo2.Id);
+                Assert.True(PathsEqual(repo1.BareClonePath, repo2.BareClonePath));
+
+                // Should still be exactly one repo
+                Assert.Single(rm.Repositories);
             }
             finally
             {
