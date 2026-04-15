@@ -3858,6 +3858,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         reconnectConfig.WorkingDirectory = state.Info.WorkingDirectory;
                     
                     CopilotSession newSession;
+                    var oldSessionId = state.Info.SessionId; // Capture before resume may change it
                     try
                     {
                         newSession = await client.ResumeSessionAsync(state.Info.SessionId, reconnectConfig, cancellationToken);
@@ -3887,7 +3888,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         {
                             var freshConfig = BuildFreshSessionConfig(state);
                             newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                            // Mark the old session as superseded so MergeSessionEntries drops it
+                            // instead of renaming it to "(previous)".
+                            state.Info.RecoveredFromSessionId = oldSessionId;
                             state.Info.SessionId = newSession.SessionId;
+                            if (!string.IsNullOrEmpty(oldSessionId))
+                                _closedSessionIds[oldSessionId] = 0;
                             FlushSaveActiveSessionsToDisk();
                         }
                         catch (Exception createEx)
@@ -3914,7 +3920,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                         {
                             var freshConfig = BuildFreshSessionConfig(state);
                             newSession = await client.CreateSessionAsync(freshConfig, cancellationToken);
+                            // Mark the old session as superseded so MergeSessionEntries drops it
+                            // instead of renaming it to "(previous)".
+                            state.Info.RecoveredFromSessionId = oldSessionId;
                             state.Info.SessionId = newSession.SessionId;
+                            if (!string.IsNullOrEmpty(oldSessionId))
+                                _closedSessionIds[oldSessionId] = 0;
                             FlushSaveActiveSessionsToDisk();
                         }
                         catch (Exception createEx)

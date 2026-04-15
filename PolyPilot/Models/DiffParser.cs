@@ -2,6 +2,63 @@ using System.Text;
 
 namespace PolyPilot.Models;
 
+public enum DiffViewMode
+{
+    Table,
+    Editor
+}
+
+public sealed class DiffViewState
+{
+    private readonly Dictionary<int, DiffViewMode> _viewModes = new();
+
+    public int Generation { get; private set; }
+    public int SelectedFileIndex { get; private set; } = -1;
+    public bool IsFilePickerCollapsed { get; private set; }
+    public IReadOnlyDictionary<int, DiffViewMode> ViewModes => _viewModes;
+
+    public void Reset(IReadOnlyList<DiffFile> files)
+    {
+        Generation++;
+        SelectedFileIndex = files.Count > 0 ? 0 : -1;
+        IsFilePickerCollapsed = false;
+        _viewModes.Clear();
+    }
+
+    public void ToggleFilePicker() => IsFilePickerCollapsed = !IsFilePickerCollapsed;
+
+    public bool SelectFile(int fileIdx, int fileCount)
+    {
+        if (fileIdx < 0 || fileIdx >= fileCount || fileIdx == SelectedFileIndex)
+            return false;
+
+        SelectedFileIndex = fileIdx;
+        return true;
+    }
+
+    public DiffViewMode GetViewMode(int fileIdx) =>
+        _viewModes.TryGetValue(fileIdx, out var mode) ? mode : DiffViewMode.Table;
+
+    public void SetViewMode(int fileIdx, DiffViewMode mode) => _viewModes[fileIdx] = mode;
+}
+
+public sealed record DiffApplyEditRequest(string FileName, string Content);
+
+public sealed record DiffLineCommentRequest(string FileName, int LineNumber, string Comment, string Side = "modified")
+{
+    public string ToPrompt()
+    {
+        var sideLabel = Side.ToLowerInvariant() switch
+        {
+            "left" or "old" or "original" => "original",
+            "right" or "new" or "modified" => "modified",
+            _ => Side
+        };
+
+        return $"On file {FileName}, line {LineNumber} ({sideLabel}): {Comment.Trim()}";
+    }
+}
+
 public class DiffFile
 {
     public string FileName { get; set; } = "";
@@ -10,6 +67,21 @@ public class DiffFile
     public bool IsDeleted { get; set; }
     public bool IsRenamed { get; set; }
     public List<DiffHunk> Hunks { get; set; } = new();
+
+    private int? _addedLineCount;
+    private int? _removedLineCount;
+
+    public int AddedLineCount => _addedLineCount ??= Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Added);
+    public int RemovedLineCount => _removedLineCount ??= Hunks.SelectMany(h => h.Lines).Count(l => l.Type == DiffLineType.Removed);
+
+    public string StatusLabel => IsNew ? "NEW" : IsDeleted ? "DEL" : IsRenamed ? "REN" : "MOD";
+
+    public string StatusCssClass => IsNew ? "new" : IsDeleted ? "deleted" : IsRenamed ? "renamed" : "modified";
+
+    public string DisplayName =>
+        IsRenamed && !string.IsNullOrWhiteSpace(OldFileName)
+            ? $"{OldFileName} → {FileName}"
+            : FileName;
 }
 
 public class DiffHunk
@@ -315,5 +387,93 @@ public static class DiffParser
         }
 
         return rows;
+    }
+
+    /// <summary>
+    /// Reconstructs the original (before) content from parsed diff hunks.
+    /// Context + Removed lines form the original text.
+    /// If <paramref name="fileLines"/> is provided, inter-hunk gaps are filled with real file content;
+    /// otherwise blank placeholder lines are inserted to preserve line numbering.
+    /// </summary>
+    public static string ReconstructOriginal(DiffFile file, string[]? fileLines = null)
+    {
+        var sb = new StringBuilder();
+        int currentLine = 1;
+
+        foreach (var hunk in file.Hunks)
+        {
+            while (currentLine < hunk.OldStart)
+            {
+                if (fileLines is not null && currentLine - 1 < fileLines.Length)
+                    sb.Append(fileLines[currentLine - 1]);
+                sb.Append('\n');
+                currentLine++;
+            }
+
+            foreach (var line in hunk.Lines)
+            {
+                if (line.Type == DiffLineType.Context || line.Type == DiffLineType.Removed)
+                {
+                    sb.Append(line.Content).Append('\n');
+                    currentLine++;
+                }
+            }
+        }
+
+        // Append any remaining lines after the last hunk
+        if (fileLines is not null)
+        {
+            while (currentLine - 1 < fileLines.Length)
+            {
+                sb.Append(fileLines[currentLine - 1]).Append('\n');
+                currentLine++;
+            }
+        }
+
+        return sb.ToString().TrimEnd('\n');
+    }
+
+    /// <summary>
+    /// Reconstructs the modified (after) content from parsed diff hunks.
+    /// Context + Added lines form the modified text.
+    /// If <paramref name="fileLines"/> is provided, inter-hunk gaps are filled with real file content;
+    /// otherwise blank placeholder lines are inserted to preserve line numbering.
+    /// </summary>
+    public static string ReconstructModified(DiffFile file, string[]? fileLines = null)
+    {
+        var sb = new StringBuilder();
+        int currentLine = 1;
+
+        foreach (var hunk in file.Hunks)
+        {
+            while (currentLine < hunk.NewStart)
+            {
+                if (fileLines is not null && currentLine - 1 < fileLines.Length)
+                    sb.Append(fileLines[currentLine - 1]);
+                sb.Append('\n');
+                currentLine++;
+            }
+
+            foreach (var line in hunk.Lines)
+            {
+                if (line.Type == DiffLineType.Context || line.Type == DiffLineType.Added)
+                {
+                    sb.Append(line.Content).Append('\n');
+                    currentLine++;
+                }
+            }
+        }
+
+        // Append any remaining lines after the last hunk
+        if (fileLines is not null)
+        {
+            while (currentLine - 1 < fileLines.Length)
+            {
+                sb.Append(fileLines[currentLine - 1]).Append('\n');
+                currentLine++;
+            }
+        }
+
+        return sb.ToString().TrimEnd('\n');
     }
 }

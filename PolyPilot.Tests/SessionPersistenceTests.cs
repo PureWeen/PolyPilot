@@ -1790,4 +1790,102 @@ public class SessionPersistenceTests
         Assert.Equal(2, result.Count);
         Assert.Equal("MyWorker (previous)", result[1].DisplayName);
     }
+
+    [Fact]
+    public void Merge_LazyResumeFallback_RecoveredFromSessionId_DropsOldEntry()
+    {
+        // Simulates: lazy-resume fails ("Session not found") → fresh session created →
+        // RecoveredFromSessionId set to old ID → _closedSessionIds contains old ID →
+        // merge must drop the old entry, not rename it "(previous)".
+        var active = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "fresh-id", DisplayName = "34678", Model = "claude-opus-4.6",
+                     WorkingDirectory = "/w", GroupId = "group-1", RecoveredFromSessionId = "dead-id" }
+        };
+        var persisted = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "dead-id", DisplayName = "34678", Model = "claude-opus-4.6",
+                     WorkingDirectory = "/w", GroupId = "group-1" }
+        };
+        var closedIds = new HashSet<string> { "dead-id" };
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, new HashSet<string>(), _ => true);
+
+        Assert.Single(result);
+        Assert.Equal("fresh-id", result[0].SessionId);
+        Assert.Equal("34678", result[0].DisplayName);
+    }
+
+    [Fact]
+    public void Merge_DoubleRecovery_UsesImmediatePredecessor()
+    {
+        // Simulates double recovery: A → B (first recovery) → C (second recovery).
+        // C.RecoveredFromSessionId must be B (the immediate predecessor), not A.
+        // After restart, _closedSessionIds is empty, so only RecoveredFromSessionId
+        // can prevent B from appearing as "(previous)".
+        var active = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "session-C", DisplayName = "MySession", Model = "m",
+                     WorkingDirectory = "/w", GroupId = "g1", RecoveredFromSessionId = "session-B" }
+        };
+        var persisted = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "session-B", DisplayName = "MySession", Model = "m",
+                     WorkingDirectory = "/w", GroupId = "g1" }
+        };
+        // _closedSessionIds is empty (simulates post-restart)
+        var closedIds = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, new HashSet<string>(), _ => true);
+
+        // B must be dropped because C.RecoveredFromSessionId == B
+        Assert.Single(result);
+        Assert.Equal("session-C", result[0].SessionId);
+        Assert.Equal("MySession", result[0].DisplayName);
+    }
+
+    [Fact]
+    public void Merge_DoubleRecovery_StaleAncestor_CreatesPhantom()
+    {
+        // Proves why ??= was wrong: if C.RecoveredFromSessionId == A (stale ancestor
+        // from first recovery, not B), the merge can't link C→B and creates "(previous)".
+        var active = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "session-C", DisplayName = "MySession", Model = "m",
+                     WorkingDirectory = "/w", GroupId = "g1", RecoveredFromSessionId = "session-A" }
+        };
+        var persisted = new List<ActiveSessionEntry>
+        {
+            new() { SessionId = "session-B", DisplayName = "MySession", Model = "m",
+                     WorkingDirectory = "/w", GroupId = "g1" }
+        };
+        var closedIds = new HashSet<string>();
+
+        var result = CopilotService.MergeSessionEntries(active, persisted, closedIds, new HashSet<string>(), _ => true);
+
+        // B survives as "(previous)" because RecoveredFromSessionId=A doesn't match B
+        Assert.Equal(2, result.Count);
+        Assert.Equal("MySession (previous)", result[1].DisplayName);
+    }
+
+    [Fact]
+    public void LazyResumeFallback_SetsRecoveredFromSessionIdAndClosedIds()
+    {
+        // Structural guard: the lazy-resume fallback in EnsureSessionConnectedAsync
+        // must set RecoveredFromSessionId (=, not ??=) and add old ID to _closedSessionIds
+        // so MergeSessionEntries drops the old entry.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+
+        // Find the fallback block — search for the full method containing the fallback
+        var methodIdx = source.IndexOf("EnsureSessionConnectedAsync", StringComparison.Ordinal);
+        Assert.True(methodIdx > 0, "Could not find EnsureSessionConnectedAsync");
+        var methodBlock = source.Substring(methodIdx, Math.Min(5000, source.Length - methodIdx));
+
+        // Must use = (not ??=) for double-recovery correctness
+        Assert.Contains("RecoveredFromSessionId = sessionId;", methodBlock);
+        Assert.DoesNotContain("RecoveredFromSessionId ??= sessionId", methodBlock);
+        // Must add to _closedSessionIds for same-process protection
+        Assert.Contains("_closedSessionIds[sessionId] = 0;", methodBlock);
+    }
 }

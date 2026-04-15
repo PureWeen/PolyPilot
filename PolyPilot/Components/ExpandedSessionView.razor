@@ -43,9 +43,20 @@
         <div class="chat-header-main">
             <div class="chat-header-title-row">
                 <h2 class="chat-header-title">@displayName</h2>
-                @if (_prUrl != null && PlatformHelper.IsDesktop)
+                @if (HasLinkedPr && PlatformHelper.IsDesktop)
                 {
-                    <button class="pr-badge" title="@_prUrl">@_prLabel</button>
+                    <button class="pr-badge"
+                            title="@(EffectivePrUrl ?? $"Open PR {PrDisplayLabel}")"
+                            @onclick="OpenPrLinkAsync"
+                            @onclick:stopPropagation="true">
+                        @PrDisplayLabel
+                    </button>
+                    <button class="review-badge @(_showReviewPanel ? "active" : "")"
+                            title="@(_showReviewPanel ? "Hide review panel" : "Open review panel")"
+                            @onclick="ToggleReviewPanelAsync"
+                            @onclick:stopPropagation="true">
+                        <span aria-hidden="true">📋</span> Review
+                    </button>
                 }
                 @if (!string.IsNullOrEmpty(headerSecondaryIdentity))
                 {
@@ -192,150 +203,154 @@
         </div>
     }
 
-    <div class="messages expanded-messages">
-        @{ var expandedMessages = GetWindowedMessages(); }
-        @if (IsLoadingHistory)
-        {
-            <div class="loading-history-indicator">
-                <div class="loading-history-spinner"></div>
-                <span>Loading conversation…</span>
-            </div>
-        }
-        else
-        {
-            @if (HasMoreRemoteHistory)
-            {
-                <button class="load-more-btn" @onclick="LoadFullHistory">
-                    ⬆️ Load rest of conversation
-                </button>
-            }
-            else if (Session.History.Count > expandedMessages.Count)
-            {
-                <button class="load-more-btn" @onclick="LoadMore">
-                    ⬆️ Load more (@(Session.History.Count - expandedMessages.Count) remaining)
-                </button>
-            }
-        }
-        <ChatMessageList Messages="expandedMessages"
-                         StreamingContent="@StreamingContent"
-                         CurrentToolName="@CurrentToolName"
-                         ToolActivities="@ToolActivities"
-                         ActivityText="@ActivityText"
-                         IsProcessing="Session.IsProcessing"
-                         IsRemoteStreaming="IsRemoteStreaming"
-                         ProcessingStartedAt="Session.ProcessingStartedAt"
-                         ToolCallCount="Session.ToolCallCount"
-                         ProcessingPhase="Session.ProcessingPhase"
-                         LastActivityAt="Session.LastUpdatedAt"
-                         Compact="false"
-                         UserAvatarUrl="@UserAvatarUrl"
-                         Layout="@Layout"
-                         Style="@Style"
-                         RepoUrl="@RepoUrl"
-                         HasPermissionIssue="Session.HasPermissionIssue"
-                         OnReconnectRequested="OnReconnectRequested" />
-    </div>
-
-    @if (!string.IsNullOrEmpty(Error))
-    {
-        <div class="error-bar">
-            <span>⚠️ @Error</span>
-            <button @onclick="() => OnDismissError.InvokeAsync(Session.Name)">×</button>
-        </div>
-    }
-
-    <div class="input-area">
-        @if (_isListening)
-        {
-            <div class="stt-overlay" @onclick="StopListening">
-                <div class="stt-overlay-content" @onclick:stopPropagation="true">
-                    <button class="stt-mic-circle" @onclick="StopListening" title="Click to stop">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2"/><line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2"/></svg>
-                    </button>
-                    <p class="stt-transcript">@(string.IsNullOrEmpty(_partialText) ? "Listening…" : _partialText)</p>
-                    @if (!string.IsNullOrEmpty(_partialText))
+    <div class="expanded-content @(_showReviewPanel && PlatformHelper.IsDesktop ? "split-review" : "")">
+        <div class="expanded-main-pane">
+            <div class="messages expanded-messages">
+                @{ var expandedMessages = GetWindowedMessages(); }
+                @if (IsLoadingHistory)
+                {
+                    <div class="loading-history-indicator">
+                        <div class="loading-history-spinner"></div>
+                        <span>Loading conversation…</span>
+                    </div>
+                }
+                else
+                {
+                    @if (HasMoreRemoteHistory)
                     {
-                        <button class="stt-send-btn" @onclick="StopAndSend" title="Send now">
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8V4z"/></svg>
+                        <button class="load-more-btn" @onclick="LoadFullHistory">
+                            ⬆️ Load rest of conversation
                         </button>
                     }
-                </div>
+                    else if (Session.History.Count > expandedMessages.Count)
+                    {
+                        <button class="load-more-btn" @onclick="LoadMore">
+                            ⬆️ Load more (@(Session.History.Count - expandedMessages.Count) remaining)
+                        </button>
+                    }
+                }
+                <ChatMessageList Messages="expandedMessages"
+                                 StreamingContent="@StreamingContent"
+                                 CurrentToolName="@CurrentToolName"
+                                 ToolActivities="@ToolActivities"
+                                 ActivityText="@ActivityText"
+                                 IsProcessing="Session.IsProcessing"
+                                 IsRemoteStreaming="IsRemoteStreaming"
+                                 ProcessingStartedAt="Session.ProcessingStartedAt"
+                                 ToolCallCount="Session.ToolCallCount"
+                                 ProcessingPhase="Session.ProcessingPhase"
+                                 LastActivityAt="Session.LastUpdatedAt"
+                                 Compact="false"
+                                 UserAvatarUrl="@UserAvatarUrl"
+                                 Layout="@Layout"
+                                 Style="@Style"
+                                  RepoUrl="@RepoUrl"
+                                  HasPermissionIssue="Session.HasPermissionIssue"
+                                  OnDiffCommentRequested="HandleDiffCommentAsync"
+                                  OnApplyEdit="HandleApplyEditAsync"
+                                  OnReconnectRequested="OnReconnectRequested" />
             </div>
-        }
-        @{
-            var queueSnapshot = Session.MessageQueue.Snapshot();
-            var hasInputMeta = !string.IsNullOrEmpty(Intent) || queueSnapshot.Count > 0 || (PendingImages?.Any() == true);
-        }
-        @if (hasInputMeta)
-        {
-            <div class="input-meta-stack">
-                @if (!string.IsNullOrEmpty(Intent))
-                {
-                    <div class="intent-pill">💭 @Intent</div>
-                }
-                @if (queueSnapshot.Count > 0)
-                {
-                    <div class="message-queue">
-                        <div class="queue-header">
-                            <span>📋 Queued (@queueSnapshot.Count)</span>
-                            <button class="queue-clear-btn" @onclick="() => OnClearQueue.InvokeAsync(Session.Name)">Clear</button>
-                        </div>
-                        @for (var i = 0; i < queueSnapshot.Count; i++)
-                        {
-                            var index = i;
-                            var msg = queueSnapshot[i];
-                            <div class="queue-item">
-                                <span class="queue-index">@(index + 1)</span>
-                                <span class="queue-text">@Truncate(msg, 80)</span>
-                                <button class="queue-remove-btn" @onclick="() => OnRemoveQueuedMessage.InvokeAsync((Session.Name, index))">×</button>
-                            </div>
-                        }
-                    </div>
-                }
-                @if (PendingImages != null && PendingImages.Any())
-                {
-                    <div class="attachment-strip">
-                        @for (var pi = 0; pi < PendingImages.Count; pi++)
-                        {
-                            var pidx = pi;
-                            var pimg = PendingImages[pi];
-                            <div class="attachment-thumb">
-                                <img src="@pimg.DataUri" alt="@pimg.FileName" />
-                                <button class="attachment-remove" @onclick="() => OnRemovePendingImage.InvokeAsync((Session.Name, pidx))" title="Remove">×</button>
-                                <span class="attachment-name">@TruncateFileName(pimg.FileName, 15)</span>
-                            </div>
-                        }
-                    </div>
-                }
-            </div>
-        }
-        <div class="input-row">
-            <input type="file" id="file-@Session.Name.Replace(" ", "-")" accept="image/*" multiple style="display:none" />
-            <textarea id="input-@Session.Name.Replace(" ", "-")"
-                      data-fiesta-workers="@FiestaAutocompleteWorkers"
-                      autocomplete="off"
-                      autocorrect="off"
-                      placeholder="@(Session.IsProcessing ? "Send to steer…" : PlatformHelper.IsMobile ? "Message..." : "Message... (↵ send, ⇧↵ newline)")"
-                      rows="1"></textarea>
-            <button class="attach-btn" @onclick="() => OnAttach.InvokeAsync(Session.Name)" title="Attach image">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
-            </button>
-            <button class="mic-btn @(_isListening ? "listening" : "")"
-                    @onclick="ToggleListening"
-                    title="@(_isListening ? "Click to stop recording" : "Click to start recording")">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-            </button>
-            @if (Session.IsProcessing)
+
+            @if (!string.IsNullOrEmpty(Error))
             {
-                <button class="send-btn stop-btn" @onclick="() => OnStop.InvokeAsync(Session.Name)" title="Stop">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-                </button>
+                <div class="error-bar">
+                    <span>⚠️ @Error</span>
+                    <button @onclick="() => OnDismissError.InvokeAsync(Session.Name)">×</button>
+                </div>
             }
-            <button class="send-btn" @onclick="() => OnSend.InvokeAsync(Session.Name)" title="Send message">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z"/></svg>
-            </button>
-        </div>
-        <div class="input-status-bar">
+
+            <div class="input-area">
+                @if (_isListening)
+                {
+                    <div class="stt-overlay" @onclick="StopListening">
+                        <div class="stt-overlay-content" @onclick:stopPropagation="true">
+                            <button class="stt-mic-circle" @onclick="StopListening" title="Click to stop">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2" fill="none" stroke="currentColor" stroke-width="2"/><line x1="12" y1="19" x2="12" y2="23" stroke="currentColor" stroke-width="2"/><line x1="8" y1="23" x2="16" y2="23" stroke="currentColor" stroke-width="2"/></svg>
+                            </button>
+                            <p class="stt-transcript">@(string.IsNullOrEmpty(_partialText) ? "Listening…" : _partialText)</p>
+                            @if (!string.IsNullOrEmpty(_partialText))
+                            {
+                                <button class="stt-send-btn" @onclick="StopAndSend" title="Send now">
+                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M6 4l14 8-14 8V4z"/></svg>
+                                </button>
+                            }
+                        </div>
+                    </div>
+                }
+                @{
+                    var queueSnapshot = Session.MessageQueue.Snapshot();
+                    var hasInputMeta = !string.IsNullOrEmpty(Intent) || queueSnapshot.Count > 0 || (PendingImages?.Any() == true);
+                }
+                @if (hasInputMeta)
+                {
+                    <div class="input-meta-stack">
+                        @if (!string.IsNullOrEmpty(Intent))
+                        {
+                            <div class="intent-pill">💭 @Intent</div>
+                        }
+                        @if (queueSnapshot.Count > 0)
+                        {
+                            <div class="message-queue">
+                                <div class="queue-header">
+                                    <span>📋 Queued (@queueSnapshot.Count)</span>
+                                    <button class="queue-clear-btn" @onclick="() => OnClearQueue.InvokeAsync(Session.Name)">Clear</button>
+                                </div>
+                                @for (var i = 0; i < queueSnapshot.Count; i++)
+                                {
+                                    var index = i;
+                                    var msg = queueSnapshot[i];
+                                    <div class="queue-item">
+                                        <span class="queue-index">@(index + 1)</span>
+                                        <span class="queue-text">@Truncate(msg, 80)</span>
+                                        <button class="queue-remove-btn" @onclick="() => OnRemoveQueuedMessage.InvokeAsync((Session.Name, index))">×</button>
+                                    </div>
+                                }
+                            </div>
+                        }
+                        @if (PendingImages != null && PendingImages.Any())
+                        {
+                            <div class="attachment-strip">
+                                @for (var pi = 0; pi < PendingImages.Count; pi++)
+                                {
+                                    var pidx = pi;
+                                    var pimg = PendingImages[pi];
+                                    <div class="attachment-thumb">
+                                        <img src="@pimg.DataUri" alt="@pimg.FileName" />
+                                        <button class="attachment-remove" @onclick="() => OnRemovePendingImage.InvokeAsync((Session.Name, pidx))" title="Remove">×</button>
+                                        <span class="attachment-name">@TruncateFileName(pimg.FileName, 15)</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+                <div class="input-row">
+                    <input type="file" id="file-@Session.Name.Replace(" ", "-")" accept="image/*" multiple style="display:none" />
+                    <textarea id="input-@Session.Name.Replace(" ", "-")"
+                              data-fiesta-workers="@FiestaAutocompleteWorkers"
+                              autocomplete="off"
+                              autocorrect="off"
+                              placeholder="@(Session.IsProcessing ? "Send to steer…" : PlatformHelper.IsMobile ? "Message..." : "Message... (↵ send, ⇧↵ newline)")"
+                              rows="1"></textarea>
+                    <button class="attach-btn" @onclick="() => OnAttach.InvokeAsync(Session.Name)" title="Attach image">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.49"/></svg>
+                    </button>
+                    <button class="mic-btn @(_isListening ? "listening" : "")"
+                            @onclick="ToggleListening"
+                            title="@(_isListening ? "Click to stop recording" : "Click to start recording")">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
+                    </button>
+                    @if (Session.IsProcessing)
+                    {
+                        <button class="send-btn stop-btn" @onclick="() => OnStop.InvokeAsync(Session.Name)" title="Stop">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                        </button>
+                    }
+                    <button class="send-btn" @onclick="() => OnSend.InvokeAsync(Session.Name)" title="Send message">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" xmlns="http://www.w3.org/2000/svg"><path d="M6 4l14 8-14 8V4z"/></svg>
+                    </button>
+                </div>
+                <div class="input-status-bar">
             <div class="mode-switcher">
                 <button class="mode-btn @(InputMode == "chat" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("chat")' title="Chat mode — interactive conversation">Chat</button>
                 <button class="mode-btn @(InputMode == "plan" ? "active" : "")" @onclick='() => OnSetInputMode.InvokeAsync("plan")' title="Plan mode — create a plan before implementing">Plan</button>
@@ -411,7 +426,69 @@
                     }
                 </span>
             </div>
+                </div>
+            </div>
         </div>
+
+        @if (_showReviewPanel && PlatformHelper.IsDesktop)
+        {
+            <aside class="review-panel" aria-label="PR review panel">
+                <div class="review-panel-header">
+                    <div class="review-panel-heading">
+                        <div class="review-panel-title">Review @PrDisplayLabel</div>
+                        @if (!string.IsNullOrWhiteSpace(Session.WorkingDirectory))
+                        {
+                            <div class="review-panel-subtitle">@ShortenPath(Session.WorkingDirectory)</div>
+                        }
+                    </div>
+                    <div class="review-panel-actions">
+                        <button class="review-panel-action"
+                                @onclick="RefreshPrDiffAsync"
+                                @onclick:stopPropagation="true"
+                                disabled="@_prDiffLoading">
+                            Refresh
+                        </button>
+                        <button class="review-panel-close"
+                                title="Close review panel"
+                                @onclick="CloseReviewPanel"
+                                @onclick:stopPropagation="true">
+                            ×
+                        </button>
+                    </div>
+                </div>
+
+                <div class="review-panel-body">
+                    @if (_prDiffLoading)
+                    {
+                        <div class="review-panel-state">
+                            <div class="loading-history-spinner"></div>
+                            <span>Loading PR diff…</span>
+                        </div>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(_prDiffError))
+                    {
+                        <div class="review-panel-error">
+                            <strong>Couldn’t load the PR diff.</strong>
+                            <span>@_prDiffError</span>
+                        </div>
+                    }
+                    else if (!string.IsNullOrWhiteSpace(_prDiffContent))
+                    {
+                        <DiffView RawDiff="@_prDiffContent"
+                                  OnCommentRequested="HandleDiffCommentAsync"
+                                  OnApplyEdit="HandleApplyEditAsync"
+                                  FileContentProvider="LoadFileContentAsync"
+                                  @key="_prDiffCacheKey" />
+                    }
+                    else
+                    {
+                        <div class="review-panel-state">
+                            <span>No PR diff loaded yet.</span>
+                        </div>
+                    }
+                </div>
+            </aside>
+        }
     </div>
 </div>
 
@@ -707,6 +784,24 @@
     private string _prLabel = "PR";
     private string? _lastPrCheckedDir;
     private string? _lastExpandedSessionId;
+    private bool _showReviewPanel;
+    private bool _prDiffLoading;
+    private string? _prDiffContent;
+    private string? _prDiffError;
+    private string? _prDiffCacheKey;
+    private int? _loadedReviewPrNumber;
+    private string? _loadedReviewDir;
+    private int _prDiffRequestVersion;
+
+    private int? CurrentPrNumber => PrLinkService.ExtractPrNumber(_prUrl) ?? Session.PrNumber;
+    private bool HasLinkedPr => CurrentPrNumber is > 0;
+    private string PrDisplayLabel => CurrentPrNumber is int prNumber ? $"#{prNumber}" : _prLabel;
+    private string? EffectivePrUrl =>
+        LinkHelper.IsValidExternalUrl(_prUrl)
+            ? _prUrl
+            : CurrentPrNumber is int prNumber && LinkHelper.IsValidExternalUrl(RepoUrl)
+                ? $"{RepoUrl!.TrimEnd('/')}/pull/{prNumber}"
+                : null;
 
     private List<SkillInfo>? availableSkills;
     private List<AgentInfo>? availableAgents;
@@ -803,6 +898,13 @@
             {
                 _prUrl = null;
                 _prLabel = "PR";
+                _showReviewPanel = false;
+                _prDiffLoading = false;
+                _prDiffContent = null;
+                _prDiffError = null;
+                _prDiffCacheKey = null;
+                _loadedReviewPrNumber = null;
+                _loadedReviewDir = null;
             }
 
             if (!string.IsNullOrEmpty(dir))
@@ -827,17 +929,183 @@
         var url = await PrLinkService.GetPrUrlForDirectoryAsync(dir);
         if (Session.SessionId != capturedId) return;
         _prUrl = url;
-        if (_prUrl != null)
-        {
-            var lastSlash = _prUrl.LastIndexOf('/');
-            if (lastSlash >= 0 && lastSlash < _prUrl.Length - 1)
-                _prLabel = "#" + _prUrl[(lastSlash + 1)..];
-        }
-        else
-        {
-            _prLabel = "PR";
-        }
+        var prNumber = PrLinkService.ExtractPrNumber(_prUrl) ?? Session.PrNumber;
+        _prLabel = prNumber is > 0 ? $"#{prNumber}" : "PR";
+
+        if (_showReviewPanel && !_prDiffLoading && string.IsNullOrWhiteSpace(_prDiffContent) && prNumber is > 0)
+            _ = LoadPrDiffAsync(forceReload: true);
+
         try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
+    }
+
+    private async Task OpenPrLinkAsync()
+    {
+        if (!LinkHelper.IsValidExternalUrl(EffectivePrUrl))
+            return;
+
+        try
+        {
+            await Launcher.Default.OpenAsync(new Uri(EffectivePrUrl!));
+        }
+        catch (Exception ex)
+        {
+            _prDiffError = $"Could not open the PR link: {ex.Message}";
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task ToggleReviewPanelAsync()
+    {
+        if (_showReviewPanel)
+        {
+            CloseReviewPanel();
+            return;
+        }
+
+        _showReviewPanel = true;
+        await LoadPrDiffAsync();
+    }
+
+    private void CloseReviewPanel()
+    {
+        _showReviewPanel = false;
+    }
+
+    private Task RefreshPrDiffAsync() => LoadPrDiffAsync(forceReload: true);
+
+    private async Task LoadPrDiffAsync(bool forceReload = false)
+    {
+        if (!PlatformHelper.IsDesktop)
+        {
+            _prDiffError = "The review panel is only available on desktop.";
+            return;
+        }
+
+        var workDir = Session.WorkingDirectory;
+        if (string.IsNullOrWhiteSpace(workDir))
+        {
+            _prDiffError = "This session doesn’t have a working directory, so there’s no PR context to review.";
+            return;
+        }
+
+        var prNumber = CurrentPrNumber;
+        if (prNumber is null or <= 0)
+        {
+            _prDiffError = "No linked PR was found for this session.";
+            return;
+        }
+
+        if (!forceReload &&
+            !string.IsNullOrWhiteSpace(_prDiffContent) &&
+            _loadedReviewPrNumber == prNumber &&
+            string.Equals(_loadedReviewDir, workDir, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        var capturedSessionId = Session.SessionId;
+        var requestVersion = ++_prDiffRequestVersion;
+        _prDiffLoading = true;
+        _prDiffError = null;
+        if (forceReload)
+            _prDiffContent = null;
+
+        try
+        {
+            var diff = await PrLinkService.GetPrDiffAsync(workDir, prNumber.Value);
+            if (capturedSessionId != Session.SessionId || requestVersion != _prDiffRequestVersion)
+                return;
+
+            _prDiffContent = diff;
+            _prDiffCacheKey = $"{prNumber}:{diff.Length}";
+            _loadedReviewPrNumber = prNumber;
+            _loadedReviewDir = workDir;
+        }
+        catch (Exception ex)
+        {
+            if (capturedSessionId != Session.SessionId || requestVersion != _prDiffRequestVersion)
+                return;
+
+            _prDiffError = ex.Message;
+        }
+        finally
+        {
+            if (capturedSessionId == Session.SessionId && requestVersion == _prDiffRequestVersion)
+            {
+                _prDiffLoading = false;
+                try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
+            }
+        }
+    }
+
+    private async Task HandleDiffCommentAsync(DiffLineCommentRequest request)
+    {
+        var inputId = $"input-{Session.Name.Replace(" ", "-")}";
+        await JS.InvokeVoidAsync("clearElementValue", inputId);
+        await JS.InvokeVoidAsync("appendSpeechText", inputId, request.ToPrompt());
+        await OnSend.InvokeAsync(Session.Name);
+    }
+
+    private async Task HandleApplyEditAsync(DiffApplyEditRequest request)
+    {
+        var workDir = Session.WorkingDirectory;
+        if (string.IsNullOrWhiteSpace(workDir))
+        {
+            Console.Error.WriteLine($"[DiffView] Cannot apply edit: no working directory for session '{Session.Name}'");
+            return;
+        }
+
+        var filePath = Path.GetFullPath(Path.Combine(workDir, request.FileName));
+
+        // Security: ensure resolved path is under the working directory (with trailing separator to prevent sibling-dir bypass)
+        var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                + Path.DirectorySeparatorChar;
+        if (!filePath.StartsWith(normalizedWorkDir, StringComparison.OrdinalIgnoreCase))
+        {
+            Console.Error.WriteLine($"[DiffView] Path traversal blocked: {request.FileName}");
+            return;
+        }
+
+        try
+        {
+            var directory = Path.GetDirectoryName(filePath);
+            if (!string.IsNullOrEmpty(directory))
+                Directory.CreateDirectory(directory);
+
+            await File.WriteAllTextAsync(filePath, request.Content);
+            Console.WriteLine($"[DiffView] Applied edit to {filePath}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DiffView] Failed to write {filePath}: {ex.Message}");
+            throw;
+        }
+    }
+
+    private async Task<string?> LoadFileContentAsync(string relativePath)
+    {
+        var workDir = Session.WorkingDirectory;
+        if (string.IsNullOrWhiteSpace(workDir))
+            return null;
+
+        try
+        {
+            var filePath = Path.GetFullPath(Path.Combine(workDir, relativePath));
+            var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                    + Path.DirectorySeparatorChar;
+            if (!filePath.StartsWith(normalizedWorkDir, StringComparison.OrdinalIgnoreCase))
+                return null;
+
+            if (!File.Exists(filePath))
+                return null;
+
+            return await File.ReadAllTextAsync(filePath);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[DiffView] Failed to load file content for {relativePath}: {ex.Message}");
+            return null;
+        }
     }
 
     private async Task OnEffortChanged(ChangeEventArgs e)

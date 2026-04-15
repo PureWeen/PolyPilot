@@ -248,12 +248,19 @@ public partial class CopilotService
             ? "only carry-over shell tasks remain"
             : "background task set is now empty";
         Debug($"[IDLE-DEFER-RESOLVE] '{sessionName}' {reason} — completing deferred turn");
+        var resolveGen = Interlocked.Read(ref state.ProcessingGeneration);
         InvokeOnUI(() =>
         {
             if (state.IsOrphaned || !state.HasDeferredIdle || !state.Info.IsProcessing)
                 return;
+            if (Interlocked.Read(ref state.ProcessingGeneration) != resolveGen)
+            {
+                Debug($"[IDLE-DEFER-RESOLVE] '{sessionName}' skipped — generation mismatch " +
+                      $"(captured={resolveGen}, current={Interlocked.Read(ref state.ProcessingGeneration)})");
+                return;
+            }
 
-            CompleteResponse(state);
+            CompleteResponse(state, resolveGen);
         });
     }
 
@@ -2658,6 +2665,37 @@ public partial class CopilotService
                 var totalProcessingSeconds = startedAt.HasValue
                     ? (DateTime.UtcNow - startedAt.Value).TotalSeconds
                     : 0;
+
+                // When tools were used this turn but ActiveToolCallCount is 0, the SDK may have
+                // failed to deliver ToolExecutionStartEvent for an in-flight tool (events only
+                // appear in events.jsonl, not the live stream). Check events.jsonl freshness:
+                // if the CLI wrote recently (within the Case B freshness window AND after this
+                // turn started), upgrade the effective timeout to 600s so the session isn't
+                // prematurely completed at 180s while the CLI is still executing a long tool.
+                if (useUsedToolsTimeout && !IsDemoMode && !IsRemoteMode && startedAt.HasValue)
+                {
+                    try
+                    {
+                        var sid = state.Info.SessionId;
+                        if (!string.IsNullOrEmpty(sid))
+                        {
+                            var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                            if (File.Exists(ep))
+                            {
+                                var lastWrite = File.GetLastWriteTimeUtc(ep);
+                                var fileAge = (DateTime.UtcNow - lastWrite).TotalSeconds;
+                                if (lastWrite > startedAt.Value && fileAge < WatchdogCaseBFreshnessSeconds)
+                                {
+                                    // CLI wrote to events.jsonl after this turn started and within
+                                    // the freshness window — a tool is likely still running but the
+                                    // SDK didn't deliver the start event.
+                                    effectiveTimeout = WatchdogToolExecutionTimeoutSeconds;
+                                }
+                            }
+                        }
+                    }
+                    catch { /* filesystem errors → keep original timeout */ }
+                }
 
                 if (elapsed >= effectiveTimeout)
                 {

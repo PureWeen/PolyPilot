@@ -5,12 +5,115 @@
     overflow: hidden;
     border: 1px solid var(--control-border, rgba(255,255,255,0.1));
     margin: 0.5rem 0;
+    background: var(--bg-primary, rgba(255,255,255,0.02));
 }
 
 .diff-empty {
     color: var(--text-dim, #6a7a8a);
     font-style: italic;
     padding: 0.5rem;
+}
+
+.diff-summary-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.55rem 0.8rem;
+    background: var(--bg-secondary, rgba(255,255,255,0.04));
+    border-bottom: 1px solid var(--control-border, rgba(255,255,255,0.1));
+    font-family: var(--font-base);
+}
+
+.diff-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    min-width: 0;
+}
+
+.diff-summary-title {
+    color: var(--text-primary, #c8d8f0);
+    font-size: var(--type-caption1);
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.diff-summary-stats {
+    display: flex;
+    gap: 0.4rem;
+    font-size: var(--type-caption1);
+    font-weight: 600;
+}
+
+.diff-picker-toggle {
+    border: 1px solid var(--control-border, rgba(255,255,255,0.12));
+    background: transparent;
+    color: var(--text-dim, rgba(200,216,240,0.8));
+    border-radius: 6px;
+    padding: 0.2rem 0.55rem;
+    font-size: var(--type-caption1);
+    font-family: var(--font-base);
+    cursor: pointer;
+    white-space: nowrap;
+}
+
+.diff-picker-toggle:hover {
+    color: var(--text-primary, #c8d8f0);
+    background: rgba(255,255,255,0.05);
+}
+
+.diff-file-picker {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.55rem 0.8rem;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--control-border, rgba(255,255,255,0.08));
+    background: color-mix(in srgb, var(--bg-secondary, rgba(255,255,255,0.04)) 65%, transparent);
+    scrollbar-width: thin;
+}
+
+.diff-file-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    max-width: min(28rem, 100%);
+    padding: 0.35rem 0.55rem;
+    border-radius: 8px;
+    border: 1px solid var(--control-border, rgba(255,255,255,0.1));
+    background: transparent;
+    color: var(--text-dim, rgba(200,216,240,0.82));
+    cursor: pointer;
+    font-family: var(--font-base);
+    font-size: var(--type-caption1);
+    transition: all 0.15s ease;
+}
+
+.diff-file-tab:hover {
+    color: var(--text-primary, #c8d8f0);
+    border-color: color-mix(in srgb, var(--accent-primary, #4ea8d1) 35%, var(--control-border, rgba(255,255,255,0.1)));
+    background: rgba(255,255,255,0.04);
+}
+
+.diff-file-tab.selected {
+    color: var(--text-primary, #c8d8f0);
+    background: color-mix(in srgb, var(--accent-primary, #4ea8d1) 12%, transparent);
+    border-color: color-mix(in srgb, var(--accent-primary, #4ea8d1) 50%, var(--control-border, rgba(255,255,255,0.1)));
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-primary, #4ea8d1) 30%, transparent);
+}
+
+.diff-file-tab-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.diff-file-tab-stats {
+    display: inline-flex;
+    gap: 0.35rem;
+    white-space: nowrap;
 }
 
 .diff-file {
@@ -24,6 +127,7 @@
 .diff-file-header {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 0.5rem;
     padding: 0.4rem 0.8rem;
     background: var(--bg-tertiary, rgba(255,255,255,0.05));
@@ -60,6 +164,97 @@
 
 .stat-add { color: var(--diff-stat-add); }
 .stat-del { color: var(--diff-stat-del); }
+
+.diff-empty-body {
+    padding: 0.75rem 0.8rem;
+    color: var(--text-dim, #6a7a8a);
+    font-family: var(--font-base);
+    font-size: var(--type-caption1);
+}
+
+.diff-comment-hint {
+    padding: 0.45rem 0.8rem 0;
+    color: var(--text-dim, rgba(200,216,240,0.72));
+    font-family: var(--font-base);
+    font-size: var(--type-caption1);
+}
+
+.diff-comment-box {
+    margin: 0.45rem 0.8rem 0.7rem;
+    padding: 0.7rem;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--accent-primary, #4ea8d1) 35%, transparent);
+    background: color-mix(in srgb, var(--accent-primary, #4ea8d1) 8%, var(--bg-secondary, rgba(255,255,255,0.04)));
+}
+
+.diff-comment-title {
+    margin-bottom: 0.45rem;
+    color: var(--text-primary, #c8d8f0);
+    font-family: var(--font-base);
+    font-size: var(--type-caption1);
+    font-weight: 600;
+}
+
+.diff-comment-title code {
+    font-family: var(--font-mono);
+    font-size: inherit;
+}
+
+.diff-comment-input {
+    width: 100%;
+    min-height: 4.5rem;
+    resize: vertical;
+    border-radius: 8px;
+    border: 1px solid var(--control-border, rgba(255,255,255,0.12));
+    background: rgba(10, 16, 30, 0.55);
+    color: var(--text-primary, #c8d8f0);
+    padding: 0.6rem 0.7rem;
+    font: inherit;
+}
+
+.diff-comment-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.5rem;
+    margin-top: 0.55rem;
+}
+
+.diff-comment-send,
+.diff-comment-cancel {
+    border-radius: 6px;
+    border: 1px solid var(--control-border, rgba(255,255,255,0.12));
+    padding: 0.3rem 0.7rem;
+    font-family: var(--font-base);
+    font-size: var(--type-caption1);
+    cursor: pointer;
+}
+
+.diff-comment-send {
+    background: var(--accent-primary, #4ea8d1);
+    color: #fff;
+    border-color: color-mix(in srgb, var(--accent-primary, #4ea8d1) 60%, transparent);
+}
+
+.diff-comment-send:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.diff-comment-cancel {
+    background: transparent;
+    color: var(--text-primary, #c8d8f0);
+}
+
+.diff-comment-row td {
+    padding: 0;
+    border: none;
+}
+
+.diff-comment-side {
+    font-weight: 400;
+    opacity: 0.7;
+    font-size: 0.85em;
+}
 
 .diff-panes {
     overflow-x: auto;
@@ -103,6 +298,29 @@
     user-select: none;
     vertical-align: top;
     border-right: 1px solid var(--control-border, rgba(255,255,255,0.06));
+}
+
+.diff-line-anchor {
+    all: unset;
+    display: inline-block;
+    min-width: 100%;
+    cursor: pointer;
+    color: inherit;
+    text-align: right;
+    border-radius: 4px;
+    padding: 0 2px;
+}
+
+.diff-line-anchor:hover:not(:disabled),
+.diff-line-anchor:focus-visible {
+    color: var(--text-primary, #c8d8f0);
+    background: rgba(255,255,255,0.06);
+    outline: none;
+}
+
+.diff-line-anchor:disabled {
+    cursor: default;
+    opacity: 1;
 }
 
 .diff-code {
@@ -154,4 +372,94 @@
     font-size: var(--type-caption1);
     border-top: 1px solid var(--control-border, rgba(255,255,255,0.06));
     border-bottom: 1px solid var(--control-border, rgba(255,255,255,0.06));
+}
+
+/* Toggle buttons for Table/Editor view */
+.diff-view-toggle {
+    display: flex;
+    gap: 1px;
+    margin-left: auto;
+    background: var(--control-border, rgba(255,255,255,0.1));
+    border-radius: 5px;
+    overflow: hidden;
+}
+
+.toggle-btn {
+    background: var(--bg-secondary, rgba(255,255,255,0.03));
+    color: var(--text-dim, rgba(200,216,240,0.5));
+    border: none;
+    padding: 0.15rem 0.5rem;
+    font-size: var(--type-caption1, 0.6rem);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    font-family: var(--font-base);
+    font-weight: 500;
+    line-height: 1.4;
+}
+
+.toggle-btn:hover {
+    color: var(--text-primary, #c8d8f0);
+    background: rgba(255,255,255,0.06);
+}
+
+.toggle-btn.active {
+    background: var(--accent-primary, #4ea8d1);
+    color: #fff;
+}
+
+/* CodeMirror merge view container */
+.diff-cm-container {
+    min-height: 100px;
+    max-height: 600px;
+    overflow: auto;
+    border-radius: 0 0 8px 8px;
+}
+
+/* Apply/Save button */
+.diff-apply-btn {
+    margin-left: 0.4rem;
+    padding: 0.15rem 0.55rem;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--accent-primary, #4ea8d1) 40%, transparent);
+    background: color-mix(in srgb, var(--accent-primary, #4ea8d1) 12%, transparent);
+    color: var(--text-primary, #c8d8f0);
+    font-family: var(--font-base);
+    font-size: var(--type-caption1, 0.6rem);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.diff-apply-btn:hover:not(:disabled) {
+    background: color-mix(in srgb, var(--accent-primary, #4ea8d1) 25%, transparent);
+    border-color: var(--accent-primary, #4ea8d1);
+}
+
+.diff-apply-btn:disabled {
+    opacity: 0.55;
+    cursor: default;
+}
+
+.diff-apply-btn.saved {
+    border-color: rgba(63, 185, 80, 0.5);
+    background: rgba(63, 185, 80, 0.15);
+    color: #6fdd8b;
+}
+
+.diff-apply-btn.error {
+    border-color: rgba(248, 81, 73, 0.5);
+    background: rgba(248, 81, 73, 0.15);
+    color: #fca5a5;
+}
+
+.diff-file-tab:focus-visible,
+.diff-picker-toggle:focus-visible,
+.toggle-btn:focus-visible,
+.diff-apply-btn:focus-visible,
+.diff-comment-input:focus-visible,
+.diff-comment-send:focus-visible,
+.diff-comment-cancel:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--accent-primary, #4ea8d1) 70%, white);
+    outline-offset: 2px;
 }
