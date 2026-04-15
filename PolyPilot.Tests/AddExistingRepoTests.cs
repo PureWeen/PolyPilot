@@ -251,6 +251,92 @@ public class AddExistingRepoTests
         Assert.Contains("BareClonePath = localPath", methodBody);
     }
 
+    [Fact]
+    public async Task AddRepositoryFromLocal_DoesNotOverwriteExistingUrlBasedRepo()
+    {
+        // Regression: adding a local folder for a repo that was already added via URL
+        // must NOT overwrite the existing repo's BareClonePath. The URL-based repo
+        // (with its managed bare clone) should be preserved; the local folder is only
+        // registered as an external worktree.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"local-overwrite-test-{Guid.NewGuid():N}");
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(testBaseDir);
+        try
+        {
+            var remoteUrl = "https://github.com/test-owner/overwrite-test.git";
+
+            // Create a local git repo with an origin remote
+            await RunProcess("git", "init", tempDir);
+            await RunProcess("git", "-C", tempDir, "config", "user.email", "test@test.com");
+            await RunProcess("git", "-C", tempDir, "config", "user.name", "Test");
+            await RunProcess("git", "-C", tempDir, "commit", "--allow-empty", "-m", "init");
+            await RunProcess("git", "-C", tempDir, "remote", "add", "origin", remoteUrl);
+
+            var rm = new RepoManager();
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                // Simulate a repo already added via "Add from URL" with a managed bare clone.
+                var id = RepoManager.RepoIdFromUrl(remoteUrl);
+                var barePath = Path.Combine(testBaseDir, "repos", $"{id}.git");
+                Directory.CreateDirectory(barePath);
+                var urlRepo = new RepositoryInfo
+                {
+                    Id = id,
+                    Name = "overwrite-test",
+                    Url = remoteUrl,
+                    BareClonePath = barePath,
+                    AddedAt = DateTime.UtcNow
+                };
+                // Inject the URL-based repo into state
+                var state = new RepositoryState();
+                state.Repositories.Add(urlRepo);
+                var stateFile = Path.Combine(testBaseDir, "repos.json");
+                File.WriteAllText(stateFile, System.Text.Json.JsonSerializer.Serialize(state));
+                rm.Load();
+
+                // Now add the same repo from a local folder
+                var repo = await rm.AddRepositoryFromLocalAsync(tempDir);
+
+                // The returned repo should be the SAME repo (same ID)
+                Assert.Equal(id, repo.Id);
+
+                // CRITICAL: BareClonePath must still point at the managed bare clone,
+                // NOT at the local folder. The local folder should only be registered
+                // as an external worktree.
+                Assert.Equal(Path.GetFullPath(barePath), Path.GetFullPath(repo.BareClonePath));
+
+                // The managed bare clone directory must still exist (not deleted)
+                Assert.True(Directory.Exists(barePath));
+
+                // There should still be exactly ONE repo (not duplicated)
+                Assert.Single(rm.Repositories.Where(r => r.Id == id));
+
+                // The local folder should be registered as an external worktree
+                Assert.Contains(rm.Worktrees, w =>
+                    w.RepoId == id && PathsEqual(w.Path, tempDir));
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            ForceDeleteDirectory(tempDir);
+            ForceDeleteDirectory(testBaseDir);
+        }
+    }
+
+    private static bool PathsEqual(string? left, string? right)
+    {
+        if (left == null || right == null) return false;
+        var a = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        var b = Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string ExtractMethodBody(string source, string methodName)
     {
         var idx = source.IndexOf(methodName, StringComparison.Ordinal);

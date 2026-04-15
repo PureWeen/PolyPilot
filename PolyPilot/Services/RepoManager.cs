@@ -607,9 +607,13 @@ public class RepoManager
 
     /// <summary>
     /// Add a repository from an existing local path (non-bare). Validates the folder is a
-    /// git repository with an 'origin' remote, then creates a <see cref="RepositoryInfo"/>
+    /// git repository with an 'origin' remote, then either reuses an existing
+    /// <see cref="RepositoryInfo"/> (if one was already added via URL) or creates a new one
     /// whose <see cref="RepositoryInfo.BareClonePath"/> points directly at the user's local
     /// repo — no bare clone is created.
+    /// If a repo with the same remote was already added via "Add from URL", the existing
+    /// repo (and its managed bare clone) is preserved; the local folder is only registered
+    /// as an external worktree.
     /// The local folder is also registered as an external worktree so it appears in the
     /// "📂 Existing" list when creating sessions.
     /// </summary>
@@ -660,23 +664,16 @@ public class RepoManager
         var id = RepoIdFromUrl(url);
 
         RepositoryInfo repo;
-        string? oldBareClonePath = null;
         lock (_stateLock)
         {
             var existing = _state.Repositories.FirstOrDefault(r => r.Id == id);
             if (existing != null)
             {
-                // If the old BareClonePath was a managed bare clone, remember it for cleanup.
-                if (!string.IsNullOrWhiteSpace(existing.BareClonePath)
-                    && !PathsEqual(existing.BareClonePath, localPath))
-                {
-                    var fullOld = Path.GetFullPath(existing.BareClonePath);
-                    var managedPrefix = Path.GetFullPath(ReposDir) + Path.DirectorySeparatorChar;
-                    if (fullOld.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase))
-                        oldBareClonePath = existing.BareClonePath;
-                }
-                existing.BareClonePath = localPath;
-                BackfillWorktreeClonePaths(existing);
+                // A repo with this remote already exists (e.g., added via "Add from URL").
+                // Keep it as-is — don't overwrite its BareClonePath, which would destroy
+                // the managed bare clone and break any worktrees that depend on it.
+                // The local folder will be registered as an external worktree below,
+                // and the UI caller (AddLocalFolderAsync) will create a 📁 local folder group.
                 repo = existing;
             }
             else
@@ -694,13 +691,6 @@ public class RepoManager
         }
         Save();
         OnStateChanged?.Invoke();
-
-        // Clean up orphaned managed bare clone (if any) after state is saved.
-        if (oldBareClonePath != null && Directory.Exists(oldBareClonePath))
-        {
-            try { Directory.Delete(oldBareClonePath, recursive: true); }
-            catch (Exception ex) { Console.WriteLine($"[RepoManager] Failed to clean up old bare clone at '{oldBareClonePath}': {ex.Message}"); }
-        }
 
         // Register the local folder as an external worktree so it also appears in the
         // "📂 Existing" picker when creating repo-based sessions.
