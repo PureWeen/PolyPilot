@@ -1647,6 +1647,16 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Log dispatch errors to the diagnostics file (not just Console.WriteLine).
+    /// Called from Dashboard.razor's ContinueWith error handler so dispatch failures
+    /// are visible in event-diagnostics.log for post-mortem analysis.
+    /// </summary>
+    public void LogDispatchError(string message)
+    {
+        Debug(message);
+    }
+
+    /// <summary>
     /// Returns the group ID if the given session is an orchestrator in an active multi-agent group.
     /// Used by the message queue drain to route dequeued messages through the dispatch pipeline.
     /// </summary>
@@ -3321,6 +3331,20 @@ public partial class CopilotService
         }
 
         ClearPendingOrchestration();
+
+        // Reset the stale ReflectionState so StartGroupReflection can create
+        // fresh state on the next user prompt. Without this, the old IsActive=true
+        // from the killed reflect loop persists across restarts and
+        // StartGroupReflection returns early without resetting iteration counters.
+        var resumeGroup = Organization.Groups.FirstOrDefault(g => g.Id == pending.GroupId);
+        if (resumeGroup?.ReflectionState is { IsActive: true })
+        {
+            resumeGroup.ReflectionState.IsActive = false;
+            resumeGroup.ReflectionState.CompletedAt = DateTime.Now;
+            Debug($"[DISPATCH] Resume cleared stale ReflectionState for group '{resumeGroup.Name}' (was iteration {resumeGroup.ReflectionState.CurrentIteration})");
+            SaveOrganization();
+        }
+
         InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
     }
 
