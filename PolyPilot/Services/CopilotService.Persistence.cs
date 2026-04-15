@@ -858,12 +858,13 @@ public partial class CopilotService
                             if (isStillActive)
                             {
                                 // Session is actively running on the copilot server (tool calls in
-                                // flight). Do NOT eager-resume — ResumeSessionAsync kills in-flight
-                                // tool execution on the CLI (the resume replaces the event stream and
-                                // abandons running tools). Instead, mark as processing locally and
+                                // flight). Defer eager-resume to avoid interrupting the CLI while
+                                // it's still writing events. Instead, mark as processing locally and
                                 // start a file-based poller that watches events.jsonl for completion.
-                                // When the CLI finishes, the poller triggers a lazy-resume to pick up
-                                // the results.
+                                // When the CLI finishes (or the file goes stale for PollMaxStaleCycles),
+                                // the poller triggers a lazy-resume to pick up the results.
+                                // Note: in persistent server mode, the headless server survives client
+                                // reconnects, so a force-reconnect after staleness is generally safe.
                                 Debug($"Deferring resume for actively-processing session: {entry.DisplayName} (will poll events.jsonl)");
                                 var capturedState = lazyState;
                                 var capturedName = entry.DisplayName;
@@ -1101,7 +1102,7 @@ public partial class CopilotService
         // PollMaxStaleCycles consecutive checks, the server's session is likely stuck.
         long initialFileSize = 0;
         try { if (File.Exists(eventsFile)) initialFileSize = new FileInfo(eventsFile).Length; }
-        catch (IOException) { }
+        catch (IOException ex) { Debug($"[POLL] Initial file size read failed: {ex.Message}"); }
         int staleCycles = 0;
 
         try
@@ -1133,7 +1134,7 @@ public partial class CopilotService
 
                 long currentSize = 0;
                 try { if (File.Exists(eventsFile)) currentSize = new FileInfo(eventsFile).Length; }
-                catch (IOException) { }
+                catch (IOException ex) { Debug($"[POLL] File size read failed: {ex.Message}"); }
 
                 var action = EvaluatePollCycle(lastEventType, currentSize, initialFileSize, staleCycles, PollMaxStaleCycles);
 
