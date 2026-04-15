@@ -1419,6 +1419,7 @@ public class WsBridgeServer : IDisposable
                             catch (Exception ex)
                             {
                                 BridgeLog($"[BRIDGE] CreateSessionWithWorktree error: {ex.Message}");
+                                BridgeLog($"[BRIDGE] CreateSessionWithWorktree stack: {ex}");
                                 await SendToClientAsync(clientId, ws,
                                     BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
                                         new ErrorPayload { SessionName = cswtReq.SessionName ?? "", Error = $"Create session+worktree failed: {ex.Message}" }), ct);
