@@ -320,6 +320,7 @@ public class WsBridgeServer : IDisposable
                 try
                 {
                     await DispatchBridgePromptAsync(pending.SessionName, pending.Message, pending.AgentMode);
+                    await WaitForBridgeSendToStartAsync(pending.SessionName);
                 }
                 catch (Exception ex)
                 {
@@ -330,6 +331,17 @@ public class WsBridgeServer : IDisposable
         finally
         {
             _drainLock.Release();
+        }
+    }
+
+    private async Task WaitForBridgeSendToStartAsync(string sessionName, CancellationToken ct = default)
+    {
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            if (_copilot?.GetSession(sessionName)?.IsProcessing == true)
+                return;
+
+            await Task.Delay(10, ct).ConfigureAwait(false);
         }
     }
 
@@ -354,6 +366,10 @@ public class WsBridgeServer : IDisposable
                 }
                 else
                 {
+                    var info = _copilot.GetSession(sessionName);
+                    if (info?.IsProcessing == true)
+                        throw new SessionBusyException(sessionName);
+
                     await _copilot.SendPromptAsync(sessionName, message, imagePaths, cancellationToken: ct, agentMode: agentMode);
                 }
             });

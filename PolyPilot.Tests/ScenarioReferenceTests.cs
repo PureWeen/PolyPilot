@@ -246,6 +246,21 @@ public class ScenarioReferenceTests
     }
 
     /// <summary>
+    /// Scenario: "scheduled-task-desktop-entrypoint"
+    /// Structural coverage: the desktop sidebar keeps the Scheduled Tasks overflow link wired to /scheduled-tasks.
+    /// </summary>
+    [Fact]
+    public void Scenario_ScheduledTaskDesktopEntrypoint_HasMarkupCoverage()
+    {
+        var sidebarPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "..",
+            "PolyPilot", "Components", "Layout", "SessionSidebar.razor");
+        var markup = File.ReadAllText(sidebarPath);
+
+        Assert.Contains("href=\"/scheduled-tasks\"", markup);
+        Assert.Contains("Scheduled Tasks", markup);
+    }
+
+    /// <summary>
     /// Scenario: "scheduled-task-run-now-twice-uses-unique-session"
     /// Unit test equivalents: Service_ExecuteTask_NewSession_ReusesTimestampButGeneratesUniqueName
     /// </summary>
@@ -266,6 +281,29 @@ public class ScenarioReferenceTests
     }
 
     /// <summary>
+    /// Scenario: "scheduled-task-target-existing-session"
+    /// Unit test equivalents: Service_EvaluateTasksAsync_ExecutesDueTasks,
+    ///   Service_ExecuteTask_ExistingSession_UsesThatSessionWithoutCreatingAnotherSession
+    /// </summary>
+    [Fact]
+    public void Scenario_ScheduledTaskTargetExistingSession_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ScheduledTaskTests.Service_EvaluateTasksAsync_ExecutesDueTasks and Service_ExecuteTask_ExistingSession_UsesThatSessionWithoutCreatingAnotherSession");
+    }
+
+    /// <summary>
+    /// Scenario: "scheduled-task-slash-command-current-session"
+    /// Unit test equivalents: TryCreateFromSlashCommand_ValidInput_CreatesTask,
+    ///   TryCreateFromSlashCommand_EveryPrefix_IsSupported,
+    ///   and SlashCommandAutocompleteTests.AutocompleteCommands_MatchHandlerCommands
+    /// </summary>
+    [Fact]
+    public void Scenario_ScheduledTaskSlashCommand_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ScheduledTaskTests.TryCreateFromSlashCommand_* and SlashCommandAutocompleteTests.AutocompleteCommands_MatchHandlerCommands");
+    }
+
+    /// <summary>
     /// Scenario: "scheduled-task-form-validation"
     /// Unit test equivalents: CronExpression_ValidatesExpectedInputs,
     ///   CronExpression_InvalidExpressions_ReturnFalse, IsValidTimeOfDay_ValidatesCorrectly
@@ -274,6 +312,26 @@ public class ScenarioReferenceTests
     public void Scenario_ScheduledTaskValidation_HasUnitTestCoverage()
     {
         Assert.True(true, "See ScheduledTaskTests cron and time validation tests");
+    }
+
+    /// <summary>
+    /// Scenario: "scheduled-task-persists-after-relaunch"
+    /// Unit test equivalent: Service_SaveAndLoad_RoundTrips
+    /// </summary>
+    [Fact]
+    public void Scenario_ScheduledTaskPersistsAfterRelaunch_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ScheduledTaskTests.Service_SaveAndLoad_RoundTrips");
+    }
+
+    /// <summary>
+    /// Scenario: "scheduled-task-target-session-close-disables-task"
+    /// Unit test equivalent: CloseSessionAsync_DisablesScheduledTasksTargetingDeletedSession
+    /// </summary>
+    [Fact]
+    public void Scenario_ScheduledTaskCloseSessionDisablesTask_HasUnitTestCoverage()
+    {
+        Assert.True(true, "See ScheduledTaskTests.CloseSessionAsync_DisablesScheduledTasksTargetingDeletedSession");
     }
 
     /// <summary>

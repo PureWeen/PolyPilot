@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Text.RegularExpressions;
 
 namespace PolyPilot.Models;
 
@@ -36,6 +37,14 @@ public class ScheduledTaskRun
 /// </summary>
 public class ScheduledTask
 {
+    private static readonly Regex SlashCommandPattern = new(
+        @"^(?:every\s+)?(?<frequency>(?:\d+\s*(?:m|min(?:ute)?s?|h|hr|hrs|hour|hours|d|day|days|w|week|weeks))|hourly|daily|weekly)\s+(?<prompt>.+)$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex SlashFrequencyPattern = new(
+        @"^(?<value>\d+)\s*(?<unit>m|min(?:ute)?s?|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "";
     public string Prompt { get; set; } = "";
@@ -85,6 +94,61 @@ public class ScheduledTask
     /// <summary>Returns true if TimeOfDay is a valid "HH:mm" string.</summary>
     public static bool IsValidTimeOfDay(string? time)
         => !string.IsNullOrEmpty(time) && TimeSpan.TryParse(time, out var ts) && ts.TotalHours >= 0 && ts.TotalHours < 24;
+
+    public static string GetSlashCommandUsage() =>
+        "Usage: `/schedule <frequency> <prompt>`\n" +
+        "Examples:\n" +
+        "- `/schedule 30m Check the build status`\n" +
+        "- `/schedule every 2h Summarize recent changes`\n" +
+        "- `/schedule daily Draft my standup update`\n" +
+        "- `/schedule list` — show tasks targeting this session";
+
+    public static bool TryCreateFromSlashCommand(
+        string rawArgs,
+        string currentSessionName,
+        string? workingDirectory,
+        DateTime nowUtc,
+        out ScheduledTask? task,
+        out string error)
+    {
+        task = null;
+        error = GetSlashCommandUsage();
+
+        if (string.IsNullOrWhiteSpace(rawArgs))
+            return false;
+
+        var match = SlashCommandPattern.Match(rawArgs.Trim());
+        if (!match.Success)
+            return false;
+
+        var frequencyToken = match.Groups["frequency"].Value.Trim();
+        var prompt = match.Groups["prompt"].Value.Trim();
+        if (string.IsNullOrWhiteSpace(prompt))
+            return false;
+
+        if (!TryParseSlashFrequency(frequencyToken, nowUtc, out var schedule, out var intervalMinutes, out var timeOfDay, out var daysOfWeek))
+        {
+            error = $"Unsupported frequency `{frequencyToken}`.\n\n{GetSlashCommandUsage()}";
+            return false;
+        }
+
+        task = new ScheduledTask
+        {
+            Name = BuildSuggestedTaskName(prompt),
+            Prompt = prompt,
+            SessionName = currentSessionName,
+            WorkingDirectory = workingDirectory,
+            Schedule = schedule,
+            IntervalMinutes = intervalMinutes,
+            TimeOfDay = timeOfDay,
+            DaysOfWeek = daysOfWeek,
+            IsEnabled = true,
+            CreatedAt = nowUtc
+        };
+
+        error = string.Empty;
+        return true;
+    }
 
     // ── Schedule calculation ──────────────────────────────────────────
 
@@ -265,6 +329,91 @@ public class ScheduledTask
         var dayNames = new[] { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
         var sorted = DaysOfWeek.Where(d => d >= 0 && d <= 6).OrderBy(d => d);
         return string.Join(", ", sorted.Select(d => dayNames[d]));
+    }
+
+    private static bool TryParseSlashFrequency(
+        string frequencyToken,
+        DateTime nowUtc,
+        out ScheduleType schedule,
+        out int intervalMinutes,
+        out string timeOfDay,
+        out List<int> daysOfWeek)
+    {
+        var localNow = nowUtc.ToLocalTime();
+        schedule = ScheduleType.Interval;
+        intervalMinutes = 60;
+        timeOfDay = $"{localNow.Hour:D2}:{localNow.Minute:D2}";
+        daysOfWeek = new List<int> { (int)localNow.DayOfWeek };
+
+        switch (frequencyToken.Trim().ToLowerInvariant())
+        {
+            case "hourly":
+                intervalMinutes = 60;
+                return true;
+            case "daily":
+                schedule = ScheduleType.Daily;
+                intervalMinutes = 24 * 60;
+                return true;
+            case "weekly":
+                schedule = ScheduleType.Weekly;
+                intervalMinutes = 7 * 24 * 60;
+                return true;
+        }
+
+        var match = SlashFrequencyPattern.Match(frequencyToken.Trim());
+        if (!match.Success || !int.TryParse(match.Groups["value"].Value, out var value) || value <= 0)
+            return false;
+
+        try
+        {
+            var unit = match.Groups["unit"].Value.ToLowerInvariant();
+            switch (unit[0])
+            {
+                case 'm':
+                    intervalMinutes = value;
+                    return true;
+                case 'h':
+                    intervalMinutes = checked(value * 60);
+                    return true;
+                case 'd':
+                    if (value == 1)
+                    {
+                        schedule = ScheduleType.Daily;
+                        intervalMinutes = 24 * 60;
+                    }
+                    else
+                    {
+                        intervalMinutes = checked(value * 24 * 60);
+                    }
+                    return true;
+                case 'w':
+                    if (value == 1)
+                    {
+                        schedule = ScheduleType.Weekly;
+                        intervalMinutes = 7 * 24 * 60;
+                    }
+                    else
+                    {
+                        intervalMinutes = checked(value * 7 * 24 * 60);
+                    }
+                    return true;
+                default:
+                    return false;
+            }
+        }
+        catch (OverflowException)
+        {
+            return false;
+        }
+    }
+
+    private static string BuildSuggestedTaskName(string prompt)
+    {
+        var singleLine = Regex.Replace(prompt, @"\s+", " ").Trim();
+        if (singleLine.Length <= 60)
+            return singleLine;
+
+        return singleLine[..57] + "...";
     }
 
     // ── Cron expression support ──────────────────────────────────────

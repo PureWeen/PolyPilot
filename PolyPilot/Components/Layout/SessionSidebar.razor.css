@@ -2589,6 +2589,17 @@
 .header-overflow {
     display: flex;
     align-items: center;
+    position: relative;
+}
+
+.header-overflow-backdrop {
+    position: fixed;
+    inset: 0;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    background: transparent;
+    z-index: 39;
 }
 
 .header-overflow-panel {
@@ -2617,6 +2628,7 @@
 }
 
 .header-overflow:hover .header-overflow-panel,
+.header-overflow.open .header-overflow-panel,
 .header-overflow:focus-within .header-overflow-panel {
     opacity: 1;
     pointer-events: auto;

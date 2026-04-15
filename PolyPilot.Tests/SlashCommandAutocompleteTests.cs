@@ -119,7 +119,7 @@ public class SlashCommandAutocompleteTests
         var commands = GetAutocompleteCommands();
         var expected = new[] { "/help", "/clear", "/compact", "/new", "/sessions",
                                "/rename", "/version", "/diff", "/status", "/mcp",
-                               "/plugin", "/fleet", "/usage" };
+                               "/plugin", "/fleet", "/schedule", "/usage" };
 
         foreach (var cmd in expected)
         {
@@ -144,7 +144,7 @@ public class SlashCommandAutocompleteTests
         }
 
         // Commands with args should have hasArgs: true
-        var withArgs = new[] { "/new", "/rename", "/diff", "/fleet", "/mcp", "/plugin", "/prompt", "/status", "/agent" };
+        var withArgs = new[] { "/new", "/rename", "/diff", "/fleet", "/mcp", "/plugin", "/prompt", "/schedule", "/status", "/agent" };
         foreach (var cmd in withArgs)
         {
             var pattern = $"cmd: '{cmd}',";

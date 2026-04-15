@@ -7,6 +7,28 @@
   },
   "scenarios": [
     {
+      "id": "scheduled-task-desktop-entrypoint",
+      "name": "Open Scheduled Tasks from the desktop overflow menu",
+      "steps": [
+        { "action": "navigate", "route": "/" },
+        { "action": "wait", "ms": 500 },
+        { "action": "click", "selector": ".header-overflow-trigger" },
+        { "action": "wait", "ms": 300 },
+        {
+          "action": "evaluate",
+          "script": "({ hasLink: !!document.querySelector(\"a[href='/scheduled-tasks']\"), title: document.querySelector(\"a[href='/scheduled-tasks'] .header-overflow-action-title\")?.textContent?.trim() ?? '' })",
+          "expect": { "contains": "\"hasLink\":true" }
+        },
+        { "action": "click", "selector": "a[href='/scheduled-tasks']" },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "evaluate",
+          "script": "({ path: window.location.pathname, hasPage: !!document.querySelector('#scheduled-tasks-page') })",
+          "expect": { "contains": "\"hasPage\":true" }
+        }
+      ]
+    },
+    {
       "id": "scheduled-task-create-and-run-now",
       "name": "Create an interval task and run it immediately",
       "steps": [
@@ -53,6 +75,42 @@
       ]
     },
     {
+      "id": "scheduled-task-target-existing-session",
+      "name": "Create a scheduled task that runs inside an existing session",
+      "steps": [
+        { "action": "note", "text": "Create a normal chat session named 'Scheduled Target Session' before running this scenario." },
+        { "action": "click", "selector": "#scheduled-task-new" },
+        { "action": "wait", "ms": 500 },
+        { "action": "type", "selector": "#scheduled-task-name", "text": "Existing Session Task" },
+        { "action": "type", "selector": "#scheduled-task-prompt", "text": "Reply inside the existing scheduled target session." },
+        {
+          "action": "evaluate",
+          "script": "const sel = document.querySelector('#scheduled-task-session'); sel.value = 'Scheduled Target Session'; sel.dispatchEvent(new Event('change', { bubbles: true })); sel.value;"
+        },
+        { "action": "click", "selector": "#scheduled-task-save" },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "evaluate",
+          "script": "document.querySelector('.task-card[data-task-name=\"Existing Session Task\"] .task-tag')?.textContent?.trim()",
+          "expect": { "contains": "Session: Scheduled Target Session" }
+        }
+      ]
+    },
+    {
+      "id": "scheduled-task-slash-command-current-session",
+      "name": "Create a scheduled task from chat using /schedule",
+      "steps": [
+        { "action": "note", "text": "Open any active chat session and send `/schedule 30m Ask me for a status update.` from the message box." },
+        { "action": "navigate", "route": "/scheduled-tasks" },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "evaluate",
+          "script": "const card = [...document.querySelectorAll('.task-card')].find(x => (x.textContent ?? '').includes('Ask me for a status update.')); JSON.stringify({ exists: !!card, text: card?.textContent ?? '' });",
+          "expect": { "contains": "\"exists\":true" }
+        }
+      ]
+    },
+    {
       "id": "scheduled-task-disable-edit-preserves-toggle",
       "name": "Disable a task, edit it, and verify it stays disabled",
       "steps": [
@@ -93,6 +151,35 @@
           "action": "evaluate",
           "script": "document.querySelector('#scheduled-task-form-error')?.textContent?.trim()",
           "expect": { "contains": "Invalid cron expression" }
+        }
+      ]
+    },
+    {
+      "id": "scheduled-task-persists-after-relaunch",
+      "name": "Scheduled tasks remain visible after the app restarts",
+      "steps": [
+        { "action": "restartApp" },
+        { "action": "waitForAgent" },
+        { "action": "navigate", "route": "/scheduled-tasks" },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "evaluate",
+          "script": "[...document.querySelectorAll('.task-card .task-name')].map(x => x.textContent?.trim()).filter(Boolean)",
+          "expect": { "contains": "Integration Task Edited" }
+        }
+      ]
+    },
+    {
+      "id": "scheduled-task-target-session-close-disables-task",
+      "name": "Closing the target session disables the linked scheduled task",
+      "steps": [
+        { "action": "note", "text": "Close the 'Scheduled Target Session' chat from the main session list, then return to /scheduled-tasks." },
+        { "action": "navigate", "route": "/scheduled-tasks" },
+        { "action": "wait", "ms": 1000 },
+        {
+          "action": "evaluate",
+          "script": "const card = document.querySelector('.task-card[data-task-name=\"Existing Session Task\"]'); ({ exists: !!card, disabled: card?.classList.contains('disabled') ?? false });",
+          "expect": { "contains": "\"disabled\":true" }
         }
       ]
     }

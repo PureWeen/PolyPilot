@@ -12,6 +12,7 @@
 @inject QrScannerService QrScanner
 @inject FiestaService FiestaService
 @inject TutorialService TutorialService
+@inject ScheduledTaskService ScheduledTaskService
 @implements IAsyncDisposable
 
 <div class="dashboard @(expandedSession != null ? "expanded-mode" : "")" style="--card-min-height: @(_cardMinHeight)px">
@@ -2112,6 +2113,7 @@
                     "- `/diff [args]` — Show git diff\n" +
                     "- `/status` — Show git status\n" +
                     "- `/prompt` — Manage prompts (`/prompt use <name> [-- context]`, save, edit, show, delete)\n" +
+                    "- `/schedule <frequency> <prompt>` — Schedule a recurring prompt in this session (`30m`, `2h`, `daily`; `/schedule list` to review)\n" +
                     "- `/usage` — Show token usage and quota for this session\n" +
                     "- `/agent [name]` — List or select a CLI agent\n" +
                     "- `/fleet <prompt>` — Start fleet mode (parallel subagent execution)\n" +
@@ -2255,6 +2257,10 @@
                 await HandlePromptCommand(sessionName, session, arg);
                 return;
 
+            case "schedule":
+                HandleScheduleCommand(session, sessionName, arg);
+                break;
+
             case "usage":
                 var usageLines = new System.Text.StringBuilder();
                 var ic = System.Globalization.CultureInfo.InvariantCulture;
@@ -2307,6 +2313,71 @@
             session.MessageCount = session.History.Count;
         _needsScrollToBottom = true;
         await InvokeAsync(SafeRefreshAsync);
+    }
+
+    private void HandleScheduleCommand(AgentSessionInfo session, string sessionName, string arg)
+    {
+        var trimmedArg = arg.Trim();
+        var helpText = ScheduledTask.GetSlashCommandUsage() +
+            $"\n\nNew tasks created here will send their prompt into **{sessionName}**.";
+
+        if (string.IsNullOrWhiteSpace(trimmedArg))
+        {
+            session.History.Add(ChatMessage.SystemMessage(helpText));
+            return;
+        }
+
+        if (string.Equals(trimmedArg, "list", StringComparison.OrdinalIgnoreCase))
+        {
+            var sessionTasks = ScheduledTaskService.GetTasks()
+                .Where(t => string.Equals(t.SessionName, sessionName, StringComparison.Ordinal))
+                .OrderBy(t => t.CreatedAt)
+                .ToList();
+
+            if (sessionTasks.Count == 0)
+            {
+                session.History.Add(ChatMessage.SystemMessage(
+                    $"No scheduled tasks target **{sessionName}** yet.\n\n{helpText}"));
+                return;
+            }
+
+            var lines = new List<string>
+            {
+                $"**Scheduled tasks for {sessionName}:**"
+            };
+
+            foreach (var scheduledTask in sessionTasks)
+                lines.Add($"- **{scheduledTask.Name}** — {scheduledTask.ScheduleDescription} {(scheduledTask.IsEnabled ? "✅ enabled" : "⏸️ disabled")}");
+
+            lines.Add("\nOpen **Scheduled Tasks** from the sidebar overflow menu to edit or disable them.");
+            session.History.Add(ChatMessage.SystemMessage(string.Join("\n", lines)));
+            return;
+        }
+
+        if (!ScheduledTask.TryCreateFromSlashCommand(
+                trimmedArg,
+                sessionName,
+                session.WorkingDirectory,
+                DateTime.UtcNow,
+                out var task,
+                out var error))
+        {
+            session.History.Add(ChatMessage.ErrorMessage(error));
+            return;
+        }
+
+        ScheduledTaskService.AddTask(task!);
+
+        var promptPreview = task!.Prompt.Length <= 160
+            ? task.Prompt
+            : task.Prompt[..157] + "...";
+
+        session.History.Add(ChatMessage.SystemMessage(
+            $"✅ Scheduled **{task.Name}**\n" +
+            $"- **When:** {task.ScheduleDescription}\n" +
+            $"- **Target:** this session\n" +
+            $"- **Prompt:** {promptPreview}\n\n" +
+            "Use `/schedule list` to review tasks here, or open **Scheduled Tasks** from the sidebar overflow menu to edit them."));
     }
 
     private async Task RunGitCommand(string sessionName, AgentSessionInfo session, string gitArgs)
