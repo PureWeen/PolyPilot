@@ -3096,4 +3096,41 @@ public class ProcessingWatchdogTests
         Assert.True(watchdogBody.Contains("fileInfo.Length"),
             "Case B must read Length from FileInfo");
     }
+
+    /// <summary>
+    /// When HasUsedToolsThisTurn is true and ActiveToolCallCount is 0 but events.jsonl
+    /// is fresh (the CLI is still writing), the watchdog must upgrade effectiveTimeout
+    /// from WatchdogUsedToolsIdleTimeoutSeconds (180s) to WatchdogToolExecutionTimeoutSeconds (600s).
+    /// This prevents premature completion of sessions where the SDK failed to deliver
+    /// ToolExecutionStartEvent for an in-flight tool.
+    /// </summary>
+    [Fact]
+    public void Watchdog_UsedToolsTimeout_UpgradesToToolTimeout_WhenEventsJsonlFresh()
+    {
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
+        var methodIdx = source.IndexOf("private async Task RunProcessingWatchdogAsync");
+        var endIdx = source.IndexOf("    private readonly ConcurrentDictionary", methodIdx);
+        var watchdogBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // The freshness check must gate on useUsedToolsTimeout (the 180s tier)
+        Assert.Contains("if (useUsedToolsTimeout && !IsDemoMode && !IsRemoteMode && startedAt.HasValue)", watchdogBody);
+
+        // Must check that the file was written AFTER this turn started (prevents prior-turn false positives)
+        Assert.Contains("lastWrite > startedAt.Value", watchdogBody);
+
+        // Must check file age is within the Case B freshness window
+        Assert.Contains("fileAge < WatchdogCaseBFreshnessSeconds", watchdogBody);
+
+        // CRITICAL: must directly assign effectiveTimeout, NOT mutate boolean flags
+        // (the boolean flags are already consumed by the effectiveTimeout computation above)
+        Assert.Contains("effectiveTimeout = WatchdogToolExecutionTimeoutSeconds", watchdogBody);
+
+        // Must NOT contain dead-store flag mutations (the original no-op bug)
+        var freshnessBlock = watchdogBody.Substring(
+            watchdogBody.IndexOf("if (useUsedToolsTimeout && !IsDemoMode", StringComparison.Ordinal));
+        freshnessBlock = freshnessBlock.Substring(0, freshnessBlock.IndexOf("if (elapsed >= effectiveTimeout)", StringComparison.Ordinal));
+        Assert.DoesNotContain("useUsedToolsTimeout = false", freshnessBlock);
+        Assert.DoesNotContain("useToolTimeout = true", freshnessBlock);
+    }
 }
