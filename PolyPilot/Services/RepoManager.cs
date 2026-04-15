@@ -486,7 +486,7 @@ public class RepoManager
         lock (_stateLock) BackfillWorktreeClonePaths(repo);
         Directory.CreateDirectory(ReposDir);
 
-        if (Directory.Exists(targetBarePath))
+        if (Directory.Exists(targetBarePath) && await IsGitRepositoryAsync(targetBarePath, ct))
         {
             onProgress?.Invoke($"Fetching {repo.Id}…");
             try { await RunGitAsync(targetBarePath, ct, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"); } catch { }
@@ -494,6 +494,13 @@ public class RepoManager
         }
         else
         {
+            // Remove any corrupt/partial directory left over from a failed clone
+            if (Directory.Exists(targetBarePath))
+            {
+                Console.WriteLine($"[RepoManager] Removing corrupt bare clone at '{targetBarePath}'");
+                try { Directory.Delete(targetBarePath, recursive: true); } catch { }
+            }
+
             onProgress?.Invoke($"Cloning {repo.Url}…");
             await RunGitWithProgressAsync(null, onProgress, ct, "clone", "--bare", "--progress", repo.Url, targetBarePath);
             await RunGitAsync(targetBarePath, ct, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*");
@@ -561,9 +568,9 @@ public class RepoManager
         Directory.CreateDirectory(ReposDir);
         var barePath = GetDesiredBareClonePath(id);
 
-        if (Directory.Exists(barePath))
+        if (Directory.Exists(barePath) && await IsGitRepositoryAsync(barePath, ct))
         {
-            // Directory exists but not tracked in state — re-use it via fetch
+            // Directory exists and is a valid git repo — re-use it via fetch
             onProgress?.Invoke($"Fetching {id}…");
             try { await RunGitAsync(barePath, ct, "config", "remote.origin.fetch",
                 "+refs/heads/*:refs/remotes/origin/*"); } catch { }
@@ -571,6 +578,13 @@ public class RepoManager
         }
         else
         {
+            // Remove any corrupt/partial directory left over from a failed clone
+            if (Directory.Exists(barePath))
+            {
+                Console.WriteLine($"[RepoManager] Removing corrupt bare clone at '{barePath}'");
+                try { Directory.Delete(barePath, recursive: true); } catch { }
+            }
+
             onProgress?.Invoke($"Cloning {url}…");
             await RunGitWithProgressAsync(null, onProgress, ct, "clone", "--bare", "--progress", url, barePath);
 
