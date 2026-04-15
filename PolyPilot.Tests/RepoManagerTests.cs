@@ -111,6 +111,54 @@ public class RepoManagerTests
         Assert.Equal("maui", name2);
     }
 
+    [Fact]
+    public void Load_MigratesOldStyleRepoNames()
+    {
+        // Repos saved with the old id.Split('-').Last() naming should be fixed on load.
+        var rm = new RepoManager();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-migrate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            // Write state with old-style names (both repos named "maui" despite different URLs)
+            var oldJson = """
+            {
+                "Repositories": [
+                    {"Id":"dotnet-maui","Name":"maui","Url":"https://github.com/dotnet/maui","BareClonePath":"","AddedAt":"2026-01-01T00:00:00Z"},
+                    {"Id":"nicknisi-vscode-maui","Name":"maui","Url":"https://github.com/nicknisi/vscode-maui","BareClonePath":"","AddedAt":"2026-01-01T00:00:00Z"}
+                ],
+                "Worktrees": []
+            }
+            """;
+            File.WriteAllText(Path.Combine(tempDir, "repos.json"), oldJson);
+
+            RepoManager.SetBaseDirForTesting(tempDir);
+            try
+            {
+                rm.Load();
+
+                var repos = rm.Repositories;
+                var dotnetMaui = repos.FirstOrDefault(r => r.Id == "dotnet-maui");
+                var vscodeMaui = repos.FirstOrDefault(r => r.Id == "nicknisi-vscode-maui");
+
+                Assert.NotNull(dotnetMaui);
+                Assert.NotNull(vscodeMaui);
+                Assert.Equal("maui", dotnetMaui.Name);
+                Assert.Equal("vscode-maui", vscodeMaui.Name);
+                Assert.NotEqual(dotnetMaui.Name, vscodeMaui.Name);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            ForceDeleteDirectory(tempDir);
+        }
+    }
+
     #region Save Guard Tests (Review Finding #9)
 
     private static readonly System.Reflection.BindingFlags NonPublic =

@@ -650,6 +650,20 @@ public partial class CopilotService
                 if (GetOrCreateRepoGroup(repo.Id, repo.Name) != null)
                     changed = true;
             }
+
+            // Migration: update group names that were derived from id.Split('-').Last() (issue #570).
+            // E.g., groups named "maui" for repo "nicknisi-vscode-maui" should become "vscode-maui".
+            foreach (var g in Organization.Groups.Where(g => g.RepoId == repo.Id && !g.IsMultiAgent && !g.IsLocalFolder))
+            {
+                var correctName = repo.Name;
+                if (!string.IsNullOrEmpty(correctName) && g.Name != correctName
+                    && !Organization.Groups.Any(other => other != g && other.RepoId == repo.Id && other.Name == correctName && !other.IsMultiAgent && !other.IsLocalFolder))
+                {
+                    Debug($"ReconcileOrganization: migrating group name '{g.Name}' → '{correctName}' (repoId: {repo.Id})");
+                    g.Name = correctName;
+                    changed = true;
+                }
+            }
         }
 
         // Migration: back-fill LocalPath/RepoId on groups that were created by an older version

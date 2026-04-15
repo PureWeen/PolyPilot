@@ -141,6 +141,22 @@ public class RepoManager
                 }
             }
             if (changed) Save();
+
+            // Migration: fix repo names derived from id.Split('-').Last() (issue #570).
+            // Repos added before this fix have names like "maui" for both "dotnet-maui" and
+            // "nicknisi-vscode-maui". Re-derive from the URL so they become "maui" vs "vscode-maui".
+            foreach (var repo in _state.Repositories)
+            {
+                var correctName = RepoNameFromUrl(repo.Url, fallbackId: repo.Id);
+                if (!string.IsNullOrEmpty(correctName) && repo.Name != correctName)
+                {
+                    Console.WriteLine($"[RepoManager] Migrating repo name: '{repo.Name}' → '{correctName}' (id: {repo.Id})");
+                    repo.Name = correctName;
+                    changed = true;
+                }
+            }
+            if (changed) Save();
+
             _loadedSuccessfully = true;
         }
         catch (Exception ex)
@@ -605,6 +621,8 @@ public class RepoManager
         Action<string>? onProgress = null,
         CancellationToken ct = default)
     {
+        EnsureLoaded();
+
         // Expand ~ so users can type ~/Projects/myrepo without hitting Directory.Exists failures.
         if (localPath.StartsWith("~", StringComparison.Ordinal))
             localPath = Path.Combine(
