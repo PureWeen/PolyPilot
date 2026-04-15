@@ -497,6 +497,118 @@ public class AddExistingRepoTests
         Directory.Delete(path, true);
     }
 
+    [Fact]
+    public async Task AddRepositoryFromLocal_LocalRepoId_HasExpectedFormat()
+    {
+        // The local repo ID should follow the pattern "{baseId}-local-{pathHash}"
+        // where pathHash is a hex-encoded hash of the normalized path.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"local-id-format-test-{Guid.NewGuid():N}");
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(testBaseDir);
+        try
+        {
+            var remoteUrl = "https://github.com/test-owner/id-format-test.git";
+
+            await RunProcess("git", "init", tempDir);
+            await RunProcess("git", "-C", tempDir, "config", "user.email", "test@test.com");
+            await RunProcess("git", "-C", tempDir, "config", "user.name", "Test");
+            await RunProcess("git", "-C", tempDir, "commit", "--allow-empty", "-m", "init");
+            await RunProcess("git", "-C", tempDir, "remote", "add", "origin", remoteUrl);
+
+            var rm = new RepoManager();
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                // Pre-create a URL-based repo so the local one gets a distinct ID
+                var urlId = RepoManager.RepoIdFromUrl(remoteUrl);
+                var barePath = Path.Combine(testBaseDir, "repos", $"{urlId}.git");
+                Directory.CreateDirectory(barePath);
+                var state = new RepositoryState();
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = urlId, Name = "id-format-test",
+                    Url = remoteUrl, BareClonePath = barePath, AddedAt = DateTime.UtcNow
+                });
+                File.WriteAllText(Path.Combine(testBaseDir, "repos.json"),
+                    System.Text.Json.JsonSerializer.Serialize(state));
+                rm.Load();
+
+                var localRepo = await rm.AddRepositoryFromLocalAsync(tempDir);
+
+                // ID should match pattern: baseId-local-HEXHASH
+                Assert.Matches(@"^test-owner-id-format-test-local-[0-9a-f]{8}$", localRepo.Id);
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(tempDir);
+            ForceDeleteDirectory(testBaseDir);
+        }
+    }
+
+    [Fact]
+    public void EnsureRepoClone_SkipsCloneForNonBareRepo_WithGitDirectory()
+    {
+        // EnsureRepoCloneInCurrentRootAsync should detect a .git directory
+        // and skip clone management for repos added via "Existing Folder".
+        // This is a structural test that verifies the guard exists.
+        var sourceFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "RepoManager.cs"));
+        var methodBody = ExtractMethodBody(sourceFile, "EnsureRepoCloneInCurrentRootAsync");
+
+        // Must check for both .git directory and .git file (worktree checkout)
+        Assert.Contains("Directory.Exists(Path.Combine(repo.BareClonePath, \".git\"))", methodBody);
+        Assert.Contains("File.Exists(Path.Combine(repo.BareClonePath, \".git\"))", methodBody);
+    }
+
+    [Fact]
+    public async Task AddRepositoryFromLocal_ValidationErrors_ThrowDescriptiveExceptions()
+    {
+        var nonExistent = Path.Combine(Path.GetTempPath(), $"does-not-exist-{Guid.NewGuid():N}");
+        var notGit = Path.Combine(Path.GetTempPath(), $"not-git-{Guid.NewGuid():N}");
+        var noOrigin = Path.Combine(Path.GetTempPath(), $"no-origin-{Guid.NewGuid():N}");
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(notGit);
+        Directory.CreateDirectory(noOrigin);
+        Directory.CreateDirectory(testBaseDir);
+        try
+        {
+            // Initialize noOrigin as git repo but without origin remote
+            await RunProcess("git", "init", noOrigin);
+            await RunProcess("git", "-C", noOrigin, "config", "user.email", "test@test.com");
+            await RunProcess("git", "-C", noOrigin, "config", "user.name", "Test");
+            await RunProcess("git", "-C", noOrigin, "commit", "--allow-empty", "-m", "init");
+
+            var rm = new RepoManager();
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                // Non-existent folder
+                var ex1 = await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => rm.AddRepositoryFromLocalAsync(nonExistent));
+                Assert.Contains("not found", ex1.Message, StringComparison.OrdinalIgnoreCase);
+
+                // Folder that isn't a git repo
+                var ex2 = await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => rm.AddRepositoryFromLocalAsync(notGit));
+                Assert.Contains("not a git repository", ex2.Message, StringComparison.OrdinalIgnoreCase);
+
+                // Git repo without origin remote
+                var ex3 = await Assert.ThrowsAsync<InvalidOperationException>(
+                    () => rm.AddRepositoryFromLocalAsync(noOrigin));
+                Assert.Contains("origin", ex3.Message, StringComparison.OrdinalIgnoreCase);
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(notGit);
+            ForceDeleteDirectory(noOrigin);
+            ForceDeleteDirectory(testBaseDir);
+        }
+    }
+
     private static string GetRepoRoot()
     {
         var dir = new DirectoryInfo(AppContext.BaseDirectory);
