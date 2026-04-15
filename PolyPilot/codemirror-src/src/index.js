@@ -210,6 +210,8 @@ function resolveClickedLineNumber(target, view, event) {
 function getLineClickExtensions(meta, side) {
   if (!meta?.enableLineComments || !meta.dotNetRef) return [];
 
+  const nameForSide = side === 'original' ? (meta.oldFileName ?? meta.fileName ?? '') : (meta.fileName ?? '');
+
   return [EditorView.domEventHandlers({
     mousedown(event, view) {
       const lineNumber = resolveClickedLineNumber(event.target, view, event);
@@ -219,7 +221,7 @@ function getLineClickExtensions(meta, side) {
       meta.dotNetRef.invokeMethodAsync(
         'HandleEditorLineClick',
         meta.fileIndex ?? -1,
-        meta.fileName ?? '',
+        nameForSide,
         side,
         lineNumber
       ).catch(err => console.error('[PolyPilotCodeMirror] Failed to send line click to .NET', err));
@@ -261,7 +263,7 @@ function createEditor(containerId, content, filename, options = {}) {
  * Create a side-by-side diff/merge view.
  * `original` is the old content, `modified` is the new content.
  */
-function createMergeView(containerId, original, modified, filename, fileIndex = -1, dotNetRef = null, enableLineComments = false, options = {}) {
+function createMergeView(containerId, original, modified, filename, fileIndex = -1, dotNetRef = null, enableLineComments = false, options = {}, oldFileName = null) {
   const container = document.getElementById(containerId);
   if (!container) return -1;
   
@@ -273,6 +275,7 @@ function createMergeView(containerId, original, modified, filename, fileIndex = 
     dotNetRef,
     fileIndex,
     fileName: filename || '',
+    oldFileName: oldFileName || filename || '',
     enableLineComments,
   };
   

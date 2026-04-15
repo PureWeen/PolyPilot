@@ -243,7 +243,7 @@ else
     private int TotalRemoved => Files.Sum(file => file.RemovedLineCount);
     private string SummaryLabel => Files.Count == 1 ? "1 file changed" : $"{Files.Count} files changed";
     private bool CanComment => OnCommentRequested.HasDelegate;
-    private bool CanApplyEdit => OnApplyEdit.HasDelegate;
+    private bool CanApplyEdit => OnApplyEdit.HasDelegate && FileContentProvider is not null;
 
     protected override void OnParametersSet()
     {
@@ -465,9 +465,10 @@ else
         try
         {
             _dotNetRef ??= DotNetObjectReference.Create(this);
+            var oldFileName = file.IsRenamed && !string.IsNullOrWhiteSpace(file.OldFileName) ? file.OldFileName : null;
             var instanceId = await JS.InvokeAsync<int>(
                 "PolyPilotCodeMirror.createMergeView",
-                containerId, original, modified, file.FileName, fileIdx, _dotNetRef, CanComment);
+                containerId, original, modified, file.FileName, fileIdx, _dotNetRef, CanComment, null, oldFileName);
 
             if (instanceId < 0)
             {
