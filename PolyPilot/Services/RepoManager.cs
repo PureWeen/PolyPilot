@@ -203,7 +203,7 @@ public class RepoManager
                 }
                 catch { /* best effort */ }
 
-                var name = repoId.Contains('-') ? repoId.Split('-').Last() : repoId;
+                var name = RepoNameFromUrl(url, fallbackId: repoId);
                 _state.Repositories.Add(new RepositoryInfo
                 {
                     Id = repoId,
@@ -357,6 +357,59 @@ public class RepoManager
         if (fallback.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
             fallback = fallback[..^4];
         return fallback;
+    }
+
+    /// <summary>
+    /// Extracts the repository name (last path segment) from a git URL.
+    /// Unlike <see cref="RepoIdFromUrl"/> which replaces "/" with "-" (losing the distinction
+    /// between owner separator and dashes in the repo name), this returns just the repo name.
+    /// e.g. "https://github.com/dotnet/maui" → "maui",
+    ///      "https://github.com/nicknisi/vscode-maui" → "vscode-maui"
+    /// Falls back to the full ID if no URL is available.
+    /// </summary>
+    public static string RepoNameFromUrl(string? url, string? fallbackId = null)
+    {
+        if (!string.IsNullOrWhiteSpace(url))
+        {
+            // SCP-style SSH: git@github.com:Owner/Repo.git
+            if (url.Contains('@') && url.Contains(':') && !url.Contains("://"))
+            {
+                var path = url.Split(':').Last().TrimEnd('/');
+                var segments = path.Split('/');
+                var name = segments[^1];
+                if (name.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+                    name = name[..^4];
+                if (!string.IsNullOrWhiteSpace(name))
+                    return name;
+            }
+            // HTTPS, ssh://, and other protocol URLs
+            else if (Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                var segments = uri.AbsolutePath.Trim('/').Split('/');
+                var name = segments[^1];
+                if (name.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+                    name = name[..^4];
+                if (!string.IsNullOrWhiteSpace(name))
+                    return name;
+            }
+            // Fallback: treat as path
+            else
+            {
+                var segments = url.Trim('/').Split('/');
+                var name = segments[^1];
+                if (name.EndsWith(".git", StringComparison.OrdinalIgnoreCase))
+                    name = name[..^4];
+                if (!string.IsNullOrWhiteSpace(name))
+                    return name;
+            }
+        }
+        // No URL — derive from ID (best effort)
+        if (!string.IsNullOrWhiteSpace(fallbackId))
+        {
+            var dashIdx = fallbackId.IndexOf('-');
+            return dashIdx >= 0 ? fallbackId[(dashIdx + 1)..] : fallbackId;
+        }
+        return "";
     }
 
     /// <summary>
@@ -522,7 +575,7 @@ public class RepoManager
         var repo = new RepositoryInfo
         {
             Id = id,
-            Name = id.Contains('-') ? id.Split('-').Last() : id,
+            Name = RepoNameFromUrl(url, fallbackId: id),
             Url = url,
             BareClonePath = barePath,
             AddedAt = DateTime.UtcNow
@@ -613,7 +666,7 @@ public class RepoManager
                 repo = new RepositoryInfo
                 {
                     Id = id,
-                    Name = id.Contains('-') ? id.Split('-').Last() : id,
+                    Name = RepoNameFromUrl(url, fallbackId: id),
                     Url = url,
                     BareClonePath = localPath,
                     AddedAt = DateTime.UtcNow

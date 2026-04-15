@@ -61,6 +61,56 @@ public class RepoManagerTests
         Assert.Equal(input, RepoManager.NormalizeRepoUrl(input));
     }
 
+    // ─── RepoNameFromUrl tests (Issue #570: picker shows ambiguous last-word names) ───
+
+    [Theory]
+    [InlineData("https://github.com/dotnet/maui", "maui")]
+    [InlineData("https://github.com/nicknisi/vscode-maui", "vscode-maui")]
+    [InlineData("https://github.com/PureWeen/PolyPilot", "PolyPilot")]
+    [InlineData("https://github.com/Owner/Repo.git", "Repo")]
+    [InlineData("https://gitlab.com/group/subgroup/repo.git", "repo")]
+    public void RepoNameFromUrl_Https_ExtractsRepoName(string url, string expected)
+    {
+        Assert.Equal(expected, RepoManager.RepoNameFromUrl(url));
+    }
+
+    [Theory]
+    [InlineData("git@github.com:Owner/Repo.git", "Repo")]
+    [InlineData("git@github.com:dotnet/maui", "maui")]
+    [InlineData("git@github.com:nicknisi/vscode-maui.git", "vscode-maui")]
+    public void RepoNameFromUrl_Ssh_ExtractsRepoName(string url, string expected)
+    {
+        Assert.Equal(expected, RepoManager.RepoNameFromUrl(url));
+    }
+
+    [Theory]
+    [InlineData(null, "dotnet-maui", "maui")]           // fallback strips owner prefix
+    [InlineData(null, "PureWeen-PolyPilot", "PolyPilot")]
+    [InlineData(null, "single-word", "word")]            // first dash is owner separator
+    [InlineData(null, "nodash", "nodash")]               // no dash → return as-is
+    [InlineData("", "dotnet-maui", "maui")]
+    public void RepoNameFromUrl_FallbackFromId(string? url, string? fallbackId, string expected)
+    {
+        Assert.Equal(expected, RepoManager.RepoNameFromUrl(url, fallbackId));
+    }
+
+    [Fact]
+    public void RepoNameFromUrl_NullUrlAndNullId_ReturnsEmpty()
+    {
+        Assert.Equal("", RepoManager.RepoNameFromUrl(null, null));
+    }
+
+    [Fact]
+    public void RepoNameFromUrl_PreservesHyphensInRepoName()
+    {
+        // This is the key fix for issue #570: "vscode-maui" and "maui" should be distinguishable
+        var name1 = RepoManager.RepoNameFromUrl("https://github.com/nicknisi/vscode-maui");
+        var name2 = RepoManager.RepoNameFromUrl("https://github.com/dotnet/maui");
+        Assert.NotEqual(name1, name2);
+        Assert.Equal("vscode-maui", name1);
+        Assert.Equal("maui", name2);
+    }
+
     #region Save Guard Tests (Review Finding #9)
 
     private static readonly System.Reflection.BindingFlags NonPublic =
