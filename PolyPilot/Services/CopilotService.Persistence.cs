@@ -1033,6 +1033,17 @@ public partial class CopilotService
     /// the resume command kills in-flight tool execution. This poller bridges the gap
     /// by waiting for the CLI to finish before connecting.
     /// </summary>
+    /// <summary>
+    /// Number of consecutive poll cycles with no events.jsonl growth before the poller
+    /// forces a reconnect. At 5s per cycle, 12 cycles = 60s of staleness.
+    /// This catches the common case where the CLI server's session is stuck because
+    /// the client disconnected mid-tool — the server won't write new events until
+    /// a client reconnects, creating a deadlock with the poller waiting for file changes.
+    /// After reconnecting, events either flow (server was alive) or the watchdog's 30s
+    /// resume-quiescence timeout detects the dead session.
+    /// </summary>
+    internal const int PollMaxStaleCycles = 12;
+
     private async Task PollEventsAndResumeWhenIdleAsync(
         string sessionName, SessionState state, string sessionId, CancellationToken ct)
     {
@@ -1042,6 +1053,12 @@ public partial class CopilotService
         var started = DateTime.UtcNow;
 
         Debug($"[POLL] Starting events.jsonl poll for '{sessionName}' (id={sessionId})");
+
+        // Track file size for staleness detection — if the file doesn't grow for
+        // PollMaxStaleCycles consecutive checks, the server's session is likely stuck.
+        long initialFileSize = 0;
+        try { if (File.Exists(eventsFile)) initialFileSize = new FileInfo(eventsFile).Length; } catch { }
+        int staleCycles = 0;
 
         try
         {
@@ -1072,6 +1089,58 @@ public partial class CopilotService
                 if (lastEventType == null) continue;
 
                 var isTerminal = lastEventType is "session.shutdown";
+
+                // Staleness detection: if events.jsonl hasn't grown since the poller started,
+                // the CLI server's session is likely stuck (client disconnected mid-tool, server
+                // can't proceed). Force-connect to re-establish the event stream. After connecting,
+                // EnsureSessionConnectedAsync's post-resume logic handles the rest:
+                // - If the server was still processing: events replay/flow, normal handling resumes
+                // - If the server's session is dead: watchdog's 30s quiescence timeout detects it
+                if (!isTerminal)
+                {
+                    long currentSize = 0;
+                    try { if (File.Exists(eventsFile)) currentSize = new FileInfo(eventsFile).Length; } catch { }
+
+                    if (currentSize <= initialFileSize)
+                    {
+                        staleCycles++;
+                        if (staleCycles >= PollMaxStaleCycles)
+                        {
+                            Debug($"[POLL-STALE] '{sessionName}' events.jsonl hasn't grown for {staleCycles * 5}s " +
+                                  $"(size={currentSize}, initial={initialFileSize}) — forcing reconnect");
+                            try
+                            {
+                                await EnsureSessionConnectedAsync(sessionName, state, ct);
+                                Debug($"[POLL-STALE] '{sessionName}' reconnected successfully");
+
+                                // Override HasUsedToolsThisTurn so the watchdog can use the 30s
+                                // resume-quiescence timeout instead of 600s. If the server is alive,
+                                // events will replay and HasReceivedEventsSinceResume goes true,
+                                // which skips quiescence — so this override is safe.
+                                // If the server is dead, no events arrive and quiescence fires at 30s.
+                                InvokeOnUI(() =>
+                                {
+                                    state.HasUsedToolsThisTurn = false;
+                                });
+                            }
+                            catch (Exception ex)
+                            {
+                                Debug($"[POLL-STALE] '{sessionName}' reconnect failed: {ex.Message}");
+                                // Fall through to next poll cycle — don't exit
+                                staleCycles = 0; // Reset to avoid immediate re-trigger
+                            }
+                            // state.Session is now set (if connect succeeded), next loop iteration
+                            // will return via the state.Session != null check above.
+                            continue;
+                        }
+                    }
+                    else
+                    {
+                        // File is growing — server is alive, reset staleness tracking
+                        staleCycles = 0;
+                        initialFileSize = currentSize;
+                    }
+                }
 
                 if (isTerminal)
                 {

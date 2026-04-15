@@ -3096,4 +3096,69 @@ public class ProcessingWatchdogTests
         Assert.True(watchdogBody.Contains("fileInfo.Length"),
             "Case B must read Length from FileInfo");
     }
+
+    [Fact]
+    public void PollMaxStaleCycles_IsReasonable()
+    {
+        // PollMaxStaleCycles × 5s poll interval = total staleness wait before force-reconnect.
+        // 12 × 5s = 60s — long enough to avoid false triggers on legitimate long-running tools
+        // (where events.jsonl pauses between tool.execution_start and tool.execution_complete),
+        // but short enough to detect stuck sessions quickly after app restart.
+        Assert.Equal(12, CopilotService.PollMaxStaleCycles);
+        Assert.True(CopilotService.PollMaxStaleCycles >= 6,
+            "Below 6 cycles (30s) risks false-positive staleness on normal tool execution gaps");
+        Assert.True(CopilotService.PollMaxStaleCycles <= 24,
+            "Above 24 cycles (120s) delays stuck-session recovery unnecessarily");
+    }
+
+    [Fact]
+    public void PollStalenessDetection_ForceReconnect_InSource()
+    {
+        // The poller must detect when events.jsonl hasn't grown and force a reconnect
+        // via EnsureSessionConnectedAsync. This prevents the 600s watchdog delay when
+        // the CLI server's session is stuck after client disconnect.
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+        var methodIdx = source.IndexOf("private async Task PollEventsAndResumeWhenIdleAsync");
+        Assert.True(methodIdx >= 0, "PollEventsAndResumeWhenIdleAsync must exist");
+        var endIdx = source.IndexOf("\n    }", methodIdx);
+        var pollerBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // Must track file size for staleness detection
+        Assert.True(pollerBody.Contains("initialFileSize"),
+            "Poller must track initial file size for staleness detection");
+        Assert.True(pollerBody.Contains("staleCycles"),
+            "Poller must count consecutive stale poll cycles");
+        Assert.True(pollerBody.Contains("PollMaxStaleCycles"),
+            "Poller must use PollMaxStaleCycles constant for threshold");
+
+        // Must force-connect when stale
+        Assert.True(pollerBody.Contains("EnsureSessionConnectedAsync"),
+            "Poller must call EnsureSessionConnectedAsync when file is stale");
+        Assert.True(pollerBody.Contains("[POLL-STALE]"),
+            "Poller must log [POLL-STALE] tag for diagnostics");
+
+        // After force-connect, must clear HasUsedToolsThisTurn so watchdog uses 30s quiescence
+        Assert.True(pollerBody.Contains("HasUsedToolsThisTurn = false"),
+            "Poller must clear HasUsedToolsThisTurn after force-reconnect to enable 30s quiescence");
+    }
+
+    [Fact]
+    public void PollStalenessDetection_ResetsOnGrowth_InSource()
+    {
+        // When events.jsonl grows, the poller must reset its staleness tracking.
+        // This prevents false-positive force-reconnects on sessions where the CLI
+        // is actively running tools (file grows between poll cycles).
+        var source = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs"));
+        var methodIdx = source.IndexOf("private async Task PollEventsAndResumeWhenIdleAsync");
+        var endIdx = source.IndexOf("\n    }", methodIdx);
+        var pollerBody = source.Substring(methodIdx, endIdx - methodIdx);
+
+        // Must reset staleness counters when file grows
+        Assert.True(pollerBody.Contains("staleCycles = 0"),
+            "Poller must reset staleCycles when file grows");
+        Assert.True(pollerBody.Contains("initialFileSize = currentSize"),
+            "Poller must update baseline file size when file grows");
+    }
 }
