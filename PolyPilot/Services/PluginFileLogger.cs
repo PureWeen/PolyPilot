@@ -1,3 +1,4 @@
+using PolyPilot.Models;
 using PolyPilot.Provider;
 
 namespace PolyPilot.Services;
@@ -16,8 +17,16 @@ public class PluginFileLogger : IPluginLogger
 	public PluginFileLogger(string pluginName)
 	{
 		_pluginName = pluginName;
-		var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-		var dir = Path.Combine(home, ".polypilot", "logs", "plugins", pluginName);
+		string baseDir;
+		var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+		if (sandboxPath != null)
+			baseDir = sandboxPath;
+		else
+		{
+			var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+			baseDir = Path.Combine(home, ".polypilot");
+		}
+		var dir = Path.Combine(baseDir, "logs", "plugins", pluginName);
 		Directory.CreateDirectory(dir);
 		_logPath = Path.Combine(dir, "plugin.log");
 	}

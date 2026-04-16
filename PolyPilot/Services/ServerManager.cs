@@ -13,6 +13,9 @@ public class ServerManager : IServerManager
 
     private static string GetPolyPilotDir()
     {
+        var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+        if (sandboxPath != null) return sandboxPath;
+
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         if (string.IsNullOrEmpty(home))
             home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);

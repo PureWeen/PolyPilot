@@ -102,6 +102,10 @@ public class ChatDatabase : IChatDatabase
     {
         try
         {
+            var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+            if (sandboxPath != null)
+                return Path.Combine(sandboxPath, "chat_history.db");
+
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             if (string.IsNullOrEmpty(home))
                 home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);

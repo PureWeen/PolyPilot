@@ -168,10 +168,9 @@ public partial class CopilotService : IAsyncDisposable
         try
         {
             // Mac App Store sandbox: use app container
-            var sandboxPath = PlatformPaths.GetPolyPilotDirForMacCatalyst();
+            var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
             if (sandboxPath != null) return sandboxPath;
 
-            // All other platforms: use home directory
 #if ANDROID
             var home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
             if (string.IsNullOrEmpty(home))

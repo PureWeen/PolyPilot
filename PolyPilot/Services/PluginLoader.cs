@@ -20,8 +20,15 @@ namespace PolyPilot.Services;
 public static class PluginLoader
 {
     private static string? _pluginsDir;
-    private static string PluginsDir => _pluginsDir ??= Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot", "plugins");
+    private static string PluginsDir => _pluginsDir ??= GetPluginsDir();
+
+    private static string GetPluginsDir()
+    {
+        var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+        if (sandboxPath != null) return Path.Combine(sandboxPath, "plugins");
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot", "plugins");
+    }
 
     /// <summary>
     /// Scans the plugins directory for subdirectories containing a plugin.json manifest.

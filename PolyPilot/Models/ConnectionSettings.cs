@@ -228,11 +228,9 @@ public class ConnectionSettings
 
     private static string GetPolyPilotDir()
     {
-        // Mac App Store sandbox: use app container
-        var sandboxPath = PlatformPaths.GetPolyPilotDirForMacCatalyst();
+        var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
         if (sandboxPath != null) return sandboxPath;
 
-        // All other platforms: use existing logic
 #if IOS || ANDROID
         try
         {

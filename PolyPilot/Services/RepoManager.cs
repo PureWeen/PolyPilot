@@ -73,6 +73,9 @@ public class RepoManager
         if (over != null) return over;
         try
         {
+            var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+            if (sandboxPath != null) return sandboxPath;
+
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
             if (string.IsNullOrEmpty(home))
                 home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
