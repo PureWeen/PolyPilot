@@ -2933,4 +2933,122 @@ public class MultiAgentRegressionTests
     }
 
     #endregion
+
+    #region ReflectionState Reset After Resume (PR #590)
+
+    [Fact]
+    public void ReflectionState_StaleActiveState_CanBeResetAfterResume()
+    {
+        // When PolyPilot restarts mid-reflect-loop, the persisted ReflectionState
+        // has IsActive=true. After resume completes (MonitorAndSynthesizeAsync),
+        // the code must reset IsActive=false so StartGroupReflection can create
+        // fresh state on the next user prompt. The StartedAt guard ensures we only
+        // reset the stale cycle, not a fresh one created by the user.
+        var group = new SessionGroup
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "TestOrchestrator",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.OrchestratorReflect,
+            ReflectionState = ReflectionCycle.Create("Fix all bugs", maxIterations: 10)
+        };
+
+        // Simulate mid-loop state (iteration 3, still active)
+        group.ReflectionState.CurrentIteration = 3;
+        Assert.True(group.ReflectionState.IsActive);
+        Assert.Null(group.ReflectionState.CompletedAt);
+
+        // Capture StartedAt as the production code does (from PendingOrchestration)
+        var staleStartedAt = group.ReflectionState.StartedAt;
+
+        // Simulate what ResumeOrchestrationIfPendingAsync does after resume completes:
+        // detect stale IsActive=true and reset it (with StartedAt guard)
+        if (group.ReflectionState is { IsActive: true } rs
+            && (staleStartedAt == default || rs.StartedAt <= staleStartedAt))
+        {
+            rs.IsActive = false;
+            rs.CompletedAt = DateTime.Now;
+        }
+
+        Assert.False(group.ReflectionState.IsActive);
+        Assert.NotNull(group.ReflectionState.CompletedAt);
+        // Iteration count preserved (not reset — that's RetryOrchestration's job)
+        Assert.Equal(3, group.ReflectionState.CurrentIteration);
+    }
+
+    [Fact]
+    public void ReflectionState_AlreadyInactive_NotModifiedOnResume()
+    {
+        // If ReflectionState is already inactive (completed normally before restart),
+        // the resume path should not touch it.
+        var group = new SessionGroup
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "TestOrchestrator",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.OrchestratorReflect,
+            ReflectionState = ReflectionCycle.Create("Fix all bugs", maxIterations: 5)
+        };
+
+        group.ReflectionState.IsActive = false;
+        group.ReflectionState.GoalMet = true;
+        var originalCompleted = DateTime.Now.AddMinutes(-10);
+        group.ReflectionState.CompletedAt = originalCompleted;
+        var staleStartedAt = group.ReflectionState.StartedAt;
+
+        // Simulate resume check — should NOT match because IsActive is false
+        if (group.ReflectionState is { IsActive: true } rs
+            && (staleStartedAt == default || rs.StartedAt <= staleStartedAt))
+        {
+            rs.IsActive = false;
+            rs.CompletedAt = DateTime.Now;
+        }
+
+        // CompletedAt should remain the original value
+        Assert.Equal(originalCompleted, group.ReflectionState.CompletedAt);
+        Assert.True(group.ReflectionState.GoalMet);
+    }
+
+    [Fact]
+    public void ReflectionState_FreshCycleNotResetByStaleResume()
+    {
+        // Sequential TOCTOU guard: if the user sends a new prompt (creating a fresh
+        // ReflectionState) before the queued InvokeOnUI callback fires, the callback
+        // must NOT reset the fresh cycle. The StartedAt comparison prevents this.
+        // Uses DateTime.UtcNow to match PendingOrchestration.StartedAt (UTC clock),
+        // then converts to local to match ReflectionCycle.StartedAt (local clock).
+        var group = new SessionGroup
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "TestOrchestrator",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.OrchestratorReflect,
+            ReflectionState = ReflectionCycle.Create("Original goal", maxIterations: 5)
+        };
+
+        // Capture stale StartedAt as UTC (simulates PendingOrchestration.StartedAt)
+        // then normalize to local time (as the production code does)
+        var pendingStartedAtUtc = DateTime.UtcNow.AddMinutes(-5);
+        var staleStartedAt = pendingStartedAtUtc.ToLocalTime();
+
+        // Simulate user sending a new prompt → StartGroupReflection creates fresh state
+        group.ReflectionState = ReflectionCycle.Create("New goal", maxIterations: 3);
+        Assert.True(group.ReflectionState.IsActive);
+        Assert.True(group.ReflectionState.StartedAt > staleStartedAt);
+
+        // Simulate the queued InvokeOnUI callback firing AFTER the fresh cycle was created
+        if (group.ReflectionState is { IsActive: true } rs
+            && (staleStartedAt == default || rs.StartedAt <= staleStartedAt))
+        {
+            rs.IsActive = false;
+            rs.CompletedAt = DateTime.Now;
+        }
+
+        // Fresh cycle should NOT have been reset
+        Assert.True(group.ReflectionState.IsActive);
+        Assert.Null(group.ReflectionState.CompletedAt);
+        Assert.Equal("New goal", group.ReflectionState.Goal);
+    }
+
+    #endregion
 }

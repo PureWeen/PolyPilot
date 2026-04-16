@@ -1919,34 +1919,51 @@
             // Diagnostic: log every send attempt so we can trace routing failures
             CopilotService.LogDispatchRoute(sessionName, sessionMeta != null, group?.Name, group?.IsMultiAgent, group?.OrchestratorMode, orchSession, isOrchestrator);
 
-            if (isOrchestrator && (imagePaths == null || imagePaths.Count == 0))
+            if (isOrchestrator)
             {
-                AutoStartReflectionIfNeeded(group!.Id, finalPrompt);
-                _ = CopilotService.SendToMultiAgentGroupAsync(group!.Id, finalPrompt).ContinueWith(t =>
+                // Always route orchestrator messages through the dispatch pipeline,
+                // even when images are attached. Images are stripped (the pipeline
+                // doesn't forward them to workers) but the prompt still gets parsed
+                // for @worker blocks. Without this, image-bearing messages bypass
+                // dispatch entirely and @worker blocks in the response go nowhere.
+                if (imagePaths is { Count: > 0 })
+                {
+                    var imgSession = sessions.FirstOrDefault(s => s.Name == sessionName);
+                    if (imgSession != null)
+                    {
+                        imgSession.History.Add(ChatMessage.SystemMessage(
+                            "⚠️ Images dropped — orchestration dispatch does not support image attachments. Only the text prompt is dispatched to the orchestrator and workers."));
+                        imgSession.MessageCount = imgSession.History.Count;
+                    }
+                    foreach (var p in imagePaths)
+                    {
+                        try { File.Delete(p); } catch { }
+                    }
+                }
+                var groupId = group!.Id;
+                var groupName = group.Name;
+                AutoStartReflectionIfNeeded(groupId, finalPrompt);
+                _ = CopilotService.SendToMultiAgentGroupAsync(groupId, finalPrompt).ContinueWith(t =>
                 {
                     if (t.IsFaulted)
                     {
                         var msg = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown";
                         InvokeAsync(() =>
                         {
-                            Console.WriteLine($"[DISPATCH] Error sending to multi-agent group: {msg}");
+                            CopilotService.LogDispatchError($"[DISPATCH] Error sending to multi-agent group '{groupName}': {msg}");
+                            var s = sessions.FirstOrDefault(s => s.Name == sessionName);
+                            if (s != null)
+                            {
+                                s.History.Add(ChatMessage.ErrorMessage($"Dispatch failed: {msg}"));
+                                s.MessageCount = s.History.Count;
+                            }
+                            _ = SafeRefreshAsync();
                         });
                     }
                 });
             }
             else
             {
-            // If this is an orchestrator but images are present, warn the user
-            if (isOrchestrator && imagePaths is { Count: > 0 })
-            {
-                var imgSession = sessions.FirstOrDefault(s => s.Name == sessionName);
-                if (imgSession != null)
-                {
-                    imgSession.History.Add(ChatMessage.SystemMessage(
-                        "⚠️ Images sent directly — orchestration routing does not support images yet."));
-                    imgSession.MessageCount = imgSession.History.Count;
-                }
-            }
             _ = CopilotService.SendPromptAsync(sessionName, finalPrompt, imagePaths, agentMode: agentMode).ContinueWith(t =>
             {
                 if (t.IsFaulted)

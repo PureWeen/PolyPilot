@@ -1647,6 +1647,16 @@ public partial class CopilotService
     }
 
     /// <summary>
+    /// Log dispatch errors to the diagnostics file (not just Console.WriteLine).
+    /// Called from Dashboard.razor's ContinueWith error handler so dispatch failures
+    /// are visible in event-diagnostics.log for post-mortem analysis.
+    /// </summary>
+    public void LogDispatchError(string message)
+    {
+        Debug(message);
+    }
+
+    /// <summary>
     /// Returns the group ID if the given session is an orchestrator in an active multi-agent group.
     /// Used by the message queue drain to route dequeued messages through the dispatch pipeline.
     /// </summary>
@@ -2997,6 +3007,33 @@ public partial class CopilotService
     internal static void ClearPendingOrchestrationForTest() => ClearPendingOrchestration();
 
     /// <summary>
+    /// Clear pending orchestration file AND reset any stale ReflectionState on the UI thread.
+    /// All early-exit and completion paths in the resume flow must call this instead of bare
+    /// ClearPendingOrchestration() to avoid leaving ReflectionState.IsActive=true persisted.
+    /// </summary>
+    private void ClearPendingOrchestrationAndResetState(PendingOrchestration pending)
+    {
+        ClearPendingOrchestration();
+        var pendingGroupId = pending.GroupId;
+        var staleStartedAt = pending.StartedAt.Kind == DateTimeKind.Utc
+            ? pending.StartedAt.ToLocalTime()
+            : pending.StartedAt;
+        InvokeOnUI(() =>
+        {
+            var resumeGroup = Organization.Groups.FirstOrDefault(g => g.Id == pendingGroupId);
+            if (resumeGroup?.ReflectionState is { IsActive: true } rs
+                && (staleStartedAt == default || rs.StartedAt == null || rs.StartedAt <= staleStartedAt))
+            {
+                rs.IsActive = false;
+                rs.CompletedAt = DateTime.Now;
+                Debug($"[DISPATCH] Resume cleared stale ReflectionState for group '{resumeGroup.Name}' (was iteration {rs.CurrentIteration})");
+                SaveOrganization();
+            }
+            OnOrchestratorPhaseChanged?.Invoke(pendingGroupId, OrchestratorPhase.Complete, null);
+        });
+    }
+
+    /// <summary>
     /// After session restore, check for a pending orchestration dispatch that was interrupted
     /// by an app relaunch. If found, monitor workers and auto-synthesize when all complete.
     /// </summary>
@@ -3009,7 +3046,7 @@ public partial class CopilotService
         if (group == null)
         {
             Debug($"[DISPATCH] Pending orchestration group '{pending.GroupId}' no longer exists — clearing");
-            ClearPendingOrchestration();
+            ClearPendingOrchestrationAndResetState(pending);
             return;
         }
 
@@ -3017,7 +3054,7 @@ public partial class CopilotService
         if (!_sessions.ContainsKey(pending.OrchestratorName))
         {
             Debug($"[DISPATCH] Pending orchestration orchestrator '{pending.OrchestratorName}' not found — clearing");
-            ClearPendingOrchestration();
+            ClearPendingOrchestrationAndResetState(pending);
             return;
         }
 
@@ -3041,8 +3078,7 @@ public partial class CopilotService
                 Debug($"[DISPATCH] Resume orchestration failed: {ex.Message}");
                 AddOrchestratorSystemMessage(pending.OrchestratorName,
                     $"⚠️ Failed to resume orchestration: {ex.Message}");
-                ClearPendingOrchestration();
-                InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+                ClearPendingOrchestrationAndResetState(pending);
             }
         });
     }
@@ -3076,8 +3112,7 @@ public partial class CopilotService
 
         if (ct.IsCancellationRequested)
         {
-            ClearPendingOrchestration();
-            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+            ClearPendingOrchestrationAndResetState(pending);
             return;
         }
 
@@ -3231,8 +3266,7 @@ public partial class CopilotService
         {
             AddOrchestratorSystemMessage(pending.OrchestratorName,
                 "⚠️ No worker responses available after restart — orchestration aborted.");
-            ClearPendingOrchestration();
-            InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+            ClearPendingOrchestrationAndResetState(pending);
             return;
         }
 
@@ -3320,8 +3354,7 @@ public partial class CopilotService
                 $"⚠️ Failed to send synthesis: {ex.Message}");
         }
 
-        ClearPendingOrchestration();
-        InvokeOnUI(() => OnOrchestratorPhaseChanged?.Invoke(pending.GroupId, OrchestratorPhase.Complete, null));
+        ClearPendingOrchestrationAndResetState(pending);
     }
 
     #endregion
