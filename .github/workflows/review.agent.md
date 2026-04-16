@@ -33,3 +33,4 @@ Review pull request #${{ github.event.pull_request.number || github.event.issue.
    - **Never use APPROVE** — the agent must not count as a PR approval. Use COMMENT for clean reviews.
 4. If the subagent does not post anything (e.g. no issues found), this is the only exception to step 3: post a brief fallback review using `submit_pull_request_review` with event `COMMENT` (not `APPROVE`). Do not use `add_comment` for this fallback.
 5. If the subagent posts inline comments but does **not** submit the final review verdict (e.g. due to a timeout or error), detect this by checking whether `submit_pull_request_review` was called. If not, submit a fallback review with event `COMMENT` summarizing that the review was partial and inline comments were posted.
+6. If this workflow was triggered by the `review` label being added, remove the label after the review is complete using `remove_label`. This makes the label re-addable for future reviews.
