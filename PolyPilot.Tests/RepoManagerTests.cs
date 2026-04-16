@@ -1352,5 +1352,37 @@ public class RepoManagerTests
     }
 
     #endregion
+
+    #region DeterministicPathHash tests
+
+    [Fact]
+    public void DeterministicPathHash_IsDeterministic()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "some-repo-folder");
+        var hash1 = RepoManager.DeterministicPathHash(path);
+        var hash2 = RepoManager.DeterministicPathHash(path);
+        Assert.Equal(hash1, hash2);
+        Assert.Matches(@"^[0-9a-f]{8}$", hash1);
+    }
+
+    [Fact]
+    public void DeterministicPathHash_NormalizesTrailingSeparators()
+    {
+        var basePath = Path.Combine(Path.GetTempPath(), "some-repo");
+        var withSep = basePath + Path.DirectorySeparatorChar;
+        Assert.Equal(
+            RepoManager.DeterministicPathHash(basePath),
+            RepoManager.DeterministicPathHash(withSep));
+    }
+
+    [Fact]
+    public void DeterministicPathHash_DifferentPathsProduceDifferentHashes()
+    {
+        var hash1 = RepoManager.DeterministicPathHash(Path.Combine(Path.GetTempPath(), "repo-a"));
+        var hash2 = RepoManager.DeterministicPathHash(Path.Combine(Path.GetTempPath(), "repo-b"));
+        Assert.NotEqual(hash1, hash2);
+    }
+
+    #endregion
 }
 

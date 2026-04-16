@@ -1,5 +1,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using PolyPilot.Models;
 
@@ -515,6 +517,20 @@ public class RepoManager
         return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Returns a deterministic 8-hex-char hash of a file path, suitable for use in persistent IDs.
+    /// Uses SHA256 instead of <see cref="string.GetHashCode()"/> which is randomized per-process
+    /// in .NET Core 3.0+ and must not be persisted.
+    /// </summary>
+    internal static string DeterministicPathHash(string path)
+    {
+        var normalized = Path.GetFullPath(path)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+            .ToLowerInvariant();
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
+        return Convert.ToHexString(bytes)[..8].ToLowerInvariant();
+    }
+
     private void BackfillWorktreeClonePaths(RepositoryInfo repo)
     {
         if (string.IsNullOrWhiteSpace(repo.BareClonePath))
@@ -754,12 +770,14 @@ public class RepoManager
             {
                 // A repo with this remote already exists but points elsewhere (managed bare clone).
                 // Create a SEPARATE repo for the local folder with a unique ID.
-                var pathHash = localPath.GetHashCode().ToString("x8");
+                // Use SHA256 for a deterministic hash — string.GetHashCode() is randomized per-process
+                // in .NET Core 3.0+ and must not be persisted.
+                var pathHash = DeterministicPathHash(localPath);
                 var localId = $"{baseId}-local-{pathHash}";
 
                 // Ensure we don't collide with an existing entry with this generated ID
                 var alreadyLocal = _state.Repositories.FirstOrDefault(r => r.Id == localId);
-                if (alreadyLocal != null)
+                if (alreadyLocal != null && PathsEqual(alreadyLocal.BareClonePath ?? "", localPath))
                 {
                     repo = alreadyLocal;
                 }
