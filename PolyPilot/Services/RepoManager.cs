@@ -245,14 +245,23 @@ public class RepoManager
                     if (trackedWorktreePaths.Contains(wtDir)) continue;
 
                     var dirName = Path.GetFileName(wtDir);
-                    // Worktree dirs are named "{repoId}-{guid8}" — find the repo ID
+                    // Worktree dirs are named "{repoId}-{guid8}" or "{abbreviated}-{guid8}"
+                    // (WorktreeDirName may shorten the repo ID to save path length).
                     var lastDash = dirName.LastIndexOf('-');
                     if (lastDash < 0) continue;
 
                     var candidateRepoId = dirName[..lastDash];
                     var worktreeId = dirName[(lastDash + 1)..];
 
-                    if (!trackedIds.Contains(candidateRepoId)) continue;
+                    // Match exact repo ID first; if that fails, check whether any
+                    // tracked repo produces this abbreviated name via WorktreeDirName.
+                    if (!trackedIds.Contains(candidateRepoId))
+                    {
+                        var matchingRepo = _state.Repositories.FirstOrDefault(r =>
+                            WorktreeDirName(r.Id, worktreeId) == dirName);
+                        if (matchingRepo == null) continue;
+                        candidateRepoId = matchingRepo.Id;
+                    }
                     if (!Directory.Exists(Path.Combine(wtDir, ".git"))) continue;
 
                     // Get the branch name
@@ -454,6 +463,41 @@ public class RepoManager
 
     private string GetDesiredBareClonePath(string repoId) => Path.Combine(ReposDir, $"{repoId}.git");
 
+    /// <summary>
+    /// Returns a shortened directory name for a worktree: <c>{abbreviated-repoId}-{worktreeId}</c>.
+    /// Keeps the worktree path short to avoid exceeding Windows MAX_PATH (260 chars)
+    /// for repos with deeply nested file structures (e.g., dotnet/maui).
+    /// </summary>
+    internal static string WorktreeDirName(string repoId, string worktreeId)
+    {
+        // Strip "-local-{hash}" suffixes from "Existing Folder" repo IDs to shorten the path.
+        // e.g., "dotnet-maui-local-a1b2c3d4" → "dotnet-maui"
+        var abbreviated = repoId;
+        var localIdx = abbreviated.IndexOf("-local-", StringComparison.Ordinal);
+        if (localIdx > 0)
+            abbreviated = abbreviated[..localIdx];
+
+        // Cap at 24 chars to leave headroom for deeply-nested repo content.
+        // Full path budget: ~45 chars (base) + abbreviated + "-" + 8 (guid) + repo-internal path
+        const int maxRepoIdLen = 24;
+        if (abbreviated.Length > maxRepoIdLen)
+            abbreviated = abbreviated[..maxRepoIdLen];
+
+        return $"{abbreviated}-{worktreeId}";
+    }
+
+    /// <summary>
+    /// Enable git <c>core.longpaths</c> on Windows so git can handle paths exceeding
+    /// MAX_PATH (260 chars). No-op on non-Windows platforms. Best-effort — failures are
+    /// swallowed because the operation is advisory and the repo is still usable for
+    /// shorter-path content.
+    /// </summary>
+    private async Task EnsureLongPathsAsync(string repoPath, CancellationToken ct)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        try { await RunGitAsync(repoPath, ct, "config", "core.longpaths", "true"); } catch { }
+    }
+
     private static bool PathsEqual(string left, string right)
     {
         var normalizedLeft = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -471,17 +515,24 @@ public class RepoManager
 
     private async Task EnsureRepoCloneInCurrentRootAsync(RepositoryInfo repo, Action<string>? onProgress, CancellationToken ct)
     {
-        // If BareClonePath points at a non-bare repo (added via "Existing Folder"), skip clone management.
+        // If BareClonePath points at a non-bare repo (added via "Existing Folder"), skip clone management
+        // but still enable long paths so worktree creation from this repo works on Windows.
         if (!string.IsNullOrWhiteSpace(repo.BareClonePath)
             && Directory.Exists(repo.BareClonePath)
             && (Directory.Exists(Path.Combine(repo.BareClonePath, ".git")) || File.Exists(Path.Combine(repo.BareClonePath, ".git"))))
+        {
+            await EnsureLongPathsAsync(repo.BareClonePath, ct);
             return;
+        }
 
         var targetBarePath = GetDesiredBareClonePath(repo.Id);
         if (!string.IsNullOrWhiteSpace(repo.BareClonePath)
             && PathsEqual(repo.BareClonePath, targetBarePath)
             && Directory.Exists(targetBarePath))
+        {
+            await EnsureLongPathsAsync(targetBarePath, ct);
             return;
+        }
 
         lock (_stateLock) BackfillWorktreeClonePaths(repo);
         Directory.CreateDirectory(ReposDir);
@@ -508,10 +559,7 @@ public class RepoManager
             await RunGitWithProgressAsync(targetBarePath, onProgress, ct, "fetch", "--progress", "origin");
         }
 
-        if (OperatingSystem.IsWindows())
-        {
-            try { await RunGitAsync(targetBarePath, ct, "config", "core.longpaths", "true"); } catch { }
-        }
+        await EnsureLongPathsAsync(targetBarePath, ct);
 
         lock (_stateLock)
         {
@@ -597,10 +645,7 @@ public class RepoManager
         }
 
         // Enable long paths on Windows (repos like dotnet/maui exceed MAX_PATH)
-        if (OperatingSystem.IsWindows())
-        {
-            try { await RunGitAsync(barePath, ct, "config", "core.longpaths", "true"); } catch { }
-        }
+        await EnsureLongPathsAsync(barePath, ct);
 
         var repo = new RepositoryInfo
         {
@@ -874,9 +919,10 @@ public class RepoManager
         string worktreePath;
         var worktreeId = Guid.NewGuid().ToString()[..8];
 
-        // Centralized: place worktree in ~/.polypilot/worktrees/{repoId}-{guid8}/
+        // Centralized: place worktree in ~/.polypilot/worktrees/{abbreviated}-{guid8}/
+        // Uses WorktreeDirName to shorten the path and avoid Windows MAX_PATH issues.
         Directory.CreateDirectory(WorktreesDir);
-        worktreePath = Path.Combine(WorktreesDir, $"{repoId}-{worktreeId}");
+        worktreePath = Path.Combine(WorktreesDir, WorktreeDirName(repoId, worktreeId));
 
         try
         {
@@ -889,6 +935,9 @@ public class RepoManager
                 try { Directory.Delete(worktreePath, recursive: true); } catch { }
             throw;
         }
+
+        // Enable long paths in the new worktree so subsequent git ops don't fail
+        await EnsureLongPathsAsync(worktreePath, ct);
 
         var wt = new WorktreeInfo
         {
@@ -1042,9 +1091,12 @@ public class RepoManager
 
         Directory.CreateDirectory(WorktreesDir);
         var worktreeId = Guid.NewGuid().ToString()[..8];
-        var worktreePath = Path.Combine(WorktreesDir, $"{repoId}-{worktreeId}");
+        var worktreePath = Path.Combine(WorktreesDir, WorktreeDirName(repoId, worktreeId));
 
         await RunGitAsync(repo.BareClonePath, ct, "worktree", "add", worktreePath, "--", branchName);
+
+        // Enable long paths in the new worktree so subsequent git ops don't fail
+        await EnsureLongPathsAsync(worktreePath, ct);
 
         // Set upstream tracking so push/pull work in the worktree
         if (headBranch != null)

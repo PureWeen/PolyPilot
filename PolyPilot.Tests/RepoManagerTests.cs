@@ -1264,5 +1264,43 @@ public class RepoManagerTests
     }
 
     #endregion
+
+    #region WorktreeDirName tests
+
+    [Theory]
+    [InlineData("dotnet-maui", "ab12cd34", "dotnet-maui-ab12cd34")]
+    [InlineData("Owner-Repo", "deadbeef", "Owner-Repo-deadbeef")]
+    [InlineData("PureWeen-PolyPilot", "11223344", "PureWeen-PolyPilot-11223344")]
+    public void WorktreeDirName_NormalRepoId_UsesFullId(string repoId, string wtId, string expected)
+    {
+        Assert.Equal(expected, RepoManager.WorktreeDirName(repoId, wtId));
+    }
+
+    [Theory]
+    [InlineData("dotnet-maui-local-a1b2c3d4", "deadbeef", "dotnet-maui-deadbeef")]
+    [InlineData("Owner-Repo-local-12345678", "aabbccdd", "Owner-Repo-aabbccdd")]
+    public void WorktreeDirName_LocalRepoId_StripsLocalSuffix(string repoId, string wtId, string expected)
+    {
+        Assert.Equal(expected, RepoManager.WorktreeDirName(repoId, wtId));
+    }
+
+    [Fact]
+    public void WorktreeDirName_VeryLongRepoId_TruncatesTo24Chars()
+    {
+        var longId = "very-long-organization-name-with-a-deeply-nested-repo";
+        var result = RepoManager.WorktreeDirName(longId, "deadbeef");
+        // 24 chars of id + "-" + 8 chars of guid = 33 chars max
+        Assert.Equal("very-long-organization-n-deadbeef", result);
+        Assert.True(result.Length <= 33, $"WorktreeDirName too long: {result.Length} chars");
+    }
+
+    [Fact]
+    public void WorktreeDirName_ShortRepoId_NotTruncated()
+    {
+        var result = RepoManager.WorktreeDirName("a-b", "12345678");
+        Assert.Equal("a-b-12345678", result);
+    }
+
+    #endregion
 }
 
