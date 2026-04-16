@@ -1,0 +1,1603 @@
+version=1
+
+# This file caches language service data to improve the performance of C# Dev Kit.
+# It is not intended for manual editing. It can safely be deleted and will be
+# regenerated automatically.
+#
+# To exclude from version control, add *.lscache to your .gitignore file.
+#
+# To disable caching, add the following to your VS Code settings:
+#   "dotnet.projectsystem.enableLanguageServiceCache": false
+
+[project]
+language=C#
+primary
+lastDtbSucceeded
+
+[sliceDimensions]
+TargetFramework=net10.0-android
+
+[properties]
+AssemblyName=PolyPilot
+CommandLineArgsForDesignTimeEvaluation=-langversion:14.0 -define:TRACE
+CompilerGeneratedFilesOutputPath=
+MaxSupportedLangVersion=14.0
+ProjectAssetsFile=<PATH>obj/project.assets.json
+RootNamespace=PolyPilot
+RunAnalyzers=
+RunAnalyzersDuringLiveAnalysis=
+SolutionPath=<PATH>../PolyPilot.slnx
+TargetFrameworkIdentifier=.NETCoreApp
+TargetPath=<PATH>bin/Debug/net10.0-android/PolyPilot.dll
+TargetRefPath=
+TemporaryDependencyNodeTargetIdentifier=net10.0-android
+
+[commandLineArguments]
+/noconfig
+/unsafe-
+/checked-
+/nowarn:1701,1702,CS1573,CS1591,1701,1702
+/fullpaths
+/nostdlib+
+/errorreport:prompt
+/warn:10
+/doc:bin/Debug/net10.0-android/PolyPilot.xml
+/define:TRACE;DEBUG;__XAMARIN_ANDROID_v1_0__;__MOBILE__;__ANDROID__;__ANDROID_1__;__ANDROID_2__;__ANDROID_3__;__ANDROID_4__;__ANDROID_5__;__ANDROID_6__;__ANDROID_7__;__ANDROID_8__;__ANDROID_9__;__ANDROID_10__;__ANDROID_11__;__ANDROID_12__;__ANDROID_13__;__ANDROID_14__;__ANDROID_15__;__ANDROID_16__;__ANDROID_17__;__ANDROID_18__;__ANDROID_19__;__ANDROID_20__;__ANDROID_21__;__ANDROID_22__;__ANDROID_23__;__ANDROID_24__;__ANDROID_25__;__ANDROID_26__;__ANDROID_27__;__ANDROID_28__;__ANDROID_29__;__ANDROID_30__;__ANDROID_31__;__ANDROID_32__;__ANDROID_33__;__ANDROID_34__;__ANDROID_35__;__ANDROID_36__;NET;NET10_0;NETCOREAPP;ANDROID;ANDROID36_0;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NET9_0_OR_GREATER;NET10_0_OR_GREATER;NETCOREAPP1_0_OR_GREATER;NETCOREAPP1_1_OR_GREATER;NETCOREAPP2_0_OR_GREATER;NETCOREAPP2_1_OR_GREATER;NETCOREAPP2_2_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;ANDROID21_0_OR_GREATER;ANDROID22_0_OR_GREATER;ANDROID23_0_OR_GREATER;ANDROID24_0_OR_GREATER;ANDROID25_0_OR_GREATER;ANDROID26_0_OR_GREATER;ANDROID27_0_OR_GREATER;ANDROID28_0_OR_GREATER;ANDROID29_0_OR_GREATER;ANDROID30_0_OR_GREATER;ANDROID31_0_OR_GREATER;ANDROID32_0_OR_GREATER;ANDROID33_0_OR_GREATER;ANDROID34_0_OR_GREATER;ANDROID35_0_OR_GREATER;ANDROID36_0_OR_GREATER
+/highentropyva+
+/nullable:enable
+/features:"InterceptorsNamespaces=;StreamJsonRpc.Generated;;Microsoft.Extensions.Validation.Generated;Microsoft.Maui.Controls.Generated"
+/debug+
+/debug:portable
+/filealign:512
+/optimize-
+/out:obj/Debug/net10.0-android/PolyPilot.dll
+/target:library
+/warnaserror-
+/utf8output
+/deterministic+
+/langversion:14.0
+/features:use-roslyn-tokenizer=true
+/warnaserror+:NU1605,SYSLIB0011
+
+[sourceFiles]
+App.xaml.cs
+BuildInfo.cs
+MainPage.xaml.cs
+MauiProgram.cs
+Models/
+ AgentSessionInfo.cs
+ AuditLogEntry.cs
+ BridgeMessages.cs
+ ChatCopyPayloads.cs
+ ChatMessage.cs
+ CommandHistory.cs
+ ConnectionSettings.cs
+ DiffParser.cs
+ ErrorMessageHelper.cs
+ ExternalSessionInfo.cs
+ FiestaModels.cs
+ LinkHelper.cs
+ ModelCapabilities.cs
+ ModelHelper.cs
+ PendingImage.cs
+ PlatformHelper.cs
+ PlatformPaths.cs
+ PluginSettings.cs
+ PromptLibrary.cs
+ ReflectionCycle.cs
+ RenderThrottle.cs
+ RepositoryInfo.cs
+ ScheduledTask.cs
+ SessionOrganization.cs
+ SettingDescriptor.cs
+ SmartPunctuationNormalizer.cs
+ SquadDiscovery.cs
+ SquadWriter.cs
+ SynchronizedMessageQueue.cs
+ TutorialStep.cs
+ UsageStatistics.cs
+obj/Debug/net10.0-android/
+ .NETCoreApp,Version=v10.0.AssemblyAttributes.cs
+ designtime/__Microsoft.Android.Resource.Designer.cs
+ EmbeddedAttribute.cs
+ Microsoft.Maui.DevFlowPort.g.cs
+ PolyPilot.AssemblyInfo.cs
+ PolyPilot.GlobalUsings.g.cs
+ ValidatableTypeAttribute.cs
+Platforms/Android/
+ FolderPickerService.cs
+ MainActivity.cs
+ MainApplication.cs
+ NotificationManagerService.cs
+QrScannerPage.xaml.cs
+Services/
+ AuditLogService.cs
+ ChatDatabase.cs
+ CodespaceService.cs
+ CodespaceService.Diagnostics.cs
+ CodespaceService.Lifecycle.cs
+ CopilotService.Bridge.cs
+ CopilotService.Codespace.cs
+ CopilotService.Continuation.cs
+ CopilotService.cs
+ CopilotService.Events.cs
+ CopilotService.Organization.cs
+ CopilotService.Persistence.cs
+ CopilotService.Providers.cs
+ CopilotService.Utilities.cs
+ DemoService.cs
+ DevTunnelService.cs
+ EfficiencyAnalysisService.cs
+ ExternalSessionScanner.cs
+ FiestaService.cs
+ GitAutoUpdateService.cs
+ GitHubReferenceLinker.cs
+ HolidayThemeHelper.cs
+ IChatDatabase.cs
+ IDemoService.cs
+ INotificationManagerService.cs
+ IServerManager.cs
+ IWsBridgeClient.cs
+ KeyCommandService.cs
+ MarkdownRenderer.cs
+ NotificationMessageBuilder.cs
+ PluginFileLogger.cs
+ PluginLoader.cs
+ PrLinkService.cs
+ ProcessHelper.cs
+ PromptLibraryService.cs
+ ProviderHostContext.cs
+ QrScannerService.cs
+ RepoManager.cs
+ ScheduledTaskService.cs
+ ServerManager.cs
+ SessionMetricsExtractor.cs
+ SettingsRegistry.cs
+ ShowImageTool.cs
+ TailscaleService.cs
+ TutorialService.cs
+ UsageStatsService.cs
+ WindowFocusHelper.cs
+ WsBridgeClient.cs
+ WsBridgeServer.cs
+
+[metadataReferences]
+../../../../../../usr/local/share/dotnet/packs/Microsoft.Android.Ref.36/36.1.43/ref/net10.0/
+ Java.Interop.dll
+ Mono.Android.dll
+ Mono.Android.Export.dll
+ Mono.Android.Runtime.dll
+../PolyPilot.Provider.Abstractions/obj/Debug/net10.0/ref/PolyPilot.Provider.Abstractions.dll
+<NUGET>/
+ communitytoolkit.maui.core/14.0.1/lib/net10.0-android36.0/CommunityToolkit.Maui.Core.dll
+ communitytoolkit.maui/14.0.1/lib/net10.0-android36.0/CommunityToolkit.Maui.dll
+ fizzler/1.3.1/lib/netstandard2.0/Fizzler.dll
+ github.copilot.sdk/0.2.1/lib/net8.0/GitHub.Copilot.SDK.dll
+ googlegson/2.13.1.1/lib/net10.0-android36.0/GoogleGson.dll
+ markdig/1.1.2/lib/net10.0/Markdig.dll
+ microsoft.aspnetcore.authorization/10.0.0/lib/net10.0/Microsoft.AspNetCore.Authorization.dll
+ microsoft.aspnetcore.components.forms/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.Forms.dll
+ microsoft.aspnetcore.components.web/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.Web.dll
+ microsoft.aspnetcore.components.webview.maui/10.0.50/lib/net10.0-android36.0/Microsoft.AspNetCore.Components.WebView.Maui.dll
+ microsoft.aspnetcore.components.webview/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.WebView.dll
+ microsoft.aspnetcore.components/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.dll
+ microsoft.aspnetcore.metadata/10.0.0/lib/net10.0/Microsoft.AspNetCore.Metadata.dll
+ microsoft.extensions.ai.abstractions/10.3.0/lib/net10.0/Microsoft.Extensions.AI.Abstractions.dll
+ microsoft.extensions.configuration.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.Abstractions.dll
+ microsoft.extensions.configuration.binder/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.Binder.dll
+ microsoft.extensions.configuration.fileextensions/10.0.0/lib/net10.0/Microsoft.Extensions.Configuration.FileExtensions.dll
+ microsoft.extensions.configuration.json/10.0.0/lib/net10.0/Microsoft.Extensions.Configuration.Json.dll
+ microsoft.extensions.configuration/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.dll
+ microsoft.extensions.dependencyinjection.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
+ microsoft.extensions.dependencyinjection/10.0.5/lib/net10.0/Microsoft.Extensions.DependencyInjection.dll
+ microsoft.extensions.diagnostics.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Diagnostics.Abstractions.dll
+ microsoft.extensions.diagnostics/10.0.5/lib/net10.0/Microsoft.Extensions.Diagnostics.dll
+ microsoft.extensions.fileproviders.abstractions/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Abstractions.dll
+ microsoft.extensions.fileproviders.composite/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Composite.dll
+ microsoft.extensions.fileproviders.embedded/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Embedded.dll
+ microsoft.extensions.fileproviders.physical/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Physical.dll
+ microsoft.extensions.filesystemglobbing/10.0.0/lib/net10.0/Microsoft.Extensions.FileSystemGlobbing.dll
+ microsoft.extensions.hosting.abstractions/10.0.0/lib/net10.0/Microsoft.Extensions.Hosting.Abstractions.dll
+ microsoft.extensions.http/10.0.5/lib/net10.0/Microsoft.Extensions.Http.dll
+ microsoft.extensions.logging.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.Abstractions.dll
+ microsoft.extensions.logging.debug/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.Debug.dll
+ microsoft.extensions.logging/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.dll
+ microsoft.extensions.options.configurationextensions/10.0.5/lib/net10.0/Microsoft.Extensions.Options.ConfigurationExtensions.dll
+ microsoft.extensions.options/10.0.5/lib/net10.0/Microsoft.Extensions.Options.dll
+ microsoft.extensions.primitives/10.0.5/lib/net10.0/Microsoft.Extensions.Primitives.dll
+ microsoft.extensions.validation/10.0.0/lib/net10.0/Microsoft.Extensions.Validation.dll
+ microsoft.jsinterop/10.0.0/lib/net10.0/Microsoft.JSInterop.dll
+ microsoft.maui.controls.core/10.0.50/lib/net10.0-android36.0/Microsoft.Maui.Controls.dll
+ microsoft.maui.controls.xaml/10.0.50/lib/net10.0-android36.0/Microsoft.Maui.Controls.Xaml.dll
+ microsoft.maui.core/10.0.50/lib/net10.0-android36.0/Microsoft.Maui.dll
+ microsoft.maui.devflow.agent.core/0.1.0-preview.4.26202.3/lib/net10.0/Microsoft.Maui.DevFlow.Agent.Core.dll
+ microsoft.maui.devflow.agent/0.1.0-preview.4.26202.3/lib/net10.0-android36.0/Microsoft.Maui.DevFlow.Agent.dll
+ microsoft.maui.devflow.blazor/0.1.0-preview.4.26202.3/lib/net10.0-android36.0/Microsoft.Maui.DevFlow.Blazor.dll
+ microsoft.maui.devflow.logging/0.1.0-preview.4.26202.3/lib/net10.0/Microsoft.Maui.DevFlow.Logging.dll
+ microsoft.maui.essentials.ai/10.0.50-ci.main.26157.2/lib/net10.0-android36.0/Microsoft.Maui.Essentials.AI.dll
+ microsoft.maui.essentials/10.0.50/lib/net10.0-android36.0/Microsoft.Maui.Essentials.dll
+ microsoft.maui.graphics/10.0.50/lib/net10.0-android36.0/Microsoft.Maui.Graphics.dll
+ microsoft.netcore.app.ref/10.0.5/ref/net10.0/
+  Microsoft.CSharp.dll
+  Microsoft.VisualBasic.Core.dll
+  Microsoft.VisualBasic.dll
+  Microsoft.Win32.Primitives.dll
+  Microsoft.Win32.Registry.dll
+  mscorlib.dll
+  netstandard.dll
+  System.AppContext.dll
+  System.Buffers.dll
+  System.Collections.Concurrent.dll
+  System.Collections.dll
+  System.Collections.Immutable.dll
+  System.Collections.NonGeneric.dll
+  System.Collections.Specialized.dll
+  System.ComponentModel.Annotations.dll
+  System.ComponentModel.DataAnnotations.dll
+  System.ComponentModel.dll
+  System.ComponentModel.EventBasedAsync.dll
+  System.ComponentModel.Primitives.dll
+  System.ComponentModel.TypeConverter.dll
+  System.Configuration.dll
+  System.Console.dll
+  System.Core.dll
+  System.Data.Common.dll
+  System.Data.DataSetExtensions.dll
+  System.Data.dll
+  System.Diagnostics.Contracts.dll
+  System.Diagnostics.Debug.dll
+  System.Diagnostics.DiagnosticSource.dll
+  System.Diagnostics.FileVersionInfo.dll
+  System.Diagnostics.Process.dll
+  System.Diagnostics.StackTrace.dll
+  System.Diagnostics.TextWriterTraceListener.dll
+  System.Diagnostics.Tools.dll
+  System.Diagnostics.TraceSource.dll
+  System.Diagnostics.Tracing.dll
+  System.dll
+  System.Drawing.dll
+  System.Drawing.Primitives.dll
+  System.Dynamic.Runtime.dll
+  System.Formats.Asn1.dll
+  System.Formats.Tar.dll
+  System.Globalization.Calendars.dll
+  System.Globalization.dll
+  System.Globalization.Extensions.dll
+  System.IO.Compression.Brotli.dll
+  System.IO.Compression.dll
+  System.IO.Compression.FileSystem.dll
+  System.IO.Compression.ZipFile.dll
+  System.IO.dll
+  System.IO.FileSystem.AccessControl.dll
+  System.IO.FileSystem.dll
+  System.IO.FileSystem.DriveInfo.dll
+  System.IO.FileSystem.Primitives.dll
+  System.IO.FileSystem.Watcher.dll
+  System.IO.IsolatedStorage.dll
+  System.IO.MemoryMappedFiles.dll
+  System.IO.Pipelines.dll
+  System.IO.Pipes.AccessControl.dll
+  System.IO.Pipes.dll
+  System.IO.UnmanagedMemoryStream.dll
+  System.Linq.AsyncEnumerable.dll
+  System.Linq.dll
+  System.Linq.Expressions.dll
+  System.Linq.Parallel.dll
+  System.Linq.Queryable.dll
+  System.Memory.dll
+  System.Net.dll
+  System.Net.Http.dll
+  System.Net.Http.Json.dll
+  System.Net.HttpListener.dll
+  System.Net.Mail.dll
+  System.Net.NameResolution.dll
+  System.Net.NetworkInformation.dll
+  System.Net.Ping.dll
+  System.Net.Primitives.dll
+  System.Net.Quic.dll
+  System.Net.Requests.dll
+  System.Net.Security.dll
+  System.Net.ServerSentEvents.dll
+  System.Net.ServicePoint.dll
+  System.Net.Sockets.dll
+  System.Net.WebClient.dll
+  System.Net.WebHeaderCollection.dll
+  System.Net.WebProxy.dll
+  System.Net.WebSockets.Client.dll
+  System.Net.WebSockets.dll
+  System.Numerics.dll
+  System.Numerics.Vectors.dll
+  System.ObjectModel.dll
+  System.Reflection.DispatchProxy.dll
+  System.Reflection.dll
+  System.Reflection.Emit.dll
+  System.Reflection.Emit.ILGeneration.dll
+  System.Reflection.Emit.Lightweight.dll
+  System.Reflection.Extensions.dll
+  System.Reflection.Metadata.dll
+  System.Reflection.Primitives.dll
+  System.Reflection.TypeExtensions.dll
+  System.Resources.Reader.dll
+  System.Resources.ResourceManager.dll
+  System.Resources.Writer.dll
+  System.Runtime.CompilerServices.Unsafe.dll
+  System.Runtime.CompilerServices.VisualC.dll
+  System.Runtime.dll
+  System.Runtime.Extensions.dll
+  System.Runtime.Handles.dll
+  System.Runtime.InteropServices.dll
+  System.Runtime.InteropServices.JavaScript.dll
+  System.Runtime.InteropServices.RuntimeInformation.dll
+  System.Runtime.Intrinsics.dll
+  System.Runtime.Loader.dll
+  System.Runtime.Numerics.dll
+  System.Runtime.Serialization.dll
+  System.Runtime.Serialization.Formatters.dll
+  System.Runtime.Serialization.Json.dll
+  System.Runtime.Serialization.Primitives.dll
+  System.Runtime.Serialization.Xml.dll
+  System.Security.AccessControl.dll
+  System.Security.Claims.dll
+  System.Security.Cryptography.Algorithms.dll
+  System.Security.Cryptography.Cng.dll
+  System.Security.Cryptography.Csp.dll
+  System.Security.Cryptography.dll
+  System.Security.Cryptography.Encoding.dll
+  System.Security.Cryptography.OpenSsl.dll
+  System.Security.Cryptography.Primitives.dll
+  System.Security.Cryptography.X509Certificates.dll
+  System.Security.dll
+  System.Security.Principal.dll
+  System.Security.Principal.Windows.dll
+  System.Security.SecureString.dll
+  System.ServiceModel.Web.dll
+  System.ServiceProcess.dll
+  System.Text.Encoding.CodePages.dll
+  System.Text.Encoding.dll
+  System.Text.Encoding.Extensions.dll
+  System.Text.Encodings.Web.dll
+  System.Text.Json.dll
+  System.Text.RegularExpressions.dll
+  System.Threading.AccessControl.dll
+  System.Threading.Channels.dll
+  System.Threading.dll
+  System.Threading.Overlapped.dll
+  System.Threading.Tasks.Dataflow.dll
+  System.Threading.Tasks.dll
+  System.Threading.Tasks.Extensions.dll
+  System.Threading.Tasks.Parallel.dll
+  System.Threading.Thread.dll
+  System.Threading.ThreadPool.dll
+  System.Threading.Timer.dll
+  System.Transactions.dll
+  System.Transactions.Local.dll
+  System.ValueTuple.dll
+  System.Web.dll
+  System.Web.HttpUtility.dll
+  System.Windows.dll
+  System.Xml.dll
+  System.Xml.Linq.dll
+  System.Xml.ReaderWriter.dll
+  System.Xml.Serialization.dll
+  System.Xml.XDocument.dll
+  System.Xml.XmlDocument.dll
+  System.Xml.XmlSerializer.dll
+  System.Xml.XPath.dll
+  System.Xml.XPath.XDocument.dll
+  WindowsBase.dll
+ microsoft.win32.systemevents/6.0.0/lib/net6.0/Microsoft.Win32.SystemEvents.dll
+ qrcoder/1.7.0/lib/net6.0/QRCoder.dll
+ skiasharp/3.119.2/ref/net8.0-android34.0/SkiaSharp.dll
+ sqlite-net-pcl/1.9.172/lib/netstandard2.0/SQLite-net.dll
+ sqlitepclraw.bundle_green/2.1.11/lib/net6.0-android31.0/SQLitePCLRaw.batteries_v2.dll
+ sqlitepclraw.core/2.1.11/lib/netstandard2.0/SQLitePCLRaw.core.dll
+ sqlitepclraw.lib.e_sqlite3.android/2.1.11/lib/net6.0-android31.0/SQLitePCLRaw.lib.e_sqlite3.android.dll
+ sqlitepclraw.provider.e_sqlite3/2.1.11/lib/net6.0/SQLitePCLRaw.provider.e_sqlite3.dll
+ system.drawing.common/6.0.0/lib/net6.0/System.Drawing.Common.dll
+ xamarin.android.glide.annotations/4.16.0.14/lib/net10.0-android36.0/Xamarin.Android.Glide.Annotations.dll
+ xamarin.android.glide.disklrucache/4.16.0.14/lib/net10.0-android36.0/Xamarin.Android.Glide.DiskLruCache.dll
+ xamarin.android.glide.gifdecoder/4.16.0.14/lib/net10.0-android36.0/Xamarin.Android.Glide.GifDecoder.dll
+ xamarin.android.glide/4.16.0.14/lib/net10.0-android36.0/Xamarin.Android.Glide.dll
+ xamarin.androidx.activity.ktx/1.10.1.3/lib/net10.0-android36.0/Xamarin.AndroidX.Activity.Ktx.dll
+ xamarin.androidx.activity/1.10.1.3/lib/net10.0-android36.0/Xamarin.AndroidX.Activity.dll
+ xamarin.androidx.annotation.experimental/1.5.1.1/lib/net10.0-android36.0/Xamarin.AndroidX.Annotation.Experimental.dll
+ xamarin.androidx.annotation.jvm/1.9.1.5/lib/net10.0-android36.0/Xamarin.AndroidX.Annotation.Jvm.dll
+ xamarin.androidx.annotation/1.9.1.5/lib/net10.0-android36.0/Xamarin.AndroidX.Annotation.dll
+ xamarin.androidx.appcompat.appcompatresources/1.7.1.1/lib/net10.0-android36.0/Xamarin.AndroidX.AppCompat.AppCompatResources.dll
+ xamarin.androidx.appcompat/1.7.1.1/lib/net10.0-android36.0/Xamarin.AndroidX.AppCompat.dll
+ xamarin.androidx.arch.core.common/2.2.0.18/lib/net10.0-android36.0/Xamarin.AndroidX.Arch.Core.Common.dll
+ xamarin.androidx.arch.core.runtime/2.2.0.18/lib/net10.0-android36.0/Xamarin.AndroidX.Arch.Core.Runtime.dll
+ xamarin.androidx.browser/1.8.0.11/lib/net10.0-android36.0/Xamarin.AndroidX.Browser.dll
+ xamarin.androidx.camera.camera2/1.4.2.3/lib/net10.0-android36.0/Xamarin.AndroidX.Camera.Camera2.dll
+ xamarin.androidx.camera.core/1.4.2.3/lib/net10.0-android36.0/Xamarin.AndroidX.Camera.Core.dll
+ xamarin.androidx.camera.lifecycle/1.4.2.3/lib/net10.0-android36.0/Xamarin.AndroidX.Camera.Lifecycle.dll
+ xamarin.androidx.camera.video/1.4.2.3/lib/net10.0-android36.0/Xamarin.AndroidX.Camera.Video.dll
+ xamarin.androidx.camera.view/1.4.2.3/lib/net10.0-android36.0/Xamarin.AndroidX.Camera.View.dll
+ xamarin.androidx.cardview/1.0.0.36/lib/net10.0-android36.0/Xamarin.AndroidX.CardView.dll
+ xamarin.androidx.collection.jvm/1.5.0.3/lib/net10.0-android36.0/Xamarin.AndroidX.Collection.Jvm.dll
+ xamarin.androidx.collection.ktx/1.5.0.3/lib/net10.0-android36.0/Xamarin.AndroidX.Collection.Ktx.dll
+ xamarin.androidx.collection/1.5.0.3/lib/net10.0-android36.0/Xamarin.AndroidX.Collection.dll
+ xamarin.androidx.concurrent.futures.ktx/1.3.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.Concurrent.Futures.Ktx.dll
+ xamarin.androidx.concurrent.futures/1.3.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.Concurrent.Futures.dll
+ xamarin.androidx.constraintlayout.core/1.1.1.3/lib/net10.0-android36.0/Xamarin.AndroidX.ConstraintLayout.Core.dll
+ xamarin.androidx.constraintlayout/2.2.1.3/lib/net10.0-android36.0/Xamarin.AndroidX.ConstraintLayout.dll
+ xamarin.androidx.coordinatorlayout/1.3.0.3/lib/net10.0-android36.0/Xamarin.AndroidX.CoordinatorLayout.dll
+ xamarin.androidx.core.core.ktx/1.16.0.3/lib/net10.0-android36.0/Xamarin.AndroidX.Core.Core.Ktx.dll
+ xamarin.androidx.core.viewtree/1.0.0.3/lib/net10.0-android36.0/Xamarin.AndroidX.Core.ViewTree.dll
+ xamarin.androidx.core/1.16.0.3/lib/net10.0-android36.0/Xamarin.AndroidX.Core.dll
+ xamarin.androidx.cursoradapter/1.0.0.34/lib/net10.0-android36.0/Xamarin.AndroidX.CursorAdapter.dll
+ xamarin.androidx.customview.poolingcontainer/1.1.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.CustomView.PoolingContainer.dll
+ xamarin.androidx.customview/1.2.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.CustomView.dll
+ xamarin.androidx.drawerlayout/1.2.0.18/lib/net10.0-android36.0/Xamarin.AndroidX.DrawerLayout.dll
+ xamarin.androidx.dynamicanimation/1.1.0.3/lib/net10.0-android36.0/Xamarin.AndroidX.DynamicAnimation.dll
+ xamarin.androidx.emoji2.viewshelper/1.5.0.6/lib/net10.0-android36.0/Xamarin.AndroidX.Emoji2.ViewsHelper.dll
+ xamarin.androidx.emoji2/1.5.0.6/lib/net10.0-android36.0/Xamarin.AndroidX.Emoji2.dll
+ xamarin.androidx.exifinterface/1.4.1.1/lib/net10.0-android36.0/Xamarin.AndroidX.ExifInterface.dll
+ xamarin.androidx.fragment.ktx/1.8.8.1/lib/net10.0-android36.0/Xamarin.AndroidX.Fragment.Ktx.dll
+ xamarin.androidx.fragment/1.8.8.1/lib/net10.0-android36.0/Xamarin.AndroidX.Fragment.dll
+ xamarin.androidx.interpolator/1.0.0.34/lib/net10.0-android36.0/Xamarin.AndroidX.Interpolator.dll
+ xamarin.androidx.lifecycle.common.jvm/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.Common.Jvm.dll
+ xamarin.androidx.lifecycle.common/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.Common.dll
+ xamarin.androidx.lifecycle.livedata.core.ktx/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.LiveData.Core.Ktx.dll
+ xamarin.androidx.lifecycle.livedata.core/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.LiveData.Core.dll
+ xamarin.androidx.lifecycle.livedata/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.LiveData.dll
+ xamarin.androidx.lifecycle.process/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.Process.dll
+ xamarin.androidx.lifecycle.runtime.android/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.Runtime.Android.dll
+ xamarin.androidx.lifecycle.runtime.ktx.android/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.Runtime.Ktx.Android.dll
+ xamarin.androidx.lifecycle.runtime.ktx/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.Runtime.Ktx.dll
+ xamarin.androidx.lifecycle.runtime/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.Runtime.dll
+ xamarin.androidx.lifecycle.viewmodel.android/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.ViewModel.Android.dll
+ xamarin.androidx.lifecycle.viewmodel.ktx/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.ViewModel.Ktx.dll
+ xamarin.androidx.lifecycle.viewmodel/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.ViewModel.dll
+ xamarin.androidx.lifecycle.viewmodelsavedstate.android/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.ViewModelSavedState.Android.dll
+ xamarin.androidx.lifecycle.viewmodelsavedstate/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Lifecycle.ViewModelSavedState.dll
+ xamarin.androidx.loader/1.1.0.34/lib/net10.0-android36.0/Xamarin.AndroidX.Loader.dll
+ xamarin.androidx.navigation.common.android/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Navigation.Common.Android.dll
+ xamarin.androidx.navigation.common/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Navigation.Common.dll
+ xamarin.androidx.navigation.fragment/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Navigation.Fragment.dll
+ xamarin.androidx.navigation.runtime.android/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Navigation.Runtime.Android.dll
+ xamarin.androidx.navigation.runtime/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Navigation.Runtime.dll
+ xamarin.androidx.navigation.ui/2.9.2.1/lib/net10.0-android36.0/Xamarin.AndroidX.Navigation.UI.dll
+ xamarin.androidx.profileinstaller.profileinstaller/1.4.1.5/lib/net10.0-android36.0/Xamarin.AndroidX.ProfileInstaller.ProfileInstaller.dll
+ xamarin.androidx.recyclerview/1.4.0.3/lib/net10.0-android36.0/Xamarin.AndroidX.RecyclerView.dll
+ xamarin.androidx.resourceinspection.annotation/1.0.1.22/lib/net10.0-android36.0/Xamarin.AndroidX.ResourceInspection.Annotation.dll
+ xamarin.androidx.savedstate.savedstate.android/1.3.1.1/lib/net10.0-android36.0/Xamarin.AndroidX.SavedState.SavedState.Android.dll
+ xamarin.androidx.savedstate.savedstate.ktx/1.3.1.1/lib/net10.0-android36.0/Xamarin.AndroidX.SavedState.SavedState.Ktx.dll
+ xamarin.androidx.savedstate/1.3.1.1/lib/net10.0-android36.0/Xamarin.AndroidX.SavedState.dll
+ xamarin.androidx.security.securitycrypto/1.1.0.4-alpha07/lib/net10.0-android36.0/Xamarin.AndroidX.Security.SecurityCrypto.dll
+ xamarin.androidx.slidingpanelayout/1.2.0.22/lib/net10.0-android36.0/Xamarin.AndroidX.SlidingPaneLayout.dll
+ xamarin.androidx.startup.startupruntime/1.2.0.5/lib/net10.0-android36.0/Xamarin.AndroidX.Startup.StartupRuntime.dll
+ xamarin.androidx.swiperefreshlayout/1.1.0.29/lib/net10.0-android36.0/Xamarin.AndroidX.SwipeRefreshLayout.dll
+ xamarin.androidx.tracing.tracing.android/1.3.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.Tracing.Tracing.Android.dll
+ xamarin.androidx.tracing.tracing.ktx/1.3.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.Tracing.Tracing.Ktx.dll
+ xamarin.androidx.tracing.tracing/1.3.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.Tracing.Tracing.dll
+ xamarin.androidx.transition/1.6.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.Transition.dll
+ xamarin.androidx.vectordrawable.animated/1.2.0.8/lib/net10.0-android36.0/Xamarin.AndroidX.VectorDrawable.Animated.dll
+ xamarin.androidx.vectordrawable/1.2.0.8/lib/net10.0-android36.0/Xamarin.AndroidX.VectorDrawable.dll
+ xamarin.androidx.versionedparcelable/1.2.1.3/lib/net10.0-android36.0/Xamarin.AndroidX.VersionedParcelable.dll
+ xamarin.androidx.viewpager/1.1.0.4/lib/net10.0-android36.0/Xamarin.AndroidX.ViewPager.dll
+ xamarin.androidx.viewpager2/1.1.0.8/lib/net10.0-android36.0/Xamarin.AndroidX.ViewPager2.dll
+ xamarin.androidx.window.windowcore.jvm/1.4.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.Window.WindowCore.Jvm.dll
+ xamarin.androidx.window.windowcore/1.4.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.Window.WindowCore.dll
+ xamarin.androidx.window/1.4.0.1/lib/net10.0-android36.0/Xamarin.AndroidX.Window.dll
+ xamarin.google.android.material/1.12.0.5/lib/net10.0-android36.0/Xamarin.Google.Android.Material.dll
+ xamarin.google.autovalue.annotations/1.11.0.8/lib/net10.0-android36.0/Xamarin.Google.AutoValue.Annotations.dll
+ xamarin.google.code.findbugs.jsr305/3.0.2.21/lib/net10.0-android36.0/Jsr305Binding.dll
+ xamarin.google.crypto.tink.android/1.18.0.1/lib/net10.0-android36.0/Xamarin.Google.Crypto.Tink.Android.dll
+ xamarin.google.errorprone.annotations/2.41.0.1/lib/net10.0-android36.0/Xamarin.Google.ErrorProne.Annotations.dll
+ xamarin.google.guava.listenablefuture/1.0.0.29/lib/net10.0-android36.0/Xamarin.Google.Guava.ListenableFuture.dll
+ xamarin.jetbrains.annotations/26.0.2.3/lib/net10.0-android36.0/Xamarin.Jetbrains.Annotations.dll
+ xamarin.jspecify/1.0.0.4/lib/net10.0-android36.0/Xamarin.JSpecify.dll
+ xamarin.kotlin.stdlib/2.2.0.1/lib/net10.0-android36.0/Xamarin.Kotlin.StdLib.dll
+ xamarin.kotlinx.coroutines.android/1.10.2.1/lib/net10.0-android36.0/Xamarin.KotlinX.Coroutines.Android.dll
+ xamarin.kotlinx.coroutines.core.jvm/1.10.2.1/lib/net10.0-android36.0/Xamarin.KotlinX.Coroutines.Core.Jvm.dll
+ xamarin.kotlinx.coroutines.core/1.10.2.1/lib/net10.0-android36.0/Xamarin.KotlinX.Coroutines.Core.dll
+ xamarin.kotlinx.serialization.core.jvm/1.9.0.1/lib/net10.0-android36.0/Xamarin.KotlinX.Serialization.Core.Jvm.dll
+ xamarin.kotlinx.serialization.core/1.9.0.1/lib/net10.0-android36.0/Xamarin.KotlinX.Serialization.Core.dll
+ zxing.net.maui.controls/0.7.4/lib/net10.0-android36.0/ZXing.Net.MAUI.Controls.dll
+ zxing.net.maui/0.7.4/lib/net10.0-android36.0/ZXing.Net.MAUI.dll
+ zxing.net/0.16.11/lib/net9.0/zxing.dll
+obj/Debug/net10.0-android/designtime/_Microsoft.Android.Resource.Designer.dll
+
+[analyzerReferences]
+../../../../../../usr/local/share/dotnet/
+ packs/Microsoft.Android.Ref.36/36.1.43/analyzers/dotnet/cs/Microsoft.Android.Sdk.Analysis.dll
+ sdk/10.0.102/Sdks/Microsoft.NET.Sdk.Razor/source-generators/
+  Microsoft.AspNetCore.Razor.Utilities.Shared.dll
+  Microsoft.CodeAnalysis.Razor.Compiler.dll
+  Microsoft.Extensions.ObjectPool.dll
+ sdk/10.0.102/Sdks/Microsoft.NET.Sdk/analyzers/
+  Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll
+  Microsoft.CodeAnalysis.NetAnalyzers.dll
+<NUGET>/communitytoolkit.maui/14.0.1/analyzers/dotnet/cs/
+ CommunityToolkit.Maui.Analyzers.CodeFixes.dll
+ CommunityToolkit.Maui.Analyzers.dll
+ CommunityToolkit.Maui.SourceGenerators.dll
+<NUGET>/
+ microsoft.aspnetcore.components.analyzers/10.0.0/analyzers/dotnet/cs/Microsoft.AspNetCore.Components.Analyzers.dll
+ microsoft.extensions.logging.abstractions/10.0.5/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Logging.Generators.dll
+ microsoft.extensions.options/10.0.5/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Options.SourceGeneration.dll
+ microsoft.extensions.validation/10.0.0/analyzers/dotnet/cs/Microsoft.Extensions.Validation.ValidationsGenerator.dll
+ microsoft.maui.controls.build.tasks/10.0.50/buildTransitive/netstandard2.0/
+  Microsoft.Maui.Controls.BindingSourceGen.dll
+  Microsoft.Maui.Controls.SourceGen.dll
+ microsoft.net.illink.tasks/10.0.2/analyzers/dotnet/cs/
+  ILLink.CodeFixProvider.dll
+  ILLink.RoslynAnalyzer.dll
+ microsoft.netcore.app.ref/10.0.5/analyzers/dotnet/cs/
+  Microsoft.Interop.ComInterfaceGenerator.dll
+  Microsoft.Interop.JavaScript.JSImportGenerator.dll
+  Microsoft.Interop.LibraryImportGenerator.dll
+  Microsoft.Interop.SourceGeneration.dll
+  System.Text.Json.SourceGeneration.dll
+  System.Text.RegularExpressions.Generator.dll
+ nerdbank.messagepack/1.0.2/analyzers/cs/
+  Nerdbank.MessagePack.Analyzers.CodeFixes.dll
+  Nerdbank.MessagePack.Analyzers.dll
+ polytype/1.0.0/analyzers/dotnet/cs/PolyType.SourceGenerator.dll
+ streamjsonrpc/2.24.84/analyzers/cs/
+  StreamJsonRpc.Analyzers.CodeFixes.dll
+  StreamJsonRpc.Analyzers.dll
+
+[analyzerConfigFiles]
+../../../../../../usr/local/share/dotnet/sdk/10.0.102/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig
+obj/Debug/net10.0-android/PolyPilot.GeneratedMSBuildEditorConfig.editorconfig
+
+[additionalFiles]
+App.xaml
+Components/
+ ChatMessageItem.razor
+ ChatMessageList.razor
+ CopyToClipboardButton.razor
+ DiffView.razor
+ ExpandedSessionView.razor
+ ExternalSessionCard.razor
+ KeepAliveSession.razor
+ Layout/
+  CreateSessionForm.razor
+  MainLayout.razor
+  NavMenu.razor
+  SessionListItem.razor
+  SessionSidebar.razor
+  StatisticsPopup.razor
+ ModelSelector.razor
+ Pages/
+  Counter.razor
+  Dashboard.razor
+  NotFound.razor
+  ScheduledTasks.razor
+  Settings.razor
+  TutorialPage.razor
+  Weather.razor
+ RemoteDirectoryPicker.razor
+ Routes.razor
+ SessionCard.razor
+ Settings/SettingEditor.razor
+ Tutorial/TutorialOverlay.razor
+ _Imports.razor
+MainPage.xaml
+QrScannerPage.xaml
+
+[dynamicFiles]
+Components/
+ ChatMessageItem.razor
+ ChatMessageList.razor
+ CopyToClipboardButton.razor
+ DiffView.razor
+ ExpandedSessionView.razor
+ ExternalSessionCard.razor
+ KeepAliveSession.razor
+ Layout/
+  CreateSessionForm.razor
+  MainLayout.razor
+  NavMenu.razor
+  SessionListItem.razor
+  SessionSidebar.razor
+  StatisticsPopup.razor
+ ModelSelector.razor
+ Pages/
+  Counter.razor
+  Dashboard.razor
+  NotFound.razor
+  ScheduledTasks.razor
+  Settings.razor
+  TutorialPage.razor
+  Weather.razor
+ RemoteDirectoryPicker.razor
+ Routes.razor
+ SessionCard.razor
+ Settings/SettingEditor.razor
+ Tutorial/TutorialOverlay.razor
+ _Imports.razor
+
+---
+
+[project]
+language=C#
+lastDtbSucceeded
+
+[sliceDimensions]
+TargetFramework=net10.0-ios
+
+[properties]
+AssemblyName=PolyPilot
+CommandLineArgsForDesignTimeEvaluation=-langversion:14.0 -define:TRACE
+CompilerGeneratedFilesOutputPath=
+MaxSupportedLangVersion=14.0
+ProjectAssetsFile=<PATH>obj/project.assets.json
+RootNamespace=PolyPilot
+RunAnalyzers=
+RunAnalyzersDuringLiveAnalysis=
+SolutionPath=<PATH>../PolyPilot.slnx
+TargetFrameworkIdentifier=.NETCoreApp
+TargetPath=<PATH>bin/Debug/net10.0-ios/iossimulator-arm64/PolyPilot.dll
+TargetRefPath=<PATH>obj/Debug/net10.0-ios/iossimulator-arm64/ref/PolyPilot.dll
+TemporaryDependencyNodeTargetIdentifier=net10.0-ios
+
+[commandLineArguments]
+/noconfig
+/unsafe-
+/checked-
+/nowarn:1701,1702,1701,1702
+/fullpaths
+/nostdlib+
+/platform:arm64
+/errorreport:prompt
+/warn:10
+/define:__IOS__;__MOBILE__;__UNIFIED__;TRACE;DEBUG;NET;NET10_0;NETCOREAPP;IOS;IOS26_2;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NET9_0_OR_GREATER;NET10_0_OR_GREATER;NETCOREAPP1_0_OR_GREATER;NETCOREAPP1_1_OR_GREATER;NETCOREAPP2_0_OR_GREATER;NETCOREAPP2_1_OR_GREATER;NETCOREAPP2_2_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;IOS10_0_OR_GREATER;IOS10_1_OR_GREATER;IOS10_2_OR_GREATER;IOS11_0_OR_GREATER;IOS11_1_OR_GREATER;IOS11_2_OR_GREATER;IOS11_3_OR_GREATER;IOS11_4_OR_GREATER;IOS12_0_OR_GREATER;IOS12_1_OR_GREATER;IOS12_2_OR_GREATER;IOS12_3_OR_GREATER;IOS12_4_OR_GREATER;IOS13_0_OR_GREATER;IOS13_1_OR_GREATER;IOS13_2_OR_GREATER;IOS13_3_OR_GREATER;IOS13_4_OR_GREATER;IOS13_5_OR_GREATER;IOS13_6_OR_GREATER;IOS14_0_OR_GREATER;IOS14_1_OR_GREATER;IOS14_2_OR_GREATER;IOS14_3_OR_GREATER;IOS14_4_OR_GREATER;IOS14_5_OR_GREATER;IOS15_0_OR_GREATER;IOS15_2_OR_GREATER;IOS15_4_OR_GREATER;IOS16_0_OR_GREATER;IOS16_1_OR_GREATER;IOS16_2_OR_GREATER;IOS16_4_OR_GREATER;IOS17_0_OR_GREATER;IOS17_2_OR_GREATER;IOS17_4_OR_GREATER;IOS17_5_OR_GREATER;IOS18_0_OR_GREATER;IOS18_1_OR_GREATER;IOS18_2_OR_GREATER;IOS18_3_OR_GREATER;IOS18_4_OR_GREATER;IOS18_5_OR_GREATER;IOS26_0_OR_GREATER;IOS26_1_OR_GREATER;IOS26_2_OR_GREATER
+/highentropyva+
+/nullable:enable
+/features:"InterceptorsNamespaces=;StreamJsonRpc.Generated;;Microsoft.Extensions.Validation.Generated;Microsoft.Maui.Controls.Generated"
+/debug+
+/debug:portable
+/filealign:512
+/optimize-
+/out:obj/Debug/net10.0-ios/iossimulator-arm64/PolyPilot.dll
+/refout:obj/Debug/net10.0-ios/iossimulator-arm64/refint/PolyPilot.dll
+/target:exe
+/warnaserror-
+/utf8output
+/deterministic+
+/langversion:14.0
+/features:use-roslyn-tokenizer=true
+/warnaserror+:NU1605,SYSLIB0011
+
+[sourceFiles]
+App.xaml.cs
+BuildInfo.cs
+MainPage.xaml.cs
+MauiProgram.cs
+Models/
+ AgentSessionInfo.cs
+ AuditLogEntry.cs
+ BridgeMessages.cs
+ ChatCopyPayloads.cs
+ ChatMessage.cs
+ CommandHistory.cs
+ ConnectionSettings.cs
+ DiffParser.cs
+ ErrorMessageHelper.cs
+ ExternalSessionInfo.cs
+ FiestaModels.cs
+ LinkHelper.cs
+ ModelCapabilities.cs
+ ModelHelper.cs
+ PendingImage.cs
+ PlatformHelper.cs
+ PlatformPaths.cs
+ PluginSettings.cs
+ PromptLibrary.cs
+ ReflectionCycle.cs
+ RenderThrottle.cs
+ RepositoryInfo.cs
+ ScheduledTask.cs
+ SessionOrganization.cs
+ SettingDescriptor.cs
+ SmartPunctuationNormalizer.cs
+ SquadDiscovery.cs
+ SquadWriter.cs
+ SynchronizedMessageQueue.cs
+ TutorialStep.cs
+ UsageStatistics.cs
+obj/Debug/net10.0-ios/iossimulator-arm64/
+ .NETCoreApp,Version=v10.0.AssemblyAttributes.cs
+ EmbeddedAttribute.cs
+ Microsoft.Maui.DevFlowPort.g.cs
+ PolyPilot.AssemblyInfo.cs
+ PolyPilot.GlobalUsings.g.cs
+ PolyPilot.nfloat.g.cs
+ ValidatableTypeAttribute.cs
+Platforms/iOS/
+ AppDelegate.cs
+ FolderPickerService.cs
+ NotificationManagerService.cs
+ Program.cs
+QrScannerPage.xaml.cs
+Services/
+ AuditLogService.cs
+ ChatDatabase.cs
+ CodespaceService.cs
+ CodespaceService.Diagnostics.cs
+ CodespaceService.Lifecycle.cs
+ CopilotService.Bridge.cs
+ CopilotService.Codespace.cs
+ CopilotService.Continuation.cs
+ CopilotService.cs
+ CopilotService.Events.cs
+ CopilotService.Organization.cs
+ CopilotService.Persistence.cs
+ CopilotService.Providers.cs
+ CopilotService.Utilities.cs
+ DemoService.cs
+ DevTunnelService.cs
+ EfficiencyAnalysisService.cs
+ ExternalSessionScanner.cs
+ FiestaService.cs
+ GitAutoUpdateService.cs
+ GitHubReferenceLinker.cs
+ HolidayThemeHelper.cs
+ IChatDatabase.cs
+ IDemoService.cs
+ INotificationManagerService.cs
+ IServerManager.cs
+ IWsBridgeClient.cs
+ KeyCommandService.cs
+ MarkdownRenderer.cs
+ NotificationMessageBuilder.cs
+ PluginFileLogger.cs
+ PluginLoader.cs
+ PrLinkService.cs
+ ProcessHelper.cs
+ PromptLibraryService.cs
+ ProviderHostContext.cs
+ QrScannerService.cs
+ RepoManager.cs
+ ScheduledTaskService.cs
+ ServerManager.cs
+ SessionMetricsExtractor.cs
+ SettingsRegistry.cs
+ ShowImageTool.cs
+ TailscaleService.cs
+ TutorialService.cs
+ UsageStatsService.cs
+ WindowFocusHelper.cs
+ WsBridgeClient.cs
+ WsBridgeServer.cs
+
+[metadataReferences]
+../
+ ../../../../../usr/local/share/dotnet/packs/Microsoft.iOS.Ref.net10.0_26.2/26.2.10217/ref/net10.0/Microsoft.iOS.dll
+ PolyPilot.Provider.Abstractions/obj/Debug/net10.0/ref/PolyPilot.Provider.Abstractions.dll
+<NUGET>/
+ communitytoolkit.maui.core/14.0.1/lib/net10.0-ios26.0/CommunityToolkit.Maui.Core.dll
+ communitytoolkit.maui/14.0.1/lib/net10.0-ios26.0/CommunityToolkit.Maui.dll
+ fizzler/1.3.1/lib/netstandard2.0/Fizzler.dll
+ github.copilot.sdk/0.2.1/lib/net8.0/GitHub.Copilot.SDK.dll
+ markdig/1.1.2/lib/net10.0/Markdig.dll
+ microsoft.aspnetcore.authorization/10.0.0/lib/net10.0/Microsoft.AspNetCore.Authorization.dll
+ microsoft.aspnetcore.components.forms/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.Forms.dll
+ microsoft.aspnetcore.components.web/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.Web.dll
+ microsoft.aspnetcore.components.webview.maui/10.0.50/lib/net10.0-ios26.0/Microsoft.AspNetCore.Components.WebView.Maui.dll
+ microsoft.aspnetcore.components.webview/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.WebView.dll
+ microsoft.aspnetcore.components/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.dll
+ microsoft.aspnetcore.metadata/10.0.0/lib/net10.0/Microsoft.AspNetCore.Metadata.dll
+ microsoft.extensions.ai.abstractions/10.3.0/lib/net10.0/Microsoft.Extensions.AI.Abstractions.dll
+ microsoft.extensions.configuration.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.Abstractions.dll
+ microsoft.extensions.configuration.binder/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.Binder.dll
+ microsoft.extensions.configuration.fileextensions/10.0.0/lib/net10.0/Microsoft.Extensions.Configuration.FileExtensions.dll
+ microsoft.extensions.configuration.json/10.0.0/lib/net10.0/Microsoft.Extensions.Configuration.Json.dll
+ microsoft.extensions.configuration/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.dll
+ microsoft.extensions.dependencyinjection.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
+ microsoft.extensions.dependencyinjection/10.0.5/lib/net10.0/Microsoft.Extensions.DependencyInjection.dll
+ microsoft.extensions.diagnostics.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Diagnostics.Abstractions.dll
+ microsoft.extensions.diagnostics/10.0.5/lib/net10.0/Microsoft.Extensions.Diagnostics.dll
+ microsoft.extensions.fileproviders.abstractions/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Abstractions.dll
+ microsoft.extensions.fileproviders.composite/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Composite.dll
+ microsoft.extensions.fileproviders.embedded/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Embedded.dll
+ microsoft.extensions.fileproviders.physical/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Physical.dll
+ microsoft.extensions.filesystemglobbing/10.0.0/lib/net10.0/Microsoft.Extensions.FileSystemGlobbing.dll
+ microsoft.extensions.hosting.abstractions/10.0.0/lib/net10.0/Microsoft.Extensions.Hosting.Abstractions.dll
+ microsoft.extensions.http/10.0.5/lib/net10.0/Microsoft.Extensions.Http.dll
+ microsoft.extensions.logging.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.Abstractions.dll
+ microsoft.extensions.logging.debug/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.Debug.dll
+ microsoft.extensions.logging/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.dll
+ microsoft.extensions.options.configurationextensions/10.0.5/lib/net10.0/Microsoft.Extensions.Options.ConfigurationExtensions.dll
+ microsoft.extensions.options/10.0.5/lib/net10.0/Microsoft.Extensions.Options.dll
+ microsoft.extensions.primitives/10.0.5/lib/net10.0/Microsoft.Extensions.Primitives.dll
+ microsoft.extensions.validation/10.0.0/lib/net10.0/Microsoft.Extensions.Validation.dll
+ microsoft.jsinterop/10.0.0/lib/net10.0/Microsoft.JSInterop.dll
+ microsoft.maui.controls.core/10.0.50/lib/net10.0-ios26.0/Microsoft.Maui.Controls.dll
+ microsoft.maui.controls.xaml/10.0.50/lib/net10.0-ios26.0/Microsoft.Maui.Controls.Xaml.dll
+ microsoft.maui.core/10.0.50/lib/net10.0-ios26.0/Microsoft.Maui.dll
+ microsoft.maui.devflow.agent.core/0.1.0-preview.4.26202.3/lib/net10.0/Microsoft.Maui.DevFlow.Agent.Core.dll
+ microsoft.maui.devflow.agent/0.1.0-preview.4.26202.3/lib/net10.0-ios26.0/Microsoft.Maui.DevFlow.Agent.dll
+ microsoft.maui.devflow.blazor/0.1.0-preview.4.26202.3/lib/net10.0-ios26.0/Microsoft.Maui.DevFlow.Blazor.dll
+ microsoft.maui.devflow.logging/0.1.0-preview.4.26202.3/lib/net10.0/Microsoft.Maui.DevFlow.Logging.dll
+ microsoft.maui.essentials.ai/10.0.50-ci.main.26157.2/lib/net10.0-ios26.0/Microsoft.Maui.Essentials.AI.dll
+ microsoft.maui.essentials/10.0.50/lib/net10.0-ios26.0/Microsoft.Maui.Essentials.dll
+ microsoft.maui.graphics/10.0.50/lib/net10.0-ios26.0/Microsoft.Maui.Graphics.dll
+ microsoft.netcore.app.ref/10.0.5/ref/net10.0/
+  Microsoft.CSharp.dll
+  Microsoft.VisualBasic.Core.dll
+  Microsoft.VisualBasic.dll
+  Microsoft.Win32.Primitives.dll
+  Microsoft.Win32.Registry.dll
+  mscorlib.dll
+  netstandard.dll
+  System.AppContext.dll
+  System.Buffers.dll
+  System.Collections.Concurrent.dll
+  System.Collections.dll
+  System.Collections.Immutable.dll
+  System.Collections.NonGeneric.dll
+  System.Collections.Specialized.dll
+  System.ComponentModel.Annotations.dll
+  System.ComponentModel.DataAnnotations.dll
+  System.ComponentModel.dll
+  System.ComponentModel.EventBasedAsync.dll
+  System.ComponentModel.Primitives.dll
+  System.ComponentModel.TypeConverter.dll
+  System.Configuration.dll
+  System.Console.dll
+  System.Core.dll
+  System.Data.Common.dll
+  System.Data.DataSetExtensions.dll
+  System.Data.dll
+  System.Diagnostics.Contracts.dll
+  System.Diagnostics.Debug.dll
+  System.Diagnostics.DiagnosticSource.dll
+  System.Diagnostics.FileVersionInfo.dll
+  System.Diagnostics.Process.dll
+  System.Diagnostics.StackTrace.dll
+  System.Diagnostics.TextWriterTraceListener.dll
+  System.Diagnostics.Tools.dll
+  System.Diagnostics.TraceSource.dll
+  System.Diagnostics.Tracing.dll
+  System.dll
+  System.Drawing.dll
+  System.Drawing.Primitives.dll
+  System.Dynamic.Runtime.dll
+  System.Formats.Asn1.dll
+  System.Formats.Tar.dll
+  System.Globalization.Calendars.dll
+  System.Globalization.dll
+  System.Globalization.Extensions.dll
+  System.IO.Compression.Brotli.dll
+  System.IO.Compression.dll
+  System.IO.Compression.FileSystem.dll
+  System.IO.Compression.ZipFile.dll
+  System.IO.dll
+  System.IO.FileSystem.AccessControl.dll
+  System.IO.FileSystem.dll
+  System.IO.FileSystem.DriveInfo.dll
+  System.IO.FileSystem.Primitives.dll
+  System.IO.FileSystem.Watcher.dll
+  System.IO.IsolatedStorage.dll
+  System.IO.MemoryMappedFiles.dll
+  System.IO.Pipelines.dll
+  System.IO.Pipes.AccessControl.dll
+  System.IO.Pipes.dll
+  System.IO.UnmanagedMemoryStream.dll
+  System.Linq.AsyncEnumerable.dll
+  System.Linq.dll
+  System.Linq.Expressions.dll
+  System.Linq.Parallel.dll
+  System.Linq.Queryable.dll
+  System.Memory.dll
+  System.Net.dll
+  System.Net.Http.dll
+  System.Net.Http.Json.dll
+  System.Net.HttpListener.dll
+  System.Net.Mail.dll
+  System.Net.NameResolution.dll
+  System.Net.NetworkInformation.dll
+  System.Net.Ping.dll
+  System.Net.Primitives.dll
+  System.Net.Quic.dll
+  System.Net.Requests.dll
+  System.Net.Security.dll
+  System.Net.ServerSentEvents.dll
+  System.Net.ServicePoint.dll
+  System.Net.Sockets.dll
+  System.Net.WebClient.dll
+  System.Net.WebHeaderCollection.dll
+  System.Net.WebProxy.dll
+  System.Net.WebSockets.Client.dll
+  System.Net.WebSockets.dll
+  System.Numerics.dll
+  System.Numerics.Vectors.dll
+  System.ObjectModel.dll
+  System.Reflection.DispatchProxy.dll
+  System.Reflection.dll
+  System.Reflection.Emit.dll
+  System.Reflection.Emit.ILGeneration.dll
+  System.Reflection.Emit.Lightweight.dll
+  System.Reflection.Extensions.dll
+  System.Reflection.Metadata.dll
+  System.Reflection.Primitives.dll
+  System.Reflection.TypeExtensions.dll
+  System.Resources.Reader.dll
+  System.Resources.ResourceManager.dll
+  System.Resources.Writer.dll
+  System.Runtime.CompilerServices.Unsafe.dll
+  System.Runtime.CompilerServices.VisualC.dll
+  System.Runtime.dll
+  System.Runtime.Extensions.dll
+  System.Runtime.Handles.dll
+  System.Runtime.InteropServices.dll
+  System.Runtime.InteropServices.JavaScript.dll
+  System.Runtime.InteropServices.RuntimeInformation.dll
+  System.Runtime.Intrinsics.dll
+  System.Runtime.Loader.dll
+  System.Runtime.Numerics.dll
+  System.Runtime.Serialization.dll
+  System.Runtime.Serialization.Formatters.dll
+  System.Runtime.Serialization.Json.dll
+  System.Runtime.Serialization.Primitives.dll
+  System.Runtime.Serialization.Xml.dll
+  System.Security.AccessControl.dll
+  System.Security.Claims.dll
+  System.Security.Cryptography.Algorithms.dll
+  System.Security.Cryptography.Cng.dll
+  System.Security.Cryptography.Csp.dll
+  System.Security.Cryptography.dll
+  System.Security.Cryptography.Encoding.dll
+  System.Security.Cryptography.OpenSsl.dll
+  System.Security.Cryptography.Primitives.dll
+  System.Security.Cryptography.X509Certificates.dll
+  System.Security.dll
+  System.Security.Principal.dll
+  System.Security.Principal.Windows.dll
+  System.Security.SecureString.dll
+  System.ServiceModel.Web.dll
+  System.ServiceProcess.dll
+  System.Text.Encoding.CodePages.dll
+  System.Text.Encoding.dll
+  System.Text.Encoding.Extensions.dll
+  System.Text.Encodings.Web.dll
+  System.Text.Json.dll
+  System.Text.RegularExpressions.dll
+  System.Threading.AccessControl.dll
+  System.Threading.Channels.dll
+  System.Threading.dll
+  System.Threading.Overlapped.dll
+  System.Threading.Tasks.Dataflow.dll
+  System.Threading.Tasks.dll
+  System.Threading.Tasks.Extensions.dll
+  System.Threading.Tasks.Parallel.dll
+  System.Threading.Thread.dll
+  System.Threading.ThreadPool.dll
+  System.Threading.Timer.dll
+  System.Transactions.dll
+  System.Transactions.Local.dll
+  System.ValueTuple.dll
+  System.Web.dll
+  System.Web.HttpUtility.dll
+  System.Windows.dll
+  System.Xml.dll
+  System.Xml.Linq.dll
+  System.Xml.ReaderWriter.dll
+  System.Xml.Serialization.dll
+  System.Xml.XDocument.dll
+  System.Xml.XmlDocument.dll
+  System.Xml.XmlSerializer.dll
+  System.Xml.XPath.dll
+  System.Xml.XPath.XDocument.dll
+  WindowsBase.dll
+ microsoft.win32.systemevents/6.0.0/lib/net6.0/Microsoft.Win32.SystemEvents.dll
+ qrcoder/1.7.0/lib/net6.0/QRCoder.dll
+ skiasharp/3.119.2/ref/net8.0-ios17.0/SkiaSharp.dll
+ sqlite-net-pcl/1.9.172/lib/netstandard2.0/SQLite-net.dll
+ sqlitepclraw.bundle_green/2.1.11/lib/net6.0-ios14.2/SQLitePCLRaw.batteries_v2.dll
+ sqlitepclraw.core/2.1.11/lib/netstandard2.0/SQLitePCLRaw.core.dll
+ sqlitepclraw.provider.sqlite3/2.1.11/lib/net6.0/SQLitePCLRaw.provider.sqlite3.dll
+ system.drawing.common/6.0.0/lib/net6.0/System.Drawing.Common.dll
+ zxing.net.maui.controls/0.7.4/lib/net10.0-ios26.0/ZXing.Net.MAUI.Controls.dll
+ zxing.net.maui/0.7.4/lib/net10.0-ios26.0/ZXing.Net.MAUI.dll
+ zxing.net/0.16.11/lib/net9.0/zxing.dll
+
+[analyzerReferences]
+../../../../../../usr/local/share/dotnet/sdk/10.0.102/Sdks/Microsoft.NET.Sdk.Razor/source-generators/
+ Microsoft.AspNetCore.Razor.Utilities.Shared.dll
+ Microsoft.CodeAnalysis.Razor.Compiler.dll
+ Microsoft.Extensions.ObjectPool.dll
+../../../../../../usr/local/share/dotnet/sdk/10.0.102/Sdks/Microsoft.NET.Sdk/analyzers/
+ Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll
+ Microsoft.CodeAnalysis.NetAnalyzers.dll
+<NUGET>/communitytoolkit.maui/14.0.1/analyzers/dotnet/cs/
+ CommunityToolkit.Maui.Analyzers.CodeFixes.dll
+ CommunityToolkit.Maui.Analyzers.dll
+ CommunityToolkit.Maui.SourceGenerators.dll
+<NUGET>/
+ microsoft.aspnetcore.components.analyzers/10.0.0/analyzers/dotnet/cs/Microsoft.AspNetCore.Components.Analyzers.dll
+ microsoft.extensions.logging.abstractions/10.0.5/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Logging.Generators.dll
+ microsoft.extensions.options/10.0.5/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Options.SourceGeneration.dll
+ microsoft.extensions.validation/10.0.0/analyzers/dotnet/cs/Microsoft.Extensions.Validation.ValidationsGenerator.dll
+ microsoft.maui.controls.build.tasks/10.0.50/buildTransitive/netstandard2.0/
+  Microsoft.Maui.Controls.BindingSourceGen.dll
+  Microsoft.Maui.Controls.SourceGen.dll
+ microsoft.net.illink.tasks/10.0.2/analyzers/dotnet/cs/
+  ILLink.CodeFixProvider.dll
+  ILLink.RoslynAnalyzer.dll
+ microsoft.netcore.app.ref/10.0.5/analyzers/dotnet/cs/
+  Microsoft.Interop.ComInterfaceGenerator.dll
+  Microsoft.Interop.JavaScript.JSImportGenerator.dll
+  Microsoft.Interop.LibraryImportGenerator.dll
+  Microsoft.Interop.SourceGeneration.dll
+  System.Text.Json.SourceGeneration.dll
+  System.Text.RegularExpressions.Generator.dll
+ nerdbank.messagepack/1.0.2/analyzers/cs/
+  Nerdbank.MessagePack.Analyzers.CodeFixes.dll
+  Nerdbank.MessagePack.Analyzers.dll
+ polytype/1.0.0/analyzers/dotnet/cs/PolyType.SourceGenerator.dll
+ streamjsonrpc/2.24.84/analyzers/cs/
+  StreamJsonRpc.Analyzers.CodeFixes.dll
+  StreamJsonRpc.Analyzers.dll
+
+[analyzerConfigFiles]
+../../../../../../usr/local/share/dotnet/sdk/10.0.102/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig
+obj/Debug/net10.0-ios/iossimulator-arm64/PolyPilot.GeneratedMSBuildEditorConfig.editorconfig
+
+[additionalFiles]
+App.xaml
+Components/
+ ChatMessageItem.razor
+ ChatMessageList.razor
+ CopyToClipboardButton.razor
+ DiffView.razor
+ ExpandedSessionView.razor
+ ExternalSessionCard.razor
+ KeepAliveSession.razor
+ Layout/
+  CreateSessionForm.razor
+  MainLayout.razor
+  NavMenu.razor
+  SessionListItem.razor
+  SessionSidebar.razor
+  StatisticsPopup.razor
+ ModelSelector.razor
+ Pages/
+  Counter.razor
+  Dashboard.razor
+  NotFound.razor
+  ScheduledTasks.razor
+  Settings.razor
+  TutorialPage.razor
+  Weather.razor
+ RemoteDirectoryPicker.razor
+ Routes.razor
+ SessionCard.razor
+ Settings/SettingEditor.razor
+ Tutorial/TutorialOverlay.razor
+ _Imports.razor
+MainPage.xaml
+QrScannerPage.xaml
+
+[dynamicFiles]
+Components/
+ ChatMessageItem.razor
+ ChatMessageList.razor
+ CopyToClipboardButton.razor
+ DiffView.razor
+ ExpandedSessionView.razor
+ ExternalSessionCard.razor
+ KeepAliveSession.razor
+ Layout/
+  CreateSessionForm.razor
+  MainLayout.razor
+  NavMenu.razor
+  SessionListItem.razor
+  SessionSidebar.razor
+  StatisticsPopup.razor
+ ModelSelector.razor
+ Pages/
+  Counter.razor
+  Dashboard.razor
+  NotFound.razor
+  ScheduledTasks.razor
+  Settings.razor
+  TutorialPage.razor
+  Weather.razor
+ RemoteDirectoryPicker.razor
+ Routes.razor
+ SessionCard.razor
+ Settings/SettingEditor.razor
+ Tutorial/TutorialOverlay.razor
+ _Imports.razor
+
+---
+
+[project]
+language=C#
+lastDtbSucceeded
+
+[sliceDimensions]
+TargetFramework=net10.0-maccatalyst
+
+[properties]
+AssemblyName=PolyPilot
+CommandLineArgsForDesignTimeEvaluation=-langversion:14.0 -define:TRACE
+CompilerGeneratedFilesOutputPath=
+MaxSupportedLangVersion=14.0
+ProjectAssetsFile=<PATH>obj/project.assets.json
+RootNamespace=PolyPilot
+RunAnalyzers=
+RunAnalyzersDuringLiveAnalysis=
+SolutionPath=<PATH>../PolyPilot.slnx
+TargetFrameworkIdentifier=.NETCoreApp
+TargetPath=<PATH>bin/Debug/net10.0-maccatalyst/maccatalyst-arm64/PolyPilot.dll
+TargetRefPath=<PATH>obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/ref/PolyPilot.dll
+TemporaryDependencyNodeTargetIdentifier=net10.0-maccatalyst
+
+[commandLineArguments]
+/noconfig
+/unsafe-
+/checked-
+/nowarn:1701,1702,1701,1702
+/fullpaths
+/nostdlib+
+/platform:arm64
+/errorreport:prompt
+/warn:10
+/define:__MACCATALYST__;__IOS__;__MOBILE__;__UNIFIED__;TRACE;DEBUG;NET;NET10_0;NETCOREAPP;MACCATALYST;MACCATALYST26_2;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NET9_0_OR_GREATER;NET10_0_OR_GREATER;NETCOREAPP1_0_OR_GREATER;NETCOREAPP1_1_OR_GREATER;NETCOREAPP2_0_OR_GREATER;NETCOREAPP2_1_OR_GREATER;NETCOREAPP2_2_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER;MACCATALYST13_1_OR_GREATER;MACCATALYST13_2_OR_GREATER;MACCATALYST13_3_OR_GREATER;MACCATALYST13_4_OR_GREATER;MACCATALYST13_5_OR_GREATER;MACCATALYST14_2_OR_GREATER;MACCATALYST14_3_OR_GREATER;MACCATALYST14_4_OR_GREATER;MACCATALYST14_5_OR_GREATER;MACCATALYST15_0_OR_GREATER;MACCATALYST15_2_OR_GREATER;MACCATALYST15_4_OR_GREATER;MACCATALYST16_1_OR_GREATER;MACCATALYST16_2_OR_GREATER;MACCATALYST16_4_OR_GREATER;MACCATALYST17_0_OR_GREATER;MACCATALYST17_2_OR_GREATER;MACCATALYST17_4_OR_GREATER;MACCATALYST17_5_OR_GREATER;MACCATALYST18_0_OR_GREATER;MACCATALYST18_1_OR_GREATER;MACCATALYST18_2_OR_GREATER;MACCATALYST18_3_OR_GREATER;MACCATALYST18_4_OR_GREATER;MACCATALYST18_5_OR_GREATER;MACCATALYST26_0_OR_GREATER;MACCATALYST26_1_OR_GREATER;MACCATALYST26_2_OR_GREATER
+/highentropyva+
+/nullable:enable
+/features:"InterceptorsNamespaces=;StreamJsonRpc.Generated;;Microsoft.Extensions.Validation.Generated;Microsoft.Maui.Controls.Generated"
+/debug+
+/debug:portable
+/filealign:512
+/optimize-
+/out:obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/PolyPilot.dll
+/refout:obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/refint/PolyPilot.dll
+/target:exe
+/warnaserror-
+/utf8output
+/deterministic+
+/langversion:14.0
+/features:use-roslyn-tokenizer=true
+/warnaserror+:NU1605,SYSLIB0011
+
+[sourceFiles]
+App.xaml.cs
+BuildInfo.cs
+MainPage.xaml.cs
+MauiProgram.cs
+Models/
+ AgentSessionInfo.cs
+ AuditLogEntry.cs
+ BridgeMessages.cs
+ ChatCopyPayloads.cs
+ ChatMessage.cs
+ CommandHistory.cs
+ ConnectionSettings.cs
+ DiffParser.cs
+ ErrorMessageHelper.cs
+ ExternalSessionInfo.cs
+ FiestaModels.cs
+ LinkHelper.cs
+ ModelCapabilities.cs
+ ModelHelper.cs
+ PendingImage.cs
+ PlatformHelper.cs
+ PlatformPaths.cs
+ PluginSettings.cs
+ PromptLibrary.cs
+ ReflectionCycle.cs
+ RenderThrottle.cs
+ RepositoryInfo.cs
+ ScheduledTask.cs
+ SessionOrganization.cs
+ SettingDescriptor.cs
+ SmartPunctuationNormalizer.cs
+ SquadDiscovery.cs
+ SquadWriter.cs
+ SynchronizedMessageQueue.cs
+ TutorialStep.cs
+ UsageStatistics.cs
+obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/
+ .NETCoreApp,Version=v10.0.AssemblyAttributes.cs
+ EmbeddedAttribute.cs
+ Microsoft.Maui.DevFlowPort.g.cs
+ PolyPilot.AssemblyInfo.cs
+ PolyPilot.GlobalUsings.g.cs
+ PolyPilot.nfloat.g.cs
+ ValidatableTypeAttribute.cs
+Platforms/MacCatalyst/
+ AppDelegate.cs
+ BadgeHelper.cs
+ FolderPickerService.cs
+ MacSleepWakeMonitor.cs
+ NotificationManagerService.cs
+ Program.cs
+QrScannerPage.xaml.cs
+Services/
+ AuditLogService.cs
+ ChatDatabase.cs
+ CodespaceService.cs
+ CodespaceService.Diagnostics.cs
+ CodespaceService.Lifecycle.cs
+ CopilotService.Bridge.cs
+ CopilotService.Codespace.cs
+ CopilotService.Continuation.cs
+ CopilotService.cs
+ CopilotService.Events.cs
+ CopilotService.Organization.cs
+ CopilotService.Persistence.cs
+ CopilotService.Providers.cs
+ CopilotService.Utilities.cs
+ DemoService.cs
+ DevTunnelService.cs
+ EfficiencyAnalysisService.cs
+ ExternalSessionScanner.cs
+ FiestaService.cs
+ GitAutoUpdateService.cs
+ GitHubReferenceLinker.cs
+ HolidayThemeHelper.cs
+ IChatDatabase.cs
+ IDemoService.cs
+ INotificationManagerService.cs
+ IServerManager.cs
+ IWsBridgeClient.cs
+ KeyCommandService.cs
+ MarkdownRenderer.cs
+ NotificationMessageBuilder.cs
+ PluginFileLogger.cs
+ PluginLoader.cs
+ PrLinkService.cs
+ ProcessHelper.cs
+ PromptLibraryService.cs
+ ProviderHostContext.cs
+ QrScannerService.cs
+ RepoManager.cs
+ ScheduledTaskService.cs
+ ServerManager.cs
+ SessionMetricsExtractor.cs
+ SettingsRegistry.cs
+ ShowImageTool.cs
+ TailscaleService.cs
+ TutorialService.cs
+ UsageStatsService.cs
+ WindowFocusHelper.cs
+ WsBridgeClient.cs
+ WsBridgeServer.cs
+
+[metadataReferences]
+../
+ ../../../../../usr/local/share/dotnet/packs/Microsoft.MacCatalyst.Ref.net10.0_26.2/26.2.10217/ref/net10.0/Microsoft.MacCatalyst.dll
+ PolyPilot.Provider.Abstractions/obj/Debug/net10.0/ref/PolyPilot.Provider.Abstractions.dll
+<NUGET>/
+ communitytoolkit.maui.core/14.0.1/lib/net10.0-maccatalyst26.0/CommunityToolkit.Maui.Core.dll
+ communitytoolkit.maui/14.0.1/lib/net10.0-maccatalyst26.0/CommunityToolkit.Maui.dll
+ fizzler/1.3.1/lib/netstandard2.0/Fizzler.dll
+ github.copilot.sdk/0.2.1/lib/net8.0/GitHub.Copilot.SDK.dll
+ markdig/1.1.2/lib/net10.0/Markdig.dll
+ microsoft.aspnetcore.authorization/10.0.0/lib/net10.0/Microsoft.AspNetCore.Authorization.dll
+ microsoft.aspnetcore.components.forms/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.Forms.dll
+ microsoft.aspnetcore.components.web/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.Web.dll
+ microsoft.aspnetcore.components.webview.maui/10.0.50/lib/net10.0-maccatalyst26.0/Microsoft.AspNetCore.Components.WebView.Maui.dll
+ microsoft.aspnetcore.components.webview/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.WebView.dll
+ microsoft.aspnetcore.components/10.0.0/lib/net10.0/Microsoft.AspNetCore.Components.dll
+ microsoft.aspnetcore.metadata/10.0.0/lib/net10.0/Microsoft.AspNetCore.Metadata.dll
+ microsoft.extensions.ai.abstractions/10.3.0/lib/net10.0/Microsoft.Extensions.AI.Abstractions.dll
+ microsoft.extensions.configuration.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.Abstractions.dll
+ microsoft.extensions.configuration.binder/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.Binder.dll
+ microsoft.extensions.configuration.fileextensions/10.0.0/lib/net10.0/Microsoft.Extensions.Configuration.FileExtensions.dll
+ microsoft.extensions.configuration.json/10.0.0/lib/net10.0/Microsoft.Extensions.Configuration.Json.dll
+ microsoft.extensions.configuration/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.dll
+ microsoft.extensions.dependencyinjection.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
+ microsoft.extensions.dependencyinjection/10.0.5/lib/net10.0/Microsoft.Extensions.DependencyInjection.dll
+ microsoft.extensions.diagnostics.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Diagnostics.Abstractions.dll
+ microsoft.extensions.diagnostics/10.0.5/lib/net10.0/Microsoft.Extensions.Diagnostics.dll
+ microsoft.extensions.fileproviders.abstractions/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Abstractions.dll
+ microsoft.extensions.fileproviders.composite/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Composite.dll
+ microsoft.extensions.fileproviders.embedded/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Embedded.dll
+ microsoft.extensions.fileproviders.physical/10.0.0/lib/net10.0/Microsoft.Extensions.FileProviders.Physical.dll
+ microsoft.extensions.filesystemglobbing/10.0.0/lib/net10.0/Microsoft.Extensions.FileSystemGlobbing.dll
+ microsoft.extensions.hosting.abstractions/10.0.0/lib/net10.0/Microsoft.Extensions.Hosting.Abstractions.dll
+ microsoft.extensions.http/10.0.5/lib/net10.0/Microsoft.Extensions.Http.dll
+ microsoft.extensions.logging.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.Abstractions.dll
+ microsoft.extensions.logging.debug/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.Debug.dll
+ microsoft.extensions.logging/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.dll
+ microsoft.extensions.options.configurationextensions/10.0.5/lib/net10.0/Microsoft.Extensions.Options.ConfigurationExtensions.dll
+ microsoft.extensions.options/10.0.5/lib/net10.0/Microsoft.Extensions.Options.dll
+ microsoft.extensions.primitives/10.0.5/lib/net10.0/Microsoft.Extensions.Primitives.dll
+ microsoft.extensions.validation/10.0.0/lib/net10.0/Microsoft.Extensions.Validation.dll
+ microsoft.jsinterop/10.0.0/lib/net10.0/Microsoft.JSInterop.dll
+ microsoft.maui.controls.core/10.0.50/lib/net10.0-maccatalyst26.0/Microsoft.Maui.Controls.dll
+ microsoft.maui.controls.xaml/10.0.50/lib/net10.0-maccatalyst26.0/Microsoft.Maui.Controls.Xaml.dll
+ microsoft.maui.core/10.0.50/lib/net10.0-maccatalyst26.0/Microsoft.Maui.dll
+ microsoft.maui.devflow.agent.core/0.1.0-preview.4.26202.3/lib/net10.0/Microsoft.Maui.DevFlow.Agent.Core.dll
+ microsoft.maui.devflow.agent/0.1.0-preview.4.26202.3/lib/net10.0-maccatalyst26.0/Microsoft.Maui.DevFlow.Agent.dll
+ microsoft.maui.devflow.blazor/0.1.0-preview.4.26202.3/lib/net10.0-maccatalyst26.0/Microsoft.Maui.DevFlow.Blazor.dll
+ microsoft.maui.devflow.logging/0.1.0-preview.4.26202.3/lib/net10.0/Microsoft.Maui.DevFlow.Logging.dll
+ microsoft.maui.essentials.ai/10.0.50-ci.main.26157.2/lib/net10.0-maccatalyst26.0/Microsoft.Maui.Essentials.AI.dll
+ microsoft.maui.essentials/10.0.50/lib/net10.0-maccatalyst26.0/Microsoft.Maui.Essentials.dll
+ microsoft.maui.graphics/10.0.50/lib/net10.0-maccatalyst26.0/Microsoft.Maui.Graphics.dll
+ microsoft.netcore.app.ref/10.0.5/ref/net10.0/
+  Microsoft.CSharp.dll
+  Microsoft.VisualBasic.Core.dll
+  Microsoft.VisualBasic.dll
+  Microsoft.Win32.Primitives.dll
+  Microsoft.Win32.Registry.dll
+  mscorlib.dll
+  netstandard.dll
+  System.AppContext.dll
+  System.Buffers.dll
+  System.Collections.Concurrent.dll
+  System.Collections.dll
+  System.Collections.Immutable.dll
+  System.Collections.NonGeneric.dll
+  System.Collections.Specialized.dll
+  System.ComponentModel.Annotations.dll
+  System.ComponentModel.DataAnnotations.dll
+  System.ComponentModel.dll
+  System.ComponentModel.EventBasedAsync.dll
+  System.ComponentModel.Primitives.dll
+  System.ComponentModel.TypeConverter.dll
+  System.Configuration.dll
+  System.Console.dll
+  System.Core.dll
+  System.Data.Common.dll
+  System.Data.DataSetExtensions.dll
+  System.Data.dll
+  System.Diagnostics.Contracts.dll
+  System.Diagnostics.Debug.dll
+  System.Diagnostics.DiagnosticSource.dll
+  System.Diagnostics.FileVersionInfo.dll
+  System.Diagnostics.Process.dll
+  System.Diagnostics.StackTrace.dll
+  System.Diagnostics.TextWriterTraceListener.dll
+  System.Diagnostics.Tools.dll
+  System.Diagnostics.TraceSource.dll
+  System.Diagnostics.Tracing.dll
+  System.dll
+  System.Drawing.dll
+  System.Drawing.Primitives.dll
+  System.Dynamic.Runtime.dll
+  System.Formats.Asn1.dll
+  System.Formats.Tar.dll
+  System.Globalization.Calendars.dll
+  System.Globalization.dll
+  System.Globalization.Extensions.dll
+  System.IO.Compression.Brotli.dll
+  System.IO.Compression.dll
+  System.IO.Compression.FileSystem.dll
+  System.IO.Compression.ZipFile.dll
+  System.IO.dll
+  System.IO.FileSystem.AccessControl.dll
+  System.IO.FileSystem.dll
+  System.IO.FileSystem.DriveInfo.dll
+  System.IO.FileSystem.Primitives.dll
+  System.IO.FileSystem.Watcher.dll
+  System.IO.IsolatedStorage.dll
+  System.IO.MemoryMappedFiles.dll
+  System.IO.Pipelines.dll
+  System.IO.Pipes.AccessControl.dll
+  System.IO.Pipes.dll
+  System.IO.UnmanagedMemoryStream.dll
+  System.Linq.AsyncEnumerable.dll
+  System.Linq.dll
+  System.Linq.Expressions.dll
+  System.Linq.Parallel.dll
+  System.Linq.Queryable.dll
+  System.Memory.dll
+  System.Net.dll
+  System.Net.Http.dll
+  System.Net.Http.Json.dll
+  System.Net.HttpListener.dll
+  System.Net.Mail.dll
+  System.Net.NameResolution.dll
+  System.Net.NetworkInformation.dll
+  System.Net.Ping.dll
+  System.Net.Primitives.dll
+  System.Net.Quic.dll
+  System.Net.Requests.dll
+  System.Net.Security.dll
+  System.Net.ServerSentEvents.dll
+  System.Net.ServicePoint.dll
+  System.Net.Sockets.dll
+  System.Net.WebClient.dll
+  System.Net.WebHeaderCollection.dll
+  System.Net.WebProxy.dll
+  System.Net.WebSockets.Client.dll
+  System.Net.WebSockets.dll
+  System.Numerics.dll
+  System.Numerics.Vectors.dll
+  System.ObjectModel.dll
+  System.Reflection.DispatchProxy.dll
+  System.Reflection.dll
+  System.Reflection.Emit.dll
+  System.Reflection.Emit.ILGeneration.dll
+  System.Reflection.Emit.Lightweight.dll
+  System.Reflection.Extensions.dll
+  System.Reflection.Metadata.dll
+  System.Reflection.Primitives.dll
+  System.Reflection.TypeExtensions.dll
+  System.Resources.Reader.dll
+  System.Resources.ResourceManager.dll
+  System.Resources.Writer.dll
+  System.Runtime.CompilerServices.Unsafe.dll
+  System.Runtime.CompilerServices.VisualC.dll
+  System.Runtime.dll
+  System.Runtime.Extensions.dll
+  System.Runtime.Handles.dll
+  System.Runtime.InteropServices.dll
+  System.Runtime.InteropServices.JavaScript.dll
+  System.Runtime.InteropServices.RuntimeInformation.dll
+  System.Runtime.Intrinsics.dll
+  System.Runtime.Loader.dll
+  System.Runtime.Numerics.dll
+  System.Runtime.Serialization.dll
+  System.Runtime.Serialization.Formatters.dll
+  System.Runtime.Serialization.Json.dll
+  System.Runtime.Serialization.Primitives.dll
+  System.Runtime.Serialization.Xml.dll
+  System.Security.AccessControl.dll
+  System.Security.Claims.dll
+  System.Security.Cryptography.Algorithms.dll
+  System.Security.Cryptography.Cng.dll
+  System.Security.Cryptography.Csp.dll
+  System.Security.Cryptography.dll
+  System.Security.Cryptography.Encoding.dll
+  System.Security.Cryptography.OpenSsl.dll
+  System.Security.Cryptography.Primitives.dll
+  System.Security.Cryptography.X509Certificates.dll
+  System.Security.dll
+  System.Security.Principal.dll
+  System.Security.Principal.Windows.dll
+  System.Security.SecureString.dll
+  System.ServiceModel.Web.dll
+  System.ServiceProcess.dll
+  System.Text.Encoding.CodePages.dll
+  System.Text.Encoding.dll
+  System.Text.Encoding.Extensions.dll
+  System.Text.Encodings.Web.dll
+  System.Text.Json.dll
+  System.Text.RegularExpressions.dll
+  System.Threading.AccessControl.dll
+  System.Threading.Channels.dll
+  System.Threading.dll
+  System.Threading.Overlapped.dll
+  System.Threading.Tasks.Dataflow.dll
+  System.Threading.Tasks.dll
+  System.Threading.Tasks.Extensions.dll
+  System.Threading.Tasks.Parallel.dll
+  System.Threading.Thread.dll
+  System.Threading.ThreadPool.dll
+  System.Threading.Timer.dll
+  System.Transactions.dll
+  System.Transactions.Local.dll
+  System.ValueTuple.dll
+  System.Web.dll
+  System.Web.HttpUtility.dll
+  System.Windows.dll
+  System.Xml.dll
+  System.Xml.Linq.dll
+  System.Xml.ReaderWriter.dll
+  System.Xml.Serialization.dll
+  System.Xml.XDocument.dll
+  System.Xml.XmlDocument.dll
+  System.Xml.XmlSerializer.dll
+  System.Xml.XPath.dll
+  System.Xml.XPath.XDocument.dll
+  WindowsBase.dll
+ microsoft.win32.systemevents/6.0.0/lib/net6.0/Microsoft.Win32.SystemEvents.dll
+ qrcoder/1.7.0/lib/net6.0/QRCoder.dll
+ skiasharp/3.119.2/ref/net8.0-maccatalyst17.0/SkiaSharp.dll
+ sqlite-net-pcl/1.9.172/lib/netstandard2.0/SQLite-net.dll
+ sqlitepclraw.bundle_green/2.1.11/lib/netstandard2.0/SQLitePCLRaw.batteries_v2.dll
+ sqlitepclraw.core/2.1.11/lib/netstandard2.0/SQLitePCLRaw.core.dll
+ sqlitepclraw.provider.e_sqlite3/2.1.11/lib/net6.0/SQLitePCLRaw.provider.e_sqlite3.dll
+ system.drawing.common/6.0.0/lib/net6.0/System.Drawing.Common.dll
+ zxing.net.maui.controls/0.7.4/lib/net10.0-maccatalyst26.0/ZXing.Net.MAUI.Controls.dll
+ zxing.net.maui/0.7.4/lib/net10.0-maccatalyst26.0/ZXing.Net.MAUI.dll
+ zxing.net/0.16.11/lib/net9.0/zxing.dll
+
+[analyzerReferences]
+../../../../../../usr/local/share/dotnet/sdk/10.0.102/Sdks/Microsoft.NET.Sdk.Razor/source-generators/
+ Microsoft.AspNetCore.Razor.Utilities.Shared.dll
+ Microsoft.CodeAnalysis.Razor.Compiler.dll
+ Microsoft.Extensions.ObjectPool.dll
+../../../../../../usr/local/share/dotnet/sdk/10.0.102/Sdks/Microsoft.NET.Sdk/analyzers/
+ Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll
+ Microsoft.CodeAnalysis.NetAnalyzers.dll
+<NUGET>/communitytoolkit.maui/14.0.1/analyzers/dotnet/cs/
+ CommunityToolkit.Maui.Analyzers.CodeFixes.dll
+ CommunityToolkit.Maui.Analyzers.dll
+ CommunityToolkit.Maui.SourceGenerators.dll
+<NUGET>/
+ microsoft.aspnetcore.components.analyzers/10.0.0/analyzers/dotnet/cs/Microsoft.AspNetCore.Components.Analyzers.dll
+ microsoft.extensions.logging.abstractions/10.0.5/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Logging.Generators.dll
+ microsoft.extensions.options/10.0.5/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Options.SourceGeneration.dll
+ microsoft.extensions.validation/10.0.0/analyzers/dotnet/cs/Microsoft.Extensions.Validation.ValidationsGenerator.dll
+ microsoft.maui.controls.build.tasks/10.0.50/buildTransitive/netstandard2.0/
+  Microsoft.Maui.Controls.BindingSourceGen.dll
+  Microsoft.Maui.Controls.SourceGen.dll
+ microsoft.net.illink.tasks/10.0.2/analyzers/dotnet/cs/
+  ILLink.CodeFixProvider.dll
+  ILLink.RoslynAnalyzer.dll
+ microsoft.netcore.app.ref/10.0.5/analyzers/dotnet/cs/
+  Microsoft.Interop.ComInterfaceGenerator.dll
+  Microsoft.Interop.JavaScript.JSImportGenerator.dll
+  Microsoft.Interop.LibraryImportGenerator.dll
+  Microsoft.Interop.SourceGeneration.dll
+  System.Text.Json.SourceGeneration.dll
+  System.Text.RegularExpressions.Generator.dll
+ nerdbank.messagepack/1.0.2/analyzers/cs/
+  Nerdbank.MessagePack.Analyzers.CodeFixes.dll
+  Nerdbank.MessagePack.Analyzers.dll
+ polytype/1.0.0/analyzers/dotnet/cs/PolyType.SourceGenerator.dll
+ streamjsonrpc/2.24.84/analyzers/cs/
+  StreamJsonRpc.Analyzers.CodeFixes.dll
+  StreamJsonRpc.Analyzers.dll
+
+[analyzerConfigFiles]
+../../../../../../usr/local/share/dotnet/sdk/10.0.102/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig
+obj/Debug/net10.0-maccatalyst/maccatalyst-arm64/PolyPilot.GeneratedMSBuildEditorConfig.editorconfig
+
+[additionalFiles]
+App.xaml
+Components/
+ ChatMessageItem.razor
+ ChatMessageList.razor
+ CopyToClipboardButton.razor
+ DiffView.razor
+ ExpandedSessionView.razor
+ ExternalSessionCard.razor
+ KeepAliveSession.razor
+ Layout/
+  CreateSessionForm.razor
+  MainLayout.razor
+  NavMenu.razor
+  SessionListItem.razor
+  SessionSidebar.razor
+  StatisticsPopup.razor
+ ModelSelector.razor
+ Pages/
+  Counter.razor
+  Dashboard.razor
+  NotFound.razor
+  ScheduledTasks.razor
+  Settings.razor
+  TutorialPage.razor
+  Weather.razor
+ RemoteDirectoryPicker.razor
+ Routes.razor
+ SessionCard.razor
+ Settings/SettingEditor.razor
+ Tutorial/TutorialOverlay.razor
+ _Imports.razor
+MainPage.xaml
+QrScannerPage.xaml
+
+[dynamicFiles]
+Components/
+ ChatMessageItem.razor
+ ChatMessageList.razor
+ CopyToClipboardButton.razor
+ DiffView.razor
+ ExpandedSessionView.razor
+ ExternalSessionCard.razor
+ KeepAliveSession.razor
+ Layout/
+  CreateSessionForm.razor
+  MainLayout.razor
+  NavMenu.razor
+  SessionListItem.razor
+  SessionSidebar.razor
+  StatisticsPopup.razor
+ ModelSelector.razor
+ Pages/
+  Counter.razor
+  Dashboard.razor
+  NotFound.razor
+  ScheduledTasks.razor
+  Settings.razor
+  TutorialPage.razor
+  Weather.razor
+ RemoteDirectoryPicker.razor
+ Routes.razor
+ SessionCard.razor
+ Settings/SettingEditor.razor
+ Tutorial/TutorialOverlay.razor
+ _Imports.razor

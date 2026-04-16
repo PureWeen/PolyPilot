@@ -167,21 +167,7 @@ public partial class CopilotService : IAsyncDisposable
     {
         try
         {
-#if ANDROID
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (string.IsNullOrEmpty(home))
-                home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-            if (string.IsNullOrEmpty(home))
-                home = Android.App.Application.Context.FilesDir?.AbsolutePath ?? Path.GetTempPath();
-            return Path.Combine(home, ".polypilot");
-#else
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (string.IsNullOrEmpty(home))
-                home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (string.IsNullOrEmpty(home))
-                home = Environment.GetFolderPath(Environment.SpecialFolder.Personal);
-            return Path.Combine(home, ".polypilot");
-#endif
+            return PlatformPaths.GetPolyPilotDir();
         }
         catch
         {

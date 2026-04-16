@@ -226,27 +226,7 @@ public class ConnectionSettings
     /// <summary>For test isolation only — redirects Load()/Save() to a temp file.</summary>
     internal static void SetSettingsFilePathForTesting(string? path) => _settingsPath = path;
 
-    private static string GetPolyPilotDir()
-    {
-#if IOS || ANDROID
-        try
-        {
-            return Path.Combine(FileSystem.AppDataDirectory, ".polypilot");
-        }
-        catch
-        {
-            var fallback = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (string.IsNullOrEmpty(fallback))
-                fallback = Path.GetTempPath();
-            return Path.Combine(fallback, ".polypilot");
-        }
-#else
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (string.IsNullOrEmpty(home))
-            home = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(home, ".polypilot");
-#endif
-    }
+    private static string GetPolyPilotDir() => PlatformPaths.GetPolyPilotDir();
 
     public static ConnectionSettings Load()
     {

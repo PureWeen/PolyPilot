@@ -1,0 +1,613 @@
+version=1
+
+# This file caches language service data to improve the performance of C# Dev Kit.
+# It is not intended for manual editing. It can safely be deleted and will be
+# regenerated automatically.
+#
+# To exclude from version control, add *.lscache to your .gitignore file.
+#
+# To disable caching, add the following to your VS Code settings:
+#   "dotnet.projectsystem.enableLanguageServiceCache": false
+
+[project]
+language=C#
+primary
+lastDtbSucceeded
+
+[properties]
+AssemblyName=PolyPilot
+CommandLineArgsForDesignTimeEvaluation=-langversion:14.0 -define:;LINUX;LINUX_GTK;TRACE
+CompilerGeneratedFilesOutputPath=
+MaxSupportedLangVersion=14.0
+ProjectAssetsFile=<PATH>obj/project.assets.json
+RootNamespace=PolyPilot
+RunAnalyzers=
+RunAnalyzersDuringLiveAnalysis=
+SolutionPath=<PATH>../PolyPilot.slnx
+TargetFrameworkIdentifier=.NETCoreApp
+TargetPath=<PATH>bin/Debug/net10.0/PolyPilot.dll
+TargetRefPath=<PATH>obj/Debug/net10.0/ref/PolyPilot.dll
+TemporaryDependencyNodeTargetIdentifier=net10.0
+
+[commandLineArguments]
+/noconfig
+/unsafe-
+/checked-
+/nowarn:1701,1702,1701,1702
+/fullpaths
+/nostdlib+
+/errorreport:prompt
+/warn:10
+/define:LINUX;LINUX_GTK;TRACE;DEBUG;NET;NET10_0;NETCOREAPP;NET5_0_OR_GREATER;NET6_0_OR_GREATER;NET7_0_OR_GREATER;NET8_0_OR_GREATER;NET9_0_OR_GREATER;NET10_0_OR_GREATER;NETCOREAPP1_0_OR_GREATER;NETCOREAPP1_1_OR_GREATER;NETCOREAPP2_0_OR_GREATER;NETCOREAPP2_1_OR_GREATER;NETCOREAPP2_2_OR_GREATER;NETCOREAPP3_0_OR_GREATER;NETCOREAPP3_1_OR_GREATER
+/highentropyva+
+/nullable:enable
+/features:"InterceptorsNamespaces=;StreamJsonRpc.Generated;;Microsoft.Extensions.Validation.Generated;Microsoft.Maui.Controls.Generated"
+/debug+
+/debug:portable
+/filealign:512
+/optimize-
+/out:obj/Debug/net10.0/PolyPilot.dll
+/refout:obj/Debug/net10.0/refint/PolyPilot.dll
+/target:exe
+/warnaserror-
+/utf8output
+/deterministic+
+/langversion:14.0
+/features:use-roslyn-tokenizer=true
+/warnaserror+:NU1605,SYSLIB0011
+
+[sourceFiles]
+../PolyPilot/
+ App.xaml.cs
+ BuildInfo.cs
+ MainPage.xaml.cs
+ Models/
+  AgentSessionInfo.cs
+   @folderNames=Models
+  AuditLogEntry.cs
+   @folderNames=Models
+  BridgeMessages.cs
+   @folderNames=Models
+  ChatCopyPayloads.cs
+   @folderNames=Models
+  ChatMessage.cs
+   @folderNames=Models
+  CommandHistory.cs
+   @folderNames=Models
+  ConnectionSettings.cs
+   @folderNames=Models
+  DiffParser.cs
+   @folderNames=Models
+  ErrorMessageHelper.cs
+   @folderNames=Models
+  ExternalSessionInfo.cs
+   @folderNames=Models
+  FiestaModels.cs
+   @folderNames=Models
+  LinkHelper.cs
+   @folderNames=Models
+  ModelCapabilities.cs
+   @folderNames=Models
+  ModelHelper.cs
+   @folderNames=Models
+  PendingImage.cs
+   @folderNames=Models
+  PlatformHelper.cs
+   @folderNames=Models
+  PlatformPaths.cs
+   @folderNames=Models
+  PluginSettings.cs
+   @folderNames=Models
+  PromptLibrary.cs
+   @folderNames=Models
+  ReflectionCycle.cs
+   @folderNames=Models
+  RenderThrottle.cs
+   @folderNames=Models
+  RepositoryInfo.cs
+   @folderNames=Models
+  ScheduledTask.cs
+   @folderNames=Models
+  SessionOrganization.cs
+   @folderNames=Models
+  SettingDescriptor.cs
+   @folderNames=Models
+  SmartPunctuationNormalizer.cs
+   @folderNames=Models
+  SquadDiscovery.cs
+   @folderNames=Models
+  SquadWriter.cs
+   @folderNames=Models
+  SynchronizedMessageQueue.cs
+   @folderNames=Models
+  TutorialStep.cs
+   @folderNames=Models
+  UsageStatistics.cs
+   @folderNames=Models
+ Services/
+  AuditLogService.cs
+   @folderNames=Services
+  ChatDatabase.cs
+   @folderNames=Services
+  CodespaceService.cs
+   @folderNames=Services
+  CodespaceService.Diagnostics.cs
+   @folderNames=Services
+  CodespaceService.Lifecycle.cs
+   @folderNames=Services
+  CopilotService.Bridge.cs
+   @folderNames=Services
+  CopilotService.Codespace.cs
+   @folderNames=Services
+  CopilotService.Continuation.cs
+   @folderNames=Services
+  CopilotService.cs
+   @folderNames=Services
+  CopilotService.Events.cs
+   @folderNames=Services
+  CopilotService.Organization.cs
+   @folderNames=Services
+  CopilotService.Persistence.cs
+   @folderNames=Services
+  CopilotService.Providers.cs
+   @folderNames=Services
+  CopilotService.Utilities.cs
+   @folderNames=Services
+  DemoService.cs
+   @folderNames=Services
+  DevTunnelService.cs
+   @folderNames=Services
+  EfficiencyAnalysisService.cs
+   @folderNames=Services
+  ExternalSessionScanner.cs
+   @folderNames=Services
+  FiestaService.cs
+   @folderNames=Services
+  GitAutoUpdateService.cs
+   @folderNames=Services
+  GitHubReferenceLinker.cs
+   @folderNames=Services
+  HolidayThemeHelper.cs
+   @folderNames=Services
+  IChatDatabase.cs
+   @folderNames=Services
+  IDemoService.cs
+   @folderNames=Services
+  INotificationManagerService.cs
+   @folderNames=Services
+  IServerManager.cs
+   @folderNames=Services
+  IWsBridgeClient.cs
+   @folderNames=Services
+  KeyCommandService.cs
+   @folderNames=Services
+  MarkdownRenderer.cs
+   @folderNames=Services
+  NotificationMessageBuilder.cs
+   @folderNames=Services
+  PluginFileLogger.cs
+   @folderNames=Services
+  PluginLoader.cs
+   @folderNames=Services
+  PrLinkService.cs
+   @folderNames=Services
+  ProcessHelper.cs
+   @folderNames=Services
+  PromptLibraryService.cs
+   @folderNames=Services
+  ProviderHostContext.cs
+   @folderNames=Services
+  RepoManager.cs
+   @folderNames=Services
+  ScheduledTaskService.cs
+   @folderNames=Services
+  ServerManager.cs
+   @folderNames=Services
+  SessionMetricsExtractor.cs
+   @folderNames=Services
+  SettingsRegistry.cs
+   @folderNames=Services
+  ShowImageTool.cs
+   @folderNames=Services
+  TailscaleService.cs
+   @folderNames=Services
+  TutorialService.cs
+   @folderNames=Services
+  UsageStatsService.cs
+   @folderNames=Services
+  WindowFocusHelper.cs
+   @folderNames=Services
+  WsBridgeClient.cs
+   @folderNames=Services
+  WsBridgeServer.cs
+   @folderNames=Services
+MauiProgram.cs
+obj/Debug/net10.0/
+ .NETCoreApp,Version=v10.0.AssemblyAttributes.cs
+ EmbeddedAttribute.cs
+ PolyPilot.Gtk.AssemblyInfo.cs
+ PolyPilot.Gtk.GlobalUsings.g.cs
+ ValidatableTypeAttribute.cs
+Program.cs
+Services/
+ NotificationManagerService.cs
+ QrScannerService.cs
+
+[metadataReferences]
+../../../../../../usr/local/share/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.2/ref/net10.0/
+ Microsoft.CSharp.dll
+ Microsoft.VisualBasic.Core.dll
+ Microsoft.VisualBasic.dll
+ Microsoft.Win32.Primitives.dll
+ Microsoft.Win32.Registry.dll
+ mscorlib.dll
+ netstandard.dll
+ System.AppContext.dll
+ System.Buffers.dll
+ System.Collections.Concurrent.dll
+ System.Collections.dll
+ System.Collections.Immutable.dll
+ System.Collections.NonGeneric.dll
+ System.Collections.Specialized.dll
+ System.ComponentModel.Annotations.dll
+ System.ComponentModel.DataAnnotations.dll
+ System.ComponentModel.dll
+ System.ComponentModel.EventBasedAsync.dll
+ System.ComponentModel.Primitives.dll
+ System.ComponentModel.TypeConverter.dll
+ System.Configuration.dll
+ System.Console.dll
+ System.Core.dll
+ System.Data.Common.dll
+ System.Data.DataSetExtensions.dll
+ System.Data.dll
+ System.Diagnostics.Contracts.dll
+ System.Diagnostics.Debug.dll
+ System.Diagnostics.DiagnosticSource.dll
+ System.Diagnostics.FileVersionInfo.dll
+ System.Diagnostics.Process.dll
+ System.Diagnostics.StackTrace.dll
+ System.Diagnostics.TextWriterTraceListener.dll
+ System.Diagnostics.Tools.dll
+ System.Diagnostics.TraceSource.dll
+ System.Diagnostics.Tracing.dll
+ System.dll
+ System.Drawing.dll
+ System.Drawing.Primitives.dll
+ System.Dynamic.Runtime.dll
+ System.Formats.Asn1.dll
+ System.Formats.Tar.dll
+ System.Globalization.Calendars.dll
+ System.Globalization.dll
+ System.Globalization.Extensions.dll
+ System.IO.Compression.Brotli.dll
+ System.IO.Compression.dll
+ System.IO.Compression.FileSystem.dll
+ System.IO.Compression.ZipFile.dll
+ System.IO.dll
+ System.IO.FileSystem.AccessControl.dll
+ System.IO.FileSystem.dll
+ System.IO.FileSystem.DriveInfo.dll
+ System.IO.FileSystem.Primitives.dll
+ System.IO.FileSystem.Watcher.dll
+ System.IO.IsolatedStorage.dll
+ System.IO.MemoryMappedFiles.dll
+ System.IO.Pipelines.dll
+ System.IO.Pipes.AccessControl.dll
+ System.IO.Pipes.dll
+ System.IO.UnmanagedMemoryStream.dll
+ System.Linq.AsyncEnumerable.dll
+ System.Linq.dll
+ System.Linq.Expressions.dll
+ System.Linq.Parallel.dll
+ System.Linq.Queryable.dll
+ System.Memory.dll
+ System.Net.dll
+ System.Net.Http.dll
+ System.Net.Http.Json.dll
+ System.Net.HttpListener.dll
+ System.Net.Mail.dll
+ System.Net.NameResolution.dll
+ System.Net.NetworkInformation.dll
+ System.Net.Ping.dll
+ System.Net.Primitives.dll
+ System.Net.Quic.dll
+ System.Net.Requests.dll
+ System.Net.Security.dll
+ System.Net.ServerSentEvents.dll
+ System.Net.ServicePoint.dll
+ System.Net.Sockets.dll
+ System.Net.WebClient.dll
+ System.Net.WebHeaderCollection.dll
+ System.Net.WebProxy.dll
+ System.Net.WebSockets.Client.dll
+ System.Net.WebSockets.dll
+ System.Numerics.dll
+ System.Numerics.Vectors.dll
+ System.ObjectModel.dll
+ System.Reflection.DispatchProxy.dll
+ System.Reflection.dll
+ System.Reflection.Emit.dll
+ System.Reflection.Emit.ILGeneration.dll
+ System.Reflection.Emit.Lightweight.dll
+ System.Reflection.Extensions.dll
+ System.Reflection.Metadata.dll
+ System.Reflection.Primitives.dll
+ System.Reflection.TypeExtensions.dll
+ System.Resources.Reader.dll
+ System.Resources.ResourceManager.dll
+ System.Resources.Writer.dll
+ System.Runtime.CompilerServices.Unsafe.dll
+ System.Runtime.CompilerServices.VisualC.dll
+ System.Runtime.dll
+ System.Runtime.Extensions.dll
+ System.Runtime.Handles.dll
+ System.Runtime.InteropServices.dll
+ System.Runtime.InteropServices.JavaScript.dll
+ System.Runtime.InteropServices.RuntimeInformation.dll
+ System.Runtime.Intrinsics.dll
+ System.Runtime.Loader.dll
+ System.Runtime.Numerics.dll
+ System.Runtime.Serialization.dll
+ System.Runtime.Serialization.Formatters.dll
+ System.Runtime.Serialization.Json.dll
+ System.Runtime.Serialization.Primitives.dll
+ System.Runtime.Serialization.Xml.dll
+ System.Security.AccessControl.dll
+ System.Security.Claims.dll
+ System.Security.Cryptography.Algorithms.dll
+ System.Security.Cryptography.Cng.dll
+ System.Security.Cryptography.Csp.dll
+ System.Security.Cryptography.dll
+ System.Security.Cryptography.Encoding.dll
+ System.Security.Cryptography.OpenSsl.dll
+ System.Security.Cryptography.Primitives.dll
+ System.Security.Cryptography.X509Certificates.dll
+ System.Security.dll
+ System.Security.Principal.dll
+ System.Security.Principal.Windows.dll
+ System.Security.SecureString.dll
+ System.ServiceModel.Web.dll
+ System.ServiceProcess.dll
+ System.Text.Encoding.CodePages.dll
+ System.Text.Encoding.dll
+ System.Text.Encoding.Extensions.dll
+ System.Text.Encodings.Web.dll
+ System.Text.Json.dll
+ System.Text.RegularExpressions.dll
+ System.Threading.AccessControl.dll
+ System.Threading.Channels.dll
+ System.Threading.dll
+ System.Threading.Overlapped.dll
+ System.Threading.Tasks.Dataflow.dll
+ System.Threading.Tasks.dll
+ System.Threading.Tasks.Extensions.dll
+ System.Threading.Tasks.Parallel.dll
+ System.Threading.Thread.dll
+ System.Threading.ThreadPool.dll
+ System.Threading.Timer.dll
+ System.Transactions.dll
+ System.Transactions.Local.dll
+ System.ValueTuple.dll
+ System.Web.dll
+ System.Web.HttpUtility.dll
+ System.Windows.dll
+ System.Xml.dll
+ System.Xml.Linq.dll
+ System.Xml.ReaderWriter.dll
+ System.Xml.Serialization.dll
+ System.Xml.XDocument.dll
+ System.Xml.XmlDocument.dll
+ System.Xml.XmlSerializer.dll
+ System.Xml.XPath.dll
+ System.Xml.XPath.XDocument.dll
+ WindowsBase.dll
+../PolyPilot.Provider.Abstractions/obj/Debug/net10.0/ref/PolyPilot.Provider.Abstractions.dll
+<NUGET>/
+ communitytoolkit.maui.core/14.0.1/lib/net10.0/CommunityToolkit.Maui.Core.dll
+ communitytoolkit.maui/14.0.1/lib/net10.0/CommunityToolkit.Maui.dll
+ fizzler/1.3.1/lib/netstandard2.0/Fizzler.dll
+ gircore.cairo-1.0/0.7.0/lib/net10.0/cairo-1.0.dll
+ gircore.freetype2-2.0/0.7.0/lib/net10.0/freetype2-2.0.dll
+ gircore.gdk-4.0/0.7.0/lib/net10.0/Gdk-4.0.dll
+ gircore.gdkpixbuf-2.0/0.7.0/lib/net10.0/GdkPixbuf-2.0.dll
+ gircore.gio-2.0/0.7.0/lib/net10.0/Gio-2.0.dll
+ gircore.glib-2.0/0.7.0/lib/net10.0/GLib-2.0.dll
+ gircore.gobject-2.0/0.7.0/lib/net10.0/GObject-2.0.dll
+ gircore.graphene-1.0/0.7.0/lib/net10.0/Graphene-1.0.dll
+ gircore.gsk-4.0/0.7.0/lib/net10.0/Gsk-4.0.dll
+ gircore.gtk-4.0/0.7.0/lib/net10.0/Gtk-4.0.dll
+ gircore.harfbuzz-0.0/0.7.0/lib/net10.0/HarfBuzz-0.0.dll
+ gircore.javascriptcore-6.0/0.7.0/lib/net10.0/JavaScriptCore-6.0.dll
+ gircore.pango-1.0/0.7.0/lib/net10.0/Pango-1.0.dll
+ gircore.pangocairo-1.0/0.7.0/lib/net10.0/PangoCairo-1.0.dll
+ gircore.soup-3.0/0.7.0/lib/net10.0/Soup-3.0.dll
+ gircore.webkit-6.0/0.7.0/lib/net10.0/WebKit-6.0.dll
+ github.copilot.sdk/0.2.0/lib/net8.0/GitHub.Copilot.SDK.dll
+ markdig/1.1.1/lib/net10.0/Markdig.dll
+ microsoft.aspnetcore.authorization/10.0.5/lib/net10.0/Microsoft.AspNetCore.Authorization.dll
+ microsoft.aspnetcore.components.forms/10.0.5/lib/net10.0/Microsoft.AspNetCore.Components.Forms.dll
+ microsoft.aspnetcore.components.web/10.0.5/lib/net10.0/Microsoft.AspNetCore.Components.Web.dll
+ microsoft.aspnetcore.components.webview.maui/10.0.50/lib/net10.0/Microsoft.AspNetCore.Components.WebView.Maui.dll
+ microsoft.aspnetcore.components.webview/10.0.5/lib/net10.0/Microsoft.AspNetCore.Components.WebView.dll
+ microsoft.aspnetcore.components/10.0.5/lib/net10.0/Microsoft.AspNetCore.Components.dll
+ microsoft.aspnetcore.metadata/10.0.5/lib/net10.0/Microsoft.AspNetCore.Metadata.dll
+ microsoft.extensions.ai.abstractions/10.2.0/lib/net10.0/Microsoft.Extensions.AI.Abstractions.dll
+ microsoft.extensions.configuration.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.Abstractions.dll
+ microsoft.extensions.configuration.binder/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.Binder.dll
+ microsoft.extensions.configuration.fileextensions/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.FileExtensions.dll
+ microsoft.extensions.configuration.json/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.Json.dll
+ microsoft.extensions.configuration/10.0.5/lib/net10.0/Microsoft.Extensions.Configuration.dll
+ microsoft.extensions.dependencyinjection.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll
+ microsoft.extensions.dependencyinjection/10.0.5/lib/net10.0/Microsoft.Extensions.DependencyInjection.dll
+ microsoft.extensions.diagnostics.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Diagnostics.Abstractions.dll
+ microsoft.extensions.diagnostics/10.0.5/lib/net10.0/Microsoft.Extensions.Diagnostics.dll
+ microsoft.extensions.fileproviders.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.FileProviders.Abstractions.dll
+ microsoft.extensions.fileproviders.composite/10.0.5/lib/net10.0/Microsoft.Extensions.FileProviders.Composite.dll
+ microsoft.extensions.fileproviders.embedded/10.0.5/lib/net10.0/Microsoft.Extensions.FileProviders.Embedded.dll
+ microsoft.extensions.fileproviders.physical/10.0.5/lib/net10.0/Microsoft.Extensions.FileProviders.Physical.dll
+ microsoft.extensions.filesystemglobbing/10.0.5/lib/net10.0/Microsoft.Extensions.FileSystemGlobbing.dll
+ microsoft.extensions.hosting.abstractions/10.0.0/lib/net10.0/Microsoft.Extensions.Hosting.Abstractions.dll
+ microsoft.extensions.http/10.0.5/lib/net10.0/Microsoft.Extensions.Http.dll
+ microsoft.extensions.logging.abstractions/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.Abstractions.dll
+ microsoft.extensions.logging.debug/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.Debug.dll
+ microsoft.extensions.logging/10.0.5/lib/net10.0/Microsoft.Extensions.Logging.dll
+ microsoft.extensions.options.configurationextensions/10.0.5/lib/net10.0/Microsoft.Extensions.Options.ConfigurationExtensions.dll
+ microsoft.extensions.options/10.0.5/lib/net10.0/Microsoft.Extensions.Options.dll
+ microsoft.extensions.primitives/10.0.5/lib/net10.0/Microsoft.Extensions.Primitives.dll
+ microsoft.extensions.validation/10.0.5/lib/net10.0/Microsoft.Extensions.Validation.dll
+ microsoft.jsinterop/10.0.5/lib/net10.0/Microsoft.JSInterop.dll
+ microsoft.maui.controls.core/10.0.50/lib/net10.0/Microsoft.Maui.Controls.dll
+ microsoft.maui.controls.xaml/10.0.50/lib/net10.0/Microsoft.Maui.Controls.Xaml.dll
+ microsoft.maui.core/10.0.50/lib/net10.0/Microsoft.Maui.dll
+ microsoft.maui.devflow.agent.core/0.1.0-preview.4.26202.3/lib/net10.0/Microsoft.Maui.DevFlow.Agent.Core.dll
+ microsoft.maui.devflow.agent.gtk/0.1.0-preview.4.26202.3/lib/net10.0/Microsoft.Maui.DevFlow.Agent.Gtk.dll
+ microsoft.maui.devflow.blazor.gtk/0.1.0-preview.4.26202.3/lib/net10.0/Microsoft.Maui.DevFlow.Blazor.Gtk.dll
+ microsoft.maui.devflow.logging/0.1.0-preview.4.26202.3/lib/net10.0/Microsoft.Maui.DevFlow.Logging.dll
+ microsoft.maui.essentials/10.0.50/lib/net10.0/Microsoft.Maui.Essentials.dll
+ microsoft.maui.graphics/10.0.50/lib/net10.0/Microsoft.Maui.Graphics.dll
+ microsoft.win32.systemevents/6.0.0/lib/net6.0/Microsoft.Win32.SystemEvents.dll
+ platform.maui.linux.gtk4.blazorwebview/0.6.0/lib/net10.0/Platform.Maui.Linux.Gtk4.BlazorWebView.dll
+ platform.maui.linux.gtk4.essentials/0.6.0/lib/net10.0/Platform.Maui.Linux.Gtk4.Essentials.dll
+ platform.maui.linux.gtk4/0.6.0/lib/net10.0/Platform.Maui.Linux.Gtk4.dll
+ qrcoder/1.8.0/lib/net6.0/QRCoder.dll
+ skiasharp/3.119.2/ref/net8.0/SkiaSharp.dll
+ sqlite-net-pcl/1.9.172/lib/netstandard2.0/SQLite-net.dll
+ sqlitepclraw.bundle_green/2.1.11/lib/netstandard2.0/SQLitePCLRaw.batteries_v2.dll
+ sqlitepclraw.core/2.1.11/lib/netstandard2.0/SQLitePCLRaw.core.dll
+ sqlitepclraw.provider.e_sqlite3/2.1.11/lib/net6.0/SQLitePCLRaw.provider.e_sqlite3.dll
+ system.drawing.common/6.0.0/lib/net6.0/System.Drawing.Common.dll
+ tmds.dbus.protocol/0.20.0/lib/net8.0/Tmds.DBus.Protocol.dll
+
+[analyzerReferences]
+../../../../../../usr/local/share/dotnet/packs/Microsoft.NETCore.App.Ref/10.0.2/analyzers/dotnet/cs/
+ Microsoft.Interop.ComInterfaceGenerator.dll
+ Microsoft.Interop.JavaScript.JSImportGenerator.dll
+ Microsoft.Interop.LibraryImportGenerator.dll
+ Microsoft.Interop.SourceGeneration.dll
+ System.Text.Json.SourceGeneration.dll
+ System.Text.RegularExpressions.Generator.dll
+../../../../../../usr/local/share/dotnet/sdk/10.0.102/Sdks/Microsoft.NET.Sdk.Razor/source-generators/
+ Microsoft.AspNetCore.Razor.Utilities.Shared.dll
+ Microsoft.CodeAnalysis.Razor.Compiler.dll
+ Microsoft.Extensions.ObjectPool.dll
+../../../../../../usr/local/share/dotnet/sdk/10.0.102/Sdks/Microsoft.NET.Sdk/analyzers/
+ Microsoft.CodeAnalysis.CSharp.NetAnalyzers.dll
+ Microsoft.CodeAnalysis.NetAnalyzers.dll
+<NUGET>/communitytoolkit.maui/14.0.1/analyzers/dotnet/cs/
+ CommunityToolkit.Maui.Analyzers.CodeFixes.dll
+ CommunityToolkit.Maui.Analyzers.dll
+ CommunityToolkit.Maui.SourceGenerators.dll
+<NUGET>/
+ microsoft.aspnetcore.components.analyzers/10.0.5/analyzers/dotnet/cs/Microsoft.AspNetCore.Components.Analyzers.dll
+ microsoft.extensions.logging.abstractions/10.0.5/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Logging.Generators.dll
+ microsoft.extensions.options/10.0.5/analyzers/dotnet/roslyn4.4/cs/Microsoft.Extensions.Options.SourceGeneration.dll
+ microsoft.extensions.validation/10.0.5/analyzers/dotnet/cs/Microsoft.Extensions.Validation.ValidationsGenerator.dll
+ microsoft.maui.controls.build.tasks/10.0.50/buildTransitive/netstandard2.0/
+  Microsoft.Maui.Controls.BindingSourceGen.dll
+  Microsoft.Maui.Controls.SourceGen.dll
+ nerdbank.messagepack/1.0.2/analyzers/cs/
+  Nerdbank.MessagePack.Analyzers.CodeFixes.dll
+  Nerdbank.MessagePack.Analyzers.dll
+ polytype/1.0.0/analyzers/dotnet/cs/PolyType.SourceGenerator.dll
+ streamjsonrpc/2.24.84/analyzers/cs/
+  StreamJsonRpc.Analyzers.CodeFixes.dll
+  StreamJsonRpc.Analyzers.dll
+
+[analyzerConfigFiles]
+../../../../../../usr/local/share/dotnet/sdk/10.0.102/Sdks/Microsoft.NET.Sdk/analyzers/build/config/analysislevel_10_default.globalconfig
+obj/Debug/net10.0/PolyPilot.Gtk.GeneratedMSBuildEditorConfig.editorconfig
+
+[additionalFiles]
+../PolyPilot/
+ App.xaml
+ Components/
+  ChatMessageItem.razor
+  ChatMessageList.razor
+  CopyToClipboardButton.razor
+  DiffView.razor
+  ExpandedSessionView.razor
+  ExternalSessionCard.razor
+  KeepAliveSession.razor
+  Layout/
+   CreateSessionForm.razor
+   MainLayout.razor
+   NavMenu.razor
+   SessionListItem.razor
+   SessionSidebar.razor
+   StatisticsPopup.razor
+  ModelSelector.razor
+  Pages/
+   Counter.razor
+   Dashboard.razor
+   NotFound.razor
+   ScheduledTasks.razor
+   Settings.razor
+   TutorialPage.razor
+   Weather.razor
+  RemoteDirectoryPicker.razor
+  Routes.razor
+  SessionCard.razor
+  Settings/SettingEditor.razor
+  Tutorial/TutorialOverlay.razor
+  _Imports.razor
+ MainPage.xaml
+
+[dynamicFiles]
+../PolyPilot/Components/
+ ChatMessageItem.razor
+  @folderNames=Components
+ ChatMessageList.razor
+  @folderNames=Components
+ CopyToClipboardButton.razor
+  @folderNames=Components
+ DiffView.razor
+  @folderNames=Components
+ ExpandedSessionView.razor
+  @folderNames=Components
+ ExternalSessionCard.razor
+  @folderNames=Components
+ KeepAliveSession.razor
+  @folderNames=Components
+ Layout/
+  CreateSessionForm.razor
+   @folderNames=Components,Layout
+  MainLayout.razor
+   @folderNames=Components,Layout
+  NavMenu.razor
+   @folderNames=Components,Layout
+  SessionListItem.razor
+   @folderNames=Components,Layout
+  SessionSidebar.razor
+   @folderNames=Components,Layout
+  StatisticsPopup.razor
+   @folderNames=Components,Layout
+ ModelSelector.razor
+  @folderNames=Components
+ Pages/
+  Counter.razor
+   @folderNames=Components,Pages
+  Dashboard.razor
+   @folderNames=Components,Pages
+  NotFound.razor
+   @folderNames=Components,Pages
+  ScheduledTasks.razor
+   @folderNames=Components,Pages
+  Settings.razor
+   @folderNames=Components,Pages
+  TutorialPage.razor
+   @folderNames=Components,Pages
+  Weather.razor
+   @folderNames=Components,Pages
+ RemoteDirectoryPicker.razor
+  @folderNames=Components
+ Routes.razor
+  @folderNames=Components
+ SessionCard.razor
+  @folderNames=Components
+ Settings/SettingEditor.razor
+  @folderNames=Components,Settings
+ Tutorial/TutorialOverlay.razor
+  @folderNames=Components,Tutorial
+ _Imports.razor
+  @folderNames=Components
