@@ -1932,19 +1932,21 @@
                     if (imgSession != null)
                     {
                         imgSession.History.Add(ChatMessage.SystemMessage(
-                            "⚠️ Images stripped for orchestration — images are not forwarded to workers. The text prompt is dispatched normally."));
+                            "⚠️ Images dropped — orchestration dispatch does not support image attachments. Only the text prompt is dispatched to the orchestrator and workers."));
                         imgSession.MessageCount = imgSession.History.Count;
                     }
                 }
-                AutoStartReflectionIfNeeded(group!.Id, finalPrompt);
-                _ = CopilotService.SendToMultiAgentGroupAsync(group!.Id, finalPrompt).ContinueWith(t =>
+                var groupId = group!.Id;
+                var groupName = group.Name;
+                AutoStartReflectionIfNeeded(groupId, finalPrompt);
+                _ = CopilotService.SendToMultiAgentGroupAsync(groupId, finalPrompt).ContinueWith(t =>
                 {
                     if (t.IsFaulted)
                     {
                         var msg = t.Exception?.InnerException?.Message ?? t.Exception?.Message ?? "unknown";
                         InvokeAsync(() =>
                         {
-                            CopilotService.LogDispatchError($"[DISPATCH] Error sending to multi-agent group '{group!.Name}': {msg}");
+                            CopilotService.LogDispatchError($"[DISPATCH] Error sending to multi-agent group '{groupName}': {msg}");
                             var s = sessions.FirstOrDefault(s => s.Name == sessionName);
                             if (s != null)
                             {
