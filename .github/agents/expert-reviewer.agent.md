@@ -15,7 +15,7 @@ PolyPilot is a .NET MAUI Blazor Hybrid app targeting Mac Catalyst, Android, and 
 
 ## Overarching Principles
 
-1. **IsProcessing Safety Is Non-Negotiable** — Every code path that sets `IsProcessing = false` must call `ClearProcessingState()` which atomically clears ~22 companion fields/operations. This is the most recurring bug category (13 PRs of fix/regression cycles). Read `.claude/skills/processing-state-safety/SKILL.md` from the repo before modifying any processing path.
+1. **IsProcessing Safety Is Non-Negotiable** — Every code path that sets `IsProcessing = false` must call `ClearProcessingState()` which atomically clears ~22 companion fields/operations. This is the most recurring bug category (13 PRs of fix/regression cycles). Read `.claude/skills/processing-state-safety/SKILL.md` from the repo checkout (if accessible) before modifying any processing path.
 2. **SDK-First Development** — Prefer SDK APIs over custom implementations. When custom code is necessary, it must have a `// SDK-gap: <reason>` comment.
 3. **No New Companion-Pair State Fields** — Avoid adding fields to `AgentSessionInfo` or `SessionState` that must be maintained across multiple code paths. Derive state from existing data instead.
 4. **Thread Safety by Default** — SDK events arrive on background threads. All `IsProcessing` mutations must be marshaled to the UI thread via `InvokeOnUI()`. `Organization.Sessions` is guarded by `_organizationLock` — background threads must use `SnapshotSessionMetas()` / `SnapshotGroups()` for reads and locked helpers for writes.
@@ -41,7 +41,7 @@ Every code path that sets `IsProcessing = false` must go through `ClearProcessin
 **Rules:**
 1. Call `ClearProcessingState()` instead of manually clearing fields. It atomically handles ~22 fields/operations:
    - Clears buffers: `CurrentResponse`, `FlushedResponse`, `PendingReasoningMessages`
-   - Resets state: `IsProcessing`, `IsResumed`, `ProcessingStartedAt`, `ToolCallCount`, `ProcessingPhase`, `SendingFlag`, `IsReconnectedSend`
+   - Resets state: `IsProcessing`, `IsResumed`, `ProcessingStartedAt`, `ToolCallCount`, `ProcessingPhase`, `SendingFlag`, `IsReconnectedSend`, `LastUpdatedAt`
    - Resets tool tracking: `ActiveToolCallCount`, `HasUsedToolsThisTurn`, `SuccessfulToolCountThisTurn`, `ToolHealthStaleChecks`
    - Resets event tracking: `EventCountThisTurn`, `TurnEndReceivedAtTicks`
    - Calls cleanup: `ClearDeferredIdleTracking`, `CancelTurnEndFallback`, `CancelToolHealthCheck`, `ClearPermissionDenials`, `ClearFlushedReplayDedup`

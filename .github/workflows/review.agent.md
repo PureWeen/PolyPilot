@@ -9,6 +9,9 @@ on:
     name: review
     events: [pull_request_comment]
   roles: [admin, maintainer, write]
+  # Note: pull_request trigger fires on every push. The Wave 0 triage
+  # in the expert-reviewer agent short-circuits docs-only and small PRs
+  # to minimize cost. For expensive reviews, use /review on-demand instead.
 
 imports:
   - shared/review-shared.md
