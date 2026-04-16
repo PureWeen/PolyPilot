@@ -1384,5 +1384,86 @@ public class RepoManagerTests
     }
 
     #endregion
-}
 
+    #region IsValidWorktreeAsync tests
+
+    [Fact]
+    public async Task IsValidWorktreeAsync_NonExistentDir_ReturnsFalse()
+    {
+        var rm = new RepoManager();
+        var result = await rm.IsValidWorktreeAsync(
+            Path.Combine(Path.GetTempPath(), $"no-such-dir-{Guid.NewGuid():N}"),
+            CancellationToken.None);
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task IsValidWorktreeAsync_EmptyDir_ReturnsFalse()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"empty-dir-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var rm = new RepoManager();
+            var result = await rm.IsValidWorktreeAsync(dir, CancellationToken.None);
+            Assert.False(result, "Empty directory (no .git) should not be considered a valid worktree");
+        }
+        finally { ForceDeleteDirectory(dir); }
+    }
+
+    [Fact]
+    public async Task IsValidWorktreeAsync_ValidGitRepo_ReturnsTrue()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"valid-wt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            await RunProcess("git", "init", dir);
+            await RunProcess("git", "-C", dir, "config", "user.email", "test@test.com");
+            await RunProcess("git", "-C", dir, "config", "user.name", "Test");
+            await RunProcess("git", "-C", dir, "commit", "--allow-empty", "-m", "init");
+
+            var rm = new RepoManager();
+            var result = await rm.IsValidWorktreeAsync(dir, CancellationToken.None);
+            Assert.True(result, "Valid git repo should be considered a valid worktree");
+        }
+        finally { ForceDeleteDirectory(dir); }
+    }
+
+    [Fact]
+    public async Task IsValidWorktreeAsync_CorruptGitDir_ReturnsFalse()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"corrupt-wt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            // Create a .git file with garbage content to simulate corruption
+            File.WriteAllText(Path.Combine(dir, ".git"), "gitdir: /nonexistent/path/that/does/not/exist");
+
+            var rm = new RepoManager();
+            var result = await rm.IsValidWorktreeAsync(dir, CancellationToken.None);
+            Assert.False(result, "Corrupt .git file should not be considered a valid worktree");
+        }
+        finally { ForceDeleteDirectory(dir); }
+    }
+
+    #endregion
+
+    #region Worktree creation lock tests
+
+    [Fact]
+    public void WorktreeCreationLocks_AreSerialized()
+    {
+        // Verify the _worktreeCreationLocks field exists and is a ConcurrentDictionary.
+        // This is a structural test — the semaphore-based locking prevents two concurrent
+        // CreateWorktreeAsync calls for the same branch from racing on `git worktree add`.
+        var rm = new RepoManager();
+        var field = typeof(RepoManager).GetField("_worktreeCreationLocks",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(field);
+        var value = field!.GetValue(rm);
+        Assert.IsType<System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>>(value);
+    }
+
+    #endregion
+}

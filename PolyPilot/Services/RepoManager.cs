@@ -43,6 +43,10 @@ public class RepoManager
     private bool _loaded;
     private bool _loadedSuccessfully;
     private readonly object _stateLock = new();
+
+    // Serializes concurrent worktree creation for the same repo+branch to prevent
+    // two calls from both passing the reuse check and racing on `git worktree add -b`.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _worktreeCreationLocks = new();
     public IReadOnlyList<RepositoryInfo> Repositories
     {
         get
@@ -898,6 +902,22 @@ public class RepoManager
     }
 
     /// <summary>
+    /// Returns true if <paramref name="path"/> is a valid git worktree — the directory exists
+    /// and contains a <c>.git</c> file or directory that git can resolve. This is more robust
+    /// than a bare <see cref="Directory.Exists"/> check because it detects corrupted or
+    /// partially-deleted worktrees that git can no longer use.
+    /// </summary>
+    internal async Task<bool> IsValidWorktreeAsync(string path, CancellationToken ct)
+    {
+        if (!Directory.Exists(path)) return false;
+        // Worktrees have a .git file (pointing at the bare clone's worktrees/ dir)
+        // or a .git directory (for standalone repos registered as external worktrees).
+        var gitPath = Path.Combine(path, ".git");
+        if (!File.Exists(gitPath) && !Directory.Exists(gitPath)) return false;
+        return await IsGitRepositoryAsync(path, ct);
+    }
+
+    /// <summary>
     /// Create a new worktree for a repository on a new branch from origin/main.
     /// If an existing registered worktree is already on the requested branch, it is reused.
     /// Worktrees are always placed in the centralized <c>~/.polypilot/worktrees/</c> directory.
@@ -908,9 +928,27 @@ public class RepoManager
         var repo = _state.Repositories.FirstOrDefault(r => r.Id == repoId)
             ?? throw new InvalidOperationException($"Repository '{repoId}' not found.");
 
+        // Serialize concurrent worktree creation for the same repo+branch so two callers
+        // don't both pass the reuse check and race on `git worktree add -b <branch>`.
+        var lockKey = $"{repoId}:{branchName}".ToLowerInvariant();
+        var semaphore = _worktreeCreationLocks.GetOrAdd(lockKey, _ => new SemaphoreSlim(1, 1));
+        await semaphore.WaitAsync(ct);
+        try
+        {
+            return await CreateWorktreeCoreAsync(repo, repoId, branchName, baseBranch, skipFetch, ct);
+        }
+        finally
+        {
+            semaphore.Release();
+        }
+    }
+
+    private async Task<WorktreeInfo> CreateWorktreeCoreAsync(RepositoryInfo repo, string repoId, string branchName, string? baseBranch, bool skipFetch, CancellationToken ct)
+    {
         // Check if an existing PolyPilot-managed worktree for this repo is already on the requested branch.
         // Only reuse worktrees under the centralized WorktreesDir — never return the user's own
         // checkout (registered as an external worktree) to avoid multiple sessions sharing it.
+        // Uses IsValidWorktreeAsync for a git-level health check instead of bare Directory.Exists.
         WorktreeInfo? existingMatch;
         var managedWorktreePrefix = Path.GetFullPath(WorktreesDir) + Path.DirectorySeparatorChar;
         lock (_stateLock)
@@ -919,15 +957,21 @@ public class RepoManager
                 w.RepoId == repoId
                 && string.Equals(w.Branch, branchName, StringComparison.OrdinalIgnoreCase)
                 && !string.IsNullOrWhiteSpace(w.Path)
-                && Path.GetFullPath(w.Path).StartsWith(managedWorktreePrefix, StringComparison.OrdinalIgnoreCase)
-                && Directory.Exists(w.Path));
+                && Path.GetFullPath(w.Path).StartsWith(managedWorktreePrefix, StringComparison.OrdinalIgnoreCase));
         }
-        if (existingMatch != null)
+        if (existingMatch != null && await IsValidWorktreeAsync(existingMatch.Path, ct))
         {
             Console.WriteLine($"[RepoManager] Reusing existing worktree at '{existingMatch.Path}' (branch: {branchName})");
             repo.LastUsedAt = DateTime.UtcNow;
             Save();
             return existingMatch;
+        }
+        else if (existingMatch != null)
+        {
+            // Worktree record exists but the directory is corrupt/missing — remove stale entry
+            Console.WriteLine($"[RepoManager] Removing stale worktree entry '{existingMatch.Path}' (invalid git state)");
+            lock (_stateLock) { _state.Worktrees.Remove(existingMatch); }
+            Save();
         }
 
         await EnsureRepoCloneInCurrentRootAsync(repo, null, ct);
