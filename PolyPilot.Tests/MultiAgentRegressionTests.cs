@@ -2942,8 +2942,8 @@ public class MultiAgentRegressionTests
         // When PolyPilot restarts mid-reflect-loop, the persisted ReflectionState
         // has IsActive=true. After resume completes (MonitorAndSynthesizeAsync),
         // the code must reset IsActive=false so StartGroupReflection can create
-        // fresh state on the next user prompt. This test verifies the model-level
-        // behavior: an active ReflectionState can be detected and reset.
+        // fresh state on the next user prompt. The StartedAt guard ensures we only
+        // reset the stale cycle, not a fresh one created by the user.
         var group = new SessionGroup
         {
             Id = Guid.NewGuid().ToString(),
@@ -2958,12 +2958,16 @@ public class MultiAgentRegressionTests
         Assert.True(group.ReflectionState.IsActive);
         Assert.Null(group.ReflectionState.CompletedAt);
 
+        // Capture StartedAt as the production code does (from PendingOrchestration)
+        var staleStartedAt = group.ReflectionState.StartedAt;
+
         // Simulate what ResumeOrchestrationIfPendingAsync does after resume completes:
-        // detect stale IsActive=true and reset it
-        if (group.ReflectionState is { IsActive: true })
+        // detect stale IsActive=true and reset it (with StartedAt guard)
+        if (group.ReflectionState is { IsActive: true } rs
+            && (staleStartedAt == default || rs.StartedAt <= staleStartedAt))
         {
-            group.ReflectionState.IsActive = false;
-            group.ReflectionState.CompletedAt = DateTime.Now;
+            rs.IsActive = false;
+            rs.CompletedAt = DateTime.Now;
         }
 
         Assert.False(group.ReflectionState.IsActive);
@@ -2990,17 +2994,56 @@ public class MultiAgentRegressionTests
         group.ReflectionState.GoalMet = true;
         var originalCompleted = DateTime.Now.AddMinutes(-10);
         group.ReflectionState.CompletedAt = originalCompleted;
+        var staleStartedAt = group.ReflectionState.StartedAt;
 
         // Simulate resume check — should NOT match because IsActive is false
-        if (group.ReflectionState is { IsActive: true })
+        if (group.ReflectionState is { IsActive: true } rs
+            && (staleStartedAt == default || rs.StartedAt <= staleStartedAt))
         {
-            group.ReflectionState.IsActive = false;
-            group.ReflectionState.CompletedAt = DateTime.Now;
+            rs.IsActive = false;
+            rs.CompletedAt = DateTime.Now;
         }
 
         // CompletedAt should remain the original value
         Assert.Equal(originalCompleted, group.ReflectionState.CompletedAt);
         Assert.True(group.ReflectionState.GoalMet);
+    }
+
+    [Fact]
+    public void ReflectionState_FreshCycleNotResetByStaleResume()
+    {
+        // Sequential TOCTOU guard: if the user sends a new prompt (creating a fresh
+        // ReflectionState) before the queued InvokeOnUI callback fires, the callback
+        // must NOT reset the fresh cycle. The StartedAt comparison prevents this.
+        var group = new SessionGroup
+        {
+            Id = Guid.NewGuid().ToString(),
+            Name = "TestOrchestrator",
+            IsMultiAgent = true,
+            OrchestratorMode = MultiAgentMode.OrchestratorReflect,
+            ReflectionState = ReflectionCycle.Create("Original goal", maxIterations: 5)
+        };
+
+        // Capture stale StartedAt (simulates PendingOrchestration.StartedAt)
+        var staleStartedAt = DateTime.Now.AddMinutes(-5);
+
+        // Simulate user sending a new prompt → StartGroupReflection creates fresh state
+        group.ReflectionState = ReflectionCycle.Create("New goal", maxIterations: 3);
+        Assert.True(group.ReflectionState.IsActive);
+        Assert.True(group.ReflectionState.StartedAt > staleStartedAt);
+
+        // Simulate the queued InvokeOnUI callback firing AFTER the fresh cycle was created
+        if (group.ReflectionState is { IsActive: true } rs
+            && (staleStartedAt == default || rs.StartedAt <= staleStartedAt))
+        {
+            rs.IsActive = false;
+            rs.CompletedAt = DateTime.Now;
+        }
+
+        // Fresh cycle should NOT have been reset
+        Assert.True(group.ReflectionState.IsActive);
+        Assert.Null(group.ReflectionState.CompletedAt);
+        Assert.Equal("New goal", group.ReflectionState.Goal);
     }
 
     #endregion

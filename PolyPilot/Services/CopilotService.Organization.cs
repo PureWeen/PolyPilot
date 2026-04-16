@@ -3337,15 +3337,20 @@ public partial class CopilotService
         // IsActive=true from the killed reflect loop persists across restarts and
         // StartGroupReflection returns early without resetting iteration counters.
         // Must run on UI thread: Organization.Groups is a plain List<T> (not thread-safe).
+        // Capture StartedAt to guard against sequential TOCTOU: if the user sends a new
+        // prompt between ClearPendingOrchestration() and the InvokeOnUI callback,
+        // StartGroupReflection creates a fresh cycle with a different StartedAt.
         var pendingGroupId = pending.GroupId;
+        var staleStartedAt = pending.StartedAt;
         InvokeOnUI(() =>
         {
             var resumeGroup = Organization.Groups.FirstOrDefault(g => g.Id == pendingGroupId);
-            if (resumeGroup?.ReflectionState is { IsActive: true })
+            if (resumeGroup?.ReflectionState is { IsActive: true } rs
+                && (staleStartedAt == default || rs.StartedAt == null || rs.StartedAt <= staleStartedAt))
             {
-                resumeGroup.ReflectionState.IsActive = false;
-                resumeGroup.ReflectionState.CompletedAt = DateTime.Now;
-                Debug($"[DISPATCH] Resume cleared stale ReflectionState for group '{resumeGroup.Name}' (was iteration {resumeGroup.ReflectionState.CurrentIteration})");
+                rs.IsActive = false;
+                rs.CompletedAt = DateTime.Now;
+                Debug($"[DISPATCH] Resume cleared stale ReflectionState for group '{resumeGroup.Name}' (was iteration {rs.CurrentIteration})");
                 SaveOrganization();
             }
             OnOrchestratorPhaseChanged?.Invoke(pendingGroupId, OrchestratorPhase.Complete, null);
