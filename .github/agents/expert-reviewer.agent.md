@@ -235,7 +235,7 @@ SDK events must be handled correctly to prevent stuck sessions.
 
 **CHECK — Flag if:**
 - [ ] New timeout tier without updating watchdog logic
-- [ ] `HasUsedToolsThisTurn` assumed to give 600s (it gives 180s — only `ActiveToolCallCount > 0` gives 600s)
+- [ ] `HasUsedToolsThisTurn` assumed to give 600s (it gives 180s — 600s requires `ActiveToolCallCount > 0` or `IsResumed=true` post-first-event)
 - [ ] Generation guard bypassed or incorrect
 - [ ] Watchdog callback not marshaled to UI thread
 - [ ] Timeout constant value doesn't match `CopilotService.Events.cs`
