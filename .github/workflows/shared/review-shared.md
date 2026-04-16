@@ -17,14 +17,14 @@ tools:
     toolsets: [pull_requests, repos]
 
 safe-outputs:
-  create-pull-request-review-comment:
+  create_pull_request_review_comment:
     max: 30
-  submit-pull-request-review:
+  submit_pull_request_review:
     max: 1
     allowed-events: [COMMENT, REQUEST_CHANGES]
-  add-comment:
+  add_comment:
     max: 5
-  remove-label:
+  remove_label:
     max: 1
 ---
 
