@@ -1,8 +1,10 @@
 ---
-name: "Expert Code Review (command)"
-description: "Runs the expert-reviewer agent on a pull request when a contributor comments /review."
+name: "Expert Code Review"
+description: "Runs the expert-reviewer agent on pull requests — automatically for trusted contributors, or on-demand via /review."
 
 on:
+  pull_request:
+    types: [opened, synchronize]
   slash_command:
     name: review
     events: [pull_request_comment]
