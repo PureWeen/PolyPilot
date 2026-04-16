@@ -1,11 +1,10 @@
 ---
-name: "Expert Code Review (command)"
-description: "Runs the expert-reviewer agent on a pull request when a contributor comments /review."
+name: "Expert Code Review (auto)"
+description: "Automatically runs the expert-reviewer agent when a pull request is opened or updated by a trusted contributor (write access or above)."
 
 on:
-  slash_command:
-    name: review
-    events: [pull_request_comment]
+  pull_request:
+    types: [opened, synchronize]
   roles: [admin, maintainer, write]
 
 imports:
@@ -14,9 +13,11 @@ imports:
 timeout-minutes: 90
 ---
 
-# Expert Code Review
+# Expert Code Review (Auto)
 
-Review pull request #${{ github.event.pull_request.number || github.event.issue.number }} using the `expert-reviewer` agent defined at `.github/agents/expert-reviewer.agent.md`.
+Automatically review pull request #${{ github.event.pull_request.number }} using the `expert-reviewer` agent defined at `.github/agents/expert-reviewer.agent.md`.
+
+This workflow triggers on all PRs from contributors with write access or above — including trusted forks and direct pushes.
 
 ## Instructions
 

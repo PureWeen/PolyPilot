@@ -15,10 +15,10 @@ PolyPilot is a .NET MAUI Blazor Hybrid app targeting Mac Catalyst, Android, and 
 
 ## Overarching Principles
 
-1. **IsProcessing Safety Is Non-Negotiable** — Every code path that sets `IsProcessing = false` must clear 9 companion fields and call `FlushCurrentResponse`. This is the most recurring bug category (13 PRs of fix/regression cycles). Read the processing-state-safety skill before modifying any processing path.
+1. **IsProcessing Safety Is Non-Negotiable** — Every code path that sets `IsProcessing = false` must call `ClearProcessingState()` which atomically clears ~22 companion fields/operations. This is the most recurring bug category (13 PRs of fix/regression cycles). Read `.claude/skills/processing-state-safety/SKILL.md` from the repo before modifying any processing path.
 2. **SDK-First Development** — Prefer SDK APIs over custom implementations. When custom code is necessary, it must have a `// SDK-gap: <reason>` comment.
 3. **No New Companion-Pair State Fields** — Avoid adding fields to `AgentSessionInfo` or `SessionState` that must be maintained across multiple code paths. Derive state from existing data instead.
-4. **Thread Safety by Default** — SDK events arrive on background threads. All `IsProcessing` mutations must be marshaled to the UI thread via `InvokeOnUI()`.
+4. **Thread Safety by Default** — SDK events arrive on background threads. All `IsProcessing` mutations must be marshaled to the UI thread via `InvokeOnUI()`. `Organization.Sessions` is guarded by `_organizationLock` — background threads must use `SnapshotSessionMetas()` / `SnapshotGroups()` for reads and locked helpers for writes.
 5. **Behavioral Tests Over Structural** — Write tests that inject real objects and verify actual outputs, not tests that grep source code for string patterns.
 6. **Zero Tolerance for Test Failures** — Every test must pass. Never dismiss failures as "pre-existing".
 7. **Git Safety** — Never commit to main, never force push without `--force-with-lease`, never `git add -A` blindly, never commit screenshots or binary files.
@@ -36,18 +36,23 @@ Apply **all** dimensions on every review, weighted by file location (see [Folder
 
 **Severity: BLOCKING**
 
-Every code path that sets `IsProcessing = false` must perform the full cleanup ritual.
+Every code path that sets `IsProcessing = false` must go through `ClearProcessingState()` — the single source of truth.
 
 **Rules:**
-1. Clear all 9 companion fields: `ProcessingStartedAt`, `ProcessingPhase`, `ToolCallCount`, `ActiveToolCallCount`, `HasUsedToolsThisTurn`, `IsResumed`, `QueuedPrompt`, `QueuedAttachments`, `_processingGeneration`
-2. Call `FlushCurrentResponse` before setting `IsProcessing = false`
-3. Add a diagnostic log tag (`[COMPLETE]`, `[ERROR]`, `[ABORT]`, `[WATCHDOG]`, `[BRIDGE-COMPLETE]`, etc.)
-4. Marshal state mutations to the UI thread via `InvokeOnUI()`
-5. Never set `IsProcessing = false` on a background thread without `InvokeOnUI()`
+1. Call `ClearProcessingState()` instead of manually clearing fields. It atomically handles ~22 fields/operations:
+   - Clears buffers: `CurrentResponse`, `FlushedResponse`, `PendingReasoningMessages`
+   - Resets state: `IsProcessing`, `IsResumed`, `ProcessingStartedAt`, `ToolCallCount`, `ProcessingPhase`, `SendingFlag`, `IsReconnectedSend`
+   - Resets tool tracking: `ActiveToolCallCount`, `HasUsedToolsThisTurn`, `SuccessfulToolCountThisTurn`, `ToolHealthStaleChecks`
+   - Resets event tracking: `EventCountThisTurn`, `TurnEndReceivedAtTicks`
+   - Calls cleanup: `ClearDeferredIdleTracking`, `CancelTurnEndFallback`, `CancelToolHealthCheck`, `ClearPermissionDenials`, `ClearFlushedReplayDedup`
+   - Note: `ProcessingGeneration` is intentionally NOT cleared — it is a monotonically-increasing counter managed via `Interlocked.Increment`
+2. Add a diagnostic log tag (`[COMPLETE]`, `[ERROR]`, `[ABORT]`, `[WATCHDOG]`, `[BRIDGE-COMPLETE]`, etc.)
+3. Marshal state mutations to the UI thread via `InvokeOnUI()`
+4. Call `FlushCurrentResponse` before `ClearProcessingState()` to persist accumulated text
 
 **CHECK — Flag if:**
-- [ ] A new code path sets `IsProcessing = false` without clearing companion fields
-- [ ] `FlushCurrentResponse` not called before `IsProcessing = false`
+- [ ] A new code path sets `IsProcessing = false` without calling `ClearProcessingState()`
+- [ ] Manual field clearing instead of using `ClearProcessingState()`
 - [ ] Missing diagnostic log tag for a path that clears `IsProcessing`
 - [ ] `IsProcessing` mutation on a background thread without `InvokeOnUI()`
 
@@ -80,13 +85,14 @@ SDK events must be handled correctly to prevent stuck sessions.
 
 **Rules:**
 1. `_sessions` is `ConcurrentDictionary` — safe for concurrent access
-2. `Organization.Sessions` is a plain `List<SessionMeta>` — access from UI thread only
+2. `Organization.Sessions` is a plain `List<SessionMeta>` guarded by `_organizationLock` — background threads must use `SnapshotSessionMetas()` for reads and locked helpers (`AddSessionMeta`, `RemoveSessionMeta`) for writes. UI-thread code should also use these helpers for consistency.
 3. All `IsProcessing` mutations via `InvokeOnUI()`
 4. Use `Interlocked` for counters, `ConcurrentDictionary` for shared state
 5. No bare `lock` on `this` or type objects
 
 **CHECK — Flag if:**
-- [ ] `Organization.Sessions` modified from a background thread
+- [ ] `Organization.Sessions` accessed without `_organizationLock` from a background thread
+- [ ] Direct `Organization.Sessions.Add/Remove` instead of using locked helpers
 - [ ] Shared mutable state without thread-safe access
 - [ ] Race condition between save/load of persistent state files
 - [ ] `IsProcessing` set without `InvokeOnUI()` from a background context
@@ -211,17 +217,26 @@ SDK events must be handled correctly to prevent stuck sessions.
 **Severity: MAJOR**
 
 **Rules:**
-1. Three timeout tiers: 30s (resume quiescence), 120s (inactivity), 600s (tool execution)
-2. `HasUsedToolsThisTurn` extends timeout to 600s even between tool rounds
-3. `IsResumed` sessions get 600s timeout and bypass quiescence when events.jsonl shows recent activity
+1. Eight timeout constants (verify values against `CopilotService.Events.cs`):
+   - `WatchdogCheckIntervalSeconds` = 15 (check frequency)
+   - `WatchdogResumeQuiescenceTimeoutSeconds` = 30 (resumed sessions with zero SDK events)
+   - `WatchdogReconnectInactivityTimeoutSeconds` = 35 (reconnected sessions)
+   - `WatchdogToolEscalationTimeoutSeconds` = 60 (tool health escalation)
+   - `WatchdogInactivityTimeoutSeconds` = 120 (no tool activity)
+   - `WatchdogUsedToolsIdleTimeoutSeconds` = 180 (between tool rounds when `HasUsedToolsThisTurn` is true but no tool actively running)
+   - `WatchdogToolExecutionTimeoutSeconds` = 600 (tool actively running: `ActiveToolCallCount > 0`)
+   - `WatchdogMaxProcessingTimeSeconds` = 3600 (absolute maximum)
+2. `HasUsedToolsThisTurn` extends timeout to **180s** (not 600s) — 600s is only for actively-running tools (`ActiveToolCallCount > 0`)
+3. `IsResumed` sessions bypass quiescence when events.jsonl shows recent activity
 4. Multi-agent Case B checks file-size-growth — stale checks trigger force-completion
 5. Watchdog uses generation guard to prevent stale callbacks
 
 **CHECK — Flag if:**
 - [ ] New timeout tier without updating watchdog logic
-- [ ] `HasUsedToolsThisTurn` not set when it should be
+- [ ] `HasUsedToolsThisTurn` assumed to give 600s (it gives 180s — only `ActiveToolCallCount > 0` gives 600s)
 - [ ] Generation guard bypassed or incorrect
 - [ ] Watchdog callback not marshaled to UI thread
+- [ ] Timeout constant value doesn't match `CopilotService.Events.cs`
 
 ---
 
@@ -265,12 +280,12 @@ SDK events must be handled correctly to prevent stuck sessions.
 
 | # | Area | Key Rules |
 |---|------|-----------|
-| 1 | **IsProcessing Lifecycle** | 21+ code paths set/clear IsProcessing. Every path must clear 9 companion fields, call FlushCurrentResponse, and log a diagnostic tag. |
+| 1 | **IsProcessing Lifecycle** | 21+ code paths set/clear IsProcessing. All must go through `ClearProcessingState()` which atomically clears ~22 companion fields/operations and log a diagnostic tag. |
 | 2 | **SDK Event Flow** | Events arrive on background threads. 11 primary events in order: UsageInfo → TurnStart → ReasoningDelta → Reasoning → MessageDelta → Message → ToolExecutionStart → ToolExecutionComplete → Intent → TurnEnd → SessionIdle. |
 | 3 | **Multi-Agent Architecture** | 5-phase dispatch, IDLE-DEFER, PendingOrchestration persistence, worker failure handling, Squad integration. |
 | 4 | **Session Persistence** | Merge-based save, _closedSessionIds, IsRestoring guard, atomic writes, test isolation. |
-| 5 | **Processing Watchdog** | 3-tier timeouts (30s/120s/600s), file-size-growth for multi-agent, generation guards, smart completion scan. |
-| 6 | **Bridge Protocol** | WsBridgeServer/Client, DevTunnel, optimistic adds, thread safety for Organization.Sessions. |
+| 5 | **Processing Watchdog** | 8 timeout constants (15s/30s/35s/60s/120s/180s/600s/3600s), file-size-growth for multi-agent, generation guards, smart completion scan. |
+| 6 | **Bridge Protocol** | WsBridgeServer/Client, DevTunnel, optimistic adds, `_organizationLock` for Organization.Sessions thread safety. |
 
 ---
 
@@ -294,13 +309,27 @@ Use this to prioritize dimensions based on changed files.
 
 ## Review Workflow
 
+### Wave 0: Triage
+
+0. **Classify the PR scope** to avoid unnecessary work:
+   - **Docs-only** (only `.md`, `.txt`, `.yml` changes with no code): Skip dimensions 1–6, 9–10. Only apply 7 (platform safety for YAML), 8 (test coverage if test docs), 11–12.
+   - **Tests-only** (only files in `PolyPilot.Tests/`): Skip dimensions 4, 6, 9–11. Focus on 1–3, 5, 7–8, 12.
+   - **Code PR**: Apply all dimensions, but only those mapped by the [Folder Hotspot Mapping](#folder-hotspot-mapping) for changed files. Skip dimensions with no hotspot match.
+
+   This triage prevents cost explosion — a full 12-dimension scan is only needed for large cross-cutting PRs.
+
 ### Wave 1: Find
 
 1. Map changed files to the [Folder Hotspot Mapping](#folder-hotspot-mapping).
 
 1b. **Historical context** (for bug fix and follow-up PRs): Read the linked issue and the original feature PR discussions. Identify design intent, constraints, and reviewer-established principles.
 
-2. Launch **one sub-agent per dimension** (`task` tool, `agent_type: "general-purpose"`, `model: "claude-opus-4.6"`). Each agent evaluates exactly one dimension against the full PR diff. Run in **parallel batches of 4** (3 batches for 12 dimensions).
+1c. **Read critical repo knowledge**: For dimensions 1 (IsProcessing) and 10 (Watchdog), read the actual source files from the PR branch to get current field lists and timeout constants:
+   - `PolyPilot/Services/CopilotService.cs` — find `ClearProcessingState()` method for the authoritative field list
+   - `PolyPilot/Services/CopilotService.Events.cs` — find `Watchdog` constants for timeout values
+   - `.claude/skills/processing-state-safety/SKILL.md` — if accessible, read for full invariant list
+
+2. Launch **one sub-agent per applicable dimension** (`task` tool, `agent_type: "general-purpose"`, `model: "claude-sonnet-4.6"`). Each agent evaluates exactly one dimension against the full PR diff. Run applicable dimensions in **parallel** (typically 6–10 after triage).
 
    Each sub-agent receives: the PR diff, PR description, the single dimension's rules and checklist, and the folder context.
 
@@ -333,7 +362,7 @@ Use this to prioritize dimensions based on changed files.
 
 ### Wave 2: Validate
 
-3. For each non-LGTM finding, launch a validation agent that **proves or disproves it** using:
+3. For each non-LGTM finding, launch a validation agent (`model: "claude-opus-4.6"`) that **proves or disproves it** using:
 
    - **Code flow tracing**: Read full source from the PR branch (`github-mcp-server-get_file_contents` with `ref: "refs/pull/{pr}/head"`). Trace callers, callees, locks, thread boundaries.
    - **IsProcessing path analysis**: For IsProcessing findings, trace the specific code path and verify all 9 companion fields are cleared at each site.

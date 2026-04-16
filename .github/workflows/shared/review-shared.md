@@ -9,7 +9,7 @@ description: "Shared configuration for expert-review workflows"
 
 permissions:
   contents: read
-  pull-requests: read
+  pull-requests: write
 
 tools:
   github:
