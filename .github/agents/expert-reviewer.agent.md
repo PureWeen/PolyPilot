@@ -331,7 +331,7 @@ Use this to prioritize dimensions based on changed files.
    - `PolyPilot/Services/CopilotService.Events.cs` — find `Watchdog` constants for timeout values
    - `.claude/skills/processing-state-safety/SKILL.md` — if accessible, read for full invariant list
 
-2. Launch **one sub-agent per applicable dimension** (`task` tool, `agent_type: "general-purpose"`, `model: "claude-sonnet-4.6"`). Each agent evaluates exactly one dimension against the full PR diff. Run applicable dimensions in **parallel** (typically 6–10 after triage).
+2. Launch **one sub-agent per applicable dimension** (`task` tool, `agent_type: "general-purpose"`, `model: "claude-sonnet"`). Each agent evaluates exactly one dimension against the full PR diff. Run applicable dimensions in **parallel** (typically 6–10 after triage).
 
    Each sub-agent receives: the PR diff, PR description, the single dimension's rules and checklist, and the folder context.
 
@@ -364,7 +364,7 @@ Use this to prioritize dimensions based on changed files.
 
 ### Wave 2: Validate
 
-3. For each non-LGTM finding, launch a validation agent (`model: "claude-opus-4.6"`) that **proves or disproves it** using:
+3. For each non-LGTM finding, launch a validation agent (`model: "claude-opus"`) that **proves or disproves it** using:
 
    - **Code flow tracing**: Read full source from the PR branch (`github-mcp-server-get_file_contents` with `ref: "refs/pull/{pr}/head"`). Trace callers, callees, locks, thread boundaries.
    - **IsProcessing path analysis**: For IsProcessing findings, trace the specific code path and verify `ClearProcessingState()` is called (see Dimension 1 for the authoritative ~22-field list).
@@ -380,7 +380,7 @@ Use this to prioritize dimensions based on changed files.
 
    Confirm only with concrete evidence. Dispute if a lock, UI thread marshal, or control flow prevents the scenario.
 
-4. For borderline findings, run the same validation on 3 models (`claude-opus-4.6`, `claude-sonnet-4.6`, `gpt-5.3-codex`). Keep findings confirmed by ≥2/3.
+4. For borderline findings, run the same validation on 3 models (`claude-opus`, `claude-sonnet`, `gpt`). Keep findings confirmed by ≥2/3.
 
 ### Wave 3: Post
 
