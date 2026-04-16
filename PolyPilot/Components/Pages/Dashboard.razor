@@ -1935,6 +1935,10 @@
                             "⚠️ Images dropped — orchestration dispatch does not support image attachments. Only the text prompt is dispatched to the orchestrator and workers."));
                         imgSession.MessageCount = imgSession.History.Count;
                     }
+                    foreach (var p in imagePaths)
+                    {
+                        try { File.Delete(p); } catch { }
+                    }
                 }
                 var groupId = group!.Id;
                 var groupName = group.Name;
