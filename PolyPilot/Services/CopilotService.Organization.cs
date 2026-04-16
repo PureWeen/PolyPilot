@@ -3341,7 +3341,9 @@ public partial class CopilotService
         // prompt between ClearPendingOrchestration() and the InvokeOnUI callback,
         // StartGroupReflection creates a fresh cycle with a different StartedAt.
         var pendingGroupId = pending.GroupId;
-        var staleStartedAt = pending.StartedAt;
+        var staleStartedAt = pending.StartedAt.Kind == DateTimeKind.Utc
+            ? pending.StartedAt.ToLocalTime()
+            : pending.StartedAt;
         InvokeOnUI(() =>
         {
             var resumeGroup = Organization.Groups.FirstOrDefault(g => g.Id == pendingGroupId);

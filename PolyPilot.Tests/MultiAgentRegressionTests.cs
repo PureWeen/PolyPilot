@@ -3015,6 +3015,8 @@ public class MultiAgentRegressionTests
         // Sequential TOCTOU guard: if the user sends a new prompt (creating a fresh
         // ReflectionState) before the queued InvokeOnUI callback fires, the callback
         // must NOT reset the fresh cycle. The StartedAt comparison prevents this.
+        // Uses DateTime.UtcNow to match PendingOrchestration.StartedAt (UTC clock),
+        // then converts to local to match ReflectionCycle.StartedAt (local clock).
         var group = new SessionGroup
         {
             Id = Guid.NewGuid().ToString(),
@@ -3024,8 +3026,10 @@ public class MultiAgentRegressionTests
             ReflectionState = ReflectionCycle.Create("Original goal", maxIterations: 5)
         };
 
-        // Capture stale StartedAt (simulates PendingOrchestration.StartedAt)
-        var staleStartedAt = DateTime.Now.AddMinutes(-5);
+        // Capture stale StartedAt as UTC (simulates PendingOrchestration.StartedAt)
+        // then normalize to local time (as the production code does)
+        var pendingStartedAtUtc = DateTime.UtcNow.AddMinutes(-5);
+        var staleStartedAt = pendingStartedAtUtc.ToLocalTime();
 
         // Simulate user sending a new prompt → StartGroupReflection creates fresh state
         group.ReflectionState = ReflectionCycle.Create("New goal", maxIterations: 3);
