@@ -653,11 +653,22 @@ public partial class CopilotService
 
             // Migration: update group names that were derived from id.Split('-').Last() (issue #570).
             // E.g., groups named "maui" for repo "nicknisi-vscode-maui" should become "vscode-maui".
+            // Only migrate names that still match the old broken derivation — if the user
+            // renamed the group (e.g., "maui - PP"), preserve their customization.
             foreach (var g in Organization.Groups.Where(g => g.RepoId == repo.Id && !g.IsMultiAgent && !g.IsLocalFolder))
             {
                 var correctName = repo.Name;
-                if (!string.IsNullOrEmpty(correctName) && g.Name != correctName
-                    && !Organization.Groups.Any(other => other != g && other.RepoId == repo.Id && other.Name == correctName && !other.IsMultiAgent && !other.IsLocalFolder))
+                if (string.IsNullOrEmpty(correctName) || g.Name == correctName)
+                    continue;
+                if (Organization.Groups.Any(other => other != g && other.RepoId == repo.Id && other.Name == correctName && !other.IsMultiAgent && !other.IsLocalFolder))
+                    continue;
+
+                // The old code derived names via id.Split('-').Last(). Only overwrite if
+                // the current group name matches that old pattern — otherwise user renamed it.
+                var oldDerivedName = repo.Id.Contains('-')
+                    ? repo.Id.Split('-').Last()
+                    : repo.Id;
+                if (string.Equals(g.Name, oldDerivedName, StringComparison.Ordinal))
                 {
                     Debug($"ReconcileOrganization: migrating group name '{g.Name}' → '{correctName}' (repoId: {repo.Id})");
                     g.Name = correctName;

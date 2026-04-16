@@ -159,6 +159,56 @@ public class RepoManagerTests
         }
     }
 
+    [Fact]
+    public void Load_PreservesUserRenamedRepoNames()
+    {
+        // If the user renamed a repo from "maui" to "maui - PP", Load() migration must NOT
+        // overwrite it back to the URL-derived name.
+        var rm = new RepoManager();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-rename-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            // Repo with a user-customized name ("maui - PP" instead of "maui")
+            var json = """
+            {
+                "Repositories": [
+                    {"Id":"dotnet-maui","Name":"maui - PP","Url":"https://github.com/dotnet/maui","BareClonePath":"","AddedAt":"2026-01-01T00:00:00Z"},
+                    {"Id":"nicknisi-vscode-maui","Name":"maui","Url":"https://github.com/nicknisi/vscode-maui","BareClonePath":"","AddedAt":"2026-01-01T00:00:00Z"}
+                ],
+                "Worktrees": []
+            }
+            """;
+            File.WriteAllText(Path.Combine(tempDir, "repos.json"), json);
+
+            RepoManager.SetBaseDirForTesting(tempDir);
+            try
+            {
+                rm.Load();
+
+                var repos = rm.Repositories;
+                var dotnetMaui = repos.FirstOrDefault(r => r.Id == "dotnet-maui");
+                var vscodeMaui = repos.FirstOrDefault(r => r.Id == "nicknisi-vscode-maui");
+
+                Assert.NotNull(dotnetMaui);
+                Assert.NotNull(vscodeMaui);
+                // User-customized name must be preserved
+                Assert.Equal("maui - PP", dotnetMaui.Name);
+                // Old-style name ("maui" via Split('-').Last()) should still migrate
+                Assert.Equal("vscode-maui", vscodeMaui.Name);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            ForceDeleteDirectory(tempDir);
+        }
+    }
+
     #region Save Guard Tests (Review Finding #9)
 
     private static readonly System.Reflection.BindingFlags NonPublic =

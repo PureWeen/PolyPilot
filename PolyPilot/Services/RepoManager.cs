@@ -145,10 +145,20 @@ public class RepoManager
             // Migration: fix repo names derived from id.Split('-').Last() (issue #570).
             // Repos added before this fix have names like "maui" for both "dotnet-maui" and
             // "nicknisi-vscode-maui". Re-derive from the URL so they become "maui" vs "vscode-maui".
+            // Only migrate names that still match the old broken derivation — if the user
+            // renamed a repo (e.g., "maui - PP"), preserve their customization.
             foreach (var repo in _state.Repositories)
             {
                 var correctName = RepoNameFromUrl(repo.Url, fallbackId: repo.Id);
-                if (!string.IsNullOrEmpty(correctName) && repo.Name != correctName)
+                if (string.IsNullOrEmpty(correctName) || repo.Name == correctName)
+                    continue;
+
+                // The old code derived names via id.Split('-').Last(). Only overwrite if
+                // the current name matches that old pattern — otherwise it's user-customized.
+                var oldDerivedName = repo.Id.Contains('-')
+                    ? repo.Id.Split('-').Last()
+                    : repo.Id;
+                if (string.Equals(repo.Name, oldDerivedName, StringComparison.Ordinal))
                 {
                     Console.WriteLine($"[RepoManager] Migrating repo name: '{repo.Name}' → '{correctName}' (id: {repo.Id})");
                     repo.Name = correctName;
