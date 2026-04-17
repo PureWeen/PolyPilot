@@ -1620,4 +1620,156 @@ public class RepoManagerTests
     }
 
     #endregion
+
+    #region Worktree reuse behavioral test
+
+    [Fact]
+    public async Task CreateWorktreeAsync_SameBranch_ReusesExistingWorktree()
+    {
+        // End-to-end behavioral test: when a valid managed worktree already exists for
+        // the requested repo + branch, CreateWorktreeAsync should return it (reuse)
+        // instead of creating a second one.
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"wt-reuse-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testBaseDir);
+
+        try
+        {
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
+
+                var worktreesDir = Path.Combine(testBaseDir, "worktrees");
+                var wtPath = Path.Combine(worktreesDir, "test-repo-abc12345");
+                Directory.CreateDirectory(wtPath);
+
+                // Create a fake BareClonePath that looks like a non-bare repo (has .git dir)
+                // so EnsureRepoCloneInCurrentRootAsync early-returns without calling git.
+                var fakeBarePath = Path.Combine(testBaseDir, "fake-repo");
+                Directory.CreateDirectory(fakeBarePath);
+                Directory.CreateDirectory(Path.Combine(fakeBarePath, ".git"));
+
+                // Create a minimal .git directory in the worktree so IsValidWorktreeAsync passes
+                Directory.CreateDirectory(Path.Combine(wtPath, ".git"));
+                Directory.CreateDirectory(Path.Combine(wtPath, ".git", "refs"));
+                Directory.CreateDirectory(Path.Combine(wtPath, ".git", "objects"));
+                File.WriteAllText(Path.Combine(wtPath, ".git", "HEAD"), "ref: refs/heads/feature-x\n");
+
+                // Inject state: repo + one existing managed worktree
+                var stateField = typeof(RepoManager).GetField("_state",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = (RepositoryState)stateField.GetValue(rm)!;
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = "test-repo",
+                    Name = "test",
+                    Url = "https://github.com/test/test",
+                    BareClonePath = fakeBarePath,
+                    AddedAt = DateTime.UtcNow
+                });
+                state.Worktrees.Add(new WorktreeInfo
+                {
+                    Id = "abc12345",
+                    RepoId = "test-repo",
+                    Branch = "feature-x",
+                    Path = wtPath,
+                    BareClonePath = fakeBarePath,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                // Call CreateWorktreeAsync — it should find the existing worktree and reuse it
+                var wt = await rm.CreateWorktreeAsync("test-repo", "feature-x", skipFetch: true);
+
+                Assert.NotNull(wt);
+                Assert.Equal("abc12345", wt.Id);
+                Assert.Equal(wtPath, wt.Path);
+                Assert.Equal("feature-x", wt.Branch);
+
+                // Only one worktree should exist for this branch
+                var branchWorktrees = rm.Worktrees
+                    .Where(w => w.RepoId == "test-repo" && w.Branch == "feature-x")
+                    .ToList();
+                Assert.Single(branchWorktrees);
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(testBaseDir);
+        }
+    }
+
+    [Fact]
+    public async Task CreateWorktreeAsync_StaleWorktree_EvictsAndDoesNotReuse()
+    {
+        // When a registered worktree is stale (directory doesn't exist or is corrupt),
+        // CreateWorktreeCoreAsync should evict the stale entry from state.
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"wt-stale-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testBaseDir);
+
+        try
+        {
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
+
+                var worktreesDir = Path.Combine(testBaseDir, "worktrees");
+                var staleWtPath = Path.Combine(worktreesDir, "test-repo-stale123");
+                // Don't create the directory — simulate a deleted/corrupt worktree
+
+                // Create a fake BareClonePath that looks like a non-bare repo (has .git dir)
+                var fakeBarePath = Path.Combine(testBaseDir, "fake-repo");
+                Directory.CreateDirectory(fakeBarePath);
+                Directory.CreateDirectory(Path.Combine(fakeBarePath, ".git"));
+
+                var stateField = typeof(RepoManager).GetField("_state",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = (RepositoryState)stateField.GetValue(rm)!;
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = "test-repo",
+                    Name = "test",
+                    Url = "https://github.com/test/test",
+                    BareClonePath = fakeBarePath,
+                    AddedAt = DateTime.UtcNow
+                });
+                state.Worktrees.Add(new WorktreeInfo
+                {
+                    Id = "stale123",
+                    RepoId = "test-repo",
+                    Branch = "feature-x",
+                    Path = staleWtPath,
+                    BareClonePath = fakeBarePath,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                // The stale worktree should be evicted from state.
+                // CreateWorktreeAsync will fail after eviction when it tries to run
+                // `git worktree add` (git is not available in test env), but the
+                // stale entry should be gone before that point.
+                try
+                {
+                    await rm.CreateWorktreeAsync("test-repo", "feature-x", skipFetch: true);
+                }
+                catch
+                {
+                    // Expected — no actual git to create worktree
+                }
+
+                // Verify stale entry was evicted
+                var remaining = rm.Worktrees.Where(w => w.Id == "stale123").ToList();
+                Assert.Empty(remaining);
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(testBaseDir);
+        }
+    }
+
+    #endregion
 }
