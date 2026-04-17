@@ -514,8 +514,10 @@ public class RepoManager
         try { await RunGitAsync(repoPath, ct, "config", "core.longpaths", "true"); } catch { }
     }
 
-    private static bool PathsEqual(string left, string right)
+    private static bool PathsEqual(string? left, string? right)
     {
+        if (string.IsNullOrWhiteSpace(left) || string.IsNullOrWhiteSpace(right))
+            return false;
         var normalizedLeft = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var normalizedRight = Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
@@ -525,12 +527,15 @@ public class RepoManager
     /// Returns a deterministic 8-hex-char hash of a file path, suitable for use in persistent IDs.
     /// Uses SHA256 instead of <see cref="string.GetHashCode()"/> which is randomized per-process
     /// in .NET Core 3.0+ and must not be persisted.
+    /// Case-folding is applied on Windows/macOS (case-insensitive FS) but not on Linux.
     /// </summary>
     internal static string DeterministicPathHash(string path)
     {
         var normalized = Path.GetFullPath(path)
-            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
-            .ToLowerInvariant();
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+        // Windows and macOS use case-insensitive filesystems; Linux uses case-sensitive.
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+            normalized = normalized.ToLowerInvariant();
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(normalized));
         return Convert.ToHexString(bytes)[..8].ToLowerInvariant();
     }
@@ -781,9 +786,24 @@ public class RepoManager
 
                 // Ensure we don't collide with an existing entry with this generated ID
                 var alreadyLocal = _state.Repositories.FirstOrDefault(r => r.Id == localId);
-                if (alreadyLocal != null && PathsEqual(alreadyLocal.BareClonePath ?? "", localPath))
+                if (alreadyLocal != null && PathsEqual(alreadyLocal.BareClonePath, localPath))
                 {
+                    // Idempotent hit — same ID, same path
                     repo = alreadyLocal;
+                }
+                else if (alreadyLocal != null)
+                {
+                    // True hash collision — same ID, different path. Disambiguate with GUID.
+                    localId = $"{baseId}-local-{Guid.NewGuid().ToString("N")[..8]}";
+                    repo = new RepositoryInfo
+                    {
+                        Id = localId,
+                        Name = RepoNameFromUrl(url, fallbackId: baseId),
+                        Url = url,
+                        BareClonePath = localPath,
+                        AddedAt = DateTime.UtcNow
+                    };
+                    _state.Repositories.Add(repo);
                 }
                 else
                 {

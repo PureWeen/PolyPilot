@@ -1466,4 +1466,45 @@ public class RepoManagerTests
     }
 
     #endregion
+
+    #region PathsEqual null/empty safety tests
+
+    [Fact]
+    public void PathsEqual_NullLeft_ReturnsFalse()
+    {
+        // PathsEqual must handle null without throwing ArgumentNullException (finding #13)
+        var method = typeof(RepoManager).GetMethod("PathsEqual",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var result = (bool)method.Invoke(null, new object?[] { null, Path.GetTempPath() })!;
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void PathsEqual_EmptyLeft_ReturnsFalse()
+    {
+        var method = typeof(RepoManager).GetMethod("PathsEqual",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var result = (bool)method.Invoke(null, new object?[] { "", Path.GetTempPath() })!;
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void PathsEqual_BothNull_ReturnsFalse()
+    {
+        var method = typeof(RepoManager).GetMethod("PathsEqual",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var result = (bool)method.Invoke(null, new object?[] { null, null })!;
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void PathsEqual_WhitespaceLeft_ReturnsFalse()
+    {
+        var method = typeof(RepoManager).GetMethod("PathsEqual",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var result = (bool)method.Invoke(null, new object?[] { "  ", Path.GetTempPath() })!;
+        Assert.False(result);
+    }
+
+    #endregion
 }
