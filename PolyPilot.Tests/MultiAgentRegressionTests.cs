@@ -2063,7 +2063,7 @@ public class MultiAgentRegressionTests
     /// retries immediately rather than waiting 2–5 min for the watchdog.
     /// </summary>
     [Fact]
-    public void ReconnectLoop_IsProcessingSiblings_ForceCompletedNotSkipped()
+    public void ReconnectLoop_IsProcessingSiblings_PreservedNotForceCompleted()
     {
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs"));
 
@@ -2076,12 +2076,17 @@ public class MultiAgentRegressionTests
         Assert.True(blockEnd > taskRunIdx, "Catch block must follow the re-resume loop");
         var loopBlock = source.Substring(taskRunIdx, blockEnd - taskRunIdx);
 
-        // INV-O14: must NOT use bare 'continue' on IsProcessing — this was the bug
+        // Must NOT use bare 'continue' on IsProcessing — that was the original bug
         Assert.DoesNotContain("if (otherState.Info.IsProcessing) continue;", loopBlock);
 
-        // INV-O14: must call ForceCompleteProcessingAsync for IsProcessing siblings
-        Assert.Contains("ForceCompleteProcessingAsync", loopBlock);
-        Assert.Contains("client-recreated-dead-event-stream", loopBlock);
+        // Must NOT force-complete processing siblings — that kills in-flight responses (PR #599)
+        Assert.DoesNotContain("ForceCompleteProcessingAsync", loopBlock);
+
+        // Must capture siblingWasProcessing to preserve state through re-resume
+        Assert.Contains("siblingWasProcessing", loopBlock);
+
+        // Must start watchdog after re-resume for processing siblings
+        Assert.Contains("StartProcessingWatchdog(siblingState", loopBlock);
     }
 
     #endregion

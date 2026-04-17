@@ -3690,17 +3690,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 Debug($"[RECONNECT] Skipping non-SDK sibling '{kvp.Key}' during client recreation");
                                                 continue;
                                             }
-                                            // INV-O14: IsProcessing siblings have dead event streams —
-                                            // their CopilotSession was tied to the old client which was
-                                            // just disposed. Force-abort so the orchestrator retries
-                                            // immediately instead of waiting 2–5 min for the watchdog.
-                                            if (otherState.Info.IsProcessing)
-                                            {
-                                                Debug($"[RECONNECT] Sibling '{kvp.Key}' is IsProcessing with dead event stream — force-completing before re-resume");
-                                                try { await ForceCompleteProcessingAsync(kvp.Key, otherState, "client-recreated-dead-event-stream"); }
-                                                catch (Exception forceEx) { Debug($"[RECONNECT] Failed to force-complete sibling '{kvp.Key}': {forceEx.Message}"); }
-                                                // Fall through to re-resume the session on the new client
-                                            }
+                                            // Siblings that were actively processing have dead event streams
+                                            // (their CopilotSession was tied to the old disposed client).
+                                            // Instead of force-completing (which discards in-flight responses),
+                                            // preserve IsProcessing so the re-resumed session picks up
+                                            // events on the new connection. The watchdog handles genuinely
+                                            // dead sessions after re-resume.
+                                            var siblingWasProcessing = otherState.Info.IsProcessing;
                                             var otherMeta = sessionSnapshots.FirstOrDefault(m => m.SessionName == kvp.Key);
                                             if (otherMeta?.GroupId != null &&
                                                 groupSnapshots.Any(g => g.Id == otherMeta.GroupId && g.IsCodespace))
@@ -3745,7 +3741,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     // Re-check after await — a concurrent SendPromptAsync
                                                     // may have started processing while we were resuming.
                                                     // Orphan the just-resumed session rather than cancel a live turn.
-                                                    if (capturedOtherState.Info.IsProcessing)
+                                                    // BUT: if siblingWasProcessing is true, the session was already
+                                                    // processing BEFORE the reconnect — that's expected, not concurrent.
+                                                    if (capturedOtherState.Info.IsProcessing && !siblingWasProcessing)
                                                     {
                                                         Debug($"[RECONNECT] Sibling '{capturedKey}' started processing during re-resume — skipping");
                                                         try { await resumed.DisposeAsync(); } catch { }
@@ -3788,6 +3786,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     }
                                                     DisposePrematureIdleSignal(capturedOtherState);
                                                     Debug($"[RECONNECT] Re-resumed sibling session '{capturedKey}' after client recreation");
+                                                    // If the sibling was actively processing before the reconnect,
+                                                    // restore processing state on the new connection so events
+                                                    // continue streaming to the UI instead of being EVT-REARM-SKIP'd.
+                                                    if (siblingWasProcessing)
+                                                    {
+                                                        siblingState.Info.IsProcessing = true;
+                                                        siblingState.Info.IsResumed = true;
+                                                        siblingState.HasUsedToolsThisTurn = true; // 600s watchdog tier
+                                                        siblingState.Info.ProcessingPhase = 3; // Working
+                                                        siblingState.Info.ProcessingStartedAt ??= DateTime.UtcNow;
+                                                        siblingState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                                                        StartProcessingWatchdog(siblingState, capturedKey);
+                                                        Debug($"[RECONNECT] Sibling '{capturedKey}' was processing — preserved IsProcessing + started watchdog");
+                                                    }
                                                 }
                                                 catch (Exception reEx)
                                                 {
