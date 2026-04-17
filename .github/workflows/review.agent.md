@@ -27,6 +27,11 @@ engine:
   id: copilot
   model: claude-sonnet-4.6
 
+network:
+  allowed:
+    - defaults
+    - dotnet
+
 imports:
   - shared/review-shared.md
 
