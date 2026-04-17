@@ -46,6 +46,8 @@ public class RepoManager
 
     // Serializes concurrent worktree creation for the same repo+branch to prevent
     // two calls from both passing the reuse check and racing on `git worktree add -b`.
+    // Entries grow unboundedly (~48 bytes each) but are bounded by user activity
+    // (typically hundreds of branches). Acceptable trade-off for a desktop app.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _worktreeCreationLocks = new();
     public IReadOnlyList<RepositoryInfo> Repositories
     {
@@ -447,8 +449,14 @@ public class RepoManager
         // No URL — derive from ID (best effort)
         if (!string.IsNullOrWhiteSpace(fallbackId))
         {
-            var dashIdx = fallbackId.IndexOf('-');
-            return dashIdx >= 0 ? fallbackId[(dashIdx + 1)..] : fallbackId;
+            // Strip "-local-{hash}" suffix before deriving name so local repo IDs like
+            // "dotnet-maui-local-a1b2c3d4" produce "maui" instead of "maui-local-a1b2c3d4".
+            var cleanId = fallbackId;
+            var localIdx = cleanId.IndexOf("-local-", StringComparison.Ordinal);
+            if (localIdx > 0)
+                cleanId = cleanId[..localIdx];
+            var dashIdx = cleanId.IndexOf('-');
+            return dashIdx >= 0 ? cleanId[(dashIdx + 1)..] : cleanId;
         }
         return "";
     }
@@ -495,6 +503,10 @@ public class RepoManager
 
         // Cap at 24 chars to leave headroom for deeply-nested repo content.
         // Full path budget: ~45 chars (base) + abbreviated + "-" + 8 (guid) + repo-internal path
+        // Note: Two repos whose IDs share the first 24 chars would produce the same abbreviated
+        // prefix. HealMissingRepos handles this via WorktreeDirName reverse-lookup which may
+        // match the wrong repo in that edge case. Acceptable trade-off since this only affects
+        // the self-healing recovery path, not normal worktree creation.
         const int maxRepoIdLen = 24;
         if (abbreviated.Length > maxRepoIdLen)
             abbreviated = abbreviated[..maxRepoIdLen];
@@ -784,7 +796,9 @@ public class RepoManager
                 var pathHash = DeterministicPathHash(localPath);
                 var localId = $"{baseId}-local-{pathHash}";
 
-                // Ensure we don't collide with an existing entry with this generated ID
+                // Ensure we don't collide with an existing entry with this generated ID.
+                // Idempotency is guaranteed by the `existingLocal` path-match check above (line 781),
+                // which scans by BareClonePath regardless of ID format.
                 var alreadyLocal = _state.Repositories.FirstOrDefault(r => r.Id == localId);
                 if (alreadyLocal != null && PathsEqual(alreadyLocal.BareClonePath, localPath))
                 {

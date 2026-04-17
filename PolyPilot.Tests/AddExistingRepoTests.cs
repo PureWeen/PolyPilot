@@ -237,18 +237,47 @@ public class AddExistingRepoTests
     }
 
     [Fact]
-    public void AddRepositoryFromLocal_NoBareCloneCreatedInReposDir()
+    public async Task AddRepositoryFromLocal_NoBareCloneCreatedInReposDir()
     {
-        // Verify that AddRepositoryFromLocalAsync does NOT call AddRepositoryAsync
-        // (which would create a bare clone). Our approach sets BareClonePath directly
-        // to the local path — the internal localCloneSource overload is no longer used.
-        var sourceFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "RepoManager.cs"));
+        // AddRepositoryFromLocalAsync should NOT create a bare clone in ReposDir.
+        // It sets BareClonePath directly to the local folder path.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"no-bare-test-{Guid.NewGuid():N}");
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(testBaseDir);
+        try
+        {
+            await RunProcess("git", "init", tempDir);
+            await RunProcess("git", "-C", tempDir, "config", "user.email", "test@test.com");
+            await RunProcess("git", "-C", tempDir, "config", "user.name", "Test");
+            await RunProcess("git", "-C", tempDir, "commit", "--allow-empty", "-m", "init");
+            await RunProcess("git", "-C", tempDir, "remote", "add", "origin", "https://github.com/test-owner/no-bare.git");
 
-        // AddRepositoryFromLocalAsync should NOT call AddRepositoryAsync
-        // Instead it should directly create a RepositoryInfo with BareClonePath = localPath
-        var methodBody = ExtractMethodBody(sourceFile, "AddRepositoryFromLocalAsync");
-        Assert.DoesNotContain("AddRepositoryAsync(", methodBody);
-        Assert.Contains("BareClonePath = localPath", methodBody);
+            var rm = new RepoManager();
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                rm.Load();
+                var repo = await rm.AddRepositoryFromLocalAsync(tempDir);
+
+                // BareClonePath should point at the local folder, not a managed bare clone
+                Assert.Equal(Path.GetFullPath(tempDir), Path.GetFullPath(repo.BareClonePath));
+
+                // No bare clone directory should exist in the repos dir
+                var reposDir = Path.Combine(testBaseDir, "repos");
+                if (Directory.Exists(reposDir))
+                {
+                    var bareDirs = Directory.GetDirectories(reposDir, "*.git");
+                    Assert.Empty(bareDirs);
+                }
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(tempDir);
+            ForceDeleteDirectory(testBaseDir);
+        }
     }
 
     [Fact]
@@ -379,25 +408,6 @@ public class AddExistingRepoTests
         var a = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var b = Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         return string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static string ExtractMethodBody(string source, string methodName)
-    {
-        var idx = source.IndexOf(methodName, StringComparison.Ordinal);
-        if (idx < 0) return "";
-        // Find opening brace
-        var braceIdx = source.IndexOf('{', idx);
-        if (braceIdx < 0) return "";
-        // Find matching closing brace
-        var depth = 1;
-        var i = braceIdx + 1;
-        while (i < source.Length && depth > 0)
-        {
-            if (source[i] == '{') depth++;
-            else if (source[i] == '}') depth--;
-            i++;
-        }
-        return source[braceIdx..i];
     }
 
     // ─── Bug 2 (second block): WorktreeId-based reconcile prefers local folder ─
@@ -549,17 +559,51 @@ public class AddExistingRepoTests
     }
 
     [Fact]
-    public void EnsureRepoClone_SkipsCloneForNonBareRepo_WithGitDirectory()
+    public async Task EnsureRepoClone_SkipsCloneForNonBareRepo_WithGitDirectory()
     {
-        // EnsureRepoCloneInCurrentRootAsync should detect a .git directory
-        // and skip clone management for repos added via "Existing Folder".
-        // This is a structural test that verifies the guard exists.
-        var sourceFile = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "RepoManager.cs"));
-        var methodBody = ExtractMethodBody(sourceFile, "EnsureRepoCloneInCurrentRootAsync");
+        // When BareClonePath points at a non-bare repo (added via "Existing Folder"),
+        // EnsureRepoCloneInCurrentRootAsync should skip clone management.
+        // We verify this by calling FetchAsync (which calls EnsureRepoCloneInCurrentRootAsync)
+        // on a repo whose BareClonePath is a local non-bare checkout.
+        var tempDir = Path.Combine(Path.GetTempPath(), $"skip-clone-test-{Guid.NewGuid():N}");
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        Directory.CreateDirectory(testBaseDir);
+        try
+        {
+            await RunProcess("git", "init", tempDir);
+            await RunProcess("git", "-C", tempDir, "config", "user.email", "test@test.com");
+            await RunProcess("git", "-C", tempDir, "config", "user.name", "Test");
+            await RunProcess("git", "-C", tempDir, "commit", "--allow-empty", "-m", "init");
+            await RunProcess("git", "-C", tempDir, "remote", "add", "origin", "https://github.com/test-owner/skip-clone.git");
 
-        // Must check for both .git directory and .git file (worktree checkout)
-        Assert.Contains("Directory.Exists(Path.Combine(repo.BareClonePath, \".git\"))", methodBody);
-        Assert.Contains("File.Exists(Path.Combine(repo.BareClonePath, \".git\"))", methodBody);
+            var rm = new RepoManager();
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                rm.Load();
+                var repo = await rm.AddRepositoryFromLocalAsync(tempDir);
+
+                // FetchAsync internally calls EnsureRepoCloneInCurrentRootAsync.
+                // For a non-bare repo (has .git directory), it should return early
+                // without creating a bare clone in ReposDir.
+                try { await rm.FetchAsync(repo.Id); } catch { /* fetch may fail without a real remote — that's OK */ }
+
+                // Verify no bare clone was created
+                var reposDir = Path.Combine(testBaseDir, "repos");
+                if (Directory.Exists(reposDir))
+                {
+                    var bareDirs = Directory.GetDirectories(reposDir, "*.git");
+                    Assert.Empty(bareDirs);
+                }
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(tempDir);
+            ForceDeleteDirectory(testBaseDir);
+        }
     }
 
     [Fact]
@@ -609,11 +653,4 @@ public class AddExistingRepoTests
         }
     }
 
-    private static string GetRepoRoot()
-    {
-        var dir = new DirectoryInfo(AppContext.BaseDirectory);
-        while (dir != null && !File.Exists(Path.Combine(dir.FullName, "PolyPilot.slnx")))
-            dir = dir.Parent;
-        return dir?.FullName ?? throw new InvalidOperationException("Could not find repo root");
-    }
 }

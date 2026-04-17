@@ -89,6 +89,8 @@ public class RepoManagerTests
     [InlineData(null, "single-word", "word")]            // first dash is owner separator
     [InlineData(null, "nodash", "nodash")]               // no dash → return as-is
     [InlineData("", "dotnet-maui", "maui")]
+    [InlineData(null, "dotnet-maui-local-a1b2c3d4", "maui")]  // strips -local-{hash} before derivation
+    [InlineData(null, "Owner-Repo-local-12345678", "Repo")]
     public void RepoNameFromUrl_FallbackFromId(string? url, string? fallbackId, string expected)
     {
         Assert.Equal(expected, RepoManager.RepoNameFromUrl(url, fallbackId));

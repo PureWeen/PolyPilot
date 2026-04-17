@@ -796,7 +796,7 @@ else
                     <div class="sidebar-create-section">
                         <span class="sidebar-create-section-label">Folder</span>
                         <div class="add-repo-folder-row">
-                        <input type="text" @bind="addRepoFolderPath" @bind:event="oninput"
+                        <input type="text" @bind="addRepoFolderPath"
                                 placeholder="Path to a cloned repository…"
                                 class="repo-url-input sidebar-create-input" />
                         <button class="btn-repo-browse sidebar-create-button sidebar-create-button-secondary sidebar-create-browse" @onclick="BrowseExistingRepo"
@@ -817,7 +817,7 @@ else
             {
                 <div class="sidebar-create-section">
                     <span class="sidebar-create-section-label">Repository URL</span>
-                    <input type="text" @bind="newRepoUrl" @bind:event="oninput" placeholder="owner/repo or full URL" class="repo-url-input sidebar-create-input" />
+                    <input type="text" @bind="newRepoUrl" placeholder="owner/repo or full URL" class="repo-url-input sidebar-create-input" />
                 </div>
                 @if (confirmRepoReplace)
                 {
