@@ -3771,6 +3771,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     Interlocked.Exchange(ref siblingState.ToolHealthStaleChecks, 0);
                                                     Interlocked.Exchange(ref siblingState.EventCountThisTurn, 0);
                                                     Interlocked.Exchange(ref siblingState.TurnEndReceivedAtTicks, 0);
+                                                    // If the sibling was actively processing before the reconnect,
+                                                    // restore processing state BEFORE handler registration so events
+                                                    // arriving on the new connection see IsProcessing=true immediately
+                                                    // and don't trigger premature CompleteResponse or EVT-REARM-SKIP.
+                                                    if (siblingWasProcessing)
+                                                    {
+                                                        siblingState.HasUsedToolsThisTurn = true; // 600s watchdog tier
+                                                        siblingState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                                                    }
                                                     // Register handler BEFORE publishing to dictionary —
                                                     // no window where events arrive with no handler.
                                                     resumed.On(evt => HandleSessionEvent(siblingState, evt));
@@ -3786,19 +3795,21 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     }
                                                     DisposePrematureIdleSignal(capturedOtherState);
                                                     Debug($"[RECONNECT] Re-resumed sibling session '{capturedKey}' after client recreation");
-                                                    // If the sibling was actively processing before the reconnect,
-                                                    // restore processing state on the new connection so events
-                                                    // continue streaming to the UI instead of being EVT-REARM-SKIP'd.
+                                                    // Marshal IsProcessing restoration to the UI thread (INV-2)
+                                                    // so it doesn't race with event handlers or UI rendering.
                                                     if (siblingWasProcessing)
                                                     {
-                                                        siblingState.Info.IsProcessing = true;
-                                                        siblingState.Info.IsResumed = true;
-                                                        siblingState.HasUsedToolsThisTurn = true; // 600s watchdog tier
-                                                        siblingState.Info.ProcessingPhase = 3; // Working
-                                                        siblingState.Info.ProcessingStartedAt ??= DateTime.UtcNow;
-                                                        siblingState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
-                                                        StartProcessingWatchdog(siblingState, capturedKey);
-                                                        Debug($"[RECONNECT] Sibling '{capturedKey}' was processing — preserved IsProcessing + started watchdog");
+                                                        InvokeOnUI(() =>
+                                                        {
+                                                            if (siblingState.IsOrphaned) return;
+                                                            siblingState.Info.IsProcessing = true;
+                                                            siblingState.Info.IsResumed = true;
+                                                            siblingState.Info.ProcessingPhase = 3; // Working
+                                                            siblingState.Info.ProcessingStartedAt ??= DateTime.UtcNow;
+                                                            StartProcessingWatchdog(siblingState, capturedKey);
+                                                            NotifyStateChangedCoalesced();
+                                                            Debug($"[RECONNECT] Sibling '{capturedKey}' was processing — preserved IsProcessing + started watchdog");
+                                                        });
                                                     }
                                                 }
                                                 catch (Exception reEx)
