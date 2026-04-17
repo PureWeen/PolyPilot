@@ -9,23 +9,20 @@ description: "Shared configuration for expert-review workflows"
 
 permissions:
   contents: read
-  pull-requests: write
-  issues: write
+  pull-requests: read
 
 tools:
   github:
     toolsets: [pull_requests, repos]
 
 safe-outputs:
-  create_pull_request_review_comment:
+  create-pull-request-review-comment:
     max: 30
-  submit_pull_request_review:
+  submit-pull-request-review:
     max: 1
     allowed-events: [COMMENT, REQUEST_CHANGES]
-  add_comment:
+  add-comment:
     max: 5
-  remove_label:
-    max: 1
 ---
 
 <!-- Body provided by shared/review-shared.md -->
