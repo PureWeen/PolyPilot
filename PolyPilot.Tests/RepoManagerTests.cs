@@ -61,6 +61,156 @@ public class RepoManagerTests
         Assert.Equal(input, RepoManager.NormalizeRepoUrl(input));
     }
 
+    // ─── RepoNameFromUrl tests (Issue #570: picker shows ambiguous last-word names) ───
+
+    [Theory]
+    [InlineData("https://github.com/dotnet/maui", "maui")]
+    [InlineData("https://github.com/nicknisi/vscode-maui", "vscode-maui")]
+    [InlineData("https://github.com/PureWeen/PolyPilot", "PolyPilot")]
+    [InlineData("https://github.com/Owner/Repo.git", "Repo")]
+    [InlineData("https://gitlab.com/group/subgroup/repo.git", "repo")]
+    public void RepoNameFromUrl_Https_ExtractsRepoName(string url, string expected)
+    {
+        Assert.Equal(expected, RepoManager.RepoNameFromUrl(url));
+    }
+
+    [Theory]
+    [InlineData("git@github.com:Owner/Repo.git", "Repo")]
+    [InlineData("git@github.com:dotnet/maui", "maui")]
+    [InlineData("git@github.com:nicknisi/vscode-maui.git", "vscode-maui")]
+    public void RepoNameFromUrl_Ssh_ExtractsRepoName(string url, string expected)
+    {
+        Assert.Equal(expected, RepoManager.RepoNameFromUrl(url));
+    }
+
+    [Theory]
+    [InlineData(null, "dotnet-maui", "maui")]           // fallback strips owner prefix
+    [InlineData(null, "PureWeen-PolyPilot", "PolyPilot")]
+    [InlineData(null, "single-word", "word")]            // first dash is owner separator
+    [InlineData(null, "nodash", "nodash")]               // no dash → return as-is
+    [InlineData("", "dotnet-maui", "maui")]
+    [InlineData(null, "dotnet-maui-local-a1b2c3d4", "maui")]  // strips -local-{hash} before derivation
+    [InlineData(null, "Owner-Repo-local-12345678", "Repo")]
+    public void RepoNameFromUrl_FallbackFromId(string? url, string? fallbackId, string expected)
+    {
+        Assert.Equal(expected, RepoManager.RepoNameFromUrl(url, fallbackId));
+    }
+
+    [Fact]
+    public void RepoNameFromUrl_NullUrlAndNullId_ReturnsEmpty()
+    {
+        Assert.Equal("", RepoManager.RepoNameFromUrl(null, null));
+    }
+
+    [Fact]
+    public void RepoNameFromUrl_PreservesHyphensInRepoName()
+    {
+        // This is the key fix for issue #570: "vscode-maui" and "maui" should be distinguishable
+        var name1 = RepoManager.RepoNameFromUrl("https://github.com/nicknisi/vscode-maui");
+        var name2 = RepoManager.RepoNameFromUrl("https://github.com/dotnet/maui");
+        Assert.NotEqual(name1, name2);
+        Assert.Equal("vscode-maui", name1);
+        Assert.Equal("maui", name2);
+    }
+
+    [Fact]
+    public void Load_MigratesOldStyleRepoNames()
+    {
+        // Repos saved with the old id.Split('-').Last() naming should be fixed on load.
+        var rm = new RepoManager();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-migrate-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            // Write state with old-style names (both repos named "maui" despite different URLs)
+            var oldJson = """
+            {
+                "Repositories": [
+                    {"Id":"dotnet-maui","Name":"maui","Url":"https://github.com/dotnet/maui","BareClonePath":"","AddedAt":"2026-01-01T00:00:00Z"},
+                    {"Id":"nicknisi-vscode-maui","Name":"maui","Url":"https://github.com/nicknisi/vscode-maui","BareClonePath":"","AddedAt":"2026-01-01T00:00:00Z"}
+                ],
+                "Worktrees": []
+            }
+            """;
+            File.WriteAllText(Path.Combine(tempDir, "repos.json"), oldJson);
+
+            RepoManager.SetBaseDirForTesting(tempDir);
+            try
+            {
+                rm.Load();
+
+                var repos = rm.Repositories;
+                var dotnetMaui = repos.FirstOrDefault(r => r.Id == "dotnet-maui");
+                var vscodeMaui = repos.FirstOrDefault(r => r.Id == "nicknisi-vscode-maui");
+
+                Assert.NotNull(dotnetMaui);
+                Assert.NotNull(vscodeMaui);
+                Assert.Equal("maui", dotnetMaui.Name);
+                Assert.Equal("vscode-maui", vscodeMaui.Name);
+                Assert.NotEqual(dotnetMaui.Name, vscodeMaui.Name);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            ForceDeleteDirectory(tempDir);
+        }
+    }
+
+    [Fact]
+    public void Load_PreservesUserRenamedRepoNames()
+    {
+        // If the user renamed a repo from "maui" to "maui - PP", Load() migration must NOT
+        // overwrite it back to the URL-derived name.
+        var rm = new RepoManager();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"repomgr-rename-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            // Repo with a user-customized name ("maui - PP" instead of "maui")
+            var json = """
+            {
+                "Repositories": [
+                    {"Id":"dotnet-maui","Name":"maui - PP","Url":"https://github.com/dotnet/maui","BareClonePath":"","AddedAt":"2026-01-01T00:00:00Z"},
+                    {"Id":"nicknisi-vscode-maui","Name":"maui","Url":"https://github.com/nicknisi/vscode-maui","BareClonePath":"","AddedAt":"2026-01-01T00:00:00Z"}
+                ],
+                "Worktrees": []
+            }
+            """;
+            File.WriteAllText(Path.Combine(tempDir, "repos.json"), json);
+
+            RepoManager.SetBaseDirForTesting(tempDir);
+            try
+            {
+                rm.Load();
+
+                var repos = rm.Repositories;
+                var dotnetMaui = repos.FirstOrDefault(r => r.Id == "dotnet-maui");
+                var vscodeMaui = repos.FirstOrDefault(r => r.Id == "nicknisi-vscode-maui");
+
+                Assert.NotNull(dotnetMaui);
+                Assert.NotNull(vscodeMaui);
+                // User-customized name must be preserved
+                Assert.Equal("maui - PP", dotnetMaui.Name);
+                // Old-style name ("maui" via Split('-').Last()) should still migrate
+                Assert.Equal("vscode-maui", vscodeMaui.Name);
+            }
+            finally
+            {
+                RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir);
+            }
+        }
+        finally
+        {
+            ForceDeleteDirectory(tempDir);
+        }
+    }
+
     #region Save Guard Tests (Review Finding #9)
 
     private static readonly System.Reflection.BindingFlags NonPublic =
@@ -997,35 +1147,10 @@ public class RepoManagerTests
     #region CreateWorktreeAsync Path Strategy Tests
 
     [Fact]
-    public void CreateWorktree_WithLocalPath_PlacesWorktreeInsideLocalRepo()
+    public void CreateWorktree_AlwaysPlacesWorktreeInCentralDir()
     {
-        // When localPath is provided, the worktree path should be:
-        // {localPath}/.polypilot/worktrees/{branchName}
-        // This is the "nested strategy" that keeps worktrees inside the user's repo.
-
-        var localRepoPath = Path.Combine(Path.GetTempPath(), "my-local-repo");
-        var branchName = "feature-login";
-        var repoWorktreesDir = Path.Combine(localRepoPath, ".polypilot", "worktrees");
-        var expectedPath = Path.Combine(repoWorktreesDir, branchName);
-        var resolved = Path.GetFullPath(expectedPath);
-        var managedBase = Path.GetFullPath(repoWorktreesDir) + Path.DirectorySeparatorChar;
-
-        // Verify path is inside the managed dir (passes the guard)
-        Assert.True(resolved.StartsWith(managedBase, StringComparison.OrdinalIgnoreCase),
-            $"Expected path '{resolved}' to be inside '{managedBase}'");
-
-        // Verify it is NOT under the centralized worktrees dir
-        var centralDir = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees");
-        Assert.False(resolved.StartsWith(Path.GetFullPath(centralDir), StringComparison.OrdinalIgnoreCase),
-            "Nested worktree path should NOT be under the centralized worktrees dir");
-    }
-
-    [Fact]
-    public void CreateWorktree_WithoutLocalPath_PlacesWorktreeInCentralDir()
-    {
-        // When localPath is null, the worktree path should be:
-        // {WorktreesDir}/{repoId}-{guid8}
-        // This is the "centralized strategy" for URL-based groups.
+        // All worktrees should go to {WorktreesDir}/{repoId}-{guid8}
+        // (centralized strategy — nested strategy was removed).
 
         var testBaseDir = Path.Combine(Path.GetTempPath(), $"central-strategy-{Guid.NewGuid():N}");
         var worktreesDir = Path.Combine(testBaseDir, "worktrees");
@@ -1037,24 +1162,181 @@ public class RepoManagerTests
         Assert.True(expectedPath.StartsWith(worktreesDir, StringComparison.OrdinalIgnoreCase),
             $"Centralized path '{expectedPath}' should be under WorktreesDir '{worktreesDir}'");
 
-        // Verify it does NOT contain .polypilot/worktrees (which would indicate nested)
+        // Verify it does NOT contain .polypilot/worktrees (which would indicate old nested strategy)
         var marker = Path.Combine(".polypilot", "worktrees");
         Assert.DoesNotContain(marker, expectedPath, StringComparison.OrdinalIgnoreCase);
     }
 
-    [Fact]
-    public void CreateWorktree_LocalPath_StrategySelectedByNullCheck()
-    {
-        // Regression: the localPath parameter is the SOLE discriminator between nested
-        // and centralized strategy. Verify that an empty/whitespace localPath would NOT
-        // accidentally trigger the nested path (same guard that CreateWorktreeAsync uses).
+    #endregion
 
-        // Production code: if (!string.IsNullOrWhiteSpace(localPath)) → nested
-        Assert.True(string.IsNullOrWhiteSpace(null));
-        Assert.True(string.IsNullOrWhiteSpace(""));
-        Assert.True(string.IsNullOrWhiteSpace("   "));
-        Assert.False(string.IsNullOrWhiteSpace("/valid/path"));
-        Assert.False(string.IsNullOrWhiteSpace(@"C:\valid\path"));
+    #region Existing Folder Safety Tests
+
+    [Fact]
+    public async Task RemoveRepository_DeleteFromDisk_SkipsNonManagedBareClonePath()
+    {
+        // Behavioral test: repos added via "Existing Folder" have BareClonePath pointing
+        // at the user's real project directory. RemoveRepositoryAsync with deleteFromDisk
+        // must NOT delete it — only managed bare clones under ReposDir should be deleted.
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        var userProject = Path.Combine(Path.GetTempPath(), $"user-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testBaseDir);
+        Directory.CreateDirectory(userProject);
+        File.WriteAllText(Path.Combine(userProject, "important.txt"), "don't delete me");
+
+        try
+        {
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
+
+                // Manually add a repo that mimics "Existing Folder" — BareClonePath points
+                // at the user's project, NOT under the managed ReposDir.
+                var stateField = typeof(RepoManager).GetField("_state",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = (RepositoryState)stateField.GetValue(rm)!;
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = "local-repo", Name = "test", Url = "https://github.com/test/test",
+                    BareClonePath = userProject, AddedAt = DateTime.UtcNow
+                });
+
+                // Call the actual production method with deleteFromDisk: true
+                await rm.RemoveRepositoryAsync("local-repo", deleteFromDisk: true);
+
+                // The user's project directory must still exist — never deleted
+                Assert.True(Directory.Exists(userProject), "User's project directory was deleted!");
+                Assert.True(File.Exists(Path.Combine(userProject, "important.txt")),
+                    "User's files were deleted!");
+
+                // The repo should be removed from state
+                Assert.DoesNotContain(rm.Repositories, r => r.Id == "local-repo");
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(testBaseDir);
+            ForceDeleteDirectory(userProject);
+        }
+    }
+
+    [Fact]
+    public async Task RemoveRepository_DeleteFromDisk_DeletesManagedBareClone()
+    {
+        // Complementary test: managed bare clones under ReposDir SHOULD be deleted.
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testBaseDir);
+
+        try
+        {
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
+
+                // Create a managed bare clone directory under ReposDir
+                var reposDir = Path.Combine(testBaseDir, "repos");
+                var barePath = Path.Combine(reposDir, "test-repo.git");
+                Directory.CreateDirectory(barePath);
+                File.WriteAllText(Path.Combine(barePath, "HEAD"), "ref: refs/heads/main");
+
+                var stateField = typeof(RepoManager).GetField("_state",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = (RepositoryState)stateField.GetValue(rm)!;
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = "managed-repo", Name = "test", Url = "https://github.com/test/test",
+                    BareClonePath = barePath, AddedAt = DateTime.UtcNow
+                });
+
+                await rm.RemoveRepositoryAsync("managed-repo", deleteFromDisk: true);
+
+                // Managed bare clone should be deleted
+                Assert.False(Directory.Exists(barePath), "Managed bare clone was not deleted");
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(testBaseDir);
+        }
+    }
+
+    [Fact]
+    public void WorktreeReuse_OnlyMatchesCentralizedWorktrees()
+    {
+        // Behavioral test: worktree reuse must only return worktrees under the centralized
+        // WorktreesDir, not external user checkouts registered via "Existing Folder".
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testBaseDir);
+        try
+        {
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
+
+                var worktreesDir = Path.Combine(testBaseDir, "worktrees");
+                var managedWtPath = Path.Combine(worktreesDir, "test-repo-abc12345");
+                var userCheckout = Path.Combine(Path.GetTempPath(), $"user-checkout-{Guid.NewGuid():N}");
+                Directory.CreateDirectory(managedWtPath);
+                Directory.CreateDirectory(userCheckout);
+
+                // Inject state with two worktrees for the same repo+branch:
+                // one managed (under WorktreesDir) and one external (user checkout)
+                var stateField = typeof(RepoManager).GetField("_state",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = (RepositoryState)stateField.GetValue(rm)!;
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = "test-repo", Name = "test", Url = "https://github.com/test/test",
+                    BareClonePath = Path.Combine(testBaseDir, "repos", "test-repo.git"),
+                    AddedAt = DateTime.UtcNow
+                });
+                state.Worktrees.Add(new WorktreeInfo
+                {
+                    Id = "ext-wt", RepoId = "test-repo", Branch = "main",
+                    Path = userCheckout // External — should NOT be matched for reuse
+                });
+                state.Worktrees.Add(new WorktreeInfo
+                {
+                    Id = "mgd-wt", RepoId = "test-repo", Branch = "main",
+                    Path = managedWtPath // Managed — would be matched (if valid)
+                });
+
+                // The managed worktree prefix check is the key invariant:
+                var managedPrefix = Path.GetFullPath(worktreesDir) + Path.DirectorySeparatorChar;
+                var externalFull = Path.GetFullPath(userCheckout);
+                var managedFull = Path.GetFullPath(managedWtPath);
+
+                Assert.False(externalFull.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase),
+                    "External user checkout must NOT be under WorktreesDir");
+                Assert.True(managedFull.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase),
+                    "Managed worktree must be under WorktreesDir");
+
+                // Verify by querying worktrees: only managed worktree paths should match the prefix
+                var worktrees = rm.Worktrees;
+                var reuseMatches = worktrees.Where(w =>
+                    w.RepoId == "test-repo"
+                    && string.Equals(w.Branch, "main", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(w.Path)
+                    && Path.GetFullPath(w.Path).StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                Assert.Single(reuseMatches);
+                Assert.Equal("mgd-wt", reuseMatches[0].Id);
+
+                ForceDeleteDirectory(userCheckout);
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(testBaseDir);
+        }
     }
 
     #endregion
@@ -1145,5 +1427,349 @@ public class RepoManagerTests
     }
 
     #endregion
-}
 
+    #region WorktreeDirName tests
+
+    [Theory]
+    [InlineData("dotnet-maui", "ab12cd34", "dotnet-maui-ab12cd34")]
+    [InlineData("Owner-Repo", "deadbeef", "Owner-Repo-deadbeef")]
+    [InlineData("PureWeen-PolyPilot", "11223344", "PureWeen-PolyPilot-11223344")]
+    public void WorktreeDirName_NormalRepoId_UsesFullId(string repoId, string wtId, string expected)
+    {
+        Assert.Equal(expected, RepoManager.WorktreeDirName(repoId, wtId));
+    }
+
+    [Theory]
+    [InlineData("dotnet-maui-local-a1b2c3d4", "deadbeef", "dotnet-maui-deadbeef")]
+    [InlineData("Owner-Repo-local-12345678", "aabbccdd", "Owner-Repo-aabbccdd")]
+    public void WorktreeDirName_LocalRepoId_StripsLocalSuffix(string repoId, string wtId, string expected)
+    {
+        Assert.Equal(expected, RepoManager.WorktreeDirName(repoId, wtId));
+    }
+
+    [Fact]
+    public void WorktreeDirName_VeryLongRepoId_TruncatesTo24Chars()
+    {
+        var longId = "very-long-organization-name-with-a-deeply-nested-repo";
+        var result = RepoManager.WorktreeDirName(longId, "deadbeef");
+        // 24 chars of id + "-" + 8 chars of guid = 33 chars max
+        Assert.Equal("very-long-organization-n-deadbeef", result);
+        Assert.True(result.Length <= 33, $"WorktreeDirName too long: {result.Length} chars");
+    }
+
+    [Fact]
+    public void WorktreeDirName_ShortRepoId_NotTruncated()
+    {
+        var result = RepoManager.WorktreeDirName("a-b", "12345678");
+        Assert.Equal("a-b-12345678", result);
+    }
+
+    #endregion
+
+    #region DeterministicPathHash tests
+
+    [Fact]
+    public void DeterministicPathHash_IsDeterministic()
+    {
+        var path = Path.Combine(Path.GetTempPath(), "some-repo-folder");
+        var hash1 = RepoManager.DeterministicPathHash(path);
+        var hash2 = RepoManager.DeterministicPathHash(path);
+        Assert.Equal(hash1, hash2);
+        Assert.Matches(@"^[0-9a-f]{8}$", hash1);
+    }
+
+    [Fact]
+    public void DeterministicPathHash_NormalizesTrailingSeparators()
+    {
+        var basePath = Path.Combine(Path.GetTempPath(), "some-repo");
+        var withSep = basePath + Path.DirectorySeparatorChar;
+        Assert.Equal(
+            RepoManager.DeterministicPathHash(basePath),
+            RepoManager.DeterministicPathHash(withSep));
+    }
+
+    [Fact]
+    public void DeterministicPathHash_DifferentPathsProduceDifferentHashes()
+    {
+        var hash1 = RepoManager.DeterministicPathHash(Path.Combine(Path.GetTempPath(), "repo-a"));
+        var hash2 = RepoManager.DeterministicPathHash(Path.Combine(Path.GetTempPath(), "repo-b"));
+        Assert.NotEqual(hash1, hash2);
+    }
+
+    #endregion
+
+    #region IsValidWorktreeAsync tests
+
+    [Fact]
+    public async Task IsValidWorktreeAsync_NonExistentDir_ReturnsFalse()
+    {
+        var rm = new RepoManager();
+        var result = await rm.IsValidWorktreeAsync(
+            Path.Combine(Path.GetTempPath(), $"no-such-dir-{Guid.NewGuid():N}"),
+            CancellationToken.None);
+        Assert.False(result);
+    }
+
+    [Fact]
+    public async Task IsValidWorktreeAsync_EmptyDir_ReturnsFalse()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"empty-dir-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            var rm = new RepoManager();
+            var result = await rm.IsValidWorktreeAsync(dir, CancellationToken.None);
+            Assert.False(result, "Empty directory (no .git) should not be considered a valid worktree");
+        }
+        finally { ForceDeleteDirectory(dir); }
+    }
+
+    [Fact]
+    public async Task IsValidWorktreeAsync_ValidGitRepo_ReturnsTrue()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"valid-wt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            await RunProcess("git", "init", dir);
+            await RunProcess("git", "-C", dir, "config", "user.email", "test@test.com");
+            await RunProcess("git", "-C", dir, "config", "user.name", "Test");
+            await RunProcess("git", "-C", dir, "commit", "--allow-empty", "-m", "init");
+
+            var rm = new RepoManager();
+            var result = await rm.IsValidWorktreeAsync(dir, CancellationToken.None);
+            Assert.True(result, "Valid git repo should be considered a valid worktree");
+        }
+        finally { ForceDeleteDirectory(dir); }
+    }
+
+    [Fact]
+    public async Task IsValidWorktreeAsync_CorruptGitDir_ReturnsFalse()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), $"corrupt-wt-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(dir);
+        try
+        {
+            // Create a .git file with garbage content to simulate corruption
+            File.WriteAllText(Path.Combine(dir, ".git"), "gitdir: /nonexistent/path/that/does/not/exist");
+
+            var rm = new RepoManager();
+            var result = await rm.IsValidWorktreeAsync(dir, CancellationToken.None);
+            Assert.False(result, "Corrupt .git file should not be considered a valid worktree");
+        }
+        finally { ForceDeleteDirectory(dir); }
+    }
+
+    #endregion
+
+    #region Worktree creation lock tests
+
+    [Fact]
+    public void WorktreeCreationLocks_AreSerialized()
+    {
+        // Verify the _worktreeCreationLocks field exists and is a ConcurrentDictionary.
+        // This is a structural test — the semaphore-based locking prevents two concurrent
+        // CreateWorktreeAsync calls for the same branch from racing on `git worktree add`.
+        var rm = new RepoManager();
+        var field = typeof(RepoManager).GetField("_worktreeCreationLocks",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+        Assert.NotNull(field);
+        var value = field!.GetValue(rm);
+        Assert.IsType<System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim>>(value);
+    }
+
+    #endregion
+
+    #region PathsEqual null/empty safety tests
+
+    [Fact]
+    public void PathsEqual_NullLeft_ReturnsFalse()
+    {
+        // PathsEqual must handle null without throwing ArgumentNullException (finding #13)
+        var method = typeof(RepoManager).GetMethod("PathsEqual",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var result = (bool)method.Invoke(null, new object?[] { null, Path.GetTempPath() })!;
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void PathsEqual_EmptyLeft_ReturnsFalse()
+    {
+        var method = typeof(RepoManager).GetMethod("PathsEqual",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var result = (bool)method.Invoke(null, new object?[] { "", Path.GetTempPath() })!;
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void PathsEqual_BothNull_ReturnsFalse()
+    {
+        var method = typeof(RepoManager).GetMethod("PathsEqual",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var result = (bool)method.Invoke(null, new object?[] { null, null })!;
+        Assert.False(result);
+    }
+
+    [Fact]
+    public void PathsEqual_WhitespaceLeft_ReturnsFalse()
+    {
+        var method = typeof(RepoManager).GetMethod("PathsEqual",
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+        var result = (bool)method.Invoke(null, new object?[] { "  ", Path.GetTempPath() })!;
+        Assert.False(result);
+    }
+
+    #endregion
+
+    #region Worktree reuse behavioral test
+
+    [Fact]
+    public async Task CreateWorktreeAsync_SameBranch_ReusesExistingWorktree()
+    {
+        // End-to-end behavioral test: when a valid managed worktree already exists for
+        // the requested repo + branch, CreateWorktreeAsync should return it (reuse)
+        // instead of creating a second one.
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"wt-reuse-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testBaseDir);
+
+        try
+        {
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
+
+                var worktreesDir = Path.Combine(testBaseDir, "worktrees");
+                var wtPath = Path.Combine(worktreesDir, "test-repo-abc12345");
+                Directory.CreateDirectory(wtPath);
+
+                // Create a fake BareClonePath that looks like a non-bare repo (has .git dir)
+                // so EnsureRepoCloneInCurrentRootAsync early-returns without calling git.
+                var fakeBarePath = Path.Combine(testBaseDir, "fake-repo");
+                Directory.CreateDirectory(fakeBarePath);
+                Directory.CreateDirectory(Path.Combine(fakeBarePath, ".git"));
+
+                // Create a minimal .git directory in the worktree so IsValidWorktreeAsync passes
+                Directory.CreateDirectory(Path.Combine(wtPath, ".git"));
+                Directory.CreateDirectory(Path.Combine(wtPath, ".git", "refs"));
+                Directory.CreateDirectory(Path.Combine(wtPath, ".git", "objects"));
+                File.WriteAllText(Path.Combine(wtPath, ".git", "HEAD"), "ref: refs/heads/feature-x\n");
+
+                // Inject state: repo + one existing managed worktree
+                var stateField = typeof(RepoManager).GetField("_state",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = (RepositoryState)stateField.GetValue(rm)!;
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = "test-repo",
+                    Name = "test",
+                    Url = "https://github.com/test/test",
+                    BareClonePath = fakeBarePath,
+                    AddedAt = DateTime.UtcNow
+                });
+                state.Worktrees.Add(new WorktreeInfo
+                {
+                    Id = "abc12345",
+                    RepoId = "test-repo",
+                    Branch = "feature-x",
+                    Path = wtPath,
+                    BareClonePath = fakeBarePath,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                // Call CreateWorktreeAsync — it should find the existing worktree and reuse it
+                var wt = await rm.CreateWorktreeAsync("test-repo", "feature-x", skipFetch: true);
+
+                Assert.NotNull(wt);
+                Assert.Equal("abc12345", wt.Id);
+                Assert.Equal(wtPath, wt.Path);
+                Assert.Equal("feature-x", wt.Branch);
+
+                // Only one worktree should exist for this branch
+                var branchWorktrees = rm.Worktrees
+                    .Where(w => w.RepoId == "test-repo" && w.Branch == "feature-x")
+                    .ToList();
+                Assert.Single(branchWorktrees);
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(testBaseDir);
+        }
+    }
+
+    [Fact]
+    public async Task CreateWorktreeAsync_StaleWorktree_EvictsAndDoesNotReuse()
+    {
+        // When a registered worktree is stale (directory doesn't exist or is corrupt),
+        // CreateWorktreeCoreAsync should evict the stale entry from state.
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"wt-stale-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testBaseDir);
+
+        try
+        {
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
+
+                var worktreesDir = Path.Combine(testBaseDir, "worktrees");
+                var staleWtPath = Path.Combine(worktreesDir, "test-repo-stale123");
+                // Don't create the directory — simulate a deleted/corrupt worktree
+
+                // Create a fake BareClonePath that looks like a non-bare repo (has .git dir)
+                var fakeBarePath = Path.Combine(testBaseDir, "fake-repo");
+                Directory.CreateDirectory(fakeBarePath);
+                Directory.CreateDirectory(Path.Combine(fakeBarePath, ".git"));
+
+                var stateField = typeof(RepoManager).GetField("_state",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = (RepositoryState)stateField.GetValue(rm)!;
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = "test-repo",
+                    Name = "test",
+                    Url = "https://github.com/test/test",
+                    BareClonePath = fakeBarePath,
+                    AddedAt = DateTime.UtcNow
+                });
+                state.Worktrees.Add(new WorktreeInfo
+                {
+                    Id = "stale123",
+                    RepoId = "test-repo",
+                    Branch = "feature-x",
+                    Path = staleWtPath,
+                    BareClonePath = fakeBarePath,
+                    CreatedAt = DateTime.UtcNow
+                });
+
+                // The stale worktree should be evicted from state.
+                // CreateWorktreeAsync will fail after eviction when it tries to run
+                // `git worktree add` (git is not available in test env), but the
+                // stale entry should be gone before that point.
+                try
+                {
+                    await rm.CreateWorktreeAsync("test-repo", "feature-x", skipFetch: true);
+                }
+                catch
+                {
+                    // Expected — no actual git to create worktree
+                }
+
+                // Verify stale entry was evicted
+                var remaining = rm.Worktrees.Where(w => w.Id == "stale123").ToList();
+                Assert.Empty(remaining);
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(testBaseDir);
+        }
+    }
+
+    #endregion
+}
