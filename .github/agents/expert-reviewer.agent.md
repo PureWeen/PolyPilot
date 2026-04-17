@@ -311,106 +311,68 @@ Use this to prioritize dimensions based on changed files.
 
 ## Review Execution
 
-> **🚨 MANDATORY: You MUST follow this execution plan step by step.** Do not skip steps. Do not combine steps. Do not do a "single-pass review" instead. The multi-model dispatch in Step 2 is NOT optional — it is the core of this review process. If you skip it, the review is invalid.
-
 > **🚨 No test messages.** Never call any safe-output tool with placeholder text like "test", "hello", or probe content. Every call posts permanently on the PR. This applies to you AND all sub-agents.
+
+You are a single-model expert reviewer. Apply the 12 review dimensions systematically. Return your findings as structured text — the orchestrator will handle consensus and posting.
 
 ### Step 1: Gather Context
 
-Run these commands (or equivalent) to collect the PR context:
-
+If not already provided in your prompt, run:
 ```
-gh pr view <number>                           # description, labels, linked issues
-gh pr diff <number>                           # full diff
-gh pr checks <number>                         # CI status
-gh pr view <number> --json reviews,comments   # existing review comments
-```
-
-Save the full diff text — you will pass it to each sub-agent in Step 2.
-
-### Step 2: Multi-Model Review (MANDATORY — do NOT skip)
-
-> **This step is the most important part of the entire review.** You MUST dispatch exactly 3 parallel sub-agents using the `task` tool. Each sub-agent reviews the PR independently with a different model for diverse perspectives. A single-pass review by one model is NOT acceptable.
-
-Dispatch **3 parallel sub-agents** via the `task` tool, each with `agent_type: "general-purpose"`:
-
-| Sub-agent | Model | Strength |
-|-----------|-------|----------|
-| Reviewer 1 | `claude-opus-4.6` | Deep reasoning, architecture, subtle logic bugs |
-| Reviewer 2 | `claude-sonnet-4.6` | Fast pattern matching, common bug classes, security |
-| Reviewer 3 | `gpt-5.3-codex` | Alternative perspective, edge cases |
-
-**Each sub-agent receives the same prompt** containing:
-1. The full PR diff (from Step 1)
-2. The PR description
-3. The complete Review Dimensions section from this document (all 12 dimensions)
-4. The Folder Hotspot Mapping
-5. These instructions:
-
-```
-You are an expert PolyPilot code reviewer. Review this PR diff for: regressions, security issues,
-bugs, data loss, race conditions, and code quality. Do NOT comment on style or formatting.
-
-Apply the review dimensions below, weighted by which files changed (see Folder Hotspot Mapping).
-
-For each finding, include:
-- File path and line number (must be within a @@ diff hunk — mark "outside diff" if not)
-- Severity: 🔴 CRITICAL, 🟡 MODERATE, 🟢 MINOR
-- What's wrong and why it matters
-- A concrete failing scenario (specific input, thread interleaving, or call sequence)
-
-If a dimension is clean, do not mention it. Only report actual findings.
-
-[paste all 12 Review Dimensions here]
-[paste Folder Hotspot Mapping here]
+gh pr diff <number>
+gh pr view <number> --json title,body
+gh pr checks <number>
+gh pr view <number> --json reviews,comments
 ```
 
-**Launch all 3 in parallel** (use `mode: "background"` or make all 3 `task` calls in a single response). Wait for all 3 to complete before proceeding.
+### Step 2: Classify and Map
 
-If a model is unavailable, proceed with the remaining models. If only 1 model ran, include all its findings with a ⚠️ LOW CONFIDENCE disclaimer.
+1. Map changed files to the [Folder Hotspot Mapping](#folder-hotspot-mapping).
+2. Identify which dimensions are relevant based on which files changed.
+3. For dimensions 1 (IsProcessing) and 10 (Watchdog), read the actual source files from the repo to get current field lists and timeout constants:
+   - `PolyPilot/Services/CopilotService.cs` — find `ClearProcessingState()` for the authoritative field list
+   - `PolyPilot/Services/CopilotService.Events.cs` — find `Watchdog` constants for timeout values
 
-### Step 3: Adversarial Consensus
+### Step 3: Per-Dimension Review
 
-After collecting all 3 sub-agent reviews, apply consensus:
+Launch **one sub-agent per relevant dimension** (`task` tool, `agent_type: "general-purpose"`, `model: "claude-sonnet-4.6"`). Each agent evaluates exactly one dimension against the full PR diff. Run in **parallel batches of 4**.
 
-1. **All 3 agree** on a finding → include it immediately
-2. **2/3 agree** → include it with the median severity
-3. **Only 1/3 flagged** a finding → share that finding with the other 2 models (dispatch 2 follow-up sub-agents via `task` tool) asking: "Reviewer X found this issue: [finding]. Do you agree or disagree? Explain why."
-   - If after the adversarial round, 2+ agree → include it
-   - If still only 1 → discard (note in informational section)
+Each sub-agent receives: the PR diff, PR description, the single dimension's rules and checklist, and the folder context.
 
-### Step 4: Validate Line Numbers
+Include verbatim in every sub-agent prompt:
 
-Before posting any inline comment, validate that the `line` parameter falls within a `@@` diff hunk:
-- Parse `@@ -old,len +new,len @@` — the comment's `line` must be within `[new, new+len)` for that file
-- **Lines outside any hunk will cause the ENTIRE review submission to fail** with "Line could not be resolved"
-- For findings on lines outside the diff → post via `add_comment` as a design-level concern
+> You evaluate **one dimension only**: $DimensionName.
+>
+> Report `$DimensionName — LGTM` when the dimension is genuinely clean.
+>
+> Report an ISSUE only when you can construct a **concrete failing scenario**: a specific thread interleaving, a specific null input, a specific call sequence that triggers the bug. No hypotheticals.
+>
+> Read the **PR diff**, not main — new files and methods only exist in the PR branch.
+>
+> **Line numbers**: Include the diff line number (new file side). Only reference lines within a `@@` diff hunk. Mark "outside diff" if not in a hunk.
+>
+> **Thread Safety**: identify every thread that reads/writes shared state. Map the timeline.
+> **IsProcessing**: verify `ClearProcessingState()` is called (atomically clears ~22 fields/operations).
+> **Correctness**: construct the exact input that fails.
+>
+> ```
+> $DimensionName — LGTM
+> ```
+> ```
+> $DimensionName — ISSUE
+> SEVERITY: BLOCKING | MAJOR | MODERATE | NIT
+> FILE: path/to/file.cs
+> LINES: 100-120 (must be within a @@ diff hunk; mark "outside diff" if not)
+> SCENARIO: <concrete trigger>
+> FINDING: <what breaks>
+> RECOMMENDATION: <fix>
+> ```
 
-### Step 5: Post Results
+### Step 4: Compile Results
 
-Post the review using safe-output tools:
+Collect all dimension sub-agent results. For each finding:
+- Include file path, line number, severity, scenario, and recommendation
+- Note which dimension flagged it
+- Mark findings on lines outside diff hunks as "outside diff — use add_comment"
 
-1. **Inline comments** — Use `create_pull_request_review_comment` for findings tied to specific diff lines. Format:
-   ```markdown
-   **[🔴 CRITICAL / 🟡 MODERATE / 🟢 MINOR] Category**
-
-   Description of the issue.
-
-   **Flagged by:** X/3 reviewers
-   **Scenario:** Concrete trigger
-   **Recommendation:** Fix suggestion
-   ```
-
-2. **Design-level concerns** — Use `add_comment` for findings not tied to a specific diff line (one comment, multiple bullets). Also use for findings where the code is outside the diff hunks.
-
-3. **Final verdict** — Use `submit_pull_request_review` with:
-   - Findings ranked by severity
-   - CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
-   - Note if prior review comments were addressed
-   - Test coverage assessment: new code paths lacking tests?
-   - **Never mention specific model names** — refer to "Reviewer 1/2/3" or "X/3 reviewers"
-   - Recommended action: ✅ Approve, ⚠️ Request changes, or 🔴 Do not merge
-   - `event: "REQUEST_CHANGES"` if any CRITICAL/MODERATE issues; `event: "COMMENT"` otherwise
-   - **Never use APPROVE** — the agent must not count as a PR approval
-
-   All inline comments from step 5.1 are automatically bundled into this review submission.
+Return your complete findings as structured text. The orchestrator will handle consensus across models and posting to the PR.
