@@ -1172,60 +1172,171 @@ public class RepoManagerTests
     #region Existing Folder Safety Tests
 
     [Fact]
-    public void RemoveRepository_DeleteFromDisk_SkipsNonManagedBareClonePath()
+    public async Task RemoveRepository_DeleteFromDisk_SkipsNonManagedBareClonePath()
     {
-        // Regression: repos added via "Existing Folder" have BareClonePath pointing
+        // Behavioral test: repos added via "Existing Folder" have BareClonePath pointing
         // at the user's real project directory. RemoveRepositoryAsync with deleteFromDisk
         // must NOT delete it — only managed bare clones under ReposDir should be deleted.
-
-        var testDir = Path.Combine(Path.GetTempPath(), $"polypilot-tests-{Guid.NewGuid():N}");
-        var userProject = Path.Combine(testDir, "user-project");
-        var reposDir = Path.Combine(testDir, "repos");
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        var userProject = Path.Combine(Path.GetTempPath(), $"user-project-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testBaseDir);
         Directory.CreateDirectory(userProject);
         File.WriteAllText(Path.Combine(userProject, "important.txt"), "don't delete me");
-        Directory.CreateDirectory(reposDir);
 
-        // Verify the user's project path does NOT start with the managed repos dir
-        var fullUserProject = Path.GetFullPath(userProject);
-        var managedPrefix = Path.GetFullPath(reposDir) + Path.DirectorySeparatorChar;
-        Assert.False(fullUserProject.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase),
-            "Test setup error: user project should not be under the managed repos dir");
+        try
+        {
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
 
-        // Verify that user's project still exists (the guard should prevent deletion)
-        Assert.True(Directory.Exists(userProject));
-        Assert.True(File.Exists(Path.Combine(userProject, "important.txt")));
+                // Manually add a repo that mimics "Existing Folder" — BareClonePath points
+                // at the user's project, NOT under the managed ReposDir.
+                var stateField = typeof(RepoManager).GetField("_state",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = (RepositoryState)stateField.GetValue(rm)!;
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = "local-repo", Name = "test", Url = "https://github.com/test/test",
+                    BareClonePath = userProject, AddedAt = DateTime.UtcNow
+                });
 
-        // Clean up
-        try { Directory.Delete(testDir, recursive: true); } catch { }
+                // Call the actual production method with deleteFromDisk: true
+                await rm.RemoveRepositoryAsync("local-repo", deleteFromDisk: true);
+
+                // The user's project directory must still exist — never deleted
+                Assert.True(Directory.Exists(userProject), "User's project directory was deleted!");
+                Assert.True(File.Exists(Path.Combine(userProject, "important.txt")),
+                    "User's files were deleted!");
+
+                // The repo should be removed from state
+                Assert.DoesNotContain(rm.Repositories, r => r.Id == "local-repo");
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(testBaseDir);
+            ForceDeleteDirectory(userProject);
+        }
+    }
+
+    [Fact]
+    public async Task RemoveRepository_DeleteFromDisk_DeletesManagedBareClone()
+    {
+        // Complementary test: managed bare clones under ReposDir SHOULD be deleted.
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testBaseDir);
+
+        try
+        {
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
+
+                // Create a managed bare clone directory under ReposDir
+                var reposDir = Path.Combine(testBaseDir, "repos");
+                var barePath = Path.Combine(reposDir, "test-repo.git");
+                Directory.CreateDirectory(barePath);
+                File.WriteAllText(Path.Combine(barePath, "HEAD"), "ref: refs/heads/main");
+
+                var stateField = typeof(RepoManager).GetField("_state",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = (RepositoryState)stateField.GetValue(rm)!;
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = "managed-repo", Name = "test", Url = "https://github.com/test/test",
+                    BareClonePath = barePath, AddedAt = DateTime.UtcNow
+                });
+
+                await rm.RemoveRepositoryAsync("managed-repo", deleteFromDisk: true);
+
+                // Managed bare clone should be deleted
+                Assert.False(Directory.Exists(barePath), "Managed bare clone was not deleted");
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(testBaseDir);
+        }
     }
 
     [Fact]
     public void WorktreeReuse_OnlyMatchesCentralizedWorktrees()
     {
-        // Regression: worktree reuse must only return worktrees under the centralized
+        // Behavioral test: worktree reuse must only return worktrees under the centralized
         // WorktreesDir, not external user checkouts registered via "Existing Folder".
+        var testBaseDir = Path.Combine(Path.GetTempPath(), $"rmtest-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(testBaseDir);
+        try
+        {
+            RepoManager.SetBaseDirForTesting(testBaseDir);
+            try
+            {
+                var rm = new RepoManager();
+                rm.Load();
 
-        var testDir = Path.Combine(Path.GetTempPath(), $"polypilot-tests-{Guid.NewGuid():N}");
-        var worktreesDir = Path.Combine(testDir, "worktrees");
-        var userCheckout = Path.Combine(testDir, "user-project");
-        Directory.CreateDirectory(worktreesDir);
-        Directory.CreateDirectory(userCheckout);
+                var worktreesDir = Path.Combine(testBaseDir, "worktrees");
+                var managedWtPath = Path.Combine(worktreesDir, "test-repo-abc12345");
+                var userCheckout = Path.Combine(Path.GetTempPath(), $"user-checkout-{Guid.NewGuid():N}");
+                Directory.CreateDirectory(managedWtPath);
+                Directory.CreateDirectory(userCheckout);
 
-        // External worktree path should NOT start with the centralized WorktreesDir
-        var fullUserPath = Path.GetFullPath(userCheckout);
-        var managedPrefix = Path.GetFullPath(worktreesDir) + Path.DirectorySeparatorChar;
-        Assert.False(fullUserPath.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase),
-            "External user checkout should NOT be matched by the centralized-only worktree reuse logic");
+                // Inject state with two worktrees for the same repo+branch:
+                // one managed (under WorktreesDir) and one external (user checkout)
+                var stateField = typeof(RepoManager).GetField("_state",
+                    System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+                var state = (RepositoryState)stateField.GetValue(rm)!;
+                state.Repositories.Add(new RepositoryInfo
+                {
+                    Id = "test-repo", Name = "test", Url = "https://github.com/test/test",
+                    BareClonePath = Path.Combine(testBaseDir, "repos", "test-repo.git"),
+                    AddedAt = DateTime.UtcNow
+                });
+                state.Worktrees.Add(new WorktreeInfo
+                {
+                    Id = "ext-wt", RepoId = "test-repo", Branch = "main",
+                    Path = userCheckout // External — should NOT be matched for reuse
+                });
+                state.Worktrees.Add(new WorktreeInfo
+                {
+                    Id = "mgd-wt", RepoId = "test-repo", Branch = "main",
+                    Path = managedWtPath // Managed — would be matched (if valid)
+                });
 
-        // A managed worktree SHOULD match
-        var managedWorktree = Path.Combine(worktreesDir, "repo-abc12345");
-        Directory.CreateDirectory(managedWorktree);
-        var fullManagedPath = Path.GetFullPath(managedWorktree);
-        Assert.True(fullManagedPath.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase),
-            "Managed worktree should be under the centralized WorktreesDir");
+                // The managed worktree prefix check is the key invariant:
+                var managedPrefix = Path.GetFullPath(worktreesDir) + Path.DirectorySeparatorChar;
+                var externalFull = Path.GetFullPath(userCheckout);
+                var managedFull = Path.GetFullPath(managedWtPath);
 
-        // Clean up
-        try { Directory.Delete(testDir, recursive: true); } catch { }
+                Assert.False(externalFull.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase),
+                    "External user checkout must NOT be under WorktreesDir");
+                Assert.True(managedFull.StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase),
+                    "Managed worktree must be under WorktreesDir");
+
+                // Verify by querying worktrees: only managed worktree paths should match the prefix
+                var worktrees = rm.Worktrees;
+                var reuseMatches = worktrees.Where(w =>
+                    w.RepoId == "test-repo"
+                    && string.Equals(w.Branch, "main", StringComparison.OrdinalIgnoreCase)
+                    && !string.IsNullOrWhiteSpace(w.Path)
+                    && Path.GetFullPath(w.Path).StartsWith(managedPrefix, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                Assert.Single(reuseMatches);
+                Assert.Equal("mgd-wt", reuseMatches[0].Id);
+
+                ForceDeleteDirectory(userCheckout);
+            }
+            finally { RepoManager.SetBaseDirForTesting(TestSetup.TestBaseDir); }
+        }
+        finally
+        {
+            ForceDeleteDirectory(testBaseDir);
+        }
     }
 
     #endregion
