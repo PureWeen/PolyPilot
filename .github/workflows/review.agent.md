@@ -8,9 +8,25 @@ on:
   slash_command:
     name: review
     events: [pull_request_comment]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to review'
+        required: true
+        type: number
   roles: [admin, maintainer, write]
   # Auto-triggers: PR opened, draft→ready, or "review" label added.
-  # On-demand: /review comment. Does NOT trigger on every push.
+  # On-demand: /review comment or workflow_dispatch. Does NOT trigger on every push.
+
+# slash_command compiles to issue_comment; workflow_dispatch is always allowed.
+if: >-
+  github.event_name == 'issue_comment' ||
+  github.event_name == 'workflow_dispatch' ||
+  github.event_name == 'pull_request'
+
+engine:
+  id: copilot
+  model: claude-sonnet-4.6
 
 imports:
   - shared/review-shared.md
