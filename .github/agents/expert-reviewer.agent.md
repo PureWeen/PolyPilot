@@ -345,6 +345,8 @@ Use this to prioritize dimensions based on changed files.
    >
    > Read the **PR diff**, not main — new files and methods only exist in the PR branch.
    >
+   > **Line numbers**: For every finding, include the **diff line number** (the line in the new version of the file as shown after `+` in the diff). Only reference lines that appear within a `@@` diff hunk. If the issue is on a line outside the diff, note "outside diff" so the reviewer can post it via `add_comment` instead of an inline comment.
+   >
    > **Thread Safety**: identify every thread that reads/writes shared state. Map the timeline. Show overlapping unsynchronized access.
    > **IsProcessing**: trace every path that sets IsProcessing=false. Verify `ClearProcessingState()` is called (which atomically clears ~22 fields/operations per Dimension 1).
    > **Correctness**: construct the exact input that fails (e.g., "null sessionId → NRE at .Length").
@@ -356,7 +358,7 @@ Use this to prioritize dimensions based on changed files.
    > $DimensionName — ISSUE
    > SEVERITY: BLOCKING | MAJOR | MODERATE | NIT
    > FILE: path/to/file.cs
-   > LINES: 100-120
+   > LINES: 100-120 (must be within a @@ diff hunk; mark "outside diff" if not)
    > SCENARIO: <concrete trigger>
    > FINDING: <what breaks>
    > RECOMMENDATION: <fix>
@@ -386,7 +388,15 @@ Use this to prioritize dimensions based on changed files.
 
 > **Tool availability note**: Steps 5–7 reference gh-aw safe-output tools (`create_pull_request_review_comment`, `submit_pull_request_review`, `add_comment`). When running outside an agentic workflow (e.g. locally in VS Code), these tools are unavailable — use the closest GitHub MCP or CLI equivalents instead (e.g. `gh api` to create PR review comments, `gh pr review` to submit a review, `gh pr comment` to post general comments).
 
-5. Post **inline review comments** on the exact diff lines using the `create_pull_request_review_comment` safe-output tool. Each comment must target a specific `path` and `line` in the PR diff. Format:
+> **🚨 Do NOT emit test or probe messages.** Never call `create_pull_request_review_comment` with placeholder text like "test inline comment" to verify the tool works. Every call posts a real comment on the PR. Call the tool only with final, production-quality review content.
+
+5. **Validate line numbers before posting.** The `line` parameter in `create_pull_request_review_comment` must be a line number that appears **within a diff hunk** (`@@` block) of the PR diff. GitHub rejects comments on lines outside the diff with "Line could not be resolved", which causes the entire review submission to fail (all inline comments are lost).
+
+   **How to validate:** Parse the diff `@@` headers. For example, `@@ -141,6 +147,32 @@` means the new file shows lines 147–178. Your comment's `line` must fall within such a range for the target file. Lines outside any `@@` hunk — even if they exist in the file — will be rejected.
+
+   **If a finding is on a line outside the diff:** Post it via `add_comment` (step 7) as a design-level concern instead, or reference the nearest diff line.
+
+6. Post **inline review comments** on validated diff lines using the `create_pull_request_review_comment` safe-output tool. Each comment must target a specific `path` and `line` in the PR diff. Format:
 
    ```markdown
    **[$SEVERITY] $DimensionName**
@@ -396,22 +406,16 @@ Use this to prioritize dimensions based on changed files.
    **Evidence:**
    <code trace or thread timeline>
 
-   **Proof-of-concept test:**
-   ```csharp
-   [Fact]
-   public void DescriptiveTestName() { ... }
-   ```
-
    **Recommendation:** $Fix.
    ```
 
    **Important**: Use `create_pull_request_review_comment` (inline on diff), NOT `add_comment` (general PR comment). Only findings tied to a specific changed line should use this tool.
 
-6. Post design-level concerns (not tied to a specific diff line) as a single PR comment via the `add_comment` safe-output tool — one bullet each.
+7. Post design-level concerns (not tied to a specific diff line) as a single PR comment via the `add_comment` safe-output tool — one bullet each. Also use `add_comment` for findings where the relevant code is outside the diff hunks.
 
 ### Wave 4: Summary
 
-7. Submit the final review verdict via the `submit_pull_request_review` safe-output tool. Include the summary table in the review `body` and set the `event` field:
+8. Submit the final review verdict via the `submit_pull_request_review` safe-output tool. Include the summary table in the review `body` and set the `event` field:
 
    ```markdown
    | # | Dimension | Verdict |
@@ -427,4 +431,4 @@ Use this to prioritize dimensions based on changed files.
    Any BLOCKING → event: **REQUEST_CHANGES**. Otherwise (including all-clear) → event: **COMMENT**.
    **Never use APPROVE** — the agent must not count as a PR approval.
 
-   All inline comments from step 5 are automatically bundled into this review submission.
+   All inline comments from step 6 are automatically bundled into this review submission.
