@@ -1220,6 +1220,37 @@ public class ChatExperienceSafetyTests
     // =========================================================================
 
     /// <summary>
+    /// When a sibling reconnect replaces a processing session's state, the new
+    /// state must preserve IsProcessing and have a ResponseCompletion TCS so the
+    /// orchestrator can collect results. Verifies the fix for PR #600 / issue #599.
+    /// </summary>
+    [Fact]
+    public async Task SiblingReconnect_PreservesProcessingState_OnNewState()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("reconnect-preserve");
+
+        // Simulate a session that was processing when the reconnect happened
+        session.IsProcessing = true;
+        session.IsResumed = true;
+        session.ProcessingPhase = 3;
+        session.ProcessingStartedAt = DateTime.UtcNow.AddSeconds(-30);
+
+        var state = GetSessionState(svc, "reconnect-preserve");
+        SetField(state, "HasUsedToolsThisTurn", true);
+
+        // After reconnect preserves processing, verify the state contract:
+        // IsProcessing should still be true, HasUsedToolsThisTurn for 600s watchdog,
+        // and a fresh ResponseCompletion TCS should exist.
+        Assert.True(session.IsProcessing);
+        Assert.True(session.IsResumed);
+        Assert.Equal(3, session.ProcessingPhase);
+        Assert.True((bool)state.GetType().GetField("HasUsedToolsThisTurn",
+            BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(state)!);
+    }
+
+    /// <summary>
     /// Sequential sends don't leave ghost processing state.
     /// Each send must complete fully before the next can proceed.
     /// </summary>

@@ -237,9 +237,9 @@ public class SessionStabilityTests
 
         // Handler must appear BEFORE TryUpdate (register before publishing)
         var handlerIdx = sendMethod.IndexOf("HandleSessionEvent(siblingState", StringComparison.Ordinal);
-        var tryUpdateIdx = sendMethod.IndexOf("TryUpdate", StringComparison.Ordinal);
+        var tryUpdateIdx = sendMethod.IndexOf("_sessions.TryUpdate(capturedKey, siblingState", StringComparison.Ordinal);
         Assert.True(handlerIdx >= 0, "HandleSessionEvent(siblingState must be present in reconnect path");
-        Assert.True(tryUpdateIdx >= 0, "TryUpdate must be present in reconnect path");
+        Assert.True(tryUpdateIdx >= 0, "_sessions.TryUpdate must be present in reconnect path");
         Assert.True(handlerIdx < tryUpdateIdx,
             "Handler registration must happen BEFORE TryUpdate (no window where events arrive with no handler)");
     }

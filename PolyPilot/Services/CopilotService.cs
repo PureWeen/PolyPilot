@@ -3756,8 +3756,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     // instead of mutating otherState in place.
                                                     capturedOtherState.IsOrphaned = true;
                                                     Interlocked.Exchange(ref capturedOtherState.ProcessingGeneration, long.MaxValue);
-                                                    // Cancel old TCS so any awaiter (orchestrator worker) doesn't hang
-                                                    capturedOtherState.ResponseCompletion?.TrySetCanceled();
+                                                    // Complete old TCS with partial response instead of canceling.
+                                                    // TrySetCanceled forces orchestrator workers through the exception
+                                                    // retry path (designed for permission recovery, not reconnect).
+                                                    // TrySetResult with the flushed content lets workers collect the
+                                                    // partial response gracefully and proceed to synthesis.
+                                                    var partialResponse = capturedOtherState.FlushedResponse?.ToString() ?? "";
+                                                    capturedOtherState.ResponseCompletion?.TrySetResult(partialResponse);
                                                     var siblingState = new SessionState
                                                     {
                                                         Session = resumed,
@@ -3776,9 +3781,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     // restore processing state BEFORE handler registration so events
                                                     // arriving on the new connection see IsProcessing=true immediately
                                                     // and don't trigger premature CompleteResponse or EVT-REARM-SKIP.
+                                                    // Safe to set on background thread here because siblingState is NOT
+                                                    // yet published to _sessions (TryUpdate is below).
                                                     if (siblingWasProcessing)
                                                     {
+                                                        siblingState.Info.IsProcessing = true;
+                                                        siblingState.Info.IsResumed = true;
                                                         siblingState.HasUsedToolsThisTurn = true; // 600s watchdog tier
+                                                        siblingState.Info.ProcessingPhase = siblingProcessingPhase > 0 ? siblingProcessingPhase : 3;
+                                                        siblingState.Info.ProcessingStartedAt ??= DateTime.UtcNow;
                                                         siblingState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
                                                     }
                                                     // Register handler BEFORE publishing to dictionary —
@@ -3796,8 +3807,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     }
                                                     DisposePrematureIdleSignal(capturedOtherState);
                                                     Debug($"[RECONNECT] Re-resumed sibling session '{capturedKey}' after client recreation");
-                                                    // Marshal IsProcessing restoration to the UI thread (INV-2)
-                                                    // so it doesn't race with event handlers or UI rendering.
+                                                    // Start watchdog on UI thread — IsProcessing and companion fields
+                                                    // were already set before handler registration (above), so this
+                                                    // just needs to start the timer and notify the UI.
                                                     if (siblingWasProcessing)
                                                     {
                                                         var reconnectGen = Interlocked.Read(ref siblingState.ProcessingGeneration);
@@ -3806,13 +3818,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                             if (siblingState.IsOrphaned) return;
                                                             if (Interlocked.Read(ref siblingState.ProcessingGeneration) != reconnectGen) return;
                                                             if (!siblingState.Info.IsProcessing) return; // CompleteResponse already ran — don't resurrect
-                                                            siblingState.Info.IsProcessing = true;
-                                                            siblingState.Info.IsResumed = true;
-                                                            siblingState.Info.ProcessingPhase = siblingProcessingPhase > 0 ? siblingProcessingPhase : 3;
-                                                            siblingState.Info.ProcessingStartedAt ??= DateTime.UtcNow;
                                                             StartProcessingWatchdog(siblingState, capturedKey);
                                                             NotifyStateChangedCoalesced();
-                                                            Debug($"[RECONNECT] Sibling '{capturedKey}' was processing — preserved IsProcessing + started watchdog");
+                                                            Debug($"[RECONNECT] Sibling '{capturedKey}' was processing — started watchdog on new connection");
                                                         });
                                                     }
                                                 }
