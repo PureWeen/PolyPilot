@@ -39,8 +39,10 @@ Review pull request #${{ github.event.pull_request.number || github.event.issue.
 
 ## Instructions
 
+> **🚨 No test messages.** Never call any safe-output tool (`create_pull_request_review_comment`, `submit_pull_request_review`, `add_comment`) with placeholder or test content like "test", "hello", or "test inline comment". Every call posts permanently on the PR. This applies to you and all sub-agents.
+
 1. Fetch the full diff for the pull request.
-2. Call the `expert-reviewer` agent. Make sure to call it as subagent (`task` tool, `agent_type: "general-purpose"`, `model: "claude-opus-4.6"`). And make sure to follow the guidance on subagent calls from within the `expert-reviewer` agent. We expect 2+ levels of agents to be called.
+2. Call the `expert-reviewer` agent. Make sure to call it as subagent (`task` tool, `agent_type: "general-purpose"`, `model: "claude-opus-4.6"`). Pass along the "no test messages" rule explicitly in your sub-agent prompt. We expect 2+ levels of agents to be called.
 3. Do **not** post comments or reviews yourself, except for the fallback in step 4 if the subagent posts nothing. The subagent will post its own comments using the available safe-output tools:
    - **Inline review comments** on specific diff lines via `create_pull_request_review_comment`
    - **Design-level concerns** (not tied to a line) via `add_comment`

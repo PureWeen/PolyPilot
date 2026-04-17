@@ -388,7 +388,7 @@ Use this to prioritize dimensions based on changed files.
 
 > **Tool availability note**: Steps 5–7 reference gh-aw safe-output tools (`create_pull_request_review_comment`, `submit_pull_request_review`, `add_comment`). When running outside an agentic workflow (e.g. locally in VS Code), these tools are unavailable — use the closest GitHub MCP or CLI equivalents instead (e.g. `gh api` to create PR review comments, `gh pr review` to submit a review, `gh pr comment` to post general comments).
 
-> **🚨 Do NOT emit test or probe messages.** Never call `create_pull_request_review_comment` with placeholder text like "test inline comment" to verify the tool works. Every call posts a real comment on the PR. Call the tool only with final, production-quality review content.
+> **🚨 Do NOT emit test, probe, or placeholder messages.** Never call `create_pull_request_review_comment` or any safe-output tool with placeholder text like "test", "test inline comment", "hello", or any non-review content. Every safe-output call posts a real, permanent comment on the PR. There is no "dry run" — the tool is live. Call it only with final, production-quality review content. This rule applies to you AND to any sub-agents you invoke.
 
 5. **Validate line numbers before posting.** The `line` parameter in `create_pull_request_review_comment` must be a line number that appears **within a diff hunk** (`@@` block) of the PR diff. GitHub rejects comments on lines outside the diff with "Line could not be resolved", which causes the entire review submission to fail (all inline comments are lost).
 
