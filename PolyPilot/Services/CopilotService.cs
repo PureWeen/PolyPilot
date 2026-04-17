@@ -3804,6 +3804,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                         {
                                                             if (siblingState.IsOrphaned) return;
                                                             if (Interlocked.Read(ref siblingState.ProcessingGeneration) != reconnectGen) return;
+                                                            if (!siblingState.Info.IsProcessing) return; // CompleteResponse already ran — don't resurrect
                                                             siblingState.Info.IsProcessing = true;
                                                             siblingState.Info.IsResumed = true;
                                                             siblingState.Info.ProcessingPhase = 3; // Working
