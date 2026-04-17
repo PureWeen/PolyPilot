@@ -329,7 +329,8 @@ gh pr view <number> --json reviews,comments
 
 1. Map changed files to the [Folder Hotspot Mapping](#folder-hotspot-mapping).
 2. Identify which dimensions are relevant based on which files changed.
-3. For dimensions 1 (IsProcessing) and 10 (Watchdog), read the actual source files from the repo to get current field lists and timeout constants:
+3. **Read the full source files** that were changed — not just the diff. Use `cat`, `view`, or `get_file_contents` to read the complete file so you can trace callers, callees, and surrounding context. The diff alone is insufficient for finding bugs — you need to see how changed code interacts with the rest of the file.
+4. For dimensions 1 (IsProcessing) and 10 (Watchdog), also read:
    - `PolyPilot/Services/CopilotService.cs` — find `ClearProcessingState()` for the authoritative field list
    - `PolyPilot/Services/CopilotService.Events.cs` — find `Watchdog` constants for timeout values
 
@@ -347,7 +348,12 @@ Include verbatim in every sub-agent prompt:
 >
 > Report an ISSUE only when you can construct a **concrete failing scenario**: a specific thread interleaving, a specific null input, a specific call sequence that triggers the bug. No hypotheticals.
 >
-> Read the **PR diff**, not main — new files and methods only exist in the PR branch.
+> **CRITICAL: Read the full source files, not just the diff.** The diff shows what changed, but bugs come from how changes interact with surrounding code. For every changed file, read the COMPLETE file using `cat` or `view`. Trace:
+> - **Callers**: Who calls the changed method? Do they pass null? Do they hold locks?
+> - **Callees**: What do the changed lines call? Can those callees fail, throw, or have side effects?
+> - **Shared state**: What fields are read/written? Are they protected by locks? Can another thread access them concurrently?
+> - **Error paths**: What happens if the operation fails mid-way? Is state left inconsistent?
+> - **Data flow**: Where does the input come from? Can it be null, empty, or malicious?
 >
 > **Line numbers**: Include the diff line number (new file side). Only reference lines within a `@@` diff hunk. Mark "outside diff" if not in a hunk.
 >
