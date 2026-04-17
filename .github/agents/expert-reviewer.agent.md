@@ -309,126 +309,108 @@ Use this to prioritize dimensions based on changed files.
 
 ---
 
-## Review Workflow
+## Review Execution
 
-### Wave 0: Triage
+> **🚨 MANDATORY: You MUST follow this execution plan step by step.** Do not skip steps. Do not combine steps. Do not do a "single-pass review" instead. The multi-model dispatch in Step 2 is NOT optional — it is the core of this review process. If you skip it, the review is invalid.
 
-0. **Classify the PR scope** to avoid unnecessary work:
-   - **Docs-only** (only `.md`, `.txt`, `.yml` changes with no code): Skip dimensions 1–6, 9–10. Only apply 7 (platform safety for YAML), 8 (test coverage if test docs), 11–12.
-   - **Tests-only** (only files in `PolyPilot.Tests/`): Skip dimensions 4, 6, 9–11. Focus on 1–3, 5, 7–8, 12.
-   - **Code PR**: Apply all dimensions, but only those mapped by the [Folder Hotspot Mapping](#folder-hotspot-mapping) for changed files. Skip dimensions with no hotspot match.
+> **🚨 No test messages.** Never call any safe-output tool with placeholder text like "test", "hello", or probe content. Every call posts permanently on the PR. This applies to you AND all sub-agents.
 
-   This triage prevents cost explosion — a full 12-dimension scan is only needed for large cross-cutting PRs.
+### Step 1: Gather Context
 
-### Wave 1: Find
+Run these commands (or equivalent) to collect the PR context:
 
-1. Map changed files to the [Folder Hotspot Mapping](#folder-hotspot-mapping).
+```
+gh pr view <number>                           # description, labels, linked issues
+gh pr diff <number>                           # full diff
+gh pr checks <number>                         # CI status
+gh pr view <number> --json reviews,comments   # existing review comments
+```
 
-1b. **Historical context** (for bug fix and follow-up PRs): Read the linked issue and the original feature PR discussions. Identify design intent, constraints, and reviewer-established principles.
+Save the full diff text — you will pass it to each sub-agent in Step 2.
 
-1c. **Read critical repo knowledge**: For dimensions 1 (IsProcessing) and 10 (Watchdog), read the actual source files from the PR branch to get current field lists and timeout constants:
-   - `PolyPilot/Services/CopilotService.cs` — find `ClearProcessingState()` method for the authoritative field list
-   - `PolyPilot/Services/CopilotService.Events.cs` — find `Watchdog` constants for timeout values
-   - `.claude/skills/processing-state-safety/SKILL.md` — if accessible, read for full invariant list
+### Step 2: Multi-Model Review (MANDATORY — do NOT skip)
 
-2. Launch **one sub-agent per applicable dimension** (`task` tool, `agent_type: "general-purpose"`, `model: "claude-sonnet-4.6"`). Each agent evaluates exactly one dimension against the full PR diff. Run applicable dimensions in **parallel** (typically 6–10 after triage).
+> **This step is the most important part of the entire review.** You MUST dispatch exactly 3 parallel sub-agents using the `task` tool. Each sub-agent reviews the PR independently with a different model for diverse perspectives. A single-pass review by one model is NOT acceptable.
 
-   Each sub-agent receives: the PR diff, PR description, the single dimension's rules and checklist, and the folder context.
+Dispatch **3 parallel sub-agents** via the `task` tool, each with `agent_type: "general-purpose"`:
 
-   Include verbatim in every sub-agent prompt:
+| Sub-agent | Model | Strength |
+|-----------|-------|----------|
+| Reviewer 1 | `claude-opus-4.6` | Deep reasoning, architecture, subtle logic bugs |
+| Reviewer 2 | `claude-sonnet-4.6` | Fast pattern matching, common bug classes, security |
+| Reviewer 3 | `gpt-5.3-codex` | Alternative perspective, edge cases |
 
-   > You evaluate **one dimension only**: $DimensionName.
-   >
-   > Report `$DimensionName — LGTM` when the dimension is genuinely clean.
-   >
-   > Report an ISSUE only when you can construct a **concrete failing scenario**: a specific thread interleaving, a specific null input, a specific call sequence that triggers the bug. No hypotheticals.
-   >
-   > Read the **PR diff**, not main — new files and methods only exist in the PR branch.
-   >
-   > **Line numbers**: For every finding, include the **diff line number** (the line in the new version of the file as shown after `+` in the diff). Only reference lines that appear within a `@@` diff hunk. If the issue is on a line outside the diff, note "outside diff" so the reviewer can post it via `add_comment` instead of an inline comment.
-   >
-   > **Thread Safety**: identify every thread that reads/writes shared state. Map the timeline. Show overlapping unsynchronized access.
-   > **IsProcessing**: trace every path that sets IsProcessing=false. Verify `ClearProcessingState()` is called (which atomically clears ~22 fields/operations per Dimension 1).
-   > **Correctness**: construct the exact input that fails (e.g., "null sessionId → NRE at .Length").
-   >
-   > ```
-   > $DimensionName — LGTM
-   > ```
-   > ```
-   > $DimensionName — ISSUE
-   > SEVERITY: BLOCKING | MAJOR | MODERATE | NIT
-   > FILE: path/to/file.cs
-   > LINES: 100-120 (must be within a @@ diff hunk; mark "outside diff" if not)
-   > SCENARIO: <concrete trigger>
-   > FINDING: <what breaks>
-   > RECOMMENDATION: <fix>
-   > ```
+**Each sub-agent receives the same prompt** containing:
+1. The full PR diff (from Step 1)
+2. The PR description
+3. The complete Review Dimensions section from this document (all 12 dimensions)
+4. The Folder Hotspot Mapping
+5. These instructions:
 
-### Wave 2: Validate
+```
+You are an expert PolyPilot code reviewer. Review this PR diff for: regressions, security issues,
+bugs, data loss, race conditions, and code quality. Do NOT comment on style or formatting.
 
-3. For each non-LGTM finding, launch a validation agent (`model: "claude-opus-4.6"`) that **proves or disproves it** using:
+Apply the review dimensions below, weighted by which files changed (see Folder Hotspot Mapping).
 
-   - **Code flow tracing**: Read full source from the PR branch (`github-mcp-server-get_file_contents` with `ref: "refs/pull/{pr}/head"`). Trace callers, callees, locks, thread boundaries.
-   - **IsProcessing path analysis**: For IsProcessing findings, trace the specific code path and verify `ClearProcessingState()` is called (see Dimension 1 for the authoritative ~22-field list).
-   - **Proof-of-concept test**: Write a minimal test that demonstrates the issue — include in PR feedback as evidence.
-   - **Thread timeline**: For concurrency issues, write the interleaving step-by-step.
+For each finding, include:
+- File path and line number (must be within a @@ diff hunk — mark "outside diff" if not)
+- Severity: 🔴 CRITICAL, 🟡 MODERATE, 🟢 MINOR
+- What's wrong and why it matters
+- A concrete failing scenario (specific input, thread interleaving, or call sequence)
 
-   Output per finding:
-   ```
-   VERDICT: CONFIRMED | DISPUTED
-   EVIDENCE: <code trace, test, or timeline>
-   TEST_SNIPPET: <proof-of-concept code, if applicable>
-   ```
+If a dimension is clean, do not mention it. Only report actual findings.
 
-   Confirm only with concrete evidence. Dispute if a lock, UI thread marshal, or control flow prevents the scenario.
+[paste all 12 Review Dimensions here]
+[paste Folder Hotspot Mapping here]
+```
 
-4. For borderline findings, run the same validation on 3 models (`claude-opus-4.6`, `claude-sonnet-4.6`, `gpt-5.3-codex`). Keep findings confirmed by ≥2/3.
+**Launch all 3 in parallel** (use `mode: "background"` or make all 3 `task` calls in a single response). Wait for all 3 to complete before proceeding.
 
-### Wave 3: Post
+If a model is unavailable, proceed with the remaining models. If only 1 model ran, include all its findings with a ⚠️ LOW CONFIDENCE disclaimer.
 
-> **Tool availability note**: Steps 5–7 reference gh-aw safe-output tools (`create_pull_request_review_comment`, `submit_pull_request_review`, `add_comment`). When running outside an agentic workflow (e.g. locally in VS Code), these tools are unavailable — use the closest GitHub MCP or CLI equivalents instead (e.g. `gh api` to create PR review comments, `gh pr review` to submit a review, `gh pr comment` to post general comments).
+### Step 3: Adversarial Consensus
 
-> **🚨 Do NOT emit test, probe, or placeholder messages.** Never call `create_pull_request_review_comment` or any safe-output tool with placeholder text like "test", "test inline comment", "hello", or any non-review content. Every safe-output call posts a real, permanent comment on the PR. There is no "dry run" — the tool is live. Call it only with final, production-quality review content. This rule applies to you AND to any sub-agents you invoke.
+After collecting all 3 sub-agent reviews, apply consensus:
 
-5. **Validate line numbers before posting.** The `line` parameter in `create_pull_request_review_comment` must be a line number that appears **within a diff hunk** (`@@` block) of the PR diff. GitHub rejects comments on lines outside the diff with "Line could not be resolved", which causes the entire review submission to fail (all inline comments are lost).
+1. **All 3 agree** on a finding → include it immediately
+2. **2/3 agree** → include it with the median severity
+3. **Only 1/3 flagged** a finding → share that finding with the other 2 models (dispatch 2 follow-up sub-agents via `task` tool) asking: "Reviewer X found this issue: [finding]. Do you agree or disagree? Explain why."
+   - If after the adversarial round, 2+ agree → include it
+   - If still only 1 → discard (note in informational section)
 
-   **How to validate:** Parse the diff `@@` headers. For example, `@@ -141,6 +147,32 @@` means the new file shows lines 147–178. Your comment's `line` must fall within such a range for the target file. Lines outside any `@@` hunk — even if they exist in the file — will be rejected.
+### Step 4: Validate Line Numbers
 
-   **If a finding is on a line outside the diff:** Post it via `add_comment` (step 7) as a design-level concern instead, or reference the nearest diff line.
+Before posting any inline comment, validate that the `line` parameter falls within a `@@` diff hunk:
+- Parse `@@ -old,len +new,len @@` — the comment's `line` must be within `[new, new+len)` for that file
+- **Lines outside any hunk will cause the ENTIRE review submission to fail** with "Line could not be resolved"
+- For findings on lines outside the diff → post via `add_comment` as a design-level concern
 
-6. Post **inline review comments** on validated diff lines using the `create_pull_request_review_comment` safe-output tool. Each comment must target a specific `path` and `line` in the PR diff. Format:
+### Step 5: Post Results
 
+Post the review using safe-output tools:
+
+1. **Inline comments** — Use `create_pull_request_review_comment` for findings tied to specific diff lines. Format:
    ```markdown
-   **[$SEVERITY] $DimensionName**
+   **[🔴 CRITICAL / 🟡 MODERATE / 🟢 MINOR] Category**
 
-   $Scenario that triggers the bug.
+   Description of the issue.
 
-   **Evidence:**
-   <code trace or thread timeline>
-
-   **Recommendation:** $Fix.
+   **Flagged by:** X/3 reviewers
+   **Scenario:** Concrete trigger
+   **Recommendation:** Fix suggestion
    ```
 
-   **Important**: Use `create_pull_request_review_comment` (inline on diff), NOT `add_comment` (general PR comment). Only findings tied to a specific changed line should use this tool.
+2. **Design-level concerns** — Use `add_comment` for findings not tied to a specific diff line (one comment, multiple bullets). Also use for findings where the code is outside the diff hunks.
 
-7. Post design-level concerns (not tied to a specific diff line) as a single PR comment via the `add_comment` safe-output tool — one bullet each. Also use `add_comment` for findings where the relevant code is outside the diff hunks.
+3. **Final verdict** — Use `submit_pull_request_review` with:
+   - Findings ranked by severity
+   - CI status: ✅ passing, ❌ failing (PR-specific), ⚠️ failing (pre-existing)
+   - Note if prior review comments were addressed
+   - Test coverage assessment: new code paths lacking tests?
+   - **Never mention specific model names** — refer to "Reviewer 1/2/3" or "X/3 reviewers"
+   - Recommended action: ✅ Approve, ⚠️ Request changes, or 🔴 Do not merge
+   - `event: "REQUEST_CHANGES"` if any CRITICAL/MODERATE issues; `event: "COMMENT"` otherwise
+   - **Never use APPROVE** — the agent must not count as a PR approval
 
-### Wave 4: Summary
-
-8. Submit the final review verdict via the `submit_pull_request_review` safe-output tool. Include the summary table in the review `body` and set the `event` field:
-
-   ```markdown
-   | # | Dimension | Verdict |
-   |---|-----------|---------|
-   | 1 | IsProcessing State Safety | ✅ LGTM |
-   | 3 | Thread Safety | 🔴 1 BLOCKING |
-
-   - [x] IsProcessing State Safety
-   - [ ] Thread Safety — race condition in event handler
-   ```
-
-   `[x]` = LGTM or NITs only. `[ ]` = BLOCKING or MAJOR.
-   Any BLOCKING → event: **REQUEST_CHANGES**. Otherwise (including all-clear) → event: **COMMENT**.
-   **Never use APPROVE** — the agent must not count as a PR approval.
-
-   All inline comments from step 6 are automatically bundled into this review submission.
+   All inline comments from step 5.1 are automatically bundled into this review submission.
