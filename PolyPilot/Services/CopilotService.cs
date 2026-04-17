@@ -3799,9 +3799,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     // so it doesn't race with event handlers or UI rendering.
                                                     if (siblingWasProcessing)
                                                     {
+                                                        var reconnectGen = Interlocked.Read(ref siblingState.ProcessingGeneration);
                                                         InvokeOnUI(() =>
                                                         {
                                                             if (siblingState.IsOrphaned) return;
+                                                            if (Interlocked.Read(ref siblingState.ProcessingGeneration) != reconnectGen) return;
                                                             siblingState.Info.IsProcessing = true;
                                                             siblingState.Info.IsResumed = true;
                                                             siblingState.Info.ProcessingPhase = 3; // Working
