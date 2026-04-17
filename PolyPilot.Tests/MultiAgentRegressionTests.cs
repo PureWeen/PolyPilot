@@ -2057,10 +2057,11 @@ public class MultiAgentRegressionTests
     }
 
     /// <summary>
-    /// INV-O14: The re-resume loop must NOT skip IsProcessing siblings. Their
-    /// CopilotSession is tied to the old client (which was disposed), so the event
-    /// stream is permanently dead. The loop must force-complete them so the orchestrator
-    /// retries immediately rather than waiting 2–5 min for the watchdog.
+    /// The sibling re-resume loop must preserve IsProcessing through reconnect instead of
+    /// force-completing. Force-completing discards in-flight responses — the CLI continues
+    /// working but PolyPilot EVT-REARM-SKIPs all subsequent events. Instead, the loop
+    /// captures siblingWasProcessing, re-resumes on the new client, then restores
+    /// IsProcessing on the UI thread with guards against resurrection of completed turns.
     /// </summary>
     [Fact]
     public void ReconnectLoop_IsProcessingSiblings_PreservedNotForceCompleted()
@@ -2087,6 +2088,12 @@ public class MultiAgentRegressionTests
 
         // Must start watchdog after re-resume for processing siblings
         Assert.Contains("StartProcessingWatchdog(siblingState", loopBlock);
+
+        // The InvokeOnUI callback must have all 3 guards to prevent resurrection of
+        // completed turns (took 3 review rounds to get right):
+        Assert.Contains("if (siblingState.IsOrphaned) return;", loopBlock);
+        Assert.Contains("ProcessingGeneration) != reconnectGen) return;", loopBlock);
+        Assert.Contains("if (!siblingState.Info.IsProcessing) return;", loopBlock);
     }
 
     #endregion
