@@ -344,7 +344,11 @@ public class RepoManager
             var stateFile = StateFile; // resolve once
             Directory.CreateDirectory(Path.GetDirectoryName(stateFile)!);
             var json = JsonSerializer.Serialize(_state, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(stateFile, json);
+            // Atomic write: write to .tmp then rename, so a crash during write
+            // doesn't leave repos.json truncated/corrupt.
+            var tmp = stateFile + ".tmp";
+            File.WriteAllText(tmp, json);
+            File.Move(tmp, stateFile, overwrite: true);
         }
         catch (Exception ex)
         {
@@ -532,7 +536,11 @@ public class RepoManager
             return false;
         var normalizedLeft = Path.GetFullPath(left).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
         var normalizedRight = Path.GetFullPath(right).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-        return string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+        // Windows and macOS use case-insensitive filesystems; Linux uses case-sensitive.
+        var comparison = (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+            ? StringComparison.OrdinalIgnoreCase
+            : StringComparison.Ordinal;
+        return string.Equals(normalizedLeft, normalizedRight, comparison);
     }
 
     /// <summary>
@@ -996,7 +1004,7 @@ public class RepoManager
         if (existingMatch != null && await IsValidWorktreeAsync(existingMatch.Path, ct))
         {
             Console.WriteLine($"[RepoManager] Reusing existing worktree at '{existingMatch.Path}' (branch: {branchName})");
-            repo.LastUsedAt = DateTime.UtcNow;
+            lock (_stateLock) { repo.LastUsedAt = DateTime.UtcNow; }
             Save();
             return existingMatch;
         }
