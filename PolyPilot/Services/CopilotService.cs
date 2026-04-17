@@ -3697,6 +3697,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                             // events on the new connection. The watchdog handles genuinely
                                             // dead sessions after re-resume.
                                             var siblingWasProcessing = otherState.Info.IsProcessing;
+                                            var siblingProcessingPhase = otherState.Info.ProcessingPhase;
                                             var otherMeta = sessionSnapshots.FirstOrDefault(m => m.SessionName == kvp.Key);
                                             if (otherMeta?.GroupId != null &&
                                                 groupSnapshots.Any(g => g.Id == otherMeta.GroupId && g.IsCodespace))
@@ -3807,7 +3808,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                             if (!siblingState.Info.IsProcessing) return; // CompleteResponse already ran — don't resurrect
                                                             siblingState.Info.IsProcessing = true;
                                                             siblingState.Info.IsResumed = true;
-                                                            siblingState.Info.ProcessingPhase = 3; // Working
+                                                            siblingState.Info.ProcessingPhase = siblingProcessingPhase > 0 ? siblingProcessingPhase : 3;
                                                             siblingState.Info.ProcessingStartedAt ??= DateTime.UtcNow;
                                                             StartProcessingWatchdog(siblingState, capturedKey);
                                                             NotifyStateChangedCoalesced();
@@ -3827,6 +3828,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                         Interlocked.Exchange(ref capturedOtherState.ProcessingGeneration, long.MaxValue);
                                                         // Unblock any orchestrator worker awaiting this session's TCS
                                                         capturedOtherState.ResponseCompletion?.TrySetCanceled();
+                                                        // If the sibling was processing, clear IsProcessing so the UI
+                                                        // doesn't show a stuck "Thinking..." on a dead connection.
+                                                        if (siblingWasProcessing)
+                                                        {
+                                                            InvokeOnUI(() =>
+                                                            {
+                                                                if (capturedOtherState.Info.IsProcessing)
+                                                                {
+                                                                    Debug($"[RECONNECT] Clearing stuck IsProcessing on failed re-resume of '{capturedKey}'");
+                                                                    ClearProcessingState(capturedOtherState);
+                                                                    NotifyStateChangedCoalesced();
+                                                                }
+                                                            });
+                                                        }
                                                     }
                                                 }
                                                 finally
