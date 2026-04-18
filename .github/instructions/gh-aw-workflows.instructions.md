@@ -328,6 +328,7 @@ Manual triggers (`workflow_dispatch`, `issue_comment`) should bypass the gate. N
 | `gh` CLI inside agent | Credentials scrubbed | Use `steps:` for API calls, or MCP tools |
 | `issue_comment` trigger | Requires workflow on default branch | Must merge to `main` before `/slash-commands` work |
 | Duplicate runs | gh-aw sometimes creates 2 runs per dispatch | Harmless, use concurrency groups |
+| `slash_command` + `pull_request` in same workflow | Compiler rejects: `cannot use 'slash_command' with 'pull_request' in the same workflow` | Create two separate workflow files importing the same `shared/*.md`. E.g., `review.agent.md` (slash_command) + `review-on-open.agent.md` (pull_request). Both import `shared/review-shared.md` for shared config and orchestration instructions. This is the pattern used by dotnet/msbuild. |
 
 ### Upstream References (All Resolved)
 
