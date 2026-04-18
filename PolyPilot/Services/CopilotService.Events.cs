@@ -874,6 +874,32 @@ public partial class CopilotService
                                     Debug($"[IDLE-FALLBACK] '{sessionName}' skipped after extended wait — tools became active");
                                     return;
                                 }
+                                // Final guard: check if the CLI is still writing to events.jsonl.
+                                // ToolExecutionStartEvent may not be delivered via the live event
+                                // stream even though the CLI is actively executing a tool (the event
+                                // only appears in events.jsonl). If events.jsonl was written recently,
+                                // the session is still active — don't complete prematurely.
+                                if (!IsDemoMode && !IsRemoteMode)
+                                {
+                                    try
+                                    {
+                                        var sid = state.Info.SessionId;
+                                        if (!string.IsNullOrEmpty(sid))
+                                        {
+                                            var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                                            if (File.Exists(ep))
+                                            {
+                                                var fileAge = (DateTime.UtcNow - File.GetLastWriteTimeUtc(ep)).TotalSeconds;
+                                                if (fileAge < TurnEndIdleToolFallbackAdditionalMs / 1000.0)
+                                                {
+                                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — events.jsonl written {fileAge:F0}s ago, CLI still active");
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    catch { /* filesystem errors → proceed with completion */ }
+                                }
                             }
                             var totalFallbackDelayMs = toolsUsedThisTurn
                                 ? TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs
