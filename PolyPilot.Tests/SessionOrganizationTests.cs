@@ -1099,6 +1099,47 @@ Do something.
     }
 
     [Fact]
+    public void ReconcileOrganization_LocalOnlyRepo_DoesNotCreateUrlGroup_ForCentralizedWorktree()
+    {
+        // Regression test: when a repo ONLY has a local folder group (no URL-based group),
+        // sessions with centralized worktrees (~/.polypilot/worktrees/...) should stay in
+        // the local folder group. ReconcileOrganization must NOT create a duplicate URL-based
+        // group just to move the session into it.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "local-repo-abc123", Name = "maui", Url = "https://github.com/dotnet/maui" }
+        };
+        var localPath = Path.Combine(Path.GetTempPath(), "maui3");
+        var centralPath = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees", "local-repo-wt1");
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "wt-central", RepoId = "local-repo-abc123", Branch = "session-123", Path = centralPath }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        // Create ONLY a local folder group (no URL-based group)
+        var localGroup = svc.GetOrCreateLocalFolderGroup(localPath, "local-repo-abc123");
+        Assert.True(localGroup.IsLocalFolder);
+
+        // Put a session in the local folder group with a centralized worktree
+        var meta = new SessionMeta
+        {
+            SessionName = "test-session",
+            GroupId = localGroup.Id,
+            WorktreeId = "wt-central"
+        };
+        svc.Organization.Sessions.Add(meta);
+
+        svc.ReconcileOrganization();
+
+        // Session should stay in the local folder group — no URL group created
+        Assert.Equal(localGroup.Id, meta.GroupId);
+        Assert.DoesNotContain(svc.Organization.Groups,
+            g => g.RepoId == "local-repo-abc123" && !g.IsLocalFolder && !g.IsMultiAgent);
+    }
+
+    [Fact]
     public void ReconcileOrganization_NestedWorktree_IsNotTreatedAsExternalWorktree()
     {
         // Nested worktrees (inside a local folder's .polypilot/worktrees/) must NOT

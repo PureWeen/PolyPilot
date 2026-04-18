@@ -1438,6 +1438,20 @@ public partial class CopilotService
         if (!explicitly && Organization.DeletedRepoGroupRepoIds.Contains(repoId))
             return null;
 
+        // Don't create a URL-based group when a local folder group already covers this repo
+        // and no URL-based group exists. This prevents duplicate sidebar entries for local-only
+        // repos (e.g., "maui" appearing twice — once as local folder, once as URL-based).
+        if (!explicitly && Organization.Groups.Any(g => g.RepoId == repoId && g.IsLocalFolder && !g.IsMultiAgent))
+        {
+            // Exception: if the local folder group is for the SAME repo (same ID, not a separate
+            // local-* ID), allow creating a URL group. This supports the heal-stranded-sessions
+            // scenario where sessions with managed worktrees need a URL group to live in.
+            var localRepo = _repoManager?.Repositories.FirstOrDefault(r => r.Id == repoId);
+            var isLocalOnlyRepo = localRepo != null && repoId.Contains("-local-", StringComparison.Ordinal);
+            if (isLocalOnlyRepo)
+                return null;
+        }
+
         // Clear the deleted flag when explicitly re-adding
         Organization.DeletedRepoGroupRepoIds.Remove(repoId);
 
