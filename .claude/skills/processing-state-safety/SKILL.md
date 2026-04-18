@@ -192,7 +192,7 @@ When `ReconcileOrganization` hasn't run yet (during `IsRestoring` window),
 during this window must call `ReconcileOrganization(allowPruning: false)` first.
 This additive mode safely adds missing entries without pruning loading sessions.
 
-### INV-10: TurnEnd fallback must not be permanently suppressed (PR #332)
+### INV-10: TurnEnd fallback must not be permanently suppressed (PR #332, #619)
 The `AssistantTurnEndEvent` 4s fallback → `CompleteResponse` guards against
 premature firing during multi-tool sessions. **Do NOT** use `HasUsedToolsThisTurn`
 to skip this fallback entirely — that permanently disables recovery for all
@@ -206,7 +206,20 @@ event is dropped (SDK bug #299), the session sticks for 600s.
 `AssistantTurnStartEvent` is the correct mechanism to prevent premature firing
 when the LLM does multi-round tool use.
 
-### INV-11: Watchdog must distinguish active tools from lost events (PR #332)
+**Live-event-stream gap (PR #619)**: `ToolExecutionStartEvent` may not be
+delivered via the live SDK event stream even though the CLI is actively executing
+a tool (the event only appears in `events.jsonl`). This causes `ActiveToolCallCount`
+to stay at 0 during tool execution. After the 30s extended wait, two additional
+guards prevent premature completion:
+1. **events.jsonl freshness** (`TurnEndFallbackFreshnessSeconds = 30`): If the
+   file was written after the wait started AND recently, defer with a 15s recheck
+   (`TurnEndFallbackRecheckMs`), then defer to the watchdog if still fresh.
+2. **Last-event-type check**: `GetLastEventType()` reads the last line of
+   `events.jsonl`. If it's `tool.execution_start` (no matching
+   `tool.execution_complete`), a tool IS running — defer to watchdog regardless
+   of file age. This handles long-running tools (e.g., `read_bash delay:600`).
+
+### INV-11: Watchdog must distinguish active tools from lost events (PR #332, #619)
 Blindly waiting the full 600s tool timeout when `ActiveToolCallCount == 0`
 (tools finished) is wrong — the SDK may have silently dropped the terminal event
 (`SessionIdleEvent`). The watchdog timeout path must use a 3-way branch:
@@ -215,6 +228,11 @@ Blindly waiting the full 600s tool timeout when `ActiveToolCallCount == 0`
   (TCP port check). If alive → reset `LastEventAtTicks` and continue. If dead → fall through to kill.
 - **Case B** (`!hasActiveTool && HasUsedToolsThisTurn && !exceededMaxTime`): Call
   `CompleteResponse` cleanly (no error message) then `break`. Lost terminal event scenario.
+  **Pre-check (PR #619)**: Before running Case B logic, check `GetLastEventType()` on
+  `events.jsonl`. If the last event is `tool.execution_start`, a tool IS running even
+  though `ActiveToolCallCount == 0` (live event not delivered). Reset `LastEventAtTicks`
+  and `continue` — same as Case A server-alive behavior. This allows tools of any
+  duration to complete without premature session completion.
 - **Case C** (default): Kill with "⚠️ Session appears stuck" error message. Max time
   exceeded, server dead, or something genuinely wrong.
 
