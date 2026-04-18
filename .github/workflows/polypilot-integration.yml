@@ -24,7 +24,8 @@ on:
       - 'PolyPilot/**'
 
 jobs:
-  integration-test:
+  # ─── Linux/GTK ───────────────────────────────────────────────
+  integration-linux:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -227,7 +228,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: polypilot-screenshot
+          name: polypilot-screenshot-linux
           path: /tmp/polypilot-ci-screenshot.png
           if-no-files-found: ignore
 
@@ -235,7 +236,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: polypilot-logs
+          name: polypilot-logs-linux
           path: |
             /tmp/polypilot-stdout.log
             /tmp/polypilot-stderr.log
@@ -247,3 +248,213 @@ jobs:
         run: |
           kill $APP_PID 2>/dev/null || true
           kill $XVFB_PID 2>/dev/null || true
+
+  # ─── Mac Catalyst ────────────────────────────────────────────
+  integration-maccatalyst:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer 2>/dev/null || sudo xcode-select -s /Applications/Xcode_16.3.app/Contents/Developer 2>/dev/null || sudo xcode-select -p
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Install MauiDevFlow CLI
+        run: |
+          dotnet tool install --global Microsoft.Maui.Cli \
+            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json \
+            --prerelease || true
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Build PolyPilot (Mac Catalyst Debug)
+        run: |
+          dotnet build PolyPilot/PolyPilot.csproj \
+            -f net10.0-maccatalyst \
+            -c Debug \
+            --disable-build-servers \
+            -p:UseSharedCompilation=false \
+            -nodeReuse:false
+
+      - name: Find app bundle
+        id: find-app
+        run: |
+          APP=$(find PolyPilot/bin/Debug/net10.0-maccatalyst -name "*.app" -type d | head -1)
+          echo "app=$APP" >> $GITHUB_OUTPUT
+          echo "Found app: $APP"
+          ls -la "$APP/Contents/MacOS/" || true
+
+      - name: Launch PolyPilot (Mac Catalyst)
+        run: |
+          BINARY="${{ steps.find-app.outputs.app }}/Contents/MacOS/PolyPilot"
+          "$BINARY" > /tmp/polypilot-stdout.log 2>/tmp/polypilot-stderr.log &
+          APP_PID=$!
+          echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+          echo "PolyPilot launched with PID $APP_PID"
+
+          sleep 20
+
+          if kill -0 $APP_PID 2>/dev/null; then
+            echo "✅ PolyPilot is running"
+          else
+            echo "❌ PolyPilot crashed"
+            cat /tmp/polypilot-stderr.log || true
+            exit 1
+          fi
+
+      - name: Discover DevFlow agent
+        id: devflow
+        run: |
+          AGENT_PORT=""
+          for port in 9223 9224 9225 9226 9227 9228 9229 9230; do
+            if curl -s --max-time 2 http://localhost:$port/api/status > /dev/null 2>&1; then
+              AGENT_PORT=$port
+              echo "✅ Found agent on port $port"
+              curl -s http://localhost:$port/api/status | python3 -m json.tool
+              break
+            fi
+          done
+          echo "agent_port=${AGENT_PORT}" >> $GITHUB_OUTPUT
+
+      - name: "Smoke: Status + Tree + Screenshot"
+        if: steps.devflow.outputs.agent_port != ''
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          echo "=== Status ===" && curl -s http://localhost:$PORT/api/status | python3 -m json.tool
+          echo "=== Tree ===" && curl -s http://localhost:$PORT/api/tree | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d[:3], indent=2))" 2>/dev/null || curl -s http://localhost:$PORT/api/tree | head -50
+          echo "=== Screenshot ===" && curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-ci-screenshot.png && echo "✅ $(wc -c < /tmp/polypilot-ci-screenshot.png) bytes"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: polypilot-maccatalyst
+          path: |
+            /tmp/polypilot-ci-screenshot.png
+            /tmp/polypilot-stdout.log
+            /tmp/polypilot-stderr.log
+          if-no-files-found: ignore
+
+      - name: Cleanup
+        if: always()
+        run: kill $APP_PID 2>/dev/null || true
+
+  # ─── Windows ─────────────────────────────────────────────────
+  integration-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Install MauiDevFlow CLI
+        shell: pwsh
+        run: |
+          dotnet tool install --global Microsoft.Maui.Cli `
+            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json `
+            --prerelease 2>$null
+          $toolsPath = Join-Path $env:USERPROFILE ".dotnet\tools"
+          "$toolsPath" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build PolyPilot (Windows Debug)
+        run: |
+          dotnet build PolyPilot/PolyPilot.csproj `
+            -f net10.0-windows10.0.19041.0 `
+            -c Debug `
+            --disable-build-servers `
+            -p:UseSharedCompilation=false `
+            -nodeReuse:false
+        shell: pwsh
+
+      - name: Launch PolyPilot (Windows)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path "PolyPilot\bin\Debug\net10.0-windows*" -Filter "PolyPilot.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) {
+            $exe = Get-ChildItem -Path "PolyPilot\bin\Debug\net10.0-windows*" -Filter "*.exe" -Recurse | Select-Object -First 1
+          }
+          Write-Host "Found: $($exe.FullName)"
+          
+          $proc = Start-Process -FilePath $exe.FullName -PassThru -RedirectStandardOutput "$env:TEMP\polypilot-stdout.log" -RedirectStandardError "$env:TEMP\polypilot-stderr.log"
+          "APP_PID=$($proc.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "PolyPilot launched with PID $($proc.Id)"
+          
+          Start-Sleep -Seconds 20
+          
+          if (-not $proc.HasExited) {
+            Write-Host "✅ PolyPilot is running"
+          } else {
+            Write-Host "❌ PolyPilot crashed (exit code: $($proc.ExitCode))"
+            Get-Content "$env:TEMP\polypilot-stderr.log" -ErrorAction SilentlyContinue
+            exit 1
+          }
+
+      - name: Discover DevFlow agent
+        id: devflow
+        shell: pwsh
+        run: |
+          $agentPort = ""
+          foreach ($port in 9223..9230) {
+            try {
+              $r = Invoke-WebRequest -Uri "http://localhost:$port/api/status" -TimeoutSec 2 -ErrorAction Stop
+              if ($r.StatusCode -eq 200) {
+                $agentPort = $port
+                Write-Host "✅ Found agent on port $port"
+                $r.Content | ConvertFrom-Json | ConvertTo-Json -Depth 5
+                break
+              }
+            } catch { }
+          }
+          "agent_port=$agentPort" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: "Smoke: Status + Tree + Screenshot"
+        if: steps.devflow.outputs.agent_port != ''
+        shell: pwsh
+        run: |
+          $port = "${{ steps.devflow.outputs.agent_port }}"
+          Write-Host "=== Status ==="
+          (Invoke-WebRequest "http://localhost:$port/api/status").Content | ConvertFrom-Json | ConvertTo-Json
+          Write-Host "=== Tree ==="
+          (Invoke-WebRequest "http://localhost:$port/api/tree").Content | Out-String | Select-Object -First 50
+          Write-Host "=== Screenshot ==="
+          Invoke-WebRequest "http://localhost:$port/api/screenshot" -OutFile "$env:TEMP\polypilot-ci-screenshot.png"
+          $size = (Get-Item "$env:TEMP\polypilot-ci-screenshot.png").Length
+          Write-Host "✅ Screenshot saved ($size bytes)"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: polypilot-windows
+          path: |
+            ${{ runner.temp }}/polypilot-ci-screenshot.png
+            ${{ runner.temp }}/polypilot-stdout.log
+            ${{ runner.temp }}/polypilot-stderr.log
+          if-no-files-found: ignore
+
+      - name: Cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          $pid = $env:APP_PID
+          if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
