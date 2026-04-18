@@ -81,13 +81,17 @@ Collect findings from all 3 sub-agents and apply consensus:
    - If 2+ now agree → include
    - If still 1/3 → discard (note as "discarded — single reviewer only")
 
-### Step 4: Validate Line Numbers
+### Step 4: Validate Paths and Line Numbers
 
-Before posting inline comments, verify each `line` falls within a `@@` diff hunk for that file. Parse `@@ -old,len +new,len @@` — the line must be in `[new, new+len)`. Lines outside any hunk will cause the entire review to fail with "Line could not be resolved". For findings outside the diff, use `add_comment` instead.
+Before posting inline comments, validate **both**:
+1. **Path**: Run `gh pr diff <number> --name-only` to get the list of files in the diff. Only files in this list can receive inline comments. Comments on other files fail with "Path could not be resolved".
+2. **Line**: Parse `@@ -old,len +new,len @@` — the line must be in `[new, new+len)`. Lines outside any hunk fail with "Line could not be resolved".
+
+**If either path or line is invalid**, move the finding to `add_comment` (design-level) instead. A single invalid inline comment causes the entire `submit_pull_request_review` to fail and ALL inline comments are lost.
 
 ### Step 5: Post Results
 
-1. **Inline comments** — `create_pull_request_review_comment` for findings on diff lines. Include "Flagged by: X/3 reviewers" in each.
+1. **Inline comments** — `create_pull_request_review_comment` for findings where BOTH path and line are validated. Include "Flagged by: X/3 reviewers" in each.
 2. **Design-level comment** — `add_comment` for findings outside the diff (one comment, multiple bullets).
 3. **Final verdict** — `submit_pull_request_review` with:
    - Summary of all findings ranked by severity
