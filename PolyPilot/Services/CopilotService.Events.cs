@@ -866,6 +866,7 @@ public partial class CopilotService
                                 // can cancel this fallback before we complete the turn prematurely.
                                 Debug($"[IDLE-FALLBACK] '{sessionName}' tools were used this turn — waiting additional " +
                                       $"{TurnEndIdleToolFallbackAdditionalMs}ms for another round before completing");
+                                var freshnessCheckStart = DateTime.UtcNow;
                                 await Task.Delay(TurnEndIdleToolFallbackAdditionalMs, fallbackToken);
                                 if (fallbackToken.IsCancellationRequested) return;
                                 if (state.IsOrphaned) return;
@@ -877,8 +878,9 @@ public partial class CopilotService
                                 // Final guard: check if the CLI is still writing to events.jsonl.
                                 // ToolExecutionStartEvent may not be delivered via the live event
                                 // stream even though the CLI is actively executing a tool (the event
-                                // only appears in events.jsonl). If events.jsonl was written recently,
-                                // the session is still active — don't complete prematurely.
+                                // only appears in events.jsonl). If events.jsonl was written recently
+                                // AND after the extended wait started, the session is still active.
+                                // Mirrors the watchdog's freshness check (line ~2711).
                                 if (!IsDemoMode && !IsRemoteMode)
                                 {
                                     try
@@ -889,16 +891,34 @@ public partial class CopilotService
                                             var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
                                             if (File.Exists(ep))
                                             {
-                                                var fileAge = (DateTime.UtcNow - File.GetLastWriteTimeUtc(ep)).TotalSeconds;
-                                                if (fileAge < TurnEndIdleToolFallbackAdditionalMs / 1000.0)
+                                                var lastWrite = File.GetLastWriteTimeUtc(ep);
+                                                var fileAge = Math.Max(0.0, (DateTime.UtcNow - lastWrite).TotalSeconds);
+                                                if (lastWrite > freshnessCheckStart && fileAge < TurnEndFallbackFreshnessSeconds)
                                                 {
-                                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — events.jsonl written {fileAge:F0}s ago, CLI still active");
-                                                    return;
+                                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — events.jsonl written {fileAge:F0}s ago (after wait started), CLI still active — rescheduling");
+                                                    // Reschedule a shorter recheck instead of permanent skip.
+                                                    // This prevents permanent stuck state if the CLI finishes
+                                                    // shortly after this check.
+                                                    await Task.Delay(TurnEndFallbackRecheckMs, fallbackToken);
+                                                    if (fallbackToken.IsCancellationRequested) return;
+                                                    if (state.IsOrphaned) return;
+                                                    if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
+                                                    {
+                                                        Debug($"[IDLE-FALLBACK] '{sessionName}' skipped on recheck — tools became active");
+                                                        return;
+                                                    }
+                                                    // Recheck freshness one more time
+                                                    var recheckAge = Math.Max(0.0, (DateTime.UtcNow - File.GetLastWriteTimeUtc(ep)).TotalSeconds);
+                                                    if (recheckAge < TurnEndFallbackFreshnessSeconds)
+                                                    {
+                                                        Debug($"[IDLE-FALLBACK] '{sessionName}' still fresh on recheck ({recheckAge:F0}s ago) — deferring to watchdog");
+                                                        return;
+                                                    }
                                                 }
                                             }
                                         }
                                     }
-                                    catch { /* filesystem errors → proceed with completion */ }
+                                    catch (Exception ex) { Debug($"[IDLE-FALLBACK] '{sessionName}' freshness check failed: {ex.Message}"); }
                                 }
                             }
                             var totalFallbackDelayMs = toolsUsedThisTurn
@@ -2272,6 +2292,23 @@ public partial class CopilotService
     /// Total wait for tool sessions = TurnEndIdleFallbackMs + TurnEndIdleToolFallbackAdditionalMs = 34s.
     /// </summary>
     internal const int TurnEndIdleToolFallbackAdditionalMs = 30_000;
+
+    /// <summary>
+    /// Seconds threshold for events.jsonl freshness in the TurnEnd fallback.
+    /// If the CLI wrote to events.jsonl within this window AND after the extended wait started,
+    /// the fallback skips completion (the CLI is still active but ToolExecutionStartEvent
+    /// wasn't delivered via the live stream). Separate from WatchdogCaseBFreshnessSeconds
+    /// because the fallback needs a tighter window (30s vs 300s).
+    /// </summary>
+    internal const int TurnEndFallbackFreshnessSeconds = 30;
+
+    /// <summary>
+    /// Milliseconds to wait before rechecking events.jsonl freshness when the first check
+    /// found the CLI was still active. Provides faster recovery than deferring entirely to
+    /// the watchdog (15s check interval). After this recheck, if the file is still fresh,
+    /// the fallback defers to the watchdog for long-running tool safety.
+    /// </summary>
+    internal const int TurnEndFallbackRecheckMs = 15_000;
 
     private static void CancelProcessingWatchdog(SessionState state)
     {
