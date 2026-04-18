@@ -3114,6 +3114,9 @@ public partial class CopilotService
             state.PendingReasoningMessages.Clear();
             if (state.Info.ProcessingStartedAt is { } started)
                 state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
+            // Increment generation to invalidate stale InvokeOnUI callbacks —
+            // mirrors ClearProcessingState (see PR #612).
+            Interlocked.Increment(ref state.ProcessingGeneration);
             state.Info.IsProcessing = false;
             state.Info.IsResumed = false;
             state.HasUsedToolsThisTurn = false;
