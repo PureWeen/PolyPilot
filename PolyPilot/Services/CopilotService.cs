@@ -3756,19 +3756,24 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     // instead of mutating otherState in place.
                                                     capturedOtherState.IsOrphaned = true;
                                                     Interlocked.Exchange(ref capturedOtherState.ProcessingGeneration, long.MaxValue);
-                                                    // Complete old TCS with partial response instead of canceling.
-                                                    // TrySetCanceled forces orchestrator workers through the exception
-                                                    // retry path (designed for permission recovery, not reconnect).
-                                                    // TrySetResult with the flushed content lets workers collect the
-                                                    // partial response gracefully and proceed to synthesis.
-                                                    var partialResponse = capturedOtherState.FlushedResponse?.ToString() ?? "";
-                                                    capturedOtherState.ResponseCompletion?.TrySetResult(partialResponse);
+                                                    // Cancel old TCS so orchestrator workers hit OperationCanceledException.
+                                                    // The catch filter in SendPromptAndWaitAsync detects that the session
+                                                    // was replaced (not truly cancelled), re-acquires the new state from
+                                                    // _sessions, and seamlessly re-awaits the new TCS. TrySetResult("")
+                                                    // was tried but triggers the revival path (empty response → orphan
+                                                    // the healthy reconnected state → create a third session from scratch).
+                                                    capturedOtherState.ResponseCompletion?.TrySetCanceled();
                                                     var siblingState = new SessionState
                                                     {
                                                         Session = resumed,
                                                         Info = capturedOtherState.Info,
                                                         IsMultiAgentSession = capturedOtherState.IsMultiAgentSession,
                                                     };
+                                                    // Carry forward flushed content from the old state so partial
+                                                    // mid-turn responses (tool output, assistant text) aren't lost.
+                                                    // Mirrors the primary reconnect path's FlushedResponse preservation.
+                                                    if (capturedOtherState.FlushedResponse.Length > 0)
+                                                        siblingState.FlushedResponse.Append(capturedOtherState.FlushedResponse);
                                                     // Mirror primary reconnect: reset tool tracking for new connection
                                                     siblingState.HasUsedToolsThisTurn = false;
                                                     ClearDeferredIdleTracking(siblingState);
@@ -3781,8 +3786,10 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     // restore processing state BEFORE handler registration so events
                                                     // arriving on the new connection see IsProcessing=true immediately
                                                     // and don't trigger premature CompleteResponse or EVT-REARM-SKIP.
-                                                    // Safe to set on background thread here because siblingState is NOT
-                                                    // yet published to _sessions (TryUpdate is below).
+                                                    // These writes are safe despite Info being shared with the old state:
+                                                    // they're idempotent (writing true to already-true fields since
+                                                    // siblingWasProcessing was captured as true), and the old state is
+                                                    // orphaned so its handlers bail out on the IsOrphaned guard.
                                                     if (siblingWasProcessing)
                                                     {
                                                         siblingState.Info.IsProcessing = true;
