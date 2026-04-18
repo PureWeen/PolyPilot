@@ -334,15 +334,18 @@ public class WsBridgeServer : IDisposable
         }
     }
 
-    private async Task WaitForBridgeSendToStartAsync(string sessionName, CancellationToken ct = default)
+    private async Task<bool> WaitForBridgeSendToStartAsync(string sessionName, CancellationToken ct = default)
     {
-        for (var attempt = 0; attempt < 10; attempt++)
+        for (var attempt = 0; attempt < 20; attempt++)
         {
             if (_copilot?.GetSession(sessionName)?.IsProcessing == true)
-                return;
+                return true;
 
             await Task.Delay(10, ct).ConfigureAwait(false);
         }
+
+        BridgeLog($"[BRIDGE] WaitForBridgeSendToStartAsync timed out for '{sessionName}' — IsProcessing not confirmed within 200ms");
+        return false;
     }
 
     /// <summary>
