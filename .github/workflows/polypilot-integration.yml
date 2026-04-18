@@ -20,6 +20,8 @@ on:
       - 'feature/polypilot-ci-integration'
     paths:
       - '.github/workflows/polypilot-integration.yml'
+      - 'PolyPilot.Gtk/**'
+      - 'PolyPilot/**'
 
 jobs:
   integration-test:
