@@ -284,6 +284,7 @@ jobs:
             -c Debug \
             --disable-build-servers \
             -p:UseSharedCompilation=false \
+            -p:ValidateXcodeVersion=false \
             -nodeReuse:false
 
       - name: Find app bundle
@@ -456,5 +457,5 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $pid = $env:APP_PID
-          if ($pid) { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+          $appPid = $env:APP_PID
+          if ($appPid) { Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue }
