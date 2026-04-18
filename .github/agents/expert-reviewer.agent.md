@@ -54,10 +54,15 @@ If a model is unavailable, proceed with the remaining models.
 
 ## 4. Post Results
 
-Before posting inline comments, verify each `line` falls within a `@@` diff hunk. Lines outside any hunk cause the entire review to fail with "Line could not be resolved". Use `add_comment` for findings outside the diff.
+Before posting inline comments, validate **both** the file path AND line number:
+- **Path**: must be a file that appears in `gh pr diff --name-only`. Comments on files not in the diff cause the entire review to fail with "Path could not be resolved".
+- **Line**: must fall within a `@@` diff hunk for that file. Lines outside any hunk cause "Line could not be resolved".
+- **If either fails**: post the finding via `add_comment` as a design-level concern instead.
 
-1. **Inline comments** — `create_pull_request_review_comment` for findings on diff lines
-2. **Design-level concerns** — `add_comment` for findings outside diff hunks (one comment, multiple bullets)
+Run `gh pr diff <number> --name-only` to get the list of valid paths before posting.
+
+1. **Inline comments** — `create_pull_request_review_comment` for findings where BOTH path and line are valid
+2. **Design-level concerns** — `add_comment` for findings outside the diff (wrong path, wrong line, or design-level). One comment, multiple bullets.
 3. **Final verdict** — `submit_pull_request_review` with:
    - Findings ranked by severity with consensus markers (e.g., "3/3 reviewers")
    - CI status, test coverage assessment, prior review status
