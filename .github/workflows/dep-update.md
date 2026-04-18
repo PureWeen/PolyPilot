@@ -9,7 +9,14 @@ permissions:
 
 engine: copilot
 
-network: defaults
+network:
+  allowed:
+    - defaults
+    - dotnet
+
+tools:
+  github:
+    toolsets: [repos]
 
 safe-outputs:
   create-pull-request:
