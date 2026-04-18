@@ -4483,6 +4483,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 state.IsReconnectedSend = false; // INV-1 item 8: prevent stale 35s timeout on next watchdog start
                 Interlocked.Exchange(ref state.SendingFlag, 0);
                 // Clear IsProcessing BEFORE completing TCS (INV-O3)
+                // No MaxValue guard needed: STEER-ERROR only reaches non-orphaned sessions
                 Interlocked.Increment(ref state.ProcessingGeneration); // Invalidate stale callbacks
                 state.Info.IsProcessing = false;
                 if (state.Info.ProcessingStartedAt is { } steerStarted)
@@ -4763,6 +4764,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 await InvokeOnUIAsync(() =>
                 {
                     FlushCurrentResponse(state);
+                    // No MaxValue guard needed: MCP-reload only reaches non-orphaned sessions
                     Interlocked.Increment(ref state.ProcessingGeneration); // Invalidate stale callbacks
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
