@@ -161,45 +161,52 @@ jobs:
             echo "agent_port=$AGENT_PORT" >> $GITHUB_OUTPUT
           fi
 
-      - name: "Smoke Test: MAUI status"
+      - name: "Smoke Test: Agent Status (direct API)"
         if: steps.devflow.outputs.agent_port != ''
         run: |
-          export DISPLAY=:99
           PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== Agent Status ==="
-          maui devflow MAUI status --agent-port $PORT || echo "MAUI status failed"
+          curl -s http://localhost:$PORT/api/status | python3 -m json.tool
 
-      - name: "Smoke Test: Visual tree"
+      - name: "Smoke Test: Visual Tree (direct API)"
         if: steps.devflow.outputs.agent_port != ''
         run: |
-          export DISPLAY=:99
           PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== Visual Tree ==="
-          maui devflow MAUI tree --depth 5 --agent-port $PORT || echo "Tree inspection failed"
+          curl -s http://localhost:$PORT/api/maui/tree | python3 -m json.tool || echo "Tree API failed"
 
-      - name: "Smoke Test: Screenshot"
+      - name: "Smoke Test: Screenshot (direct API)"
         if: steps.devflow.outputs.agent_port != ''
         run: |
-          export DISPLAY=:99
           PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== Taking screenshot ==="
-          maui devflow MAUI screenshot --output /tmp/polypilot-ci-screenshot.png --agent-port $PORT || echo "Screenshot failed"
+          curl -s http://localhost:$PORT/api/maui/screenshot -o /tmp/polypilot-ci-screenshot.png && \
+            echo "✅ Screenshot saved ($(wc -c < /tmp/polypilot-ci-screenshot.png) bytes)" || \
+            echo "Screenshot API failed"
 
-      - name: "Smoke Test: CDP/Blazor status"
+      - name: "Smoke Test: CDP Status (direct API)"
         if: steps.devflow.outputs.agent_port != ''
         run: |
-          export DISPLAY=:99
           PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== CDP Status ==="
-          maui devflow cdp status --agent-port $PORT || echo "CDP status failed"
+          curl -s http://localhost:$PORT/api/cdp/status | python3 -m json.tool || echo "CDP API failed"
 
-      - name: "Smoke Test: Application logs"
+      - name: "Smoke Test: App Logs (direct API)"
+        if: steps.devflow.outputs.agent_port != ''
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          echo "=== Application Logs ==="
+          curl -s http://localhost:$PORT/api/maui/logs | head -50 || echo "Logs API failed"
+
+      - name: "Smoke Test: CLI with verbose"
         if: steps.devflow.outputs.agent_port != ''
         run: |
           export DISPLAY=:99
           PORT=${{ steps.devflow.outputs.agent_port }}
-          echo "=== Recent logs ==="
-          timeout 5 maui devflow MAUI logs --agent-port $PORT || true
+          echo "=== Trying CLI with verbose ==="
+          maui devflow MAUI status --agent-port $PORT --verbose 2>&1 || echo "CLI status failed"
+          echo "=== Trying CLI tree ==="
+          maui devflow MAUI tree --depth 3 --agent-port $PORT --verbose 2>&1 || echo "CLI tree failed"
 
       - name: "Diagnostics (if agent not found)"
         if: steps.devflow.outputs.agent_port == ''
