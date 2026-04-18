@@ -71,12 +71,6 @@ jobs:
           echo "binary=$BINARY" >> $GITHUB_OUTPUT
           echo "Found binary: $BINARY"
 
-      - name: Start MauiDevFlow broker
-        run: |
-          maui devflow broker start || echo "Broker start returned non-zero (may already be running)"
-          sleep 2
-          maui devflow broker status || echo "Broker status check failed"
-
       - name: Launch PolyPilot under xvfb
         run: |
           echo "Starting PolyPilot.Gtk under virtual display..."
@@ -86,22 +80,31 @@ jobs:
           echo "XVFB_PID=$XVFB_PID" >> $GITHUB_ENV
           sleep 2
 
-          # Launch PolyPilot in background, capture stderr
-          ${{ steps.find-binary.outputs.binary }} 2>/tmp/polypilot-stderr.log &
+          # Launch PolyPilot in background, capture all output
+          ${{ steps.find-binary.outputs.binary }} > /tmp/polypilot-stdout.log 2>/tmp/polypilot-stderr.log &
           APP_PID=$!
           echo "APP_PID=$APP_PID" >> $GITHUB_ENV
           echo "PolyPilot launched with PID $APP_PID"
 
-          # Wait for startup
-          sleep 15
+          # Wait for full startup (GTK + WebView + DevFlow agent init)
+          echo "Waiting 30s for full app initialization..."
+          sleep 30
           
           # Verify process is still running
           if kill -0 $APP_PID 2>/dev/null; then
             echo "✅ PolyPilot is running"
           else
             echo "❌ PolyPilot crashed on startup"
+            echo "=== stdout ===" && cat /tmp/polypilot-stdout.log || true
+            echo "=== stderr ===" && cat /tmp/polypilot-stderr.log || true
             exit 1
           fi
+
+          # Show app output so far
+          echo "=== App stdout (first 50 lines) ==="
+          head -50 /tmp/polypilot-stdout.log || true
+          echo "=== App stderr ==="
+          cat /tmp/polypilot-stderr.log || true
 
       - name: Discover MauiDevFlow agent port
         id: devflow
@@ -109,36 +112,51 @@ jobs:
           export DISPLAY=:99
           echo "Waiting for MauiDevFlow agent..."
           
-          # Try broker-based discovery first
-          maui devflow wait --timeout 60 --json > /tmp/devflow-wait.json 2>&1 || true
-          cat /tmp/devflow-wait.json || true
+          # Check for .mauidevflow file (agent writes port here when broker unavailable)
+          echo "=== Checking for .mauidevflow files ==="
+          find / -name '.mauidevflow' -maxdepth 5 2>/dev/null || true
+          find /home -name '.mauidevflow' 2>/dev/null || true
+          find /tmp -name '.mauidevflow' -o -name 'mauidevflow*' 2>/dev/null || true
           
-          # Try to get the port from the broker
-          AGENT_PORT=$(maui devflow list --json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['port'] if d else '')" 2>/dev/null || echo "")
+          # Try broker-based discovery
+          maui devflow wait --timeout 30 --json > /tmp/devflow-wait.json 2>&1 || true
+          echo "=== devflow wait output ===" && cat /tmp/devflow-wait.json || true
+          
+          # Try list
+          echo "=== devflow list ==="
+          maui devflow list --json 2>&1 || true
+          maui devflow list 2>&1 || true
+          
+          # Port scan
+          echo "=== Scanning all listening ports ==="
+          ss -tlnp 2>/dev/null || true
+          
+          # Try common DevFlow ports
+          AGENT_PORT=""
+          for port in 9223 9224 9225 9226 9227 9228 9229 9230 5000 5001 8080; do
+            if curl -s --max-time 2 http://localhost:$port/api/status > /dev/null 2>&1; then
+              AGENT_PORT=$port
+              echo "✅ Found agent on port $port"
+              curl -s http://localhost:$port/api/status
+              break
+            fi
+          done
           
           if [ -z "$AGENT_PORT" ]; then
-            echo "Broker discovery failed, trying direct port scan..."
-            # The agent typically binds to 9223 or a port in 9223-9230 range
-            for port in 9223 9224 9225 9226 9227 9228 9229 9230; do
-              if curl -s --max-time 2 http://localhost:$port/api/status > /dev/null 2>&1; then
-                AGENT_PORT=$port
-                echo "Found agent on port $port"
-                break
-              fi
-            done
+            # Try discovering from app stdout (agent may log its port)
+            AGENT_PORT=$(grep -oP 'listening on.*?:(\d+)' /tmp/polypilot-stdout.log 2>/dev/null | grep -oP '\d+$' | head -1 || true)
+            if [ -n "$AGENT_PORT" ]; then
+              echo "✅ Found agent port from stdout: $AGENT_PORT"
+            fi
           fi
-          
+
           if [ -z "$AGENT_PORT" ]; then
             echo "⚠️ Could not discover agent port"
-            echo "Checking what's listening..."
-            ss -tlnp | grep -E '922[0-9]' || echo "Nothing on 9223-9230"
-            echo "App process status:"
-            kill -0 $APP_PID 2>/dev/null && echo "App is running (PID $APP_PID)" || echo "App crashed"
+            echo "App is running: $(kill -0 $APP_PID 2>/dev/null && echo 'yes' || echo 'no')"
             echo "agent_port=" >> $GITHUB_OUTPUT
           else
             echo "✅ MauiDevFlow agent on port $AGENT_PORT"
             echo "agent_port=$AGENT_PORT" >> $GITHUB_OUTPUT
-            curl -s http://localhost:$AGENT_PORT/api/status || true
           fi
 
       - name: "Smoke Test: MAUI status"
@@ -197,6 +215,17 @@ jobs:
         with:
           name: polypilot-screenshot
           path: /tmp/polypilot-ci-screenshot.png
+          if-no-files-found: ignore
+
+      - name: Upload app logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: polypilot-logs
+          path: |
+            /tmp/polypilot-stdout.log
+            /tmp/polypilot-stderr.log
+            /tmp/devflow-wait.json
           if-no-files-found: ignore
 
       - name: Cleanup
