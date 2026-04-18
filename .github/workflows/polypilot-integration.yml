@@ -15,6 +15,11 @@ on:
           - smoke
           - full
         default: smoke
+  push:
+    branches:
+      - 'feature/polypilot-ci-integration'
+    paths:
+      - '.github/workflows/polypilot-integration.yml'
 
 jobs:
   integration-test:
