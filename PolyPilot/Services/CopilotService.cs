@@ -3690,17 +3690,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                 Debug($"[RECONNECT] Skipping non-SDK sibling '{kvp.Key}' during client recreation");
                                                 continue;
                                             }
-                                            // INV-O14: IsProcessing siblings have dead event streams —
-                                            // their CopilotSession was tied to the old client which was
-                                            // just disposed. Force-abort so the orchestrator retries
-                                            // immediately instead of waiting 2–5 min for the watchdog.
-                                            if (otherState.Info.IsProcessing)
-                                            {
-                                                Debug($"[RECONNECT] Sibling '{kvp.Key}' is IsProcessing with dead event stream — force-completing before re-resume");
-                                                try { await ForceCompleteProcessingAsync(kvp.Key, otherState, "client-recreated-dead-event-stream"); }
-                                                catch (Exception forceEx) { Debug($"[RECONNECT] Failed to force-complete sibling '{kvp.Key}': {forceEx.Message}"); }
-                                                // Fall through to re-resume the session on the new client
-                                            }
+                                            // Siblings that were actively processing have dead event streams
+                                            // (their CopilotSession was tied to the old disposed client).
+                                            // Instead of force-completing (which discards in-flight responses),
+                                            // preserve IsProcessing so the re-resumed session picks up
+                                            // events on the new connection. The watchdog handles genuinely
+                                            // dead sessions after re-resume.
+                                            var siblingWasProcessing = otherState.Info.IsProcessing;
+                                            var siblingProcessingPhase = otherState.Info.ProcessingPhase;
                                             var otherMeta = sessionSnapshots.FirstOrDefault(m => m.SessionName == kvp.Key);
                                             if (otherMeta?.GroupId != null &&
                                                 groupSnapshots.Any(g => g.Id == otherMeta.GroupId && g.IsCodespace))
@@ -3745,7 +3742,9 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     // Re-check after await — a concurrent SendPromptAsync
                                                     // may have started processing while we were resuming.
                                                     // Orphan the just-resumed session rather than cancel a live turn.
-                                                    if (capturedOtherState.Info.IsProcessing)
+                                                    // BUT: if siblingWasProcessing is true, the session was already
+                                                    // processing BEFORE the reconnect — that's expected, not concurrent.
+                                                    if (capturedOtherState.Info.IsProcessing && !siblingWasProcessing)
                                                     {
                                                         Debug($"[RECONNECT] Sibling '{capturedKey}' started processing during re-resume — skipping");
                                                         try { await resumed.DisposeAsync(); } catch { }
@@ -3757,7 +3756,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     // instead of mutating otherState in place.
                                                     capturedOtherState.IsOrphaned = true;
                                                     Interlocked.Exchange(ref capturedOtherState.ProcessingGeneration, long.MaxValue);
-                                                    // Cancel old TCS so any awaiter (orchestrator worker) doesn't hang
+                                                    // Cancel old TCS so orchestrator workers hit OperationCanceledException.
+                                                    // The catch filter in SendPromptAndWaitAsync detects that the session
+                                                    // was replaced (not truly cancelled), re-acquires the new state from
+                                                    // _sessions, and seamlessly re-awaits the new TCS. TrySetResult("")
+                                                    // was tried but triggers the revival path (empty response → orphan
+                                                    // the healthy reconnected state → create a third session from scratch).
                                                     capturedOtherState.ResponseCompletion?.TrySetCanceled();
                                                     var siblingState = new SessionState
                                                     {
@@ -3765,6 +3769,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                         Info = capturedOtherState.Info,
                                                         IsMultiAgentSession = capturedOtherState.IsMultiAgentSession,
                                                     };
+                                                    // Carry forward flushed content from the old state so partial
+                                                    // mid-turn responses (tool output, assistant text) aren't lost.
+                                                    // Mirrors the primary reconnect path's FlushedResponse preservation.
+                                                    if (capturedOtherState.FlushedResponse.Length > 0)
+                                                        siblingState.FlushedResponse.Append(capturedOtherState.FlushedResponse);
                                                     // Mirror primary reconnect: reset tool tracking for new connection
                                                     siblingState.HasUsedToolsThisTurn = false;
                                                     ClearDeferredIdleTracking(siblingState);
@@ -3773,6 +3782,23 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     Interlocked.Exchange(ref siblingState.ToolHealthStaleChecks, 0);
                                                     Interlocked.Exchange(ref siblingState.EventCountThisTurn, 0);
                                                     Interlocked.Exchange(ref siblingState.TurnEndReceivedAtTicks, 0);
+                                                    // If the sibling was actively processing before the reconnect,
+                                                    // restore processing state BEFORE handler registration so events
+                                                    // arriving on the new connection see IsProcessing=true immediately
+                                                    // and don't trigger premature CompleteResponse or EVT-REARM-SKIP.
+                                                    // These writes are safe despite Info being shared with the old state:
+                                                    // they're idempotent (writing true to already-true fields since
+                                                    // siblingWasProcessing was captured as true), and the old state is
+                                                    // orphaned so its handlers bail out on the IsOrphaned guard.
+                                                    if (siblingWasProcessing)
+                                                    {
+                                                        siblingState.Info.IsProcessing = true;
+                                                        siblingState.Info.IsResumed = true;
+                                                        siblingState.HasUsedToolsThisTurn = true; // 600s watchdog tier
+                                                        siblingState.Info.ProcessingPhase = siblingProcessingPhase > 0 ? siblingProcessingPhase : 3;
+                                                        siblingState.Info.ProcessingStartedAt ??= DateTime.UtcNow;
+                                                        siblingState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+                                                    }
                                                     // Register handler BEFORE publishing to dictionary —
                                                     // no window where events arrive with no handler.
                                                     resumed.On(evt => HandleSessionEvent(siblingState, evt));
@@ -3788,6 +3814,22 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     }
                                                     DisposePrematureIdleSignal(capturedOtherState);
                                                     Debug($"[RECONNECT] Re-resumed sibling session '{capturedKey}' after client recreation");
+                                                    // Start watchdog on UI thread — IsProcessing and companion fields
+                                                    // were already set before handler registration (above), so this
+                                                    // just needs to start the timer and notify the UI.
+                                                    if (siblingWasProcessing)
+                                                    {
+                                                        var reconnectGen = Interlocked.Read(ref siblingState.ProcessingGeneration);
+                                                        InvokeOnUI(() =>
+                                                        {
+                                                            if (siblingState.IsOrphaned) return;
+                                                            if (Interlocked.Read(ref siblingState.ProcessingGeneration) != reconnectGen) return;
+                                                            if (!siblingState.Info.IsProcessing) return; // CompleteResponse already ran — don't resurrect
+                                                            StartProcessingWatchdog(siblingState, capturedKey);
+                                                            NotifyStateChangedCoalesced();
+                                                            Debug($"[RECONNECT] Sibling '{capturedKey}' was processing — started watchdog on new connection");
+                                                        });
+                                                    }
                                                 }
                                                 catch (Exception reEx)
                                                 {
@@ -3801,6 +3843,20 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                         Interlocked.Exchange(ref capturedOtherState.ProcessingGeneration, long.MaxValue);
                                                         // Unblock any orchestrator worker awaiting this session's TCS
                                                         capturedOtherState.ResponseCompletion?.TrySetCanceled();
+                                                        // If the sibling was processing, clear IsProcessing so the UI
+                                                        // doesn't show a stuck "Thinking..." on a dead connection.
+                                                        if (siblingWasProcessing)
+                                                        {
+                                                            InvokeOnUI(() =>
+                                                            {
+                                                                if (capturedOtherState.Info.IsProcessing)
+                                                                {
+                                                                    Debug($"[RECONNECT] Clearing stuck IsProcessing on failed re-resume of '{capturedKey}'");
+                                                                    ClearProcessingState(capturedOtherState);
+                                                                    NotifyStateChangedCoalesced();
+                                                                }
+                                                            });
+                                                        }
                                                     }
                                                 }
                                                 finally

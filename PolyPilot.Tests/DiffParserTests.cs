@@ -1655,7 +1655,7 @@ public class DiffParserTests
         // Verify that a sibling directory like "projectEvil" doesn't pass
         // StartsWith("C:\project") without trailing separator
         var workDir = Path.Combine(Path.GetTempPath(), "testproject");
-        var siblingPath = "..\\testprojectEvil\\secret.txt";
+        var siblingPath = Path.Combine("..", "testprojectEvil", "secret.txt");
 
         var filePath = Path.GetFullPath(Path.Combine(workDir, siblingPath));
         var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
@@ -1668,7 +1668,7 @@ public class DiffParserTests
     public void PathTraversal_ValidSubpath_IsAllowed()
     {
         var workDir = Path.Combine(Path.GetTempPath(), "testproject");
-        var validPath = "src\\Models\\User.cs";
+        var validPath = Path.Combine("src", "Models", "User.cs");
 
         var filePath = Path.GetFullPath(Path.Combine(workDir, validPath));
         var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
@@ -1681,7 +1681,7 @@ public class DiffParserTests
     public void PathTraversal_DotDotEscape_IsBlocked()
     {
         var workDir = Path.Combine(Path.GetTempPath(), "testproject");
-        var escapePath = "..\\..\\etc\\passwd";
+        var escapePath = Path.Combine("..", "..", "etc", "passwd");
 
         var filePath = Path.GetFullPath(Path.Combine(workDir, escapePath));
         var normalizedWorkDir = Path.GetFullPath(workDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
