@@ -14,6 +14,7 @@ permissions:
 tools:
   github:
     toolsets: [pull_requests, repos]
+    min-integrity: approved
 
 safe-outputs:
   create-pull-request-review-comment:
@@ -23,6 +24,7 @@ safe-outputs:
     allowed-events: [COMMENT, REQUEST_CHANGES]
   add-comment:
     max: 5
+    hide-older-comments: true
 ---
 
 # Expert Code Review
