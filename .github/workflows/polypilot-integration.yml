@@ -161,42 +161,47 @@ jobs:
             echo "agent_port=$AGENT_PORT" >> $GITHUB_OUTPUT
           fi
 
-      - name: "Smoke Test: Agent Status (direct API)"
+      - name: "Smoke Test: Discover API routes"
         if: steps.devflow.outputs.agent_port != ''
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== Agent Status ==="
           curl -s http://localhost:$PORT/api/status | python3 -m json.tool
 
-      - name: "Smoke Test: Visual Tree (direct API)"
-        if: steps.devflow.outputs.agent_port != ''
-        run: |
-          PORT=${{ steps.devflow.outputs.agent_port }}
-          echo "=== Visual Tree ==="
-          curl -s http://localhost:$PORT/api/maui/tree | python3 -m json.tool || echo "Tree API failed"
+          echo "=== Trying common routes ==="
+          for route in \
+            /api/tree /api/visual-tree /api/visualtree \
+            /api/screenshot /api/capture \
+            /api/cdp /api/cdp/status /api/cdp/list \
+            /api/logs /api/log \
+            /api/maui /api/maui/tree /api/maui/status \
+            /api/elements /api/query \
+            /tree /screenshot /status \
+            /api/info /api/routes /api/help \
+            / /api; do
+            RESULT=$(curl -s --max-time 2 -o /dev/null -w "%{http_code}" http://localhost:$PORT$route 2>/dev/null)
+            if [ "$RESULT" != "000" ] && [ "$RESULT" != "404" ]; then
+              echo "  $route → HTTP $RESULT"
+              if [ "$RESULT" = "200" ]; then
+                echo "    $(curl -s --max-time 2 http://localhost:$PORT$route | head -c 500)"
+              fi
+            fi
+          done
 
-      - name: "Smoke Test: Screenshot (direct API)"
+      - name: "Smoke Test: Screenshot via status endpoint"
         if: steps.devflow.outputs.agent_port != ''
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
-          echo "=== Taking screenshot ==="
-          curl -s http://localhost:$PORT/api/maui/screenshot -o /tmp/polypilot-ci-screenshot.png && \
-            echo "✅ Screenshot saved ($(wc -c < /tmp/polypilot-ci-screenshot.png) bytes)" || \
-            echo "Screenshot API failed"
-
-      - name: "Smoke Test: CDP Status (direct API)"
-        if: steps.devflow.outputs.agent_port != ''
-        run: |
-          PORT=${{ steps.devflow.outputs.agent_port }}
-          echo "=== CDP Status ==="
-          curl -s http://localhost:$PORT/api/cdp/status | python3 -m json.tool || echo "CDP API failed"
-
-      - name: "Smoke Test: App Logs (direct API)"
-        if: steps.devflow.outputs.agent_port != ''
-        run: |
-          PORT=${{ steps.devflow.outputs.agent_port }}
-          echo "=== Application Logs ==="
-          curl -s http://localhost:$PORT/api/maui/logs | head -50 || echo "Logs API failed"
+          # The screenshot endpoint might return binary data
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-ci-screenshot.png 2>&1 || true
+          if [ -f /tmp/polypilot-ci-screenshot.png ] && [ $(wc -c < /tmp/polypilot-ci-screenshot.png) -gt 100 ]; then
+            echo "✅ Screenshot saved ($(wc -c < /tmp/polypilot-ci-screenshot.png) bytes)"
+          else
+            echo "Screenshot too small or not found, trying other paths..."
+            curl -s http://localhost:$PORT/screenshot -o /tmp/polypilot-ci-screenshot.png 2>&1 || true
+            curl -s http://localhost:$PORT/api/capture -o /tmp/polypilot-ci-screenshot2.png 2>&1 || true
+            ls -la /tmp/polypilot-ci-screenshot*.png 2>/dev/null || echo "No screenshots captured"
+          fi
 
       - name: "Smoke Test: CLI with verbose"
         if: steps.devflow.outputs.agent_port != ''
