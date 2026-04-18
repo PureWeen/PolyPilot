@@ -793,6 +793,7 @@ public class ScheduledTaskTests
     public async Task Service_ExecuteTask_ExistingSession_UsesThatSessionWithoutCreatingAnotherSession()
     {
         var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        var previousPath = ScheduledTaskService.GetTasksFilePathForTesting();
         ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
 
         try
@@ -836,8 +837,7 @@ public class ScheduledTaskTests
         finally
         {
             try { File.Delete(tempFile); } catch { }
-            ScheduledTaskService.SetTasksFilePathForTesting(
-                Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+            ScheduledTaskService.SetTasksFilePathForTesting(previousPath!);
         }
     }
 

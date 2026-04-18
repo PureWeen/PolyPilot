@@ -15,6 +15,7 @@ public class ScheduledTaskService : IDisposable
 
     /// <summary>Override file path for tests to prevent writing to real ~/.polypilot/.</summary>
     internal static void SetTasksFilePathForTesting(string path) => _tasksFilePath = path;
+    internal static string? GetTasksFilePathForTesting() => _tasksFilePath;
 
     private readonly CopilotService _copilotService;
     private readonly List<ScheduledTask> _tasks = new();
