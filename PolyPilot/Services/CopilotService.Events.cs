@@ -875,12 +875,14 @@ public partial class CopilotService
                                     Debug($"[IDLE-FALLBACK] '{sessionName}' skipped after extended wait — tools became active");
                                     return;
                                 }
-                                // Final guard: check if the CLI is still writing to events.jsonl.
+                                // Final guard: check if the CLI has an in-flight tool execution.
                                 // ToolExecutionStartEvent may not be delivered via the live event
                                 // stream even though the CLI is actively executing a tool (the event
-                                // only appears in events.jsonl). If events.jsonl was written recently
-                                // AND after the extended wait started, the session is still active.
-                                // Mirrors the watchdog's freshness check (line ~2711).
+                                // only appears in events.jsonl). Two checks:
+                                // 1. If events.jsonl was written recently AND after the wait started
+                                // 2. If the last event in events.jsonl IS tool.execution_start
+                                //    (tool is running but we never got the live event)
+                                // Either means the session is still active — don't complete prematurely.
                                 if (!IsDemoMode && !IsRemoteMode)
                                 {
                                     try
@@ -891,14 +893,12 @@ public partial class CopilotService
                                             var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
                                             if (File.Exists(ep))
                                             {
+                                                // Check 1: events.jsonl freshness (file written during our wait)
                                                 var lastWrite = File.GetLastWriteTimeUtc(ep);
                                                 var fileAge = Math.Max(0.0, (DateTime.UtcNow - lastWrite).TotalSeconds);
                                                 if (lastWrite > freshnessCheckStart && fileAge < TurnEndFallbackFreshnessSeconds)
                                                 {
                                                     Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — events.jsonl written {fileAge:F0}s ago (after wait started), CLI still active — rescheduling");
-                                                    // Reschedule a shorter recheck instead of permanent skip.
-                                                    // This prevents permanent stuck state if the CLI finishes
-                                                    // shortly after this check.
                                                     await Task.Delay(TurnEndFallbackRecheckMs, fallbackToken);
                                                     if (fallbackToken.IsCancellationRequested) return;
                                                     if (state.IsOrphaned) return;
@@ -907,13 +907,24 @@ public partial class CopilotService
                                                         Debug($"[IDLE-FALLBACK] '{sessionName}' skipped on recheck — tools became active");
                                                         return;
                                                     }
-                                                    // Recheck freshness one more time
                                                     var recheckAge = Math.Max(0.0, (DateTime.UtcNow - File.GetLastWriteTimeUtc(ep)).TotalSeconds);
                                                     if (recheckAge < TurnEndFallbackFreshnessSeconds)
                                                     {
                                                         Debug($"[IDLE-FALLBACK] '{sessionName}' still fresh on recheck ({recheckAge:F0}s ago) — deferring to watchdog");
                                                         return;
                                                     }
+                                                }
+
+                                                // Check 2: if the last event is tool.execution_start,
+                                                // a tool is actively running even though ActiveToolCallCount=0
+                                                // (ToolExecutionStartEvent wasn't delivered via live stream).
+                                                // This handles long-running tools (e.g., read_bash delay:600)
+                                                // where events.jsonl was written before our wait started.
+                                                var lastEventType = GetLastEventType(ep);
+                                                if (lastEventType == "tool.execution_start")
+                                                {
+                                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — last event in events.jsonl is tool.execution_start (tool running without live event) — deferring to watchdog");
+                                                    return;
                                                 }
                                             }
                                         }
@@ -2866,6 +2877,31 @@ public partial class CopilotService
                             // confirms the session completed normally, not a server crash.
                             //
                             // BUT: ActiveToolCallCount can drop to 0 between tool rounds (the model
+
+                            // Pre-check: if the last event in events.jsonl is tool.execution_start,
+                            // a tool IS actively running even though ActiveToolCallCount=0
+                            // (ToolExecutionStartEvent wasn't delivered via live stream).
+                            // Treat as Case A instead — defer to next watchdog cycle.
+                            if (!IsDemoMode && !IsRemoteMode)
+                            {
+                                try
+                                {
+                                    var sid = state.Info.SessionId;
+                                    if (!string.IsNullOrEmpty(sid))
+                                    {
+                                        var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                                        var lastEvtType = GetLastEventType(ep);
+                                        if (lastEvtType == "tool.execution_start")
+                                        {
+                                            Debug($"[WATCHDOG] '{sessionName}' Case B skipped — last event is tool.execution_start " +
+                                                  $"(tool running without live event, elapsed={elapsed:F0}s) — deferring");
+                                            Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                            continue;
+                                        }
+                                    }
+                                }
+                                catch { /* filesystem errors → proceed with normal Case B logic */ }
+                            }
                             // is deciding what to do next). If events.jsonl is still being written,
                             // the session is alive — don't complete prematurely.
                             if (!IsDemoMode && !IsRemoteMode && startedAt.HasValue)
