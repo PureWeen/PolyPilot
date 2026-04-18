@@ -939,6 +939,7 @@ Do something.
         // Regression test: when the user's group is named "maui" and the local folder
         // is "~/Projects/maui2", promotion must NOT rename the group to "maui2".
         var svc = CreateService();
+        // Note: path need not exist on disk; promotion matches on repoId, not disk state.
         var localRepoPath = Path.Combine(Path.GetTempPath(), "maui2");
         var expectedPath = Path.GetFullPath(localRepoPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -968,6 +969,7 @@ Do something.
             new() { Id = "dotnet-maui", Name = "maui", Url = "https://github.com/dotnet/maui" }
         };
         // External worktree folder name is "maui2" — differs from group name "maui"
+        // Note: path need not exist on disk; ReconcileOrganization matches on repoId, not disk state.
         var extPath = Path.Combine(Path.GetTempPath(), "maui2");
         var worktrees = new List<WorktreeInfo>
         {
@@ -986,6 +988,48 @@ Do something.
         Assert.True(promoted.IsLocalFolder);
         // Name must be "maui" — NOT "maui2" (the folder basename)
         Assert.Equal("maui", promoted.Name);
+    }
+
+    [Fact]
+    public void PromoteOrCreateLocalFolderGroup_CreationPath_UsesFolderBasename()
+    {
+        // Documents intentional asymmetry: when no URL group exists to promote,
+        // the creation path names the group after the folder basename.
+        // This differs from promotion (which preserves the existing group name).
+        var svc = CreateService();
+        // Note: path need not exist on disk; creation matches on repoId, not disk state.
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "my-project");
+        var expectedName = "my-project";
+
+        // No existing group for "new-repo" — creation path will be used
+        var result = svc.PromoteOrCreateLocalFolderGroup(localRepoPath, "new-repo");
+
+        Assert.True(result.IsLocalFolder);
+        Assert.Equal(expectedName, result.Name);
+    }
+
+    [Fact]
+    public void PromoteOrCreateLocalFolderGroup_FallsBackToFolderName_WhenGroupNameIsEmpty()
+    {
+        // Defensive: if a promotable group has an empty name (corrupt state),
+        // promotion falls back to the folder basename instead of preserving blank.
+        var svc = CreateService();
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "fallback-name");
+        var expectedPath = Path.GetFullPath(localRepoPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        // Create a URL group and then blank out its name to simulate corrupt state
+        var urlGroup = svc.GetOrCreateRepoGroup("corrupt-repo", "original");
+        Assert.NotNull(urlGroup);
+        urlGroup!.Name = "";
+
+        var result = svc.PromoteOrCreateLocalFolderGroup(localRepoPath, "corrupt-repo");
+
+        Assert.Equal(urlGroup.Id, result.Id);
+        Assert.True(result.IsLocalFolder);
+        Assert.Equal(expectedPath, result.LocalPath);
+        // Empty name should be repaired with the folder basename
+        Assert.Equal("fallback-name", result.Name);
     }
 
     [Fact]

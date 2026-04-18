@@ -744,6 +744,9 @@ public partial class CopilotService
                 // Preserve the user's group name — don't overwrite with the folder basename.
                 // The old code did: groupToPromote.Name = Path.GetFileName(normalizedExtPath)
                 // which destroyed user-customized names (e.g., "maui" → "maui2").
+                // Fallback: if the group somehow has an empty name, use the folder basename.
+                if (string.IsNullOrWhiteSpace(groupToPromote.Name))
+                    groupToPromote.Name = Path.GetFileName(normalizedExtPath);
                 changed = true;
                 Debug($"ReconcileOrganization: promoted group '{groupToPromote.Id}' ('{groupToPromote.Name}') to local folder group for '{normalizedExtPath}'");
 
@@ -1538,6 +1541,9 @@ public partial class CopilotService
                 // Preserve the user's group name — don't overwrite with the folder basename.
                 // The old code did: candidate.Name = Path.GetFileName(normalized)
                 // which destroyed user-customized names (e.g., "maui" → "maui2").
+                // Fallback: if the group somehow has an empty name, use the folder basename.
+                if (string.IsNullOrWhiteSpace(candidate.Name))
+                    candidate.Name = Path.GetFileName(normalized);
                 SaveOrganization();
                 OnStateChanged?.Invoke();
                 Debug($"PromoteOrCreateLocalFolderGroup: promoted '{candidate.Id}' ('{candidate.Name}') to local folder group for '{normalized}'");
@@ -1546,6 +1552,10 @@ public partial class CopilotService
         }
 
         // No existing group to promote — create a fresh local folder group.
+        // Note: the creation path uses Path.GetFileName(localPath) as the group name,
+        // which differs from promotion (which preserves the existing name). This is
+        // intentional: new groups get a sensible default from the folder name, while
+        // existing groups keep whatever the user (or auto-creation) named them.
         return GetOrCreateLocalFolderGroup(localPath, repoId);
     }
 
