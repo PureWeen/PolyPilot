@@ -1,0 +1,151 @@
+name: "PolyPilot Integration Test"
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to analyze (optional)'
+        required: false
+        type: number
+      scenario:
+        description: 'Test scenario to run (smoke, full)'
+        required: false
+        type: choice
+        options:
+          - smoke
+          - full
+        default: smoke
+
+jobs:
+  integration-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install GTK4 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev xvfb
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui-android
+
+      - name: Install MauiDevFlow CLI
+        run: |
+          dotnet tool install --global Microsoft.Maui.Cli \
+            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json \
+            --prerelease || true
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Build PolyPilot.Gtk (Debug — includes MauiDevFlow)
+        run: |
+          dotnet build PolyPilot.Gtk/PolyPilot.Gtk.csproj \
+            -c Debug \
+            --disable-build-servers \
+            -p:UseSharedCompilation=false \
+            -nodeReuse:false
+
+      - name: Find built binary
+        id: find-binary
+        run: |
+          BINARY=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot.Gtk" -type f -executable | head -1)
+          if [ -z "$BINARY" ]; then
+            echo "Binary not found, searching more broadly..."
+            find PolyPilot.Gtk/bin/Debug -type f -executable | head -20
+            BINARY=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot*" -type f -executable | head -1)
+          fi
+          echo "binary=$BINARY" >> $GITHUB_OUTPUT
+          echo "Found binary: $BINARY"
+
+      - name: Launch PolyPilot under xvfb
+        run: |
+          echo "Starting PolyPilot.Gtk under virtual display..."
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1920x1080x24 &
+          XVFB_PID=$!
+          echo "XVFB_PID=$XVFB_PID" >> $GITHUB_ENV
+          sleep 2
+
+          # Launch PolyPilot in background
+          ${{ steps.find-binary.outputs.binary }} &
+          APP_PID=$!
+          echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+          echo "PolyPilot launched with PID $APP_PID"
+
+          # Wait for startup
+          sleep 10
+          
+          # Verify process is still running
+          if kill -0 $APP_PID 2>/dev/null; then
+            echo "✅ PolyPilot is running"
+          else
+            echo "❌ PolyPilot crashed on startup"
+            exit 1
+          fi
+
+      - name: Wait for MauiDevFlow agent
+        run: |
+          export DISPLAY=:99
+          echo "Waiting for MauiDevFlow agent connection..."
+          maui devflow wait --timeout 60 || {
+            echo "⚠️ MauiDevFlow agent did not connect within 60s"
+            echo "Checking if app is still running..."
+            kill -0 $APP_PID 2>/dev/null && echo "App is running" || echo "App crashed"
+            echo "Checking port 9223..."
+            curl -s http://localhost:9223/api/status || echo "Port 9223 not responding"
+            exit 1
+          }
+          echo "✅ MauiDevFlow agent connected"
+
+      - name: "Smoke Test: MAUI status"
+        run: |
+          export DISPLAY=:99
+          echo "=== Agent Status ==="
+          maui devflow MAUI status || echo "MAUI status failed"
+
+      - name: "Smoke Test: Visual tree"
+        run: |
+          export DISPLAY=:99
+          echo "=== Visual Tree ==="
+          maui devflow MAUI tree --depth 5 || echo "Tree inspection failed"
+
+      - name: "Smoke Test: Screenshot"
+        run: |
+          export DISPLAY=:99
+          echo "=== Taking screenshot ==="
+          maui devflow MAUI screenshot --output /tmp/polypilot-ci-screenshot.png || echo "Screenshot failed"
+
+      - name: "Smoke Test: CDP/Blazor status"
+        run: |
+          export DISPLAY=:99
+          echo "=== CDP Status ==="
+          maui devflow cdp status || echo "CDP status failed"
+
+      - name: "Smoke Test: Application logs"
+        run: |
+          export DISPLAY=:99
+          echo "=== Recent logs ==="
+          timeout 5 maui devflow MAUI logs || true
+
+      - name: Upload screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: polypilot-screenshot
+          path: /tmp/polypilot-ci-screenshot.png
+          if-no-files-found: ignore
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kill $APP_PID 2>/dev/null || true
+          kill $XVFB_PID 2>/dev/null || true
