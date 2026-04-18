@@ -296,6 +296,38 @@ public class ChatExperienceSafetyTests
     }
 
     /// <summary>
+    /// ClearProcessingState must increment ProcessingGeneration so that any InvokeOnUI
+    /// callback captured before completion sees a generation mismatch and bails out.
+    /// Without this, the generation guard passes and only the !IsProcessing check
+    /// prevents resurrection of completed turns — a fragile single-point-of-failure.
+    /// </summary>
+    [Fact]
+    public async Task ClearProcessingState_IncrementsGeneration()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("gen-increment-test");
+
+        var state = GetSessionState(svc, "gen-increment-test");
+        session.IsProcessing = true;
+        SetField(state, "ProcessingGeneration", 5L);
+        SetField(state, "SendingFlag", 1);
+        SetResponseCompletion(state, new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously));
+
+        var genBefore = GetField<long>(state, "ProcessingGeneration");
+
+        // Act: CompleteResponse calls ClearProcessingState internally
+        InvokeCompleteResponse(svc, state, 5L);
+
+        var genAfter = GetField<long>(state, "ProcessingGeneration");
+
+        Assert.False(session.IsProcessing);
+        Assert.True(genAfter > genBefore,
+            $"ClearProcessingState must increment ProcessingGeneration (was {genBefore}, now {genAfter}). " +
+            "This prevents resurrection of completed turns by stale InvokeOnUI callbacks.");
+    }
+
+    /// <summary>
     /// Late TurnStart events should only revive sessions after speculative auto-completion.
     /// Explicit aborts, watchdog kills, and force-complete recovery paths must not be re-armed
     /// by stale SDK TurnStart replays.

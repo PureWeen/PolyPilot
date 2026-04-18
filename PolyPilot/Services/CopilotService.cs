@@ -786,6 +786,12 @@ public partial class CopilotService : IAsyncDisposable
         ClearFlushedReplayDedup(state);
         state.PendingReasoningMessages.Clear();
 
+        // Increment generation so any InvokeOnUI callback that captured the old
+        // generation before this ClearProcessingState call will see a mismatch and
+        // bail out — preventing resurrection of a completed turn. Without this,
+        // the generation guard passes and only the !IsProcessing check saves us.
+        Interlocked.Increment(ref state.ProcessingGeneration);
+
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false;
         state.Info.ProcessingStartedAt = null;
