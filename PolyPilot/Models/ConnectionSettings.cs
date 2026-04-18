@@ -132,6 +132,18 @@ public class ConnectionSettings
     public bool EnableVerboseEventTracing { get; set; } = false;
 
     /// <summary>
+    /// When true, a background copilot CLI session perpetually monitors all running
+    /// sessions for reliability issues (stuck processing, watchdog kills, error patterns)
+    /// and can auto-create PRs with fixes.
+    /// </summary>
+    public bool EnableSessionAnalyzer { get; set; } = false;
+
+    /// <summary>
+    /// How often (in minutes) the session analyzer runs its diagnostic analysis.
+    /// </summary>
+    public int SessionAnalyzerIntervalMinutes { get; set; } = 10;
+
+    /// <summary>
     /// Normalizes a remote URL by ensuring it has an http(s):// scheme.
     /// Plain IPs/hostnames get http://, devtunnels/known TLS hosts get https://.
     /// Already-schemed URLs pass through unchanged. Returns null for null/empty input.

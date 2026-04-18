@@ -120,6 +120,7 @@ public static class MauiProgram
 	builder.Services.AddSingleton<EfficiencyAnalysisService>();
 	builder.Services.AddSingleton<PrLinkService>();
 	builder.Services.AddSingleton<ScheduledTaskService>();
+	builder.Services.AddSingleton<SessionAnalyzerService>();
 
 #if DEBUG
 		builder.Services.AddBlazorWebViewDeveloperTools();
