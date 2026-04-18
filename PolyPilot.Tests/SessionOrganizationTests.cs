@@ -934,6 +934,61 @@ Do something.
     }
 
     [Fact]
+    public void PromoteOrCreateLocalFolderGroup_PreservesUserGroupName_WhenFolderNameDiffers()
+    {
+        // Regression test: when the user's group is named "maui" and the local folder
+        // is "~/Projects/maui2", promotion must NOT rename the group to "maui2".
+        var svc = CreateService();
+        var localRepoPath = Path.Combine(Path.GetTempPath(), "maui2");
+        var expectedPath = Path.GetFullPath(localRepoPath)
+            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        // Simulate: user has a group named "maui" for repo "dotnet-maui"
+        var urlGroup = svc.GetOrCreateRepoGroup("dotnet-maui", "maui");
+        Assert.NotNull(urlGroup);
+        Assert.Equal("maui", urlGroup!.Name);
+
+        // Promote with a folder whose basename is "maui2" — NOT "maui"
+        var result = svc.PromoteOrCreateLocalFolderGroup(localRepoPath, "dotnet-maui");
+
+        Assert.Equal(urlGroup.Id, result.Id);
+        Assert.True(result.IsLocalFolder);
+        Assert.Equal(expectedPath, result.LocalPath);
+        // Name must be preserved — NOT overwritten with "maui2"
+        Assert.Equal("maui", result.Name);
+    }
+
+    [Fact]
+    public void ReconcileOrganization_ExternalWorktree_PreservesGroupName_WhenPromoting()
+    {
+        // Regression test: ReconcileOrganization's external worktree migration must
+        // preserve the group's name when promoting it to a local folder group.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "dotnet-maui", Name = "maui", Url = "https://github.com/dotnet/maui" }
+        };
+        // External worktree folder name is "maui2" — differs from group name "maui"
+        var extPath = Path.Combine(Path.GetTempPath(), "maui2");
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "ext-1", RepoId = "dotnet-maui", Branch = "main", Path = extPath }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        // Create a URL-based group named "maui" (user's custom name)
+        var urlGroup = svc.GetOrCreateRepoGroup("dotnet-maui", "maui");
+        Assert.Equal("maui", urlGroup!.Name);
+
+        svc.ReconcileOrganization();
+
+        var promoted = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
+        Assert.True(promoted.IsLocalFolder);
+        // Name must be "maui" — NOT "maui2" (the folder basename)
+        Assert.Equal("maui", promoted.Name);
+    }
+
+    [Fact]
     public void ReconcileOrganization_ExternalWorktree_PromotesUrlGroupToLocalFolderGroup()
     {
         // Regression test: on startup, ReconcileOrganization should automatically promote

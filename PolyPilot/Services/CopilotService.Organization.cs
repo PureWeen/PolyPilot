@@ -741,9 +741,11 @@ public partial class CopilotService
             if (groupToPromote != null)
             {
                 groupToPromote.LocalPath = normalizedExtPath;
-                groupToPromote.Name = Path.GetFileName(normalizedExtPath);
+                // Preserve the user's group name — don't overwrite with the folder basename.
+                // The old code did: groupToPromote.Name = Path.GetFileName(normalizedExtPath)
+                // which destroyed user-customized names (e.g., "maui" → "maui2").
                 changed = true;
-                Debug($"ReconcileOrganization: promoted group '{groupToPromote.Id}' to local folder group for '{normalizedExtPath}'");
+                Debug($"ReconcileOrganization: promoted group '{groupToPromote.Id}' ('{groupToPromote.Name}') to local folder group for '{normalizedExtPath}'");
 
                 // Migrate sessions whose worktrees are NOT under the new LocalPath to the
                 // URL-based repo group. Without this, sessions linked to managed worktrees
@@ -1533,10 +1535,12 @@ public partial class CopilotService
             if (candidate != null)
             {
                 candidate.LocalPath = normalized;
-                candidate.Name = Path.GetFileName(normalized);
+                // Preserve the user's group name — don't overwrite with the folder basename.
+                // The old code did: candidate.Name = Path.GetFileName(normalized)
+                // which destroyed user-customized names (e.g., "maui" → "maui2").
                 SaveOrganization();
                 OnStateChanged?.Invoke();
-                Debug($"PromoteOrCreateLocalFolderGroup: promoted '{candidate.Id}' to local folder group for '{normalized}'");
+                Debug($"PromoteOrCreateLocalFolderGroup: promoted '{candidate.Id}' ('{candidate.Name}') to local folder group for '{normalized}'");
                 return candidate;
             }
         }
