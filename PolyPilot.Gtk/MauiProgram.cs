@@ -52,6 +52,11 @@ public static class MauiProgram
         builder.Services.AddSingleton<UsageStatsService>();
         builder.Services.AddSingleton<INotificationManagerService, NotificationManagerService>();
         builder.Services.AddSingleton<ISpeechToText>(SpeechToText.Default);
+        builder.Services.AddSingleton<CodespaceService>();
+        builder.Services.AddSingleton<ScheduledTaskService>();
+        builder.Services.AddSingleton<PrLinkService>();
+        builder.Services.AddSingleton<AuditLogService>();
+        builder.Services.AddSingleton<EfficiencyAnalysisService>();
 
 #if DEBUG
         builder.Logging.AddDebug();
