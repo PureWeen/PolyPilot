@@ -790,7 +790,9 @@ public partial class CopilotService : IAsyncDisposable
         // generation before this ClearProcessingState call will see a mismatch and
         // bail out — preventing resurrection of a completed turn. Without this,
         // the generation guard passes and only the !IsProcessing check saves us.
-        Interlocked.Increment(ref state.ProcessingGeneration);
+        // Skip if orphaned (long.MaxValue) — incrementing would overflow to long.MinValue.
+        if (Interlocked.Read(ref state.ProcessingGeneration) != long.MaxValue)
+            Interlocked.Increment(ref state.ProcessingGeneration);
 
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false;
@@ -4481,6 +4483,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 state.IsReconnectedSend = false; // INV-1 item 8: prevent stale 35s timeout on next watchdog start
                 Interlocked.Exchange(ref state.SendingFlag, 0);
                 // Clear IsProcessing BEFORE completing TCS (INV-O3)
+                Interlocked.Increment(ref state.ProcessingGeneration); // Invalidate stale callbacks
                 state.Info.IsProcessing = false;
                 if (state.Info.ProcessingStartedAt is { } steerStarted)
                     state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - steerStarted).TotalSeconds;
@@ -4760,6 +4763,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 await InvokeOnUIAsync(() =>
                 {
                     FlushCurrentResponse(state);
+                    Interlocked.Increment(ref state.ProcessingGeneration); // Invalidate stale callbacks
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
                     state.HasUsedToolsThisTurn = false;
