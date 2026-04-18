@@ -67,18 +67,30 @@ curl -s 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/f
 
 Update the version in `dotnet-tools.json`.
 
+## Important Constraints
+
+- This workflow runs on **ubuntu** — the MAUI workload is NOT installed. Do NOT try to build the full solution (`PolyPilot.slnx`) or any MAUI project. Only the test project can be built.
+- Do NOT attempt to fix breaking API changes. If a version bump causes build errors, **revert that specific package** to its current version and proceed with the other updates.
+- Each package group (SDK, DevFlow, CLI tool) is independent — update whichever ones build cleanly.
+
 ## Steps
 
 1. **Query latest versions** for all three package groups using the curl commands above.
 
-2. **Compare with current versions** in the csproj files and `dotnet-tools.json`. If everything is already up to date, stop — do not create a PR.
+2. **Compare with current versions** in the csproj files and `dotnet-tools.json`. If everything is already up to date, stop and do not create a PR.
 
-3. **Update csproj files** — for each `PackageReference` that needs updating, change the `Version` attribute to the latest version. Be careful to only change the version number, not the surrounding XML structure. Ensure ALL projects referencing the same package get the same version.
+3. **Update MauiDevFlow packages first** — update all four `Microsoft.Maui.DevFlow.*` PackageReference versions and the `microsoft.maui.cli` version in `dotnet-tools.json`. These are Debug-only conditional references and do not affect the test build, so no build verification is needed for them.
 
-4. **Update dotnet-tools.json** — update the `microsoft.maui.cli` version.
+4. **Update GitHub.Copilot.SDK** — update ALL csproj files to the same latest version. Then build the test project to verify:
+   ```bash
+   dotnet build PolyPilot.Tests/PolyPilot.Tests.csproj -c Debug --nologo
+   ```
+   If the build fails with API/type errors (breaking changes), **revert the SDK version** back to what it was before in ALL csproj files. Do NOT try to fix breaking API changes — that requires a separate, dedicated PR. Log which version had breaking changes in the PR body.
 
-5. **Build to verify** — run `dotnet build PolyPilot.slnx -c Debug --nologo` to confirm everything compiles. If it fails, investigate and fix or revert.
+5. **Run tests** (only if SDK was updated successfully):
+   ```bash
+   dotnet test PolyPilot.Tests/PolyPilot.Tests.csproj --configuration Debug --nologo
+   ```
+   If tests fail, revert the SDK update.
 
-6. **Run tests** — run `dotnet test PolyPilot.Tests --configuration Debug --nologo` to confirm tests pass.
-
-7. **Create a PR** with title `chore: update NuGet dependencies` and a body that lists each package updated with old → new versions.
+6. **Create a PR** — if ANY packages were updated, create a PR with title `chore: update NuGet dependencies` and a body that lists each package updated with old → new versions. If the SDK was reverted, note it in the body with the error summary.
