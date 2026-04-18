@@ -1441,15 +1441,15 @@ public partial class CopilotService
         // Don't create a URL-based group when a local folder group already covers this repo
         // and no URL-based group exists. This prevents duplicate sidebar entries for local-only
         // repos (e.g., "maui" appearing twice — once as local folder, once as URL-based).
-        if (!explicitly && Organization.Groups.Any(g => g.RepoId == repoId && g.IsLocalFolder && !g.IsMultiAgent))
+        // Local-only repos have IDs like "dotnet-maui-local-a1b2c3d4" (the "-local-" infix is
+        // added by RepoManager.AddRepositoryFromLocalAsync). For these repos, the local folder
+        // group IS the repo's group — no URL-based group should be created.
+        // Exception: repos WITHOUT "-local-" in their ID (same ID for both URL and local groups)
+        // are allowed to create URL groups for the heal-stranded-sessions scenario.
+        if (!explicitly && repoId.Contains("-local-", StringComparison.Ordinal)
+            && Organization.Groups.Any(g => g.RepoId == repoId && g.IsLocalFolder && !g.IsMultiAgent))
         {
-            // Exception: if the local folder group is for the SAME repo (same ID, not a separate
-            // local-* ID), allow creating a URL group. This supports the heal-stranded-sessions
-            // scenario where sessions with managed worktrees need a URL group to live in.
-            var localRepo = _repoManager?.Repositories.FirstOrDefault(r => r.Id == repoId);
-            var isLocalOnlyRepo = localRepo != null && repoId.Contains("-local-", StringComparison.Ordinal);
-            if (isLocalOnlyRepo)
-                return null;
+            return null;
         }
 
         // Clear the deleted flag when explicitly re-adding
