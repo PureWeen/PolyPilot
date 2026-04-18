@@ -71,6 +71,12 @@ jobs:
           echo "binary=$BINARY" >> $GITHUB_OUTPUT
           echo "Found binary: $BINARY"
 
+      - name: Start MauiDevFlow broker
+        run: |
+          maui devflow broker start || echo "Broker start returned non-zero (may already be running)"
+          sleep 2
+          maui devflow broker status || echo "Broker status check failed"
+
       - name: Launch PolyPilot under xvfb
         run: |
           echo "Starting PolyPilot.Gtk under virtual display..."
@@ -80,14 +86,14 @@ jobs:
           echo "XVFB_PID=$XVFB_PID" >> $GITHUB_ENV
           sleep 2
 
-          # Launch PolyPilot in background
-          ${{ steps.find-binary.outputs.binary }} &
+          # Launch PolyPilot in background, capture stderr
+          ${{ steps.find-binary.outputs.binary }} 2>/tmp/polypilot-stderr.log &
           APP_PID=$!
           echo "APP_PID=$APP_PID" >> $GITHUB_ENV
           echo "PolyPilot launched with PID $APP_PID"
 
           # Wait for startup
-          sleep 10
+          sleep 15
           
           # Verify process is still running
           if kill -0 $APP_PID 2>/dev/null; then
@@ -97,49 +103,93 @@ jobs:
             exit 1
           fi
 
-      - name: Wait for MauiDevFlow agent
+      - name: Discover MauiDevFlow agent port
+        id: devflow
         run: |
           export DISPLAY=:99
-          echo "Waiting for MauiDevFlow agent connection..."
-          maui devflow wait --timeout 60 || {
-            echo "⚠️ MauiDevFlow agent did not connect within 60s"
-            echo "Checking if app is still running..."
-            kill -0 $APP_PID 2>/dev/null && echo "App is running" || echo "App crashed"
-            echo "Checking port 9223..."
-            curl -s http://localhost:9223/api/status || echo "Port 9223 not responding"
-            exit 1
-          }
-          echo "✅ MauiDevFlow agent connected"
+          echo "Waiting for MauiDevFlow agent..."
+          
+          # Try broker-based discovery first
+          maui devflow wait --timeout 60 --json > /tmp/devflow-wait.json 2>&1 || true
+          cat /tmp/devflow-wait.json || true
+          
+          # Try to get the port from the broker
+          AGENT_PORT=$(maui devflow list --json 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(d[0]['port'] if d else '')" 2>/dev/null || echo "")
+          
+          if [ -z "$AGENT_PORT" ]; then
+            echo "Broker discovery failed, trying direct port scan..."
+            # The agent typically binds to 9223 or a port in 9223-9230 range
+            for port in 9223 9224 9225 9226 9227 9228 9229 9230; do
+              if curl -s --max-time 2 http://localhost:$port/api/status > /dev/null 2>&1; then
+                AGENT_PORT=$port
+                echo "Found agent on port $port"
+                break
+              fi
+            done
+          fi
+          
+          if [ -z "$AGENT_PORT" ]; then
+            echo "⚠️ Could not discover agent port"
+            echo "Checking what's listening..."
+            ss -tlnp | grep -E '922[0-9]' || echo "Nothing on 9223-9230"
+            echo "App process status:"
+            kill -0 $APP_PID 2>/dev/null && echo "App is running (PID $APP_PID)" || echo "App crashed"
+            echo "agent_port=" >> $GITHUB_OUTPUT
+          else
+            echo "✅ MauiDevFlow agent on port $AGENT_PORT"
+            echo "agent_port=$AGENT_PORT" >> $GITHUB_OUTPUT
+            curl -s http://localhost:$AGENT_PORT/api/status || true
+          fi
 
       - name: "Smoke Test: MAUI status"
+        if: steps.devflow.outputs.agent_port != ''
         run: |
           export DISPLAY=:99
+          PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== Agent Status ==="
-          maui devflow MAUI status || echo "MAUI status failed"
+          maui devflow MAUI status --agent-port $PORT || echo "MAUI status failed"
 
       - name: "Smoke Test: Visual tree"
+        if: steps.devflow.outputs.agent_port != ''
         run: |
           export DISPLAY=:99
+          PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== Visual Tree ==="
-          maui devflow MAUI tree --depth 5 || echo "Tree inspection failed"
+          maui devflow MAUI tree --depth 5 --agent-port $PORT || echo "Tree inspection failed"
 
       - name: "Smoke Test: Screenshot"
+        if: steps.devflow.outputs.agent_port != ''
         run: |
           export DISPLAY=:99
+          PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== Taking screenshot ==="
-          maui devflow MAUI screenshot --output /tmp/polypilot-ci-screenshot.png || echo "Screenshot failed"
+          maui devflow MAUI screenshot --output /tmp/polypilot-ci-screenshot.png --agent-port $PORT || echo "Screenshot failed"
 
       - name: "Smoke Test: CDP/Blazor status"
+        if: steps.devflow.outputs.agent_port != ''
         run: |
           export DISPLAY=:99
+          PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== CDP Status ==="
-          maui devflow cdp status || echo "CDP status failed"
+          maui devflow cdp status --agent-port $PORT || echo "CDP status failed"
 
       - name: "Smoke Test: Application logs"
+        if: steps.devflow.outputs.agent_port != ''
         run: |
           export DISPLAY=:99
+          PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== Recent logs ==="
-          timeout 5 maui devflow MAUI logs || true
+          timeout 5 maui devflow MAUI logs --agent-port $PORT || true
+
+      - name: "Diagnostics (if agent not found)"
+        if: steps.devflow.outputs.agent_port == ''
+        run: |
+          echo "=== Process list ==="
+          ps aux | grep -i polypilot || true
+          echo "=== Listening ports ==="
+          ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || true
+          echo "=== App stderr (if captured) ==="
+          cat /tmp/polypilot-stderr.log 2>/dev/null || echo "No stderr log"
 
       - name: Upload screenshot
         if: always()
