@@ -2113,7 +2113,7 @@
                     "- `/diff [args]` — Show git diff\n" +
                     "- `/status` — Show git status\n" +
                     "- `/prompt` — Manage prompts (`/prompt use <name> [-- context]`, save, edit, show, delete)\n" +
-                    "- `/schedule <frequency> <prompt>` — Schedule a recurring prompt in this session (`30m`, `2h`, `daily`; `/schedule list` to review)\n" +
+                    "- `/schedule <frequency> <prompt>` — Schedule a recurring prompt (`30m`, `2h`, `daily`; `/schedule list`, `/schedule delete <#>`)\n" +
                     "- `/usage` — Show token usage and quota for this session\n" +
                     "- `/agent [name]` — List or select a CLI agent\n" +
                     "- `/fleet <prompt>` — Start fleet mode (parallel subagent execution)\n" +
@@ -2346,11 +2346,37 @@
                 $"**Scheduled tasks for {sessionName}:**"
             };
 
-            foreach (var scheduledTask in sessionTasks)
-                lines.Add($"- **{scheduledTask.Name}** — {scheduledTask.ScheduleDescription} {(scheduledTask.IsEnabled ? "✅ enabled" : "⏸️ disabled")}");
+            for (var i = 0; i < sessionTasks.Count; i++)
+            {
+                var scheduledTask = sessionTasks[i];
+                lines.Add($"{i + 1}. **{scheduledTask.Name}** — {scheduledTask.ScheduleDescription} {(scheduledTask.IsEnabled ? "✅ enabled" : "⏸️ disabled")}");
+            }
 
-            lines.Add("\nOpen **Scheduled Tasks** from the sidebar overflow menu to edit or disable them.");
+            lines.Add("\nUse `/schedule delete <#>` to remove a task, or open **Scheduled Tasks** from the sidebar overflow menu to edit them.");
             session.History.Add(ChatMessage.SystemMessage(string.Join("\n", lines)));
+            return;
+        }
+
+        if (trimmedArg.StartsWith("delete", StringComparison.OrdinalIgnoreCase))
+        {
+            var deleteArg = trimmedArg["delete".Length..].Trim();
+            var sessionTasks = ScheduledTaskService.GetTasks()
+                .Where(t => string.Equals(t.SessionName, sessionName, StringComparison.Ordinal))
+                .OrderBy(t => t.CreatedAt)
+                .ToList();
+
+            if (!int.TryParse(deleteArg, out var index) || index < 1 || index > sessionTasks.Count)
+            {
+                session.History.Add(ChatMessage.ErrorMessage(
+                    sessionTasks.Count == 0
+                        ? $"No scheduled tasks target **{sessionName}**."
+                        : $"Invalid index. Use `/schedule list` to see tasks 1–{sessionTasks.Count}, then `/schedule delete <#>`."));
+                return;
+            }
+
+            var target = sessionTasks[index - 1];
+            ScheduledTaskService.DeleteTask(target.Id);
+            session.History.Add(ChatMessage.SystemMessage($"🗑️ Deleted scheduled task **{target.Name}**."));
             return;
         }
 
@@ -2377,7 +2403,7 @@
             $"- **When:** {task.ScheduleDescription}\n" +
             $"- **Target:** this session\n" +
             $"- **Prompt:** {promptPreview}\n\n" +
-            "Use `/schedule list` to review tasks here, or open **Scheduled Tasks** from the sidebar overflow menu to edit them."));
+            "Use `/schedule list` to review tasks here, or `/schedule delete <#>` to remove one."));
     }
 
     private async Task RunGitCommand(string sessionName, AgentSessionInfo session, string gitArgs)

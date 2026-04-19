@@ -101,7 +101,8 @@ public class ScheduledTask
         "- `/schedule 30m Check the build status`\n" +
         "- `/schedule every 2h Summarize recent changes`\n" +
         "- `/schedule daily Draft my standup update`\n" +
-        "- `/schedule list` — show tasks targeting this session";
+        "- `/schedule list` — show tasks targeting this session\n" +
+        "- `/schedule delete <#>` — delete a task by index from the list";
 
     public static bool TryCreateFromSlashCommand(
         string rawArgs,

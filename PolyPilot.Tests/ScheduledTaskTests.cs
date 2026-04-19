@@ -189,6 +189,14 @@ public class ScheduledTaskTests
         Assert.Contains("Usage: `/schedule", error);
     }
 
+    [Fact]
+    public void GetSlashCommandUsage_IncludesDeleteSubcommand()
+    {
+        var usage = ScheduledTask.GetSlashCommandUsage();
+        Assert.Contains("/schedule delete", usage);
+        Assert.Contains("/schedule list", usage);
+    }
+
     // ── Schedule description ────────────────────────────────────
 
     [Fact]
