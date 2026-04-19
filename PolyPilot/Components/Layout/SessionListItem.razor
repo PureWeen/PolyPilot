@@ -187,12 +187,13 @@
                   style="@($"--ring-progress:{contextPct:F0}%; --ring-color:{contextColor};")"
                   title="Context window: @FormatTokenCount(currentTokens!.Value)/@FormatTokenCount(tokenLimit!.Value)"></span>
         }
-        <button class="more-btn" @ref="_moreBtnRef" @onclick:stopPropagation="true"
+        <button class="more-btn" @ref="_moreBtnRef"
+                @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true"
                 @onclick="() => OnToggleMenu.InvokeAsync()" title="More actions">⋯</button>
         @if (IsMenuOpen)
         {
-            <div class="menu-overlay" @onclick="() => OnCloseMenu.InvokeAsync()" @onclick:stopPropagation="true"></div>
-            <div class="session-menu" @onclick:stopPropagation="true">
+            <div class="menu-overlay" @onclick="() => OnCloseMenu.InvokeAsync()" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true"></div>
+            <div class="session-menu" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true">
                 <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
                     ✏️ Rename
                 </button>
