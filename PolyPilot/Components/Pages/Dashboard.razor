@@ -2379,7 +2379,7 @@
 
             var target = sessionTasks[index - 1];
             ScheduledTaskService.DeleteTask(target.Id);
-            session.History.Add(ChatMessage.SystemMessage($"🗑️ Deleted scheduled task **{target.Name}**."));
+            session.History.Add(ChatMessage.SystemMessage($"🗑️ Deleted scheduled task **{target.Name}** `{target.Id[..8]}`."));
             return;
         }
 

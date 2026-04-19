@@ -324,9 +324,11 @@ public class WsBridgeServer : IDisposable
                 }
 
                 BridgeLog($"[BRIDGE] Replaying queued prompt for '{pending.SessionName}'");
+                var dispatched = false;
                 try
                 {
                     await DispatchBridgePromptAsync(pending.SessionName, pending.Message, pending.AgentMode, ct: ct);
+                    dispatched = true;
                     if (!await WaitForBridgeSendToStartAsync(pending.SessionName, ct))
                     {
                         BridgeLog($"[BRIDGE] Send confirmation timed out for '{pending.SessionName}' — continuing drain");
@@ -334,8 +336,11 @@ public class WsBridgeServer : IDisposable
                 }
                 catch (OperationCanceledException)
                 {
-                    // Re-enqueue the in-flight prompt so it isn't lost on cancellation
-                    _pendingBridgePrompts.Enqueue(pending);
+                    // Only re-enqueue if dispatch didn't complete — otherwise the prompt
+                    // was already accepted by SendPromptAsync and re-enqueueing would
+                    // cause duplicate delivery on the next drain.
+                    if (!dispatched)
+                        _pendingBridgePrompts.Enqueue(pending);
                     throw;
                 }
                 catch (Exception ex)
