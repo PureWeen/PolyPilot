@@ -192,7 +192,7 @@
                 @onclick="HandleMoreButtonClick" title="More actions">⋯</button>
         @if (IsMenuOpen)
         {
-            <div class="menu-overlay" @onclick="() => OnCloseMenu.InvokeAsync()" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true"></div>
+            <div class="menu-overlay" @onclick="() => { s_lastMenuInteraction = Environment.TickCount64; OnCloseMenu.InvokeAsync(); }" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true"></div>
             <div class="session-menu" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true">
                 <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
                     ✏️ Rename
@@ -446,18 +446,17 @@
     {
         if (IsDisabled || IsMenuOpen) return;
         // On iOS WebKit, Blazor's stopPropagation is unreliable for touch events.
-        // A capture-phase JS handler sets __menuInteraction when ⋯/menu is touched.
-        try
-        {
-            var ts = await JS.InvokeAsync<double>("eval", "window.__menuInteraction || 0");
-            if (ts > 0 && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - ts) < 500) return;
-        }
-        catch { }
+        // The ⋯ button, menu overlay, and menu items set this static timestamp
+        // so the parent session-item click can bail out synchronously.
+        if (s_lastMenuInteraction > 0 && Environment.TickCount64 - s_lastMenuInteraction < 500) return;
         await OnSelect.InvokeAsync();
     }
 
+    private static long s_lastMenuInteraction;
+
     private async Task HandleMoreButtonClick()
     {
+        s_lastMenuInteraction = Environment.TickCount64;
         await OnToggleMenu.InvokeAsync();
     }
 
