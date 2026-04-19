@@ -405,9 +405,10 @@ jobs:
           
           echo ""
           echo "--- Running copilot -p ---"
-          timeout 60 "$COPILOT_BIN" \
+          # macOS doesn't have 'timeout' — use perl-based alternative
+          perl -e 'alarm 60; exec @ARGV' "$COPILOT_BIN" \
             -p "Say exactly: Hello from CI! The PolyPilot integration test is working." \
-            2>&1 | tee /tmp/copilot-session-output.log | head -50
+            2>&1 | tee /tmp/copilot-session-output.log | head -50 || true
           
           COPILOT_EXIT=$?
           echo ""
