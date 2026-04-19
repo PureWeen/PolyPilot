@@ -142,17 +142,19 @@ Skip these — they track the .NET SDK version or use variables:
    git format-patch origin/main --stdout > /tmp/gh-aw/aw-chore-update-nuget-dependencies.patch
    ```
 
-   Then call the safe-outputs MCP gateway via curl to create the PR. The copilot CLI MCP tools are blocked by policy — calling the gateway directly via HTTP is the only reliable method:
+   Then call the safe-outputs MCP gateway via curl. The copilot CLI MCP tools are blocked by policy — calling the gateway directly via HTTP is the only reliable method. The gateway API key is in the `$MCP_GATEWAY_API_KEY` environment variable:
    ```bash
    # Initialize MCP session
    INIT_RESP=$(curl -s -X POST "http://host.docker.internal:80/mcp/safeoutputs" \
      -H "Content-Type: application/json" \
+     -H "Authorization: $MCP_GATEWAY_API_KEY" \
      -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"dep-update","version":"1.0"}}}')
    SESSION_ID=$(echo "$INIT_RESP" | jq -r '.result.sessionId // empty')
 
    # Call create_pull_request (set PR_BODY to a JSON-escaped summary of changes)
    curl -s -X POST "http://host.docker.internal:80/mcp/safeoutputs" \
      -H "Content-Type: application/json" \
+     -H "Authorization: $MCP_GATEWAY_API_KEY" \
      -H "Mcp-Session-Id: $SESSION_ID" \
      -d "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"create_pull_request\",\"arguments\":{\"title\":\"chore: update NuGet dependencies\",\"body\":\"$PR_BODY\"}}}"
    ```
