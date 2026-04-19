@@ -35,7 +35,7 @@
 <div class="session-item @cssClass @(isPinned ? "pinned" : "") @(provider != null ? "provider-session" : "") @(CompactMode ? "compact" : "")"
      data-session-name="@Session.Name"
      style="@(provider != null ? $"border-left: 3px solid {provider.AccentColor};" : "")"
-     @onclick="async () => { if (!IsDisabled) await OnSelect.InvokeAsync(); }"
+     @onclick="HandleItemClick"
      @oncontextmenu="OpenContextMenu"
      @oncontextmenu:preventDefault="true">
     <div class="session-info">
@@ -189,7 +189,7 @@
         }
         <button class="more-btn" @ref="_moreBtnRef"
                 @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true"
-                @onclick="() => OnToggleMenu.InvokeAsync()" title="More actions">⋯</button>
+                @onclick="HandleMoreButtonClick" title="More actions">⋯</button>
         @if (IsMenuOpen)
         {
             <div class="menu-overlay" @onclick="() => OnCloseMenu.InvokeAsync()" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true"></div>
@@ -442,9 +442,20 @@
         try { await InvokeAsync(StateHasChanged); } catch (ObjectDisposedException) { }
     }
 
-    private async Task HandleItemClick()
+    private async Task HandleItemClick(MouseEventArgs e)
     {
-        if (!IsDisabled) await OnSelect.InvokeAsync();
+        if (IsDisabled || IsMenuOpen || _menuJustToggled) return;
+        await OnSelect.InvokeAsync();
+    }
+
+    private bool _menuJustToggled;
+
+    private async Task HandleMoreButtonClick()
+    {
+        _menuJustToggled = true;
+        await OnToggleMenu.InvokeAsync();
+        // Reset after a tick so subsequent session-item clicks work normally
+        _ = Task.Delay(100).ContinueWith(_ => _menuJustToggled = false);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
