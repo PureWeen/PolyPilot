@@ -35,10 +35,9 @@
 <div class="session-item @cssClass @(isPinned ? "pinned" : "") @(provider != null ? "provider-session" : "") @(CompactMode ? "compact" : "")"
      data-session-name="@Session.Name"
      style="@(provider != null ? $"border-left: 3px solid {provider.AccentColor};" : "")"
-     @onclick="HandleItemClick"
      @oncontextmenu="OpenContextMenu"
      @oncontextmenu:preventDefault="true">
-    <div class="session-info">
+    <div class="session-info" @onclick="HandleItemClick">
         @if (CompactMode && !IsRenaming)
         {
             <div class="session-compact-shell" title="@GetCompactTitle(providerDisplayName ?? Session.Name)">
@@ -192,7 +191,7 @@
                 @onclick="HandleMoreButtonClick" title="More actions">⋯</button>
         @if (IsMenuOpen)
         {
-            <div class="menu-overlay" @onclick="() => { s_lastMenuInteraction = Environment.TickCount64; OnCloseMenu.InvokeAsync(); }" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true"></div>
+            <div class="menu-overlay" @onclick="() => OnCloseMenu.InvokeAsync()" @onclick:stopPropagation="true"></div>
             <div class="session-menu" @onclick:stopPropagation="true" @onpointerdown:stopPropagation="true">
                 <button class="menu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnStartRename.InvokeAsync(); }">
                     ✏️ Rename
@@ -444,19 +443,12 @@
 
     private async Task HandleItemClick(MouseEventArgs e)
     {
-        if (IsDisabled || IsMenuOpen) return;
-        // On iOS WebKit, Blazor's stopPropagation is unreliable for touch events.
-        // The ⋯ button, menu overlay, and menu items set this static timestamp
-        // so the parent session-item click can bail out synchronously.
-        if (s_lastMenuInteraction > 0 && Environment.TickCount64 - s_lastMenuInteraction < 500) return;
+        if (IsDisabled) return;
         await OnSelect.InvokeAsync();
     }
 
-    private static long s_lastMenuInteraction;
-
     private async Task HandleMoreButtonClick()
     {
-        s_lastMenuInteraction = Environment.TickCount64;
         await OnToggleMenu.InvokeAsync();
     }
 

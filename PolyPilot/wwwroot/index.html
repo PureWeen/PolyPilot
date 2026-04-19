@@ -1512,6 +1512,15 @@
             if (document.activeElement && document.activeElement !== document.body) {
                 document.activeElement.blur();
             }
+            // Freeze the flyout scroll while the menu is open so touch-scrolling
+            // inside the menu doesn't scroll the flyout behind it on iOS.
+            if (flyout) {
+                flyout.style.overflow = 'hidden';
+                menu.__restoreFlyoutScroll = function() {
+                    flyout.style.overflow = '';
+                    menu.__restoreFlyoutScroll = null;
+                };
+            }
             // Close menu if sidebar scrolls (fixed-position menu would drift)
             var scrollParent = buttonEl.closest('.session-list');
             if (scrollParent && !scrollParent.__menuScrollHandler) {
@@ -1521,6 +1530,14 @@
                 };
                 scrollParent.addEventListener('scroll', scrollParent.__menuScrollHandler, { passive: true });
             }
+            // Restore flyout scroll when menu is removed from DOM
+            var observer = new MutationObserver(function() {
+                if (!document.querySelector('.session-menu')) {
+                    if (menu.__restoreFlyoutScroll) menu.__restoreFlyoutScroll();
+                    observer.disconnect();
+                }
+            });
+            observer.observe(menu.parentElement || document.body, { childList: true, subtree: true });
         };
     </script>
 

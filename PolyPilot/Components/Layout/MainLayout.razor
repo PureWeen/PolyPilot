@@ -21,7 +21,7 @@
         </article>
     </main>
 
-    <div class="flyout-backdrop mobile-only @(flyoutOpen ? "open" : "")" @onclick="CloseFlyout"></div>
+    <div class="flyout-backdrop mobile-only @(flyoutOpen ? "open" : "")" @onclick="HandleBackdropClick"></div>
     <div class="flyout-panel mobile-only @(flyoutOpen ? "open" : "")">
         <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" OnToggleStatistics="ToggleStatistics" />
     </div>
@@ -220,6 +220,21 @@
     private void CloseFlyout()
     {
         flyoutOpen = false;
+    }
+
+    private async Task HandleBackdropClick()
+    {
+        // On iOS WebKit, tapping the ⋯ button causes a ghost click on the
+        // flyout-backdrop because the menu-overlay appears under the finger
+        // and iOS dispatches a second touch event to the backdrop behind it.
+        // Ignore backdrop clicks that happen within 400ms of a menu interaction.
+        try
+        {
+            var ts = await JS.InvokeAsync<double>("eval", "window.__menuInteraction || 0");
+            if (ts > 0 && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - ts) < 400) return;
+        }
+        catch { }
+        CloseFlyout();
     }
 
     private void ToggleStatistics()
