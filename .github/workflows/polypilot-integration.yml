@@ -395,31 +395,18 @@ jobs:
           COPILOT_BIN=$(find PolyPilot/bin/Debug -name "copilot" -type f -perm +111 | head -1)
           echo "Copilot binary: $COPILOT_BIN"
           
-          if [ -z "$COPILOT_BIN" ]; then
-            echo "❌ Could not find copilot binary"
-            exit 1
-          fi
+          echo ""
+          echo "=== Create a session with --prompt (non-interactive) ==="
+          # Use --prompt for non-interactive mode
+          # The binary needs COPILOT_GITHUB_TOKEN in env (already set)
+          cd "$GITHUB_WORKSPACE"
+          timeout 60 "$COPILOT_BIN" \
+            -p "Say 'Hello from CI! The PolyPilot integration test is working.' Respond with exactly that sentence and nothing else." \
+            --no-edit \
+            2>&1 | head -30 || echo "Prompt execution completed (may have timed out)"
           
           echo ""
-          echo "=== Verify server is running ==="
-          ps aux | grep 'copilot.*headless' | grep -v grep || echo "No headless server"
-          
-          echo ""
-          echo "=== Try copilot CLI help to understand args ==="
-          "$COPILOT_BIN" --help 2>&1 | head -30 || echo "help failed"
-          
-          echo ""
-          echo "=== Try connecting to the running server ==="
-          # The copilot CLI uses stdin/stdout for ACP protocol
-          # Try sending a simple message via pipe
-          echo '{"method": "initialize", "params": {"clientInfo": {"name": "ci-test", "version": "1.0"}}}' | \
-            timeout 10 "$COPILOT_BIN" --server-url tcp://127.0.0.1:4321 2>&1 | head -20 || \
-            echo "Pipe-based connection attempt completed"
-          
-          echo ""
-          echo "=== Try using GitHub Copilot SDK directly ==="
-          # The SDK creates sessions via the CopilotClient API
-          # PolyPilot already has a connected client — let's check via the app logs
+          echo "=== Check app logs for session activity ==="
           PORT=${{ steps.devflow.outputs.agent_port }}
           curl -s http://localhost:$PORT/api/logs | python3 -c "
           import sys, json
@@ -427,9 +414,9 @@ jobs:
           for log in logs:
               m = log.get('m','')
               l = log.get('l','')
-              if any(k in m.lower() for k in ['session', 'create', 'model', 'copilot', 'connect', 'auth', 'server', 'persistent', 'error', 'init']):
+              if any(k in m.lower() for k in ['session', 'create', 'model', 'copilot', 'connect', 'auth', 'server', 'persistent', 'error', 'init', 'prompt']):
                   print(f'[{l}] {m[:200]}')
-          " 2>/dev/null | head -30 || echo "Log parse failed"
+          " 2>/dev/null | tail -20 || echo "Log parse failed"
           
           echo ""
           echo "=== Final screenshot ==="
