@@ -296,14 +296,21 @@ jobs:
           ls -la "$APP/Contents/MacOS/" || true
 
       - name: Launch PolyPilot (Mac Catalyst)
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
           BINARY="${{ steps.find-app.outputs.app }}/Contents/MacOS/PolyPilot"
+          
+          # Pass token via env — PolyPilot's ServerManager reads COPILOT_GITHUB_TOKEN
+          # and forwards it to the headless copilot process.
+          # The token is masked by GitHub Actions (never appears in logs).
           "$BINARY" > /tmp/polypilot-stdout.log 2>/tmp/polypilot-stderr.log &
           APP_PID=$!
           echo "APP_PID=$APP_PID" >> $GITHUB_ENV
           echo "PolyPilot launched with PID $APP_PID"
 
-          sleep 20
+          # Wait for full initialization (Persistent mode auto-starts copilot server)
+          sleep 30
 
           if kill -0 $APP_PID 2>/dev/null; then
             echo "✅ PolyPilot is running"
@@ -335,6 +342,49 @@ jobs:
           echo "=== Tree ===" && curl -s http://localhost:$PORT/api/tree | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d[:3], indent=2))" 2>/dev/null || curl -s http://localhost:$PORT/api/tree | head -50
           echo "=== Screenshot ===" && curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-ci-screenshot.png && echo "✅ $(wc -c < /tmp/polypilot-ci-screenshot.png) bytes"
 
+      - name: "Copilot: Check headless server"
+        run: |
+          echo "=== Checking for copilot headless server ==="
+          # PolyPilot in Persistent mode auto-starts copilot on port 4321
+          for port in 4321 4322; do
+            if curl -s --max-time 3 http://127.0.0.1:$port/ > /dev/null 2>&1; then
+              echo "✅ Copilot server responding on port $port"
+            else
+              echo "⚠️ Port $port not responding (may use TCP not HTTP)"
+            fi
+          done
+          
+          # Check for copilot process
+          echo "=== Copilot processes ==="
+          ps aux | grep -i copilot | grep -v grep || echo "No copilot processes found"
+          
+          # Check PID file
+          echo "=== PID file ==="
+          cat ~/.polypilot/server.pid 2>/dev/null || echo "No PID file"
+          
+          # Check app logs for server start
+          echo "=== Server startup in logs ==="
+          grep -i 'server\|headless\|persistent\|port\|4321\|copilot' /tmp/polypilot-stdout.log 2>/dev/null | head -20 || true
+
+      - name: "Copilot: Verify session via DevFlow CDP"
+        if: steps.devflow.outputs.agent_port != ''
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          
+          echo "=== Checking Blazor DOM for session UI ==="
+          # Use CDP snapshot to see the Blazor UI state
+          curl -s http://localhost:$PORT/api/cdp/snapshot 2>/dev/null | head -100 || true
+          
+          # Check if the dashboard shows session list
+          curl -s http://localhost:$PORT/api/cdp/evaluate -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"expression": "document.querySelector(\".session-list\")?.innerHTML?.substring(0,500) || \"no session-list element\""}' \
+            2>/dev/null | python3 -m json.tool 2>/dev/null || echo "CDP evaluate not available"
+          
+          echo "=== App screenshot after startup ==="
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-startup.png && \
+            echo "✅ Post-startup screenshot: $(wc -c < /tmp/polypilot-after-startup.png) bytes"
+
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -342,13 +392,21 @@ jobs:
           name: polypilot-maccatalyst
           path: |
             /tmp/polypilot-ci-screenshot.png
+            /tmp/polypilot-after-startup.png
             /tmp/polypilot-stdout.log
             /tmp/polypilot-stderr.log
           if-no-files-found: ignore
 
       - name: Cleanup
         if: always()
-        run: kill $APP_PID 2>/dev/null || true
+        run: |
+          kill $APP_PID 2>/dev/null || true
+          # Also kill any copilot headless server
+          PID_FILE=~/.polypilot/server.pid
+          if [ -f "$PID_FILE" ]; then
+            COPILOT_PID=$(head -1 "$PID_FILE" 2>/dev/null)
+            kill "$COPILOT_PID" 2>/dev/null || true
+          fi
 
   # ─── Windows ─────────────────────────────────────────────────
   integration-windows:
