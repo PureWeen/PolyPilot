@@ -392,65 +392,51 @@ jobs:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
+          CDP="http://localhost:$PORT/api/cdp"
           
-          echo "=== Step 1: Execute JS via POST /api/cdp ==="
-          # POST /api/cdp accepts Chrome DevTools Protocol messages
-          # Use Runtime.evaluate to run JavaScript in the Blazor WebView
+          cdp_eval() {
+            curl -s -X POST "$CDP" -H "Content-Type: application/json" \
+              -d "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"$1\"}}" 2>/dev/null
+          }
           
-          # Get document title
-          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
-            -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"document.title"}}' 2>/dev/null)
-          echo "Document title: $RESULT"
-          
-          # Get page content summary
-          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
-            -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({url: location.href, bodyLen: document.body?.innerText?.length || 0, buttons: [...document.querySelectorAll(\"button\")].map(b => b.title || b.textContent?.trim()?.substring(0,30)).filter(Boolean).join(\" | \")})"}}' 2>/dev/null)
-          echo "Page state: $RESULT"
+          echo "=== Step 1: Page state ==="
+          cdp_eval "JSON.stringify({title: document.title, buttons: [...document.querySelectorAll('button')].map(b => b.title || b.textContent?.trim()?.substring(0,30)).filter(Boolean)})"
           
           echo ""
-          echo "=== Step 2: Find and click New Session ==="
-          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
-            -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"const btn = document.querySelector(\".new-session-btn, .create-session-button, button.add-session\") || [...document.querySelectorAll(\"button\")].find(b => b.textContent?.includes(\"+\") || b.title?.includes(\"New\") || b.title?.includes(\"session\")); if (btn) { btn.click(); \"clicked: \" + (btn.title || btn.textContent?.trim()?.substring(0,50)); } else { \"buttons: \" + [...document.querySelectorAll(\"button\")].map(b => b.title || b.textContent?.trim()?.substring(0,30)).filter(Boolean).join(\" | \"); }"}}' 2>/dev/null)
-          echo "Click result: $RESULT"
+          echo "=== Step 2: Click 'Create something new' ==="
+          cdp_eval "const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('+')); btn?.click(); btn ? 'clicked +' : 'no + btn'"
+          sleep 2
           
+          echo "=== Step 3: Click 'Session' in the popover ==="
+          cdp_eval "const items = [...document.querySelectorAll('.sidebar-new-menu-item')]; const sessionBtn = items.find(b => b.textContent?.includes('Session')); sessionBtn?.click(); sessionBtn ? 'clicked Session' : 'no Session btn. Items: ' + items.map(i => i.textContent?.trim()?.substring(0,20)).join('|')"
           sleep 3
-          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-new-session.png
-          echo "Screenshot: $(wc -c < /tmp/polypilot-after-new-session.png) bytes"
           
           echo ""
-          echo "=== Step 3: Check for chat input ==="
-          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
-            -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"const input = document.querySelector(\"textarea, .chat-input, #prompt-input, [contenteditable]\"); input ? \"found: \" + input.tagName + \".\" + input.className + \" id=\" + input.id : \"no input. Page text: \" + document.body?.innerText?.substring(0,300)"}}' 2>/dev/null)
-          echo "Input check: $RESULT"
+          echo "=== Step 4: Check create form state ==="
+          curl -s $CDP -X POST -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({inputs: [...document.querySelectorAll(\"input,textarea\")].map(i => ({tag: i.tagName, id: i.id, class: i.className, placeholder: i.placeholder})), pageText: document.body?.innerText?.substring(0,500)})"}}' | python3 -c "import sys,json; r=json.load(sys.stdin); v=r.get('result',{}).get('result',{}).get('value',''); print(json.dumps(json.loads(v), indent=2) if v.startswith('{') else v)" 2>/dev/null || echo "parse failed"
+          
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-create-form.png
+          echo "Screenshot: $(wc -c < /tmp/polypilot-after-create-form.png) bytes"
           
           echo ""
-          echo "=== Step 4: Fill and send message ==="
-          # Fill the chat input
-          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
-            -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"const input = document.querySelector(\"textarea, .chat-input, #prompt-input\"); if (input) { input.value = \"Hello from CI! Testing PolyPilot.\"; input.dispatchEvent(new Event(\"input\", {bubbles: true})); input.dispatchEvent(new Event(\"change\", {bubbles: true})); \"filled\"; } else { \"no input\"; }"}}' 2>/dev/null)
-          echo "Fill: $RESULT"
+          echo "=== Step 5: Fill session name and submit ==="
+          # The CreateSessionForm has input fields. Find and fill them.
+          cdp_eval "const nameInput = document.querySelector('input[placeholder*=\"session\"], input[placeholder*=\"name\"], .session-name-input, input.create-session-input'); nameInput ? 'found name input: ' + nameInput.placeholder : 'no name input. All inputs: ' + [...document.querySelectorAll('input')].map(i => i.placeholder || i.className || i.id).join('|')"
+          
+          # Try filling any visible input
+          cdp_eval "const inp = [...document.querySelectorAll('input:not([type=hidden])')].find(i => i.offsetParent !== null); if (inp) { inp.value = 'CI Test Session'; inp.dispatchEvent(new Event('input', {bubbles:true})); inp.dispatchEvent(new Event('change', {bubbles:true})); 'filled: ' + inp.placeholder; } else { 'no visible input'; }"
           
           sleep 1
           
-          # Click send
-          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
-            -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"const btn = document.querySelector(\".send-button, .submit-btn, [type=submit]\") || [...document.querySelectorAll(\"button\")].find(b => b.title?.includes(\"Send\") || b.querySelector(\"svg\")); if (btn) { btn.click(); \"sent\"; } else { \"no send btn\"; }"}}' 2>/dev/null)
-          echo "Send: $RESULT"
+          # Click the create/submit button
+          cdp_eval "const btn = document.querySelector('.create-btn, .submit-btn, button[type=submit]') || [...document.querySelectorAll('button')].find(b => b.textContent?.includes('Create') && !b.textContent?.includes('something')); btn?.click(); btn ? 'submitted: ' + btn.textContent?.trim()?.substring(0,30) : 'no create btn'"
+          
+          sleep 5
           
           echo ""
-          echo "=== Step 5: Wait for response ==="
-          sleep 15
-          
-          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
-            -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({messages: document.querySelectorAll(\".message, .chat-message\")?.length || 0, lastMsg: document.querySelector(\".assistant-message:last-child, .message:last-child\")?.textContent?.substring(0,200) || \"none\", sessions: document.querySelectorAll(\".session-item\")?.length || 0})"}}' 2>/dev/null)
-          echo "Final state: $RESULT"
+          echo "=== Step 6: Check if session was created ==="
+          cdp_eval "JSON.stringify({sessionItems: document.querySelectorAll('.session-item, .session-list-item, .sidebar-session')?.length || 0, cards: document.querySelectorAll('.session-card, .card')?.length || 0, pageText: document.body?.innerText?.substring(0,300)})"
           
           curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-session.png
           echo "✅ Final screenshot: $(wc -c < /tmp/polypilot-after-session.png) bytes"
