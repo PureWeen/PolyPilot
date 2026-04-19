@@ -393,66 +393,65 @@ jobs:
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
           
-          echo "=== Step 1: Full API route scan (GET and POST) ==="
-          for route in \
-            /api/status /api/tree /api/screenshot /api/logs /api/query \
-            /api/tap /api/fill /api/navigate /api/click /api/clear \
-            /api/focus /api/scroll /api/text /api/property \
-            /api/cdp /api/cdp/evaluate /api/cdp/snapshot /api/cdp/dom \
-            /api/evaluate /api/js /api/exec /api/run \
-            /api/action /api/interact /api/command /api/rpc \
-            /api/element /api/elements /api/find; do
-            GET=$(curl -s --max-time 2 -o /dev/null -w "%{http_code}" http://localhost:$PORT$route 2>/dev/null)
-            POST=$(curl -s --max-time 2 -o /dev/null -w "%{http_code}" -X POST http://localhost:$PORT$route -H "Content-Type: application/json" -d '{}' 2>/dev/null)
-            if [ "$GET" != "000" ] && [ "$GET" != "404" ]; then echo "  GET  $route → $GET"; fi
-            if [ "$POST" != "000" ] && [ "$POST" != "404" ] && [ "$POST" != "$GET" ]; then echo "  POST $route → $POST"; fi
-          done
+          echo "=== Step 1: Execute JS via POST /api/cdp ==="
+          # POST /api/cdp accepts Chrome DevTools Protocol messages
+          # Use Runtime.evaluate to run JavaScript in the Blazor WebView
           
-          echo ""
-          echo "=== Step 2: Try query endpoint (the one that returned 400) ==="
-          # /api/query returned 400 — it needs params. Try different param formats:
-          curl -s "http://localhost:$PORT/api/query?type=Button" 2>/dev/null | head -20 || true
-          echo "---"
-          curl -s -X POST http://localhost:$PORT/api/query \
+          # Get document title
+          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
             -H "Content-Type: application/json" \
-            -d '{"type": "Button"}' 2>/dev/null | head -20 || true
-          echo "---"
-          curl -s "http://localhost:$PORT/api/query?automationId=test" 2>/dev/null | head -10 || true
+            -d '{"method":"Runtime.evaluate","params":{"expression":"document.title"}}' 2>/dev/null)
+          echo "Document title: $RESULT"
           
-          echo ""
-          echo "=== Step 3: Try tap endpoint with POST ==="
-          # Try POSTing a tap command
-          curl -s -X POST http://localhost:$PORT/api/tap \
+          # Get page content summary
+          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
             -H "Content-Type: application/json" \
-            -d '{"automationId": "new-session-button"}' 2>/dev/null | head -5 || true
-          echo "---tap by coordinates---"
-          curl -s -X POST http://localhost:$PORT/api/tap \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({url: location.href, bodyLen: document.body?.innerText?.length || 0, buttons: [...document.querySelectorAll(\"button\")].map(b => b.title || b.textContent?.trim()?.substring(0,30)).filter(Boolean).join(\" | \")})"}}' 2>/dev/null)
+          echo "Page state: $RESULT"
+          
+          echo ""
+          echo "=== Step 2: Find and click New Session ==="
+          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
             -H "Content-Type: application/json" \
-            -d '{"x": 100, "y": 100}' 2>/dev/null | head -5 || true
+            -d '{"method":"Runtime.evaluate","params":{"expression":"const btn = document.querySelector(\".new-session-btn, .create-session-button, button.add-session\") || [...document.querySelectorAll(\"button\")].find(b => b.textContent?.includes(\"+\") || b.title?.includes(\"New\") || b.title?.includes(\"session\")); if (btn) { btn.click(); \"clicked: \" + (btn.title || btn.textContent?.trim()?.substring(0,50)); } else { \"buttons: \" + [...document.querySelectorAll(\"button\")].map(b => b.title || b.textContent?.trim()?.substring(0,30)).filter(Boolean).join(\" | \"); }"}}' 2>/dev/null)
+          echo "Click result: $RESULT"
+          
+          sleep 3
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-new-session.png
+          echo "Screenshot: $(wc -c < /tmp/polypilot-after-new-session.png) bytes"
           
           echo ""
-          echo "=== Step 4: Check the full status (may have CDP info) ==="
-          curl -s http://localhost:$PORT/api/status | python3 -m json.tool
+          echo "=== Step 3: Check for chat input ==="
+          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
+            -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"const input = document.querySelector(\"textarea, .chat-input, #prompt-input, [contenteditable]\"); input ? \"found: \" + input.tagName + \".\" + input.className + \" id=\" + input.id : \"no input. Page text: \" + document.body?.innerText?.substring(0,300)"}}' 2>/dev/null)
+          echo "Input check: $RESULT"
           
           echo ""
-          echo "=== Step 5: Try getting tree with interaction endpoints ==="
-          curl -s http://localhost:$PORT/api/tree | python3 -c "
-          import sys, json
-          tree = json.load(sys.stdin)
-          def walk(nodes, depth=0):
-              for n in nodes:
-                  t = n.get('type','')
-                  aid = n.get('automationId','')
-                  text = n.get('text','')[:40]
-                  nid = n.get('id','')
-                  actions = n.get('actions', n.get('supportedActions', ''))
-                  print(f\"{'  '*depth}{t} [{nid}] aid={aid} text={text} actions={actions}\")
-                  if 'children' in n: walk(n['children'], depth+1)
-          walk(tree)
-          " 2>/dev/null | head -30 || echo "Tree parse failed"
+          echo "=== Step 4: Fill and send message ==="
+          # Fill the chat input
+          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
+            -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"const input = document.querySelector(\"textarea, .chat-input, #prompt-input\"); if (input) { input.value = \"Hello from CI! Testing PolyPilot.\"; input.dispatchEvent(new Event(\"input\", {bubbles: true})); input.dispatchEvent(new Event(\"change\", {bubbles: true})); \"filled\"; } else { \"no input\"; }"}}' 2>/dev/null)
+          echo "Fill: $RESULT"
+          
+          sleep 1
+          
+          # Click send
+          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
+            -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"const btn = document.querySelector(\".send-button, .submit-btn, [type=submit]\") || [...document.querySelectorAll(\"button\")].find(b => b.title?.includes(\"Send\") || b.querySelector(\"svg\")); if (btn) { btn.click(); \"sent\"; } else { \"no send btn\"; }"}}' 2>/dev/null)
+          echo "Send: $RESULT"
           
           echo ""
-          echo "=== Final screenshot ==="
+          echo "=== Step 5: Wait for response ==="
+          sleep 15
+          
+          RESULT=$(curl -s -X POST http://localhost:$PORT/api/cdp \
+            -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({messages: document.querySelectorAll(\".message, .chat-message\")?.length || 0, lastMsg: document.querySelector(\".assistant-message:last-child, .message:last-child\")?.textContent?.substring(0,200) || \"none\", sessions: document.querySelectorAll(\".session-item\")?.length || 0})"}}' 2>/dev/null)
+          echo "Final state: $RESULT"
+          
           curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-session.png
           echo "✅ Final screenshot: $(wc -c < /tmp/polypilot-after-session.png) bytes"
 
