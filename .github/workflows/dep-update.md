@@ -50,9 +50,9 @@ Update ALL of these to the **same** version:
 
 ### Group 2: MauiDevFlow Packages + CLI Tool (Azure DevOps dotnet10 feed)
 
-Query the latest version — always use the **last entry** from the version list:
+Query the latest version — the ADO feed does NOT sort versions correctly, so use `sort -t. -k4,4n -k5,5n -k6,6n` to sort by preview number then build:
 ```bash
-DEVFLOW_LATEST=$(curl -s 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/flat2/microsoft.maui.devflow.agent/index.json' | jq -r '.versions[-1]')
+DEVFLOW_LATEST=$(curl -s 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/flat2/microsoft.maui.devflow.agent/index.json' | jq -r '.versions[]' | sort -t. -k4,4n -k5,5n -k6,6n | tail -1)
 echo "Latest DevFlow: $DEVFLOW_LATEST"
 ```
 
