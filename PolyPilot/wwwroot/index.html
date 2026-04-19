@@ -697,6 +697,8 @@
 
         // Capture-phase click handler: instantly switch CSS before Blazor processes the event
         document.addEventListener('click', function(e) {
+            // Don't switch sessions when interacting with the context menu
+            if (e.target.closest('.more-btn') || e.target.closest('.session-menu') || e.target.closest('.menu-overlay')) return;
             var item = e.target.closest('.session-item[data-session-name]');
             if (!item || item.closest('.persisted')) return;
             var name = item.getAttribute('data-session-name');
