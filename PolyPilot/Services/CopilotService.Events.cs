@@ -866,6 +866,7 @@ public partial class CopilotService
                                 // can cancel this fallback before we complete the turn prematurely.
                                 Debug($"[IDLE-FALLBACK] '{sessionName}' tools were used this turn — waiting additional " +
                                       $"{TurnEndIdleToolFallbackAdditionalMs}ms for another round before completing");
+                                var freshnessCheckStart = DateTime.UtcNow;
                                 await Task.Delay(TurnEndIdleToolFallbackAdditionalMs, fallbackToken);
                                 if (fallbackToken.IsCancellationRequested) return;
                                 if (state.IsOrphaned) return;
@@ -873,6 +874,62 @@ public partial class CopilotService
                                 {
                                     Debug($"[IDLE-FALLBACK] '{sessionName}' skipped after extended wait — tools became active");
                                     return;
+                                }
+                                // Final guard: check if the CLI has an in-flight tool execution.
+                                // ToolExecutionStartEvent may not be delivered via the live event
+                                // stream even though the CLI is actively executing a tool (the event
+                                // only appears in events.jsonl). Two checks:
+                                // 1. If events.jsonl was written recently AND after the wait started
+                                // 2. If the last event in events.jsonl IS tool.execution_start
+                                //    (tool is running but we never got the live event)
+                                // Either means the session is still active — don't complete prematurely.
+                                if (!IsDemoMode && !IsRemoteMode)
+                                {
+                                    try
+                                    {
+                                        var sid = state.Info.SessionId;
+                                        if (!string.IsNullOrEmpty(sid))
+                                        {
+                                            var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                                            if (File.Exists(ep))
+                                            {
+                                                // Check 1: events.jsonl freshness (file written during our wait)
+                                                var lastWrite = File.GetLastWriteTimeUtc(ep);
+                                                var fileAge = Math.Max(0.0, (DateTime.UtcNow - lastWrite).TotalSeconds);
+                                                if (lastWrite > freshnessCheckStart && fileAge < TurnEndFallbackFreshnessSeconds)
+                                                {
+                                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — events.jsonl written {fileAge:F0}s ago (after wait started), CLI still active — rescheduling");
+                                                    await Task.Delay(TurnEndFallbackRecheckMs, fallbackToken);
+                                                    if (fallbackToken.IsCancellationRequested) return;
+                                                    if (state.IsOrphaned) return;
+                                                    if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
+                                                    {
+                                                        Debug($"[IDLE-FALLBACK] '{sessionName}' skipped on recheck — tools became active");
+                                                        return;
+                                                    }
+                                                    var recheckAge = Math.Max(0.0, (DateTime.UtcNow - File.GetLastWriteTimeUtc(ep)).TotalSeconds);
+                                                    if (recheckAge < TurnEndFallbackFreshnessSeconds)
+                                                    {
+                                                        Debug($"[IDLE-FALLBACK] '{sessionName}' still fresh on recheck ({recheckAge:F0}s ago) — deferring to watchdog");
+                                                        return;
+                                                    }
+                                                }
+
+                                                // Check 2: if the last event is tool.execution_start,
+                                                // a tool is actively running even though ActiveToolCallCount=0
+                                                // (ToolExecutionStartEvent wasn't delivered via live stream).
+                                                // This handles long-running tools (e.g., read_bash delay:600)
+                                                // where events.jsonl was written before our wait started.
+                                                var lastEventType = GetLastEventType(ep);
+                                                if (lastEventType == "tool.execution_start")
+                                                {
+                                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — last event in events.jsonl is tool.execution_start (tool running without live event) — deferring to watchdog");
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    catch (Exception ex) { Debug($"[IDLE-FALLBACK] '{sessionName}' freshness check failed: {ex.Message}"); }
                                 }
                             }
                             var totalFallbackDelayMs = toolsUsedThisTurn
@@ -2247,6 +2304,23 @@ public partial class CopilotService
     /// </summary>
     internal const int TurnEndIdleToolFallbackAdditionalMs = 30_000;
 
+    /// <summary>
+    /// Seconds threshold for events.jsonl freshness in the TurnEnd fallback.
+    /// If the CLI wrote to events.jsonl within this window AND after the extended wait started,
+    /// the fallback skips completion (the CLI is still active but ToolExecutionStartEvent
+    /// wasn't delivered via the live stream). Separate from WatchdogCaseBFreshnessSeconds
+    /// because the fallback needs a tighter window (30s vs 300s).
+    /// </summary>
+    internal const int TurnEndFallbackFreshnessSeconds = 30;
+
+    /// <summary>
+    /// Milliseconds to wait before rechecking events.jsonl freshness when the first check
+    /// found the CLI was still active. Provides faster recovery than deferring entirely to
+    /// the watchdog (15s check interval). After this recheck, if the file is still fresh,
+    /// the fallback defers to the watchdog for long-running tool safety.
+    /// </summary>
+    internal const int TurnEndFallbackRecheckMs = 15_000;
+
     private static void CancelProcessingWatchdog(SessionState state)
     {
         if (state.ProcessingWatchdog != null)
@@ -2805,6 +2879,33 @@ public partial class CopilotService
                             // BUT: ActiveToolCallCount can drop to 0 between tool rounds (the model
                             // is deciding what to do next). If events.jsonl is still being written,
                             // the session is alive — don't complete prematurely.
+
+                            // Pre-check: if the last event in events.jsonl is tool.execution_start,
+                            // a tool IS actively running even though ActiveToolCallCount=0
+                            // (ToolExecutionStartEvent wasn't delivered via live stream).
+                            // Only defer if the server is alive — if it crashed, the tool can't
+                            // be running and we should fall through to normal Case B recovery.
+                            if (!IsDemoMode && !IsRemoteMode && _serverManager.IsServerRunning)
+                            {
+                                try
+                                {
+                                    var sid = state.Info.SessionId;
+                                    if (!string.IsNullOrEmpty(sid))
+                                    {
+                                        var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                                        var lastEvtType = GetLastEventType(ep);
+                                        if (lastEvtType == "tool.execution_start")
+                                        {
+                                            Debug($"[WATCHDOG] '{sessionName}' Case B skipped — last event is tool.execution_start " +
+                                                  $"(tool running without live event, server alive, elapsed={elapsed:F0}s) — deferring");
+                                            Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                            continue;
+                                        }
+                                    }
+                                }
+                                catch (Exception ex) { Debug($"[WATCHDOG] '{sessionName}' Case B pre-check failed: {ex.Message}"); }
+                            }
+
                             if (!IsDemoMode && !IsRemoteMode && startedAt.HasValue)
                             {
                                 // Compare events.jsonl modification time to when this turn started
