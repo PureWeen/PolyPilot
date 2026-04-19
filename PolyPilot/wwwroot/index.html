@@ -1518,28 +1518,24 @@
             if (document.activeElement && document.activeElement !== document.body) {
                 document.activeElement.blur();
             }
-            // Freeze the flyout scroll while the menu is open so touch-scrolling
-            // inside the menu doesn't scroll the flyout behind it on iOS.
+            // Freeze the flyout AND session-list scroll while the menu is open so
+            // touch-scrolling inside the menu doesn't close it or scroll the sidebar.
+            var scrollParent = buttonEl.closest('.session-list');
             if (flyout) {
                 flyout.style.overflow = 'hidden';
-                menu.__restoreFlyoutScroll = function() {
-                    flyout.style.overflow = '';
-                    menu.__restoreFlyoutScroll = null;
-                };
             }
-            // Close menu if sidebar scrolls (fixed-position menu would drift)
-            var scrollParent = buttonEl.closest('.session-list');
-            if (scrollParent && !scrollParent.__menuScrollHandler) {
-                scrollParent.__menuScrollHandler = function() {
-                    var overlay = document.querySelector('.menu-overlay');
-                    if (overlay) overlay.click();
-                };
-                scrollParent.addEventListener('scroll', scrollParent.__menuScrollHandler, { passive: true });
+            if (scrollParent) {
+                scrollParent.style.overflow = 'hidden';
             }
-            // Restore flyout scroll when menu is removed from DOM
+            menu.__restoreScroll = function() {
+                if (flyout) flyout.style.overflow = '';
+                if (scrollParent) scrollParent.style.overflow = '';
+                menu.__restoreScroll = null;
+            };
+            // Restore scroll when menu is removed from DOM
             var observer = new MutationObserver(function() {
                 if (!document.querySelector('.session-menu')) {
-                    if (menu.__restoreFlyoutScroll) menu.__restoreFlyoutScroll();
+                    if (menu.__restoreScroll) menu.__restoreScroll();
                     observer.disconnect();
                 }
             });
