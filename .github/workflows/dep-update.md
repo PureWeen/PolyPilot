@@ -132,11 +132,19 @@ Skip these — they track the .NET SDK version or use variables:
    ```
    This takes 5-10 minutes. If the build fails with SDK API/type errors (breaking changes), **revert only the SDK** back to what it was before in ALL csproj files, then re-run. If tests fail due to a different package, revert only that package and re-run.
 
-7. **Create a PR** — if ANY packages were updated, commit all changes and generate a patch:
+7. **Create a PR** — if ANY packages were updated, commit all changes and create the PR output files. The `create_pull_request` MCP tool is NOT available as a copilot CLI tool — you must write the output files directly for the safe-outputs job:
+
    ```bash
+   # Commit changes
    git checkout -b chore/update-nuget-deps
    git add -A
    git commit -m "chore: update NuGet dependencies"
+   
+   # Write the patch file (safe-outputs looks for /tmp/gh-aw/aw-*.patch)
    git format-patch origin/main --stdout > /tmp/gh-aw/aw-chore-update-nuget-dependencies.patch
+   
+   # Write the safe-outputs JSONL entry
+   echo '{"type":"create_pull_request","title":"chore: update NuGet dependencies","body":"<PR_BODY_HERE>"}' >> "$GH_AW_SAFE_OUTPUTS"
    ```
-   Then call the `create_pull_request` safe output tool with title `chore: update NuGet dependencies` and a body listing each package with old → new versions. If the tool is not available, the patch file is sufficient — the safe-outputs job will pick it up and create the PR automatically.
+   
+   Replace `<PR_BODY_HERE>` with a single-line JSON-escaped body listing each package with old → new versions. If any packages were reverted, note them with the error summary.
