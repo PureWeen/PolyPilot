@@ -23,6 +23,10 @@ permissions:
   contents: read
   pull-requests: read
 
+concurrency:
+  group: "review-${{ github.event.issue.number || inputs.pr_number || github.run_id }}"
+  cancel-in-progress: true
+
 engine:
   id: copilot
   model: claude-opus-4.6

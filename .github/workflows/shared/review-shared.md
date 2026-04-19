@@ -20,7 +20,7 @@ safe-outputs:
     max: 30
   submit-pull-request-review:
     max: 1
-    allowed-events: [COMMENT, REQUEST_CHANGES]
+    allowed-events: [COMMENT]
   add-comment:
     max: 5
     hide-older-comments: true
@@ -98,5 +98,5 @@ Before posting inline comments, validate **both**:
    - Methodology note: "3 independent reviewers with adversarial consensus"
    - CI status, test coverage assessment, prior review status
    - Never mention specific model names — use "Reviewer 1/2/3"
-   - `event: "REQUEST_CHANGES"` if any 🔴 CRITICAL or 🟡 MODERATE; `event: "COMMENT"` otherwise
-   - **Never use APPROVE**
+   - Always use `event: "COMMENT"` — the review body communicates severity through findings; blocking `REQUEST_CHANGES` reviews can't be auto-dismissed on re-review and cause stale blocks
+   - **Never use APPROVE or REQUEST_CHANGES**
