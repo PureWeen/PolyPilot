@@ -224,14 +224,15 @@
 
     private async Task HandleBackdropClick()
     {
-        // On iOS WebKit, tapping the ⋯ button causes a ghost click on the
-        // flyout-backdrop because the menu-overlay appears under the finger
-        // and iOS dispatches a second touch event to the backdrop behind it.
-        // Ignore backdrop clicks that happen within 400ms of a menu interaction.
+        // On iOS WebKit, tapping the ⋯ button causes a second full touch event
+        // on the flyout-backdrop before Blazor renders the menu-overlay. The
+        // menu-overlay's click then closes the menu, and the backdrop's click
+        // closes the flyout. By the time this handler runs, the menu is already
+        // gone from DOM. Use the JS timestamp set in the capture-phase handler.
         try
         {
             var ts = await JS.InvokeAsync<double>("eval", "window.__menuInteraction || 0");
-            if (ts > 0 && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - ts) < 400) return;
+            if (ts > 0 && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - ts) < 1000) return;
         }
         catch { }
         CloseFlyout();

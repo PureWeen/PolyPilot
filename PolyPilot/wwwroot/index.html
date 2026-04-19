@@ -43,15 +43,19 @@
             }, true);
         });
 
-        // On iOS WebKit, Blazor's @onclick:stopPropagation is unreliable for
-        // touch-originated events. When the user taps the ⋯ button, menu items,
-        // or menu overlay, the parent session-item's onclick also fires, selecting
-        // the session and opening the keyboard. This capture-phase handler sets a
-        // flag that the session-item click handler checks to bail out.
+        // On iOS WebKit, tapping ⋯ causes a ghost touch on the flyout-backdrop
+        // because the menu-overlay hasn't rendered yet. This capture-phase handler:
+        // 1. Records when menu elements are touched (timestamp)
+        // 2. Blocks flyout-backdrop clicks that occur within 1s of a menu interaction
         ['click', 'pointerdown', 'pointerup'].forEach(function(evtName) {
             document.addEventListener(evtName, function(e) {
                 if (e.target.closest('.more-btn') || e.target.closest('.menu-overlay') || e.target.closest('.session-menu')) {
                     window.__menuInteraction = Date.now();
+                }
+                // Block flyout-backdrop events during menu interaction
+                if (e.target.closest('.flyout-backdrop') && window.__menuInteraction && (Date.now() - window.__menuInteraction) < 1000) {
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
                 }
             }, true);
         });
