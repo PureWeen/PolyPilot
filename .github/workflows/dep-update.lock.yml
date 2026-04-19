@@ -21,7 +21,7 @@
 # For more information: https://github.github.com/gh-aw/introduction/overview/
 #
 #
-# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"8799c91f352c62ee9acc0259a3c34a30d199bb274ab3ae3fbcd9cf1606c516aa","compiler_version":"v0.62.2","strict":true}
+# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"09af4968216b71fad2df06de71e1b18285066c897715420667f252576cf84c63","compiler_version":"v0.62.2","strict":true}
 
 name: "Update NuGet Dependencies"
 "on":
@@ -554,7 +554,7 @@ jobs:
       - name: Execute GitHub Copilot CLI
         id: agentic_execution
         # Copilot CLI tool arguments (sorted):
-        timeout-minutes: 20
+        timeout-minutes: 45
         run: |
           set -o pipefail
           touch /tmp/gh-aw/agent-step-summary.md
@@ -923,7 +923,7 @@ jobs:
           GH_AW_LOCKDOWN_CHECK_FAILED: ${{ needs.activation.outputs.lockdown_check_failed }}
           GH_AW_GROUP_REPORTS: "false"
           GH_AW_FAILURE_REPORT_AS_ISSUE: "true"
-          GH_AW_TIMEOUT_MINUTES: "20"
+          GH_AW_TIMEOUT_MINUTES: "45"
         with:
           github-token: ${{ secrets.GH_AW_GITHUB_TOKEN || secrets.GITHUB_TOKEN }}
           script: |
