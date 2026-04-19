@@ -133,4 +133,6 @@ Skip these — they track the .NET SDK version or use variables:
    ```
    If tests fail due to a specific package update, revert only that package and re-run tests.
 
-7. **Create a PR** — if ANY packages were updated, create a PR with title `chore: update NuGet dependencies` and a body that lists each package updated with old → new versions. If any packages were reverted, note them in the body with the error summary.
+7. **Create a PR** — if ANY packages were updated, commit the changes to a new branch and create a PR. Use `git checkout -b chore/update-nuget-deps`, commit, then `git push origin chore/update-nuget-deps`. Use the `create_pull_request` safe output tool to open the PR with title `chore: update NuGet dependencies` and a body listing each package updated with old → new versions. If any packages were reverted, note them in the body with the error summary.
+
+   **Important:** The `create_pull_request` tool is provided via a safe-outputs MCP gateway, NOT as a built-in copilot CLI tool. If calling it as `mcp_safeoutputs_create_pull_request` fails with "Tool does not exist", commit your changes, generate a git patch with `git diff origin/main`, and write it to `/tmp/gh-aw/aw-chore-update-nuget-dependencies.patch` — the safe-outputs job will pick it up and create the PR automatically.
