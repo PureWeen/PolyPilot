@@ -22,6 +22,8 @@ safe-outputs:
   create-pull-request:
     auto-merge: true
 
+timeout-minutes: 45
+
 ---
 
 # Update NuGet Dependencies
@@ -110,6 +112,7 @@ Skip these — they track the .NET SDK version or use variables:
 - Do NOT attempt to fix breaking API changes. If a version bump causes build errors, **revert that specific package** to its current version and proceed with the other updates.
 - Each package group is independent — update whichever ones build cleanly.
 - Always ensure the same package uses the **same version** across all csproj files where it appears.
+- The `dotnet test` command takes 5-10 minutes. Always pipe through `| tail -30` to avoid filling output buffers. Run it once and wait for completion.
 
 ## Steps
 
@@ -121,18 +124,19 @@ Skip these — they track the .NET SDK version or use variables:
 
 4. **Update other NuGet packages** (Group 3) — update all packages to their latest stable versions, ensuring consistency across projects.
 
-5. **Update GitHub.Copilot.SDK** — update ALL csproj files to the same latest version. Then build to verify:
+5. **Update GitHub.Copilot.SDK** — update ALL csproj files to the same latest version.
+
+6. **Build and test in one step** — run tests to verify everything works:
    ```bash
-   dotnet build PolyPilot.Tests/PolyPilot.Tests.csproj -c Debug --nologo
+   dotnet test PolyPilot.Tests/PolyPilot.Tests.csproj --configuration Debug --nologo 2>&1 | tail -30
    ```
-   If the build fails with API/type errors (breaking changes), **revert the SDK version** back to what it was before in ALL csproj files. Do NOT try to fix breaking API changes. Log which version had breaking changes in the PR body.
+   This takes 5-10 minutes. If the build fails with SDK API/type errors (breaking changes), **revert only the SDK** back to what it was before in ALL csproj files, then re-run. If tests fail due to a different package, revert only that package and re-run.
 
-6. **Run tests** — build and run all tests to verify nothing is broken:
+7. **Create a PR** — if ANY packages were updated, commit all changes and generate a patch:
    ```bash
-   dotnet test PolyPilot.Tests/PolyPilot.Tests.csproj --configuration Debug --nologo
+   git checkout -b chore/update-nuget-deps
+   git add -A
+   git commit -m "chore: update NuGet dependencies"
+   git format-patch origin/main --stdout > /tmp/gh-aw/aw-chore-update-nuget-dependencies.patch
    ```
-   If tests fail due to a specific package update, revert only that package and re-run tests.
-
-7. **Create a PR** — if ANY packages were updated, commit the changes to a new branch and create a PR. Use `git checkout -b chore/update-nuget-deps`, commit, then `git push origin chore/update-nuget-deps`. Use the `create_pull_request` safe output tool to open the PR with title `chore: update NuGet dependencies` and a body listing each package updated with old → new versions. If any packages were reverted, note them in the body with the error summary.
-
-   **Important:** The `create_pull_request` tool is provided via a safe-outputs MCP gateway, NOT as a built-in copilot CLI tool. If calling it as `mcp_safeoutputs_create_pull_request` fails with "Tool does not exist", commit your changes, generate a git patch with `git diff origin/main`, and write it to `/tmp/gh-aw/aw-chore-update-nuget-dependencies.patch` — the safe-outputs job will pick it up and create the PR automatically.
+   Then call the `create_pull_request` safe output tool with title `chore: update NuGet dependencies` and a body listing each package with old → new versions. If the tool is not available, the patch file is sufficient — the safe-outputs job will pick it up and create the PR automatically.
