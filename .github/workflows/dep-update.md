@@ -37,7 +37,8 @@ Update all NuGet package references, dotnet tools, and the MauiDevFlow skill to 
 Package: `GitHub.Copilot.SDK`
 
 ```bash
-curl -s 'https://api.nuget.org/v3-flatcontainer/github.copilot.sdk/index.json' | jq -r '.versions[-1]'
+SDK_LATEST=$(curl -s 'https://api.nuget.org/v3-flatcontainer/github.copilot.sdk/index.json' | jq -r '.versions[-1]')
+echo "Latest SDK: $SDK_LATEST"
 ```
 
 Update ALL of these to the **same** version:
@@ -49,27 +50,26 @@ Update ALL of these to the **same** version:
 
 ### Group 2: MauiDevFlow Packages + CLI Tool (Azure DevOps dotnet10 feed)
 
-Query the latest versions:
+Query the latest version — always use the **last entry** from the version list:
 ```bash
-curl -s 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/flat2/microsoft.maui.devflow.agent/index.json' | jq -r '.versions[-1]'
-curl -s 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/flat2/microsoft.maui.cli/index.json' | jq -r '.versions[-1]'
+DEVFLOW_LATEST=$(curl -s 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/flat2/microsoft.maui.devflow.agent/index.json' | jq -r '.versions[-1]')
+echo "Latest DevFlow: $DEVFLOW_LATEST"
 ```
 
-All MauiDevFlow packages and the CLI tool must use the **same** version:
-- `Microsoft.Maui.DevFlow.Agent` — in `PolyPilot/PolyPilot.csproj`
-- `Microsoft.Maui.DevFlow.Blazor` — in `PolyPilot/PolyPilot.csproj`
-- `Microsoft.Maui.DevFlow.Agent.Gtk` — in `PolyPilot.Gtk/PolyPilot.Gtk.csproj`
-- `Microsoft.Maui.DevFlow.Blazor.Gtk` — in `PolyPilot.Gtk/PolyPilot.Gtk.csproj`
-- `microsoft.maui.cli` — in `dotnet-tools.json`
+Compare it to the current version in the csproj files. These are prerelease versions like `0.1.0-preview.5.26217.12`. If the version from the feed differs from the version in the csproj files, update ALL of these to the new version:
+- `Microsoft.Maui.DevFlow.Agent` — in `PolyPilot/PolyPilot.csproj` (inside `<When Condition="'$(Configuration)' == 'Debug'">`)
+- `Microsoft.Maui.DevFlow.Blazor` — in `PolyPilot/PolyPilot.csproj` (inside `<When Condition="'$(Configuration)' == 'Debug'">`)
+- `Microsoft.Maui.DevFlow.Agent.Gtk` — in `PolyPilot.Gtk/PolyPilot.Gtk.csproj` (inside `<When Condition="'$(Configuration)' == 'Debug'">`)
+- `Microsoft.Maui.DevFlow.Blazor.Gtk` — in `PolyPilot.Gtk/PolyPilot.Gtk.csproj` (inside `<When Condition="'$(Configuration)' == 'Debug'">`)
+- `microsoft.maui.cli` — in `dotnet-tools.json` (update the `"version"` field)
 
-After updating, also run:
+After updating the versions, install the maui CLI and run the skill update:
 ```bash
+dotnet tool install -g Microsoft.Maui.Cli --version "$DEVFLOW_LATEST" --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json 2>/dev/null || true
+export PATH="$HOME/.dotnet/tools:$PATH"
 maui devflow update-skill
 ```
-This updates the MauiDevFlow skill at `.claude/skills/maui-ai-debugging/`. If `maui` CLI is not installed globally, install it first:
-```bash
-dotnet tool install -g Microsoft.Maui.Cli --prerelease
-```
+This updates the MauiDevFlow agent skill files at `.claude/skills/maui-ai-debugging/`. Include any changed skill files in the commit.
 
 ### Group 3: Other NuGet Packages (nuget.org)
 
@@ -120,7 +120,7 @@ Skip these — they track the .NET SDK version or use variables:
 
 2. **Compare with current versions** across all csproj files and `dotnet-tools.json`. If everything is already up to date, stop and do not create a PR.
 
-3. **Update MauiDevFlow packages + CLI tool** — update all four `Microsoft.Maui.DevFlow.*` PackageReference versions and the `microsoft.maui.cli` version in `dotnet-tools.json`. These are Debug-only conditional references, so no build verification is needed. Then run `maui devflow update-skill` to update the AI skill files.
+3. **Update MauiDevFlow packages + CLI tool** — query the latest DevFlow version from the ADO feed. If it differs from the current version in the csproj files, update all four `Microsoft.Maui.DevFlow.*` PackageReference versions AND the `microsoft.maui.cli` version in `dotnet-tools.json`. Then install the maui CLI and run `maui devflow update-skill`. Include any changed files under `.claude/skills/maui-ai-debugging/` in the commit.
 
 4. **Update other NuGet packages** (Group 3) — update all packages to their latest stable versions, ensuring consistency across projects.
 
