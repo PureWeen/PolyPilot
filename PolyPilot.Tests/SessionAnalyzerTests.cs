@@ -105,14 +105,14 @@ public class SessionAnalyzerTests
     }
 
     [Fact]
-    public void BuildAnalysisPrompt_ReportOnly_NoAutonomousPrCreation()
+    public void BuildAnalysisPrompt_InstructsSingleBranchPrStrategy()
     {
         var prompt = SessionAnalyzerService.BuildAnalysisPrompt("data");
 
-        // Must instruct report-only, NOT autonomous PR creation
-        Assert.Contains("Do NOT autonomously create branches or PRs", prompt);
-        Assert.Contains("report only", prompt);
-        Assert.DoesNotContain("create a branch, write the fix", prompt);
+        // Must instruct reuse of a single branch and PR
+        Assert.Contains("fix/session-analyzer-findings", prompt);
+        Assert.Contains("Always reuse the SAME branch", prompt);
+        Assert.Contains("Never create a new branch per finding", prompt);
     }
 
     [Fact]
@@ -248,14 +248,13 @@ public class SessionAnalyzerTests
     }
 
     [Fact]
-    public void BuildAnalysisPrompt_DoesNotUseAutopilotMode()
+    public void BuildAnalysisPrompt_UsesAutopilotMode()
     {
-        // The analyzer is report-only — verify the prompt does not instruct autonomous actions
+        // The analyzer runs in autopilot so it can create/update PRs
         var prompt = SessionAnalyzerService.BuildAnalysisPrompt("data");
 
-        Assert.DoesNotContain("autopilot", prompt);
-        Assert.DoesNotContain("create a branch", prompt);
-        Assert.DoesNotContain("open a PR", prompt);
+        Assert.Contains("Write the fix, run tests, commit", prompt);
+        Assert.Contains("open one with a clear title", prompt);
     }
 
     private static string GetTempDir() => Path.GetTempPath();

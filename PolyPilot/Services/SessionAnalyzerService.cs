@@ -5,8 +5,9 @@ namespace PolyPilot.Services;
 
 /// <summary>
 /// A background service that maintains a dedicated copilot CLI session to perpetually
-/// analyze running PolyPilot sessions for issues. The analyzer reports findings but
-/// does NOT autonomously create PRs — all actions require human review.
+/// analyze running PolyPilot sessions for issues. The analyzer runs in autopilot mode
+/// and can create/update a single long-lived PR with fixes — always pushing to the
+/// same branch so fixes accumulate rather than spawning multiple PRs.
 /// </summary>
 public class SessionAnalyzerService : IAsyncDisposable, IDisposable
 {
@@ -154,7 +155,8 @@ public class SessionAnalyzerService : IAsyncDisposable, IDisposable
             var response = await _copilotService.SendPromptAsync(
                 _analyzerSessionName,
                 prompt,
-                cancellationToken: timeoutCts.Token);
+                cancellationToken: timeoutCts.Token,
+                agentMode: "autopilot");
 
             Interlocked.Exchange(ref _lastAnalysisAtTicks, DateTime.UtcNow.Ticks);
             Interlocked.Increment(ref _analysisCount);
@@ -287,8 +289,7 @@ public class SessionAnalyzerService : IAsyncDisposable, IDisposable
 
     /// <summary>
     /// Build the analysis prompt with collected diagnostics.
-    /// The analyzer is instructed to REPORT issues only — never to autonomously create PRs.
-    /// This prevents prompt injection from untrusted log content directing autonomous actions.
+    /// The analyzer runs in autopilot and accumulates fixes on a single long-lived branch/PR.
     /// </summary>
     internal static string BuildAnalysisPrompt(string diagnostics)
     {
@@ -306,11 +307,21 @@ public class SessionAnalyzerService : IAsyncDisposable, IDisposable
             6. **Phantom sessions** — (previous) or (resumed) sessions that shouldn't exist
             7. **Resource leaks** — growing file descriptor counts, memory issues
 
-            ## How to report:
-            - Classify each finding as critical/warning/info
-            - Describe the issue, the evidence from the logs, and a recommended fix
-            - For code bugs, describe the root cause and which file/method to fix
-            - Do NOT autonomously create branches or PRs — report only so a human can review
+            ## What to do when you find issues:
+
+            ### For code bugs you can fix:
+            1. Check if branch `fix/session-analyzer-findings` already exists (`git branch -a | grep fix/session-analyzer-findings`)
+            2. If it exists, check it out and pull latest — your previous fixes are already there
+            3. If it does not exist, create it from `main`
+            4. Write the fix, run tests, commit, and push to `fix/session-analyzer-findings`
+            5. Check if a PR already exists for that branch (`gh pr list --head fix/session-analyzer-findings`)
+            6. If a PR exists, it will automatically pick up your new commits — just add a comment summarizing the new fix
+            7. If no PR exists, open one with a clear title and description
+
+            **IMPORTANT**: Always reuse the SAME branch `fix/session-analyzer-findings`. Never create a new branch per finding. This keeps all fixes in one PR that accumulates over time.
+
+            ### For stuck sessions or transient issues:
+            - Report them clearly but do not attempt code changes
 
             ## Current Diagnostic Data:
 
