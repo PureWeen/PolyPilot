@@ -414,7 +414,7 @@ When a session shows "Thinking..." indefinitely:
 ## Regression History
 
 10 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164 → #276 → #284 → #332.
-Additional safety PRs: #373 (orphaned state guards), #375 (premature idle re-arm), #399 (IDLE-DEFER for background tasks), #472 (poll-then-resume + IDLE-DEFER-REARM + model selection).
+Additional safety PRs: #373 (orphaned state guards), #375 (premature idle re-arm), #399 (IDLE-DEFER for background tasks), #472 (poll-then-resume + IDLE-DEFER-REARM + model selection), #612 (CompleteResponse generation increment), #619 (TurnEnd fallback events.jsonl freshness + last-event-type guard).
 See `references/regression-history.md` for the full timeline with root causes.
 
 ---

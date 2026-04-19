@@ -364,4 +364,104 @@ public class TurnEndFallbackTests
         var beforeDebug = source.Substring(Math.Max(0, preCheckIdx - 800), 800);
         Assert.Contains("_serverManager.IsServerRunning", beforeDebug);
     }
+
+    // ===== Behavioral tests for GetLastEventType (PR #619 review follow-up) =====
+
+    [Fact]
+    public void GetLastEventType_ReturnsToolExecutionStart_WhenLastEvent()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile,
+                "{\"type\":\"assistant.turn_end\"}\n" +
+                "{\"type\":\"assistant.message\"}\n" +
+                "{\"type\":\"tool.execution_start\",\"data\":{\"name\":\"bash\"}}\n");
+            var result = CopilotService.GetLastEventType(tempFile);
+            Assert.Equal("tool.execution_start", result);
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void GetLastEventType_ReturnsSessionIdle_WhenTerminalEvent()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile,
+                "{\"type\":\"assistant.turn_end\"}\n" +
+                "{\"type\":\"session.idle\"}\n");
+            var result = CopilotService.GetLastEventType(tempFile);
+            Assert.Equal("session.idle", result);
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void GetLastEventType_ReturnsNull_WhenFileDoesNotExist()
+    {
+        var result = CopilotService.GetLastEventType("/nonexistent/path/events.jsonl");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetLastEventType_ReturnsNull_WhenFileIsEmpty()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, "");
+            var result = CopilotService.GetLastEventType(tempFile);
+            Assert.Null(result);
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void GetLastEventType_ReturnsNull_WhenInvalidJson()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, "not json at all\n");
+            var result = CopilotService.GetLastEventType(tempFile);
+            Assert.Null(result);
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void GetLastEventType_IgnoresTrailingBlankLines()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile,
+                "{\"type\":\"tool.execution_complete\"}\n\n\n");
+            var result = CopilotService.GetLastEventType(tempFile);
+            Assert.Equal("tool.execution_complete", result);
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void GetLastEventType_ReadsWithFileShareReadWrite()
+    {
+        // Verifies the file can be read while another process is writing
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            using (var writer = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes("{\"type\":\"assistant.turn_start\"}\n");
+                writer.Write(bytes);
+                writer.Flush();
+                // Read while writer is still open
+                var result = CopilotService.GetLastEventType(tempFile);
+                Assert.Equal("assistant.turn_start", result);
+            }
+        }
+        finally { File.Delete(tempFile); }
+    }
 }
