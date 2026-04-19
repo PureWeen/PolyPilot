@@ -229,10 +229,11 @@ Blindly waiting the full 600s tool timeout when `ActiveToolCallCount == 0`
 - **Case B** (`!hasActiveTool && HasUsedToolsThisTurn && !exceededMaxTime`): Call
   `CompleteResponse` cleanly (no error message) then `break`. Lost terminal event scenario.
   **Pre-check (PR #619)**: Before running Case B logic, check `GetLastEventType()` on
-  `events.jsonl`. If the last event is `tool.execution_start`, a tool IS running even
-  though `ActiveToolCallCount == 0` (live event not delivered). Reset `LastEventAtTicks`
-  and `continue` — same as Case A server-alive behavior. This allows tools of any
-  duration to complete without premature session completion.
+  `events.jsonl`. If the last event is `tool.execution_start` AND the server is alive,
+  a tool IS running even though `ActiveToolCallCount == 0` (live event not delivered).
+  Reset `LastEventAtTicks` and `continue` — similar to Case A server-alive behavior
+  (bounded by `exceededMaxTime` at 60 min). If the server is dead, skip the pre-check
+  and let normal Case B recovery handle it (~30s).
 - **Case C** (default): Kill with "⚠️ Session appears stuck" error message. Max time
   exceeded, server dead, or something genuinely wrong.
 

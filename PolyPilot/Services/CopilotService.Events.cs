@@ -2877,12 +2877,15 @@ public partial class CopilotService
                             // confirms the session completed normally, not a server crash.
                             //
                             // BUT: ActiveToolCallCount can drop to 0 between tool rounds (the model
+                            // is deciding what to do next). If events.jsonl is still being written,
+                            // the session is alive — don't complete prematurely.
 
                             // Pre-check: if the last event in events.jsonl is tool.execution_start,
                             // a tool IS actively running even though ActiveToolCallCount=0
                             // (ToolExecutionStartEvent wasn't delivered via live stream).
-                            // Treat as Case A instead — defer to next watchdog cycle.
-                            if (!IsDemoMode && !IsRemoteMode)
+                            // Only defer if the server is alive — if it crashed, the tool can't
+                            // be running and we should fall through to normal Case B recovery.
+                            if (!IsDemoMode && !IsRemoteMode && _serverManager.IsServerRunning)
                             {
                                 try
                                 {
@@ -2894,16 +2897,15 @@ public partial class CopilotService
                                         if (lastEvtType == "tool.execution_start")
                                         {
                                             Debug($"[WATCHDOG] '{sessionName}' Case B skipped — last event is tool.execution_start " +
-                                                  $"(tool running without live event, elapsed={elapsed:F0}s) — deferring");
+                                                  $"(tool running without live event, server alive, elapsed={elapsed:F0}s) — deferring");
                                             Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
                                             continue;
                                         }
                                     }
                                 }
-                                catch { /* filesystem errors → proceed with normal Case B logic */ }
+                                catch (Exception ex) { Debug($"[WATCHDOG] '{sessionName}' Case B pre-check failed: {ex.Message}"); }
                             }
-                            // is deciding what to do next). If events.jsonl is still being written,
-                            // the session is alive — don't complete prematurely.
+
                             if (!IsDemoMode && !IsRemoteMode && startedAt.HasValue)
                             {
                                 // Compare events.jsonl modification time to when this turn started
