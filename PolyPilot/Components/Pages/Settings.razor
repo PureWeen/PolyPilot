@@ -536,6 +536,30 @@
         </div>
     }
 
+    @if (PlatformHelper.IsDesktop)
+    {
+        <div class="settings-section">
+            <div class="notifications-toggle">
+                <label class="toggle-label">
+                    <input type="checkbox" checked="@settings.EnableSessionAnalyzer"
+                           @onchange="ToggleSessionAnalyzer" />
+                    <span class="toggle-text">🔍 Session Analyzer</span>
+                </label>
+                <p class="toggle-hint">Background monitor that analyzes sessions for reliability issues and can auto-fix bugs via PR</p>
+            </div>
+            @if (settings.EnableSessionAnalyzer)
+            {
+                <div class="notifications-toggle" style="margin-left: 1.5em;">
+                    <label class="toggle-label">
+                        <span class="toggle-text">Analysis interval (minutes):</span>
+                        <input type="number" min="1" max="1440" value="@settings.SessionAnalyzerIntervalMinutes"
+                               @onchange="OnAnalyzerIntervalChanged" style="width: 5em; margin-left: 0.5em;" class="form-input" />
+                    </label>
+                </div>
+            }
+        </div>
+    }
+
     <div class="settings-section">
         <div class="save-row">
             <button class="save-btn" @onclick="SaveAndApply">
@@ -1396,6 +1420,29 @@
     {
         settings.MuteWorkerNotifications = e.Value is true;
         SaveSettingsQuietly();
+    }
+
+    private async Task ToggleSessionAnalyzer(ChangeEventArgs e)
+    {
+        settings.EnableSessionAnalyzer = e.Value is true;
+        settings.Save();
+        if (settings.EnableSessionAnalyzer)
+        {
+            CopilotService.StartSessionAnalyzerIfEnabled();
+        }
+        else
+        {
+            await CopilotService.StopSessionAnalyzerAsync();
+        }
+    }
+
+    private void OnAnalyzerIntervalChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var val))
+        {
+            settings.SessionAnalyzerIntervalMinutes = val;
+            SaveSettingsQuietly();
+        }
     }
 
     private void ToggleAutoUpdate()

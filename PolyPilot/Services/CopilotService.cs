@@ -847,6 +847,42 @@ public partial class CopilotService : IAsyncDisposable
         }
     }
 
+    /// <summary>
+    /// Start the session analyzer if enabled in settings. Desktop-only, non-demo, non-remote.
+    /// </summary>
+    internal void StartSessionAnalyzerIfEnabled()
+    {
+        if (IsDemoMode || IsRemoteMode) return;
+
+        var settings = _currentSettings ?? ConnectionSettings.Load();
+        if (!settings.EnableSessionAnalyzer) return;
+
+        var analyzer = _serviceProvider?.GetService(typeof(SessionAnalyzerService)) as SessionAnalyzerService;
+        if (analyzer == null || analyzer.IsRunning) return;
+
+        // Use the repo root of this worktree as the working directory
+        var cwd = Directory.GetCurrentDirectory();
+        var interval = settings.SessionAnalyzerIntervalMinutes;
+
+        _ = Task.Run(async () =>
+        {
+            try { await analyzer.StartAsync(cwd, interval); }
+            catch (Exception ex) { Debug($"[ANALYZER] Failed to start: {ex.Message}"); }
+        });
+    }
+
+    /// <summary>
+    /// Stop the session analyzer gracefully.
+    /// </summary>
+    internal async Task StopSessionAnalyzerAsync()
+    {
+        var analyzer = _serviceProvider?.GetService(typeof(SessionAnalyzerService)) as SessionAnalyzerService;
+        if (analyzer == null || !analyzer.IsRunning) return;
+
+        try { await analyzer.StopAsync(); }
+        catch (Exception ex) { Debug($"[ANALYZER] Failed to stop: {ex.Message}"); }
+    }
+
     private async Task RunKeepalivePingAsync(CancellationToken ct)
     {
         try
@@ -1293,6 +1329,9 @@ public partial class CopilotService : IAsyncDisposable
         // Start keepalive pinging to prevent server idle timeout
         if (!IsDemoMode && !IsRemoteMode && _client != null)
             StartKeepalivePing();
+
+        // Start session analyzer if enabled in settings
+        StartSessionAnalyzerIfEnabled();
     }
 
     /// <summary>
@@ -1360,6 +1399,7 @@ public partial class CopilotService : IAsyncDisposable
         StopKeepalivePing();
         await StopCodespaceHealthCheckAsync();
         StopExternalSessionScanner();
+        await StopSessionAnalyzerAsync();
 
         // Dispose existing sessions and client
         foreach (var state in _sessions.Values)
@@ -1470,6 +1510,9 @@ public partial class CopilotService : IAsyncDisposable
         // Start keepalive pinging to prevent server idle timeout
         if (!IsDemoMode && !IsRemoteMode && _client != null)
             StartKeepalivePing();
+
+        // Start session analyzer if enabled in settings
+        StartSessionAnalyzerIfEnabled();
     }
 
     /// <summary>
