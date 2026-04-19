@@ -32,9 +32,10 @@ public class BridgePromptQueueTests : IDisposable
         var sw = System.Diagnostics.Stopwatch.StartNew();
         while (!condition() && sw.ElapsedMilliseconds < maxMs && !ct.IsCancellationRequested)
             await Task.Delay(pollMs, ct);
-        ct.ThrowIfCancellationRequested();
-        if (!condition())
+        // Check condition first so we get a descriptive TimeoutException instead of bare OCE
+        if (!condition() && !ct.IsCancellationRequested)
             throw new TimeoutException($"WaitForAsync condition not met within {maxMs}ms");
+        ct.ThrowIfCancellationRequested();
     }
 
     public BridgePromptQueueTests()

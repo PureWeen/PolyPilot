@@ -316,7 +316,13 @@ public class WsBridgeServer : IDisposable
         {
             while (_pendingBridgePrompts.TryDequeue(out var pending))
             {
-                ct.ThrowIfCancellationRequested();
+                if (ct.IsCancellationRequested)
+                {
+                    // Re-enqueue before throwing so the prompt survives cancellation
+                    _pendingBridgePrompts.Enqueue(pending);
+                    ct.ThrowIfCancellationRequested();
+                }
+
                 BridgeLog($"[BRIDGE] Replaying queued prompt for '{pending.SessionName}'");
                 try
                 {
@@ -326,7 +332,12 @@ public class WsBridgeServer : IDisposable
                         BridgeLog($"[BRIDGE] Send confirmation timed out for '{pending.SessionName}' — continuing drain");
                     }
                 }
-                catch (OperationCanceledException) { throw; }
+                catch (OperationCanceledException)
+                {
+                    // Re-enqueue the in-flight prompt so it isn't lost on cancellation
+                    _pendingBridgePrompts.Enqueue(pending);
+                    throw;
+                }
                 catch (Exception ex)
                 {
                     BridgeLog($"[BRIDGE] Failed to replay prompt for '{pending.SessionName}': {ex.Message}");
@@ -339,6 +350,12 @@ public class WsBridgeServer : IDisposable
         }
     }
 
+    /// <summary>
+    /// Best-effort poll for IsProcessing confirmation after dispatch.
+    /// 200ms ceiling (20×10ms) — may time out on slow devices or under memory pressure.
+    /// Timeout is non-fatal: the drain logs a warning and continues. The SessionBusyException
+    /// guard in DispatchBridgePromptAsync is the real safety net for ordering.
+    /// </summary>
     private async Task<bool> WaitForBridgeSendToStartAsync(string sessionName, CancellationToken ct = default)
     {
         for (var attempt = 0; attempt < 20; attempt++)

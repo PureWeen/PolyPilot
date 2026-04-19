@@ -825,10 +825,11 @@ public class ScheduledTaskTests
         var previousPath = ScheduledTaskService.GetTasksFilePathForTesting();
         ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
 
+        ScheduledTaskService? svc = null;
         try
         {
             var copilot = CreateCopilotService();
-            var svc = new ScheduledTaskService(copilot);
+            svc = new ScheduledTaskService(copilot);
             await copilot.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
             await copilot.CreateSessionAsync("existing-session");
 
@@ -865,9 +866,9 @@ public class ScheduledTaskTests
         }
         finally
         {
+            svc?.Dispose();
             try { File.Delete(tempFile); } catch { }
-            if (previousPath != null)
-                ScheduledTaskService.SetTasksFilePathForTesting(previousPath);
+            ScheduledTaskService.SetTasksFilePathForTesting(previousPath ?? tempFile);
         }
     }
 

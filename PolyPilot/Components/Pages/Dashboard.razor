@@ -2315,6 +2315,9 @@
         await InvokeAsync(SafeRefreshAsync);
     }
 
+    // TODO: Tasks are correlated by SessionName (display string) not session ID.
+    // ScheduledTaskService.HandleSessionRenamed keeps them in sync on rename,
+    // but ideally tasks should use a stable session identifier.
     private void HandleScheduleCommand(AgentSessionInfo session, string sessionName, string arg)
     {
         var trimmedArg = arg.Trim();
@@ -2349,7 +2352,7 @@
             for (var i = 0; i < sessionTasks.Count; i++)
             {
                 var scheduledTask = sessionTasks[i];
-                lines.Add($"{i + 1}. **{scheduledTask.Name}** — {scheduledTask.ScheduleDescription} {(scheduledTask.IsEnabled ? "✅ enabled" : "⏸️ disabled")}");
+                lines.Add($"{i + 1}. **{scheduledTask.Name}** `{scheduledTask.Id[..8]}` — {scheduledTask.ScheduleDescription} {(scheduledTask.IsEnabled ? "✅ enabled" : "⏸️ disabled")}");
             }
 
             lines.Add("\nUse `/schedule delete <#>` to remove a task, or open **Scheduled Tasks** from the sidebar overflow menu to edit them.");
