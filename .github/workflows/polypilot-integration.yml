@@ -391,35 +391,40 @@ jobs:
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
-          echo "=== Find copilot binary ==="
           COPILOT_BIN=$(find PolyPilot/bin/Debug -name "copilot" -type f -perm +111 | head -1)
           echo "Copilot binary: $COPILOT_BIN"
           
           echo ""
-          echo "=== Create a session with --prompt (non-interactive) ==="
-          # Use --prompt for non-interactive mode
-          # The binary needs COPILOT_GITHUB_TOKEN in env (already set)
+          echo "=== Create a session with --prompt ==="
+          # Run copilot -p from the repo directory (it needs git context)
+          # The binary uses COPILOT_GITHUB_TOKEN from env
           cd "$GITHUB_WORKSPACE"
-          timeout 60 "$COPILOT_BIN" \
-            -p "Say 'Hello from CI! The PolyPilot integration test is working.' Respond with exactly that sentence and nothing else." \
-            --no-edit \
-            2>&1 | head -30 || echo "Prompt execution completed (may have timed out)"
+          
+          # First check what args are valid
+          "$COPILOT_BIN" --help 2>&1 | grep -E '\-p |--prompt|--print' | head -5 || true
           
           echo ""
-          echo "=== Check app logs for session activity ==="
-          PORT=${{ steps.devflow.outputs.agent_port }}
-          curl -s http://localhost:$PORT/api/logs | python3 -c "
-          import sys, json
-          logs = json.load(sys.stdin)
-          for log in logs:
-              m = log.get('m','')
-              l = log.get('l','')
-              if any(k in m.lower() for k in ['session', 'create', 'model', 'copilot', 'connect', 'auth', 'server', 'persistent', 'error', 'init', 'prompt']):
-                  print(f'[{l}] {m[:200]}')
-          " 2>/dev/null | tail -20 || echo "Log parse failed"
+          echo "--- Running copilot -p ---"
+          timeout 60 "$COPILOT_BIN" \
+            -p "Say exactly: Hello from CI! The PolyPilot integration test is working." \
+            2>&1 | tee /tmp/copilot-session-output.log | head -50
+          
+          COPILOT_EXIT=$?
+          echo ""
+          echo "Exit code: $COPILOT_EXIT"
+          echo "Full output size: $(wc -c < /tmp/copilot-session-output.log) bytes"
+          
+          if grep -qi "Hello from CI" /tmp/copilot-session-output.log; then
+            echo "✅ Copilot responded with the expected message!"
+          else
+            echo "⚠️ Copilot did not produce expected response"
+            echo "=== Full output ==="
+            cat /tmp/copilot-session-output.log
+          fi
           
           echo ""
           echo "=== Final screenshot ==="
+          PORT=${{ steps.devflow.outputs.agent_port }}
           curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-session.png
           echo "✅ Final screenshot: $(wc -c < /tmp/polypilot-after-session.png) bytes"
 
