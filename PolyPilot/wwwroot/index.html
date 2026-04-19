@@ -1505,6 +1505,18 @@
             var maxH = usableBottom - usableTop;
             menu.style.maxHeight = maxH + 'px';
             menu.style.overflowY = 'auto';
+            // iOS WebKit: position:fixed inside a transformed parent breaks native
+            // overflow scroll. Handle touch scrolling manually on the menu.
+            var _startY = 0;
+            menu.addEventListener('touchstart', function(e) {
+                _startY = e.touches[0].clientY;
+            }, { passive: true });
+            menu.addEventListener('touchmove', function(e) {
+                var dy = _startY - e.touches[0].clientY;
+                _startY = e.touches[0].clientY;
+                menu.scrollTop += dy;
+                e.preventDefault();
+            }, { passive: false });
             var mw = menu.offsetWidth, mh = Math.min(menu.scrollHeight, maxH);
             var top = r.bottom + mh > usableBottom ? r.top - mh : r.bottom;
             top = Math.max(usableTop, Math.min(top, usableBottom - mh));
