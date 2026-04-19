@@ -120,6 +120,7 @@ public class SessionAnalyzerTests
     {
         Assert.Equal(10, SessionAnalyzerService.DefaultAnalysisIntervalMinutes);
         Assert.Equal(1, SessionAnalyzerService.MinAnalysisIntervalMinutes);
+        Assert.Equal(1440, SessionAnalyzerService.MaxAnalysisIntervalMinutes);
         Assert.Equal(200, SessionAnalyzerService.DiagnosticLogTailLines);
         Assert.Equal(50, SessionAnalyzerService.CrashLogTailLines);
         Assert.Equal("PolyPilot Monitor", SessionAnalyzerService.AnalyzerSessionName);
@@ -232,6 +233,29 @@ public class SessionAnalyzerTests
 
         settings.SessionAnalyzerIntervalMinutes = 30;
         Assert.Equal(30, settings.SessionAnalyzerIntervalMinutes);
+    }
+
+    [Fact]
+    public void SessionAnalyzerIntervalMinutes_ClampsToMaximum()
+    {
+        var settings = new PolyPilot.Models.ConnectionSettings();
+
+        settings.SessionAnalyzerIntervalMinutes = 2000;
+        Assert.Equal(1440, settings.SessionAnalyzerIntervalMinutes);
+
+        settings.SessionAnalyzerIntervalMinutes = int.MaxValue;
+        Assert.Equal(1440, settings.SessionAnalyzerIntervalMinutes);
+    }
+
+    [Fact]
+    public void BuildAnalysisPrompt_DoesNotUseAutopilotMode()
+    {
+        // The analyzer is report-only — verify the prompt does not instruct autonomous actions
+        var prompt = SessionAnalyzerService.BuildAnalysisPrompt("data");
+
+        Assert.DoesNotContain("autopilot", prompt);
+        Assert.DoesNotContain("create a branch", prompt);
+        Assert.DoesNotContain("open a PR", prompt);
     }
 
     private static string GetTempDir() => Path.GetTempPath();

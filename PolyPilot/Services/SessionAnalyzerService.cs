@@ -23,6 +23,7 @@ public class SessionAnalyzerService : IAsyncDisposable, IDisposable
     internal const string AnalyzerSessionName = "PolyPilot Monitor";
     internal const int DefaultAnalysisIntervalMinutes = 10;
     internal const int MinAnalysisIntervalMinutes = 1;
+    internal const int MaxAnalysisIntervalMinutes = 1440; // 24 hours
     internal const int DiagnosticLogTailLines = 200;
     internal const int CrashLogTailLines = 50;
     internal const int MaxLogFileSizeBytes = 10 * 1024 * 1024; // 10 MB cap for TailFile
@@ -57,7 +58,7 @@ public class SessionAnalyzerService : IAsyncDisposable, IDisposable
     {
         if (IsRunning) return;
 
-        var clampedInterval = Math.Max(MinAnalysisIntervalMinutes, intervalMinutes);
+        var clampedInterval = Math.Clamp(intervalMinutes, MinAnalysisIntervalMinutes, MaxAnalysisIntervalMinutes);
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
 
@@ -99,6 +100,13 @@ public class SessionAnalyzerService : IAsyncDisposable, IDisposable
             _analysisLoop = null;
         }
 
+        // Close the analyzer session in CopilotService so the name can be reused on restart
+        if (_analyzerSessionName is not null)
+        {
+            try { await _copilotService.CloseSessionAsync(_analyzerSessionName); }
+            catch (Exception ex) { LogAnalyzer($"Error closing analyzer session: {ex.Message}"); }
+        }
+
         _cts?.Dispose();
         _cts = null;
         _analyzerSessionName = null;
@@ -113,6 +121,17 @@ public class SessionAnalyzerService : IAsyncDisposable, IDisposable
         _cts?.Dispose();
         _cts = null;
         _analysisLoop = null;
+
+        // Best-effort session cleanup — fire-and-forget since we can't await in sync path
+        if (_analyzerSessionName is not null)
+        {
+            var name = _analyzerSessionName;
+            _ = Task.Run(async () =>
+            {
+                try { await _copilotService.CloseSessionAsync(name); }
+                catch { /* best effort */ }
+            });
+        }
         _analyzerSessionName = null;
     }
 
@@ -135,8 +154,7 @@ public class SessionAnalyzerService : IAsyncDisposable, IDisposable
             var response = await _copilotService.SendPromptAsync(
                 _analyzerSessionName,
                 prompt,
-                cancellationToken: timeoutCts.Token,
-                agentMode: "autopilot");
+                cancellationToken: timeoutCts.Token);
 
             Interlocked.Exchange(ref _lastAnalysisAtTicks, DateTime.UtcNow.Ticks);
             Interlocked.Increment(ref _analysisCount);

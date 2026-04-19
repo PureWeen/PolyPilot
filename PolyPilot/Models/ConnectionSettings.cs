@@ -144,7 +144,7 @@ public class ConnectionSettings
     public int SessionAnalyzerIntervalMinutes
     {
         get => _sessionAnalyzerIntervalMinutes;
-        set => _sessionAnalyzerIntervalMinutes = Math.Max(1, value);
+        set => _sessionAnalyzerIntervalMinutes = Math.Clamp(value, 1, 1440);
     }
     private int _sessionAnalyzerIntervalMinutes = 10;
 
