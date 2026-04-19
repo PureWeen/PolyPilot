@@ -387,13 +387,12 @@ jobs:
           walk(tree)
           " 2>/dev/null | head -30 || echo "Tree parse failed"
 
-      - name: "Copilot: Create session via SDK"
+      - name: "Copilot: Create session via CLI"
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
-          echo "=== Step 1: Find copilot binary ==="
-          # The copilot binary is bundled inside the app
-          COPILOT_BIN=$(find PolyPilot/bin/Debug -name "copilot" -type f | head -1)
+          echo "=== Find copilot binary ==="
+          COPILOT_BIN=$(find PolyPilot/bin/Debug -name "copilot" -type f -perm +111 | head -1)
           echo "Copilot binary: $COPILOT_BIN"
           
           if [ -z "$COPILOT_BIN" ]; then
@@ -402,34 +401,35 @@ jobs:
           fi
           
           echo ""
-          echo "=== Step 2: Verify server is running ==="
+          echo "=== Verify server is running ==="
           ps aux | grep 'copilot.*headless' | grep -v grep || echo "No headless server"
           
           echo ""
-          echo "=== Step 3: Create a session ==="
-          # Use the copilot CLI to connect to the running server and create a session
-          # The server is already running on port 4321
-          timeout 30 "$COPILOT_BIN" --server-url http://127.0.0.1:4321 \
-            --session-name "ci-test-session" \
-            --working-directory "$GITHUB_WORKSPACE" \
-            --prompt "Say 'Hello from CI! The PolyPilot integration test is working.' — respond with just that confirmation." \
-            --no-interactive 2>&1 | head -50 || echo "Direct CLI session creation failed (expected — may need different args)"
+          echo "=== Try copilot CLI help to understand args ==="
+          "$COPILOT_BIN" --help 2>&1 | head -30 || echo "help failed"
           
           echo ""
-          echo "=== Step 4: Check sessions via app API ==="
-          # After 10s, check if the session appeared
-          sleep 10
-          PORT=${{ steps.devflow.outputs.agent_port }}
+          echo "=== Try connecting to the running server ==="
+          # The copilot CLI uses stdin/stdout for ACP protocol
+          # Try sending a simple message via pipe
+          echo '{"method": "initialize", "params": {"clientInfo": {"name": "ci-test", "version": "1.0"}}}' | \
+            timeout 10 "$COPILOT_BIN" --server-url tcp://127.0.0.1:4321 2>&1 | head -20 || \
+            echo "Pipe-based connection attempt completed"
           
-          echo "=== App logs (session-related) ==="
+          echo ""
+          echo "=== Try using GitHub Copilot SDK directly ==="
+          # The SDK creates sessions via the CopilotClient API
+          # PolyPilot already has a connected client — let's check via the app logs
+          PORT=${{ steps.devflow.outputs.agent_port }}
           curl -s http://localhost:$PORT/api/logs | python3 -c "
           import sys, json
           logs = json.load(sys.stdin)
           for log in logs:
               m = log.get('m','')
-              if any(k in m.lower() for k in ['session', 'create', 'connect', 'copilot', 'prompt', 'model', 'error']):
-                  print(f'[{log.get(\"l\",\"\")}] {m}')
-          " 2>/dev/null | tail -30 || echo "Log parse failed"
+              l = log.get('l','')
+              if any(k in m.lower() for k in ['session', 'create', 'model', 'copilot', 'connect', 'auth', 'server', 'persistent', 'error', 'init']):
+                  print(f'[{l}] {m[:200]}')
+          " 2>/dev/null | head -30 || echo "Log parse failed"
           
           echo ""
           echo "=== Final screenshot ==="
