@@ -366,24 +366,122 @@ jobs:
           echo "=== Server startup in logs ==="
           grep -i 'server\|headless\|persistent\|port\|4321\|copilot' /tmp/polypilot-stdout.log 2>/dev/null | head -20 || true
 
-      - name: "Copilot: Verify session via DevFlow CDP"
+      - name: "Copilot: Verify session via DevFlow"
         if: steps.devflow.outputs.agent_port != ''
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
           
-          echo "=== Checking Blazor DOM for session UI ==="
-          # Use CDP snapshot to see the Blazor UI state
-          curl -s http://localhost:$PORT/api/cdp/snapshot 2>/dev/null | head -100 || true
+          echo "=== Step 1: Discover all API routes ==="
+          for route in \
+            /api/tap /api/fill /api/navigate /api/click \
+            /api/query /api/elements /api/tree \
+            /api/evaluate /api/js /api/cdp \
+            /api/input /api/input/tap /api/input/fill \
+            /api/screenshot /api/status /api/logs; do
+            CODE=$(curl -s --max-time 2 -o /dev/null -w "%{http_code}" http://localhost:$PORT$route 2>/dev/null)
+            if [ "$CODE" != "000" ] && [ "$CODE" != "404" ]; then
+              echo "  $route → HTTP $CODE"
+            fi
+          done
           
-          # Check if the dashboard shows session list
-          curl -s http://localhost:$PORT/api/cdp/evaluate -X POST \
+          echo ""
+          echo "=== Step 2: Get visual tree to find UI elements ==="
+          curl -s http://localhost:$PORT/api/tree | python3 -c "
+          import sys, json
+          tree = json.load(sys.stdin)
+          def walk(nodes, depth=0):
+              for n in nodes:
+                  prefix = '  ' * depth
+                  ntype = n.get('type','?')
+                  nid = n.get('id','')
+                  aid = n.get('automationId','')
+                  text = n.get('text','')
+                  info = f'{prefix}{ntype}'
+                  if aid: info += f' automationId={aid}'
+                  if text: info += f' text={text[:50]}'
+                  info += f' [{nid}]'
+                  print(info)
+                  if 'children' in n:
+                      walk(n['children'], depth+1)
+          walk(tree)
+          " 2>/dev/null | head -60 || echo "Tree parse failed"
+          
+          echo ""
+          echo "=== Step 3: Try POST-based interaction routes ==="
+          # Try tap with POST body
+          echo '--- POST /api/tap ---'
+          curl -s -X POST http://localhost:$PORT/api/tap \
             -H "Content-Type: application/json" \
-            -d '{"expression": "document.querySelector(\".session-list\")?.innerHTML?.substring(0,500) || \"no session-list element\""}' \
-            2>/dev/null | python3 -m json.tool 2>/dev/null || echo "CDP evaluate not available"
+            -d '{"automationId": "test"}' 2>/dev/null | head -5 || echo "POST /api/tap failed"
           
-          echo "=== App screenshot after startup ==="
-          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-startup.png && \
-            echo "✅ Post-startup screenshot: $(wc -c < /tmp/polypilot-after-startup.png) bytes"
+          echo '--- POST /api/navigate ---'
+          curl -s -X POST http://localhost:$PORT/api/navigate \
+            -H "Content-Type: application/json" \
+            -d '{"route": "/"}' 2>/dev/null | head -5 || echo "POST /api/navigate failed"
+
+          echo '--- POST /api/evaluate ---'
+          curl -s -X POST http://localhost:$PORT/api/evaluate \
+            -H "Content-Type: application/json" \
+            -d '{"expression": "document.title"}' 2>/dev/null | head -5 || echo "POST /api/evaluate failed"
+
+      - name: "Copilot: Create session via DevFlow"
+        if: steps.devflow.outputs.agent_port != ''
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          
+          echo "=== Screenshot before session creation ==="
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-before-session.png
+          echo "Before: $(wc -c < /tmp/polypilot-before-session.png) bytes"
+          
+          echo ""
+          echo "=== Trying to interact with the Blazor UI ==="
+          # PolyPilot's dashboard has a "New Session" button
+          # Try to find it via the tree and tap it
+          
+          # First get all element IDs from the tree
+          curl -s http://localhost:$PORT/api/tree | python3 -c "
+          import sys, json
+          tree = json.load(sys.stdin)
+          def find_clickable(nodes):
+              for n in nodes:
+                  ntype = n.get('type','')
+                  aid = n.get('automationId','')
+                  text = n.get('text','')
+                  nid = n.get('id','')
+                  # Look for buttons or clickable elements
+                  if 'Button' in ntype or 'button' in text.lower() or 'session' in text.lower() or 'new' in text.lower():
+                      print(f'FOUND: type={ntype} id={nid} automationId={aid} text={text[:80]}')
+                  if 'children' in n:
+                      find_clickable(n['children'])
+          find_clickable(tree)
+          " 2>/dev/null || echo "Tree search failed"
+          
+          echo ""
+          echo "=== Try JavaScript evaluation to interact with Blazor ==="
+          # Try to click the new session button via JS
+          curl -s -X POST http://localhost:$PORT/api/evaluate \
+            -H "Content-Type: application/json" \
+            -d '{"expression": "JSON.stringify({title: document.title, url: location.href, bodyLen: document.body?.innerHTML?.length || 0})"}' \
+            2>/dev/null | python3 -m json.tool 2>/dev/null || echo "JS eval not available via this route"
+          
+          echo ""
+          echo "=== Wait and take final screenshot ==="
+          sleep 5
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-session.png
+          echo "After: $(wc -c < /tmp/polypilot-after-session.png) bytes"
+          
+          echo ""
+          echo "=== App logs (last 30 lines) ==="
+          curl -s http://localhost:$PORT/api/logs | python3 -c "
+          import sys, json
+          logs = json.load(sys.stdin)
+          for log in logs[-30:]:
+              t = log.get('t','')
+              l = log.get('l','')
+              c = log.get('c','')
+              m = log.get('m','')
+              print(f'[{l}] [{c}] {m}')
+          " 2>/dev/null || echo "Logs parse failed"
 
       - name: Upload artifacts
         if: always()
@@ -392,7 +490,8 @@ jobs:
           name: polypilot-maccatalyst
           path: |
             /tmp/polypilot-ci-screenshot.png
-            /tmp/polypilot-after-startup.png
+            /tmp/polypilot-before-session.png
+            /tmp/polypilot-after-session.png
             /tmp/polypilot-stdout.log
             /tmp/polypilot-stderr.log
           if-no-files-found: ignore
