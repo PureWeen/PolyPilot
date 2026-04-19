@@ -393,99 +393,66 @@ jobs:
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
           
-          echo "=== Step 1: Verify CLI connects with -ap flag ==="
-          maui devflow MAUI status -ap $PORT 2>&1 | head -5
+          echo "=== Step 1: Full API route scan (GET and POST) ==="
+          for route in \
+            /api/status /api/tree /api/screenshot /api/logs /api/query \
+            /api/tap /api/fill /api/navigate /api/click /api/clear \
+            /api/focus /api/scroll /api/text /api/property \
+            /api/cdp /api/cdp/evaluate /api/cdp/snapshot /api/cdp/dom \
+            /api/evaluate /api/js /api/exec /api/run \
+            /api/action /api/interact /api/command /api/rpc \
+            /api/element /api/elements /api/find; do
+            GET=$(curl -s --max-time 2 -o /dev/null -w "%{http_code}" http://localhost:$PORT$route 2>/dev/null)
+            POST=$(curl -s --max-time 2 -o /dev/null -w "%{http_code}" -X POST http://localhost:$PORT$route -H "Content-Type: application/json" -d '{}' 2>/dev/null)
+            if [ "$GET" != "000" ] && [ "$GET" != "404" ]; then echo "  GET  $route → $GET"; fi
+            if [ "$POST" != "000" ] && [ "$POST" != "404" ] && [ "$POST" != "$GET" ]; then echo "  POST $route → $POST"; fi
+          done
           
           echo ""
-          echo "=== Step 2: Check Blazor UI state via CDP ==="
-          echo "Document title:"
-          maui devflow cdp Runtime evaluate "document.title" -ap $PORT 2>&1
-          
-          echo "Session count:"
-          maui devflow cdp Runtime evaluate "document.querySelectorAll('.session-item')?.length || 0" -ap $PORT 2>&1
-          
-          echo ""
-          echo "=== Step 3: Click New Session button ==="
-          # Find and click the "New Session" / "+" button in the dashboard
-          maui devflow cdp Runtime evaluate "
-            // Find the new session button by its known class or content
-            const btn = document.querySelector('.new-session-btn') 
-                     || document.querySelector('[onclick*=\"CreateSession\"]')
-                     || document.querySelector('.create-session-button')
-                     || document.querySelector('button.add-session')
-                     || [...document.querySelectorAll('button')].find(b => b.textContent.includes('+') || b.title?.includes('New') || b.title?.includes('session'));
-            if (btn) { 
-              btn.click(); 
-              'clicked: ' + (btn.title || btn.textContent?.trim()?.substring(0,50) || btn.className); 
-            } else { 
-              // List all buttons for debugging
-              'no button found. Buttons: ' + [...document.querySelectorAll('button')].map(b => b.title || b.textContent?.trim()?.substring(0,30) || b.className).join(' | ');
-            }
-          " -ap $PORT 2>&1
-          
-          sleep 3
-          echo "Screenshot after clicking new session:"
-          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-new-session.png
-          echo "$(wc -c < /tmp/polypilot-after-new-session.png) bytes"
+          echo "=== Step 2: Try query endpoint (the one that returned 400) ==="
+          # /api/query returned 400 — it needs params. Try different param formats:
+          curl -s "http://localhost:$PORT/api/query?type=Button" 2>/dev/null | head -20 || true
+          echo "---"
+          curl -s -X POST http://localhost:$PORT/api/query \
+            -H "Content-Type: application/json" \
+            -d '{"type": "Button"}' 2>/dev/null | head -20 || true
+          echo "---"
+          curl -s "http://localhost:$PORT/api/query?automationId=test" 2>/dev/null | head -10 || true
           
           echo ""
-          echo "=== Step 4: Check if session was created ==="
-          maui devflow cdp Runtime evaluate "
-            // Check if a session appeared or if we're in session view
-            const sessions = document.querySelectorAll('.session-item, .session-list-item');
-            const chatInput = document.querySelector('.chat-input, #prompt-input, textarea');
-            JSON.stringify({
-              sessionCount: sessions?.length || 0,
-              hasChatInput: !!chatInput,
-              currentUrl: location.href,
-              bodyPreview: document.body?.innerText?.substring(0, 500)
-            });
-          " -ap $PORT 2>&1 | python3 -m json.tool 2>/dev/null || maui devflow cdp Runtime evaluate "document.body?.innerText?.substring(0, 300)" -ap $PORT 2>&1
+          echo "=== Step 3: Try tap endpoint with POST ==="
+          # Try POSTing a tap command
+          curl -s -X POST http://localhost:$PORT/api/tap \
+            -H "Content-Type: application/json" \
+            -d '{"automationId": "new-session-button"}' 2>/dev/null | head -5 || true
+          echo "---tap by coordinates---"
+          curl -s -X POST http://localhost:$PORT/api/tap \
+            -H "Content-Type: application/json" \
+            -d '{"x": 100, "y": 100}' 2>/dev/null | head -5 || true
           
           echo ""
-          echo "=== Step 5: Try sending a message if chat input exists ==="
-          maui devflow cdp Runtime evaluate "
-            const input = document.querySelector('.chat-input, #prompt-input, textarea, [contenteditable]');
-            if (input) {
-              // Fill the input
-              if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
-                input.value = 'Hello from CI! Testing PolyPilot integration.';
-                input.dispatchEvent(new Event('input', {bubbles: true}));
-                input.dispatchEvent(new Event('change', {bubbles: true}));
-              } else {
-                input.textContent = 'Hello from CI! Testing PolyPilot integration.';
-                input.dispatchEvent(new Event('input', {bubbles: true}));
-              }
-              'filled input: ' + input.tagName + '.' + input.className;
-            } else {
-              'no chat input found yet';
-            }
-          " -ap $PORT 2>&1
-          
-          sleep 2
-          
-          # Try to find and click the send button
-          maui devflow cdp Runtime evaluate "
-            const sendBtn = document.querySelector('.send-button, .submit-btn, [type=\"submit\"]')
-                         || [...document.querySelectorAll('button')].find(b => b.title?.includes('Send') || b.textContent?.includes('Send') || b.querySelector('svg'));
-            if (sendBtn) { sendBtn.click(); 'sent!'; } else { 'no send button found'; }
-          " -ap $PORT 2>&1
+          echo "=== Step 4: Check the full status (may have CDP info) ==="
+          curl -s http://localhost:$PORT/api/status | python3 -m json.tool
           
           echo ""
-          echo "=== Step 6: Wait and capture result ==="
-          sleep 15
-          
-          echo "Final session state:"
-          maui devflow cdp Runtime evaluate "
-            const messages = document.querySelectorAll('.message, .chat-message, .assistant-message');
-            JSON.stringify({
-              messageCount: messages?.length || 0,
-              lastMessage: messages?.length > 0 ? messages[messages.length-1]?.textContent?.substring(0, 200) : 'none',
-              sessionCount: document.querySelectorAll('.session-item, .session-list-item')?.length || 0
-            });
-          " -ap $PORT 2>&1 | python3 -m json.tool 2>/dev/null || echo "State check failed"
+          echo "=== Step 5: Try getting tree with interaction endpoints ==="
+          curl -s http://localhost:$PORT/api/tree | python3 -c "
+          import sys, json
+          tree = json.load(sys.stdin)
+          def walk(nodes, depth=0):
+              for n in nodes:
+                  t = n.get('type','')
+                  aid = n.get('automationId','')
+                  text = n.get('text','')[:40]
+                  nid = n.get('id','')
+                  actions = n.get('actions', n.get('supportedActions', ''))
+                  print(f\"{'  '*depth}{t} [{nid}] aid={aid} text={text} actions={actions}\")
+                  if 'children' in n: walk(n['children'], depth+1)
+          walk(tree)
+          " 2>/dev/null | head -30 || echo "Tree parse failed"
           
           echo ""
+          echo "=== Final screenshot ==="
           curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-session.png
           echo "✅ Final screenshot: $(wc -c < /tmp/polypilot-after-session.png) bytes"
 
