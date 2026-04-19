@@ -1468,17 +1468,31 @@
             if (!menu) menu = buttonEl.parentElement?.querySelector('.session-menu');
             if (!menu) return;
             var r = buttonEl.getBoundingClientRect();
-            // Cap menu height to viewport with scrolling
-            var maxH = window.innerHeight - 8;
+            // When inside a flyout panel with transform, fixed positioning is relative to the flyout,
+            // not the viewport. Detect and adjust coordinates accordingly.
+            var flyout = menu.closest('.flyout-panel');
+            var containerW = window.innerWidth, containerH = window.innerHeight;
+            if (flyout && getComputedStyle(flyout).transform !== 'none') {
+                var fr = flyout.getBoundingClientRect();
+                containerW = fr.width;
+                containerH = fr.height;
+                r = { top: r.top - fr.top, bottom: r.bottom - fr.top, left: r.left - fr.left, right: r.right - fr.left };
+            }
+            // Account for safe area insets (Android nav bar, iOS home indicator)
+            var bottomInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-bar-height') || '0') || 0;
+            var topInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--status-bar-height') || '0') || 0;
+            var usableTop = topInset + 4;
+            var usableBottom = containerH - bottomInset - 4;
+            var maxH = usableBottom - usableTop;
             menu.style.maxHeight = maxH + 'px';
             menu.style.overflowY = 'auto';
             var mw = menu.offsetWidth, mh = Math.min(menu.scrollHeight, maxH);
-            var top = r.bottom + mh > window.innerHeight ? r.top - mh : r.bottom;
-            top = Math.max(4, Math.min(top, window.innerHeight - mh - 4));
+            var top = r.bottom + mh > usableBottom ? r.top - mh : r.bottom;
+            top = Math.max(usableTop, Math.min(top, usableBottom - mh));
             // Try right-aligning to button; if that goes off-screen left, left-align instead
             var left = r.right - mw;
             if (left < 4) left = Math.max(4, r.left);
-            if (left + mw > window.innerWidth) left = window.innerWidth - mw - 4;
+            if (left + mw > containerW) left = containerW - mw - 4;
             menu.style.top = top + 'px';
             menu.style.left = left + 'px';
             // Close menu if sidebar scrolls (fixed-position menu would drift)
