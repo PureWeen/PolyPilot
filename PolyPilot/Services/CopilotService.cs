@@ -786,6 +786,14 @@ public partial class CopilotService : IAsyncDisposable
         ClearFlushedReplayDedup(state);
         state.PendingReasoningMessages.Clear();
 
+        // Increment generation so any InvokeOnUI callback that captured the old
+        // generation before this ClearProcessingState call will see a mismatch and
+        // bail out — preventing resurrection of a completed turn. Without this,
+        // the generation guard passes and only the !IsProcessing check saves us.
+        // Skip if orphaned (long.MaxValue) — incrementing would overflow to long.MinValue.
+        if (Interlocked.Read(ref state.ProcessingGeneration) != long.MaxValue)
+            Interlocked.Increment(ref state.ProcessingGeneration);
+
         state.Info.IsProcessing = false;
         state.Info.IsResumed = false;
         state.Info.ProcessingStartedAt = null;
@@ -4475,6 +4483,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 state.IsReconnectedSend = false; // INV-1 item 8: prevent stale 35s timeout on next watchdog start
                 Interlocked.Exchange(ref state.SendingFlag, 0);
                 // Clear IsProcessing BEFORE completing TCS (INV-O3)
+                // No MaxValue guard needed: STEER-ERROR only reaches non-orphaned sessions
+                Interlocked.Increment(ref state.ProcessingGeneration); // Invalidate stale callbacks
                 state.Info.IsProcessing = false;
                 if (state.Info.ProcessingStartedAt is { } steerStarted)
                     state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - steerStarted).TotalSeconds;
@@ -4754,6 +4764,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 await InvokeOnUIAsync(() =>
                 {
                     FlushCurrentResponse(state);
+                    // No MaxValue guard needed: MCP-reload only reaches non-orphaned sessions
+                    Interlocked.Increment(ref state.ProcessingGeneration); // Invalidate stale callbacks
                     state.Info.IsProcessing = false;
                     state.Info.IsResumed = false;
                     state.HasUsedToolsThisTurn = false;

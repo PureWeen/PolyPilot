@@ -296,6 +296,73 @@ public class ChatExperienceSafetyTests
     }
 
     /// <summary>
+    /// ClearProcessingState must increment ProcessingGeneration so that any InvokeOnUI
+    /// callback captured before completion sees a generation mismatch and bails out.
+    /// Without this, the generation guard passes and only the !IsProcessing check
+    /// prevents resurrection of completed turns — a fragile single-point-of-failure.
+    /// </summary>
+    [Fact]
+    public async Task ClearProcessingState_IncrementsGeneration()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("gen-increment-test");
+
+        var state = GetSessionState(svc, "gen-increment-test");
+        session.IsProcessing = true;
+        SetField(state, "ProcessingGeneration", 5L);
+        SetField(state, "SendingFlag", 1);
+        SetResponseCompletion(state, new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously));
+
+        var genBefore = GetField<long>(state, "ProcessingGeneration");
+
+        // Act: CompleteResponse calls ClearProcessingState internally
+        InvokeCompleteResponse(svc, state, 5L);
+
+        var genAfter = GetField<long>(state, "ProcessingGeneration");
+
+        Assert.False(session.IsProcessing);
+        Assert.True(genAfter > genBefore,
+            $"ClearProcessingState must increment ProcessingGeneration (was {genBefore}, now {genAfter}). " +
+            "This prevents resurrection of completed turns by stale InvokeOnUI callbacks.");
+    }
+
+    /// <summary>
+    /// Demonstrates the resurrection scenario: a stale callback that captured the
+    /// generation before CompleteResponse ran must see a mismatch and bail out,
+    /// rather than re-setting IsProcessing=true on a completed session.
+    /// </summary>
+    [Fact]
+    public async Task GenerationGuard_PreventsResurrection_AfterCompletion()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        var session = await svc.CreateSessionAsync("resurrection-test");
+
+        var state = GetSessionState(svc, "resurrection-test");
+        session.IsProcessing = true;
+        SetField(state, "ProcessingGeneration", 5L);
+        SetField(state, "SendingFlag", 1);
+        SetResponseCompletion(state, new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously));
+
+        // Simulate: stale callback captures generation BEFORE completion
+        var capturedGen = GetField<long>(state, "ProcessingGeneration");
+        Assert.Equal(5L, capturedGen);
+
+        // Turn completes — ClearProcessingState increments generation
+        InvokeCompleteResponse(svc, state, 5L);
+        Assert.False(session.IsProcessing);
+
+        // Stale callback fires and checks its captured generation
+        var currentGen = GetField<long>(state, "ProcessingGeneration");
+        var guardPasses = currentGen == capturedGen;
+
+        Assert.False(guardPasses,
+            $"Stale callback with captured gen={capturedGen} must see mismatch (current={currentGen}). " +
+            "Without the increment, this would pass and allow resurrection.");
+    }
+
+    /// <summary>
     /// Late TurnStart events should only revive sessions after speculative auto-completion.
     /// Explicit aborts, watchdog kills, and force-complete recovery paths must not be re-armed
     /// by stale SDK TurnStart replays.

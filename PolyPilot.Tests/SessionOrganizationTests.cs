@@ -1099,6 +1099,86 @@ Do something.
     }
 
     [Fact]
+    public void ReconcileOrganization_LocalOnlyRepo_DoesNotCreateUrlGroup_ForCentralizedWorktree()
+    {
+        // Regression test: when a repo ONLY has a local folder group (no URL-based group),
+        // sessions with centralized worktrees (~/.polypilot/worktrees/...) should stay in
+        // the local folder group. ReconcileOrganization must NOT create a duplicate URL-based
+        // group just to move the session into it.
+        // Note: repo ID must use the real "-local-" format from RepoManager.AddRepositoryFromLocalAsync.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "dotnet-maui-local-a1b2c3d4", Name = "maui", Url = "https://github.com/dotnet/maui" }
+        };
+        var localPath = Path.Combine(Path.GetTempPath(), "maui3");
+        var centralPath = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees", "dotnet-maui-local-wt1");
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "wt-central", RepoId = "dotnet-maui-local-a1b2c3d4", Branch = "session-123", Path = centralPath }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        // Create ONLY a local folder group (no URL-based group)
+        var localGroup = svc.GetOrCreateLocalFolderGroup(localPath, "dotnet-maui-local-a1b2c3d4");
+        Assert.True(localGroup.IsLocalFolder);
+
+        // Put a session in the local folder group with a centralized worktree
+        var meta = new SessionMeta
+        {
+            SessionName = "test-session",
+            GroupId = localGroup.Id,
+            WorktreeId = "wt-central"
+        };
+        svc.Organization.Sessions.Add(meta);
+
+        typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+        svc.ReconcileOrganization(allowPruning: false);
+
+        // Session should stay in the local folder group — no URL group created
+        Assert.Equal(localGroup.Id, meta.GroupId);
+        Assert.DoesNotContain(svc.Organization.Groups,
+            g => g.RepoId == "dotnet-maui-local-a1b2c3d4" && !g.IsLocalFolder && !g.IsMultiAgent);
+    }
+
+    [Fact]
+    public void GetOrCreateRepoGroup_ReturnsNull_ForLocalOnlyRepoWithExistingLocalGroup()
+    {
+        // Direct unit test: GetOrCreateRepoGroup must return null for local-only repos
+        // (IDs containing "-local-") when a local folder group already covers the repo.
+        var svc = CreateService();
+        var localPath = Path.Combine(Path.GetTempPath(), "my-project");
+
+        // Create a local folder group for a local-only repo
+        svc.GetOrCreateLocalFolderGroup(localPath, "owner-repo-local-a1b2c3d4");
+
+        // GetOrCreateRepoGroup should return null — not create a duplicate
+        var result = svc.GetOrCreateRepoGroup("owner-repo-local-a1b2c3d4", "repo");
+        Assert.Null(result);
+
+        // No URL-based group should exist
+        Assert.DoesNotContain(svc.Organization.Groups,
+            g => g.RepoId == "owner-repo-local-a1b2c3d4" && !g.IsLocalFolder);
+    }
+
+    [Fact]
+    public void GetOrCreateRepoGroup_AllowsCreation_ForNonLocalRepo_WithLocalFolderGroup()
+    {
+        // Ensure the guard does NOT block URL group creation for repos without "-local-" in ID.
+        // This supports the heal-stranded-sessions scenario where both URL and local groups coexist.
+        var svc = CreateService();
+        var localPath = Path.Combine(Path.GetTempPath(), "my-project");
+
+        // Create a local folder group for a non-local repo (same ID for both)
+        svc.GetOrCreateLocalFolderGroup(localPath, "owner-repo");
+
+        // GetOrCreateRepoGroup should succeed — this is NOT a local-only repo
+        var result = svc.GetOrCreateRepoGroup("owner-repo", "repo");
+        Assert.NotNull(result);
+        Assert.False(result!.IsLocalFolder);
+    }
+
+    [Fact]
     public void ReconcileOrganization_NestedWorktree_IsNotTreatedAsExternalWorktree()
     {
         // Nested worktrees (inside a local folder's .polypilot/worktrees/) must NOT

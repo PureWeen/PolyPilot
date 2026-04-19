@@ -808,6 +808,10 @@ public partial class CopilotService
                             meta.GroupId = urlGroup.Id;
                             changed = true;
                         }
+                        else
+                        {
+                            Debug($"ReconcileOrganization: keeping '{meta.SessionName}' in local folder group '{localGroup.Name}' — no URL group for local-only repo '{localGroup.RepoId}'");
+                        }
                     }
                 }
             }
@@ -1437,6 +1441,20 @@ public partial class CopilotService
         // Don't recreate groups the user explicitly deleted (unless re-adding)
         if (!explicitly && Organization.DeletedRepoGroupRepoIds.Contains(repoId))
             return null;
+
+        // Don't create a URL-based group when a local folder group already covers this repo
+        // and no URL-based group exists. This prevents duplicate sidebar entries for local-only
+        // repos (e.g., "maui" appearing twice — once as local folder, once as URL-based).
+        // Local-only repos are identified by RepoManager.IsLocalOnlyRepoId (IDs containing the
+        // "-local-" infix from AddRepositoryFromLocalAsync). For these repos, the local folder
+        // group IS the repo's group — no URL-based group should be created.
+        // Exception: repos WITHOUT the local infix (same ID for both URL and local groups)
+        // are allowed to create URL groups for the heal-stranded-sessions scenario.
+        if (!explicitly && RepoManager.IsLocalOnlyRepoId(repoId)
+            && Organization.Groups.Any(g => g.RepoId == repoId && g.IsLocalFolder && !g.IsMultiAgent))
+        {
+            return null;
+        }
 
         // Clear the deleted flag when explicitly re-adding
         Organization.DeletedRepoGroupRepoIds.Remove(repoId);
