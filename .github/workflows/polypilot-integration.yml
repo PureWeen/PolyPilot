@@ -387,45 +387,105 @@ jobs:
           walk(tree)
           " 2>/dev/null | head -30 || echo "Tree parse failed"
 
-      - name: "Copilot: Create session via CLI"
+      - name: "Copilot: Create session via PolyPilot UI"
         env:
           COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
         run: |
-          COPILOT_BIN=$(find PolyPilot/bin/Debug -name "copilot" -type f -perm +111 | head -1)
-          echo "Copilot binary: $COPILOT_BIN"
-          
-          echo ""
-          echo "=== Create a session with --prompt ==="
-          # Run copilot -p from the repo directory (it needs git context)
-          # The binary uses COPILOT_GITHUB_TOKEN from env
-          cd "$GITHUB_WORKSPACE"
-          
-          # First check what args are valid
-          "$COPILOT_BIN" --help 2>&1 | grep -E '\-p |--prompt|--print' | head -5 || true
-          
-          echo ""
-          echo "--- Running copilot -p ---"
-          # macOS doesn't have 'timeout' — use perl-based alternative
-          perl -e 'alarm 60; exec @ARGV' "$COPILOT_BIN" \
-            -p "Say exactly: Hello from CI! The PolyPilot integration test is working." \
-            2>&1 | tee /tmp/copilot-session-output.log | head -50 || true
-          
-          COPILOT_EXIT=$?
-          echo ""
-          echo "Exit code: $COPILOT_EXIT"
-          echo "Full output size: $(wc -c < /tmp/copilot-session-output.log) bytes"
-          
-          if grep -qi "Hello from CI" /tmp/copilot-session-output.log; then
-            echo "✅ Copilot responded with the expected message!"
-          else
-            echo "⚠️ Copilot did not produce expected response"
-            echo "=== Full output ==="
-            cat /tmp/copilot-session-output.log
-          fi
-          
-          echo ""
-          echo "=== Final screenshot ==="
           PORT=${{ steps.devflow.outputs.agent_port }}
+          
+          echo "=== Step 1: Verify CLI connects with -ap flag ==="
+          maui devflow MAUI status -ap $PORT 2>&1 | head -5
+          
+          echo ""
+          echo "=== Step 2: Check Blazor UI state via CDP ==="
+          echo "Document title:"
+          maui devflow cdp Runtime evaluate "document.title" -ap $PORT 2>&1
+          
+          echo "Session count:"
+          maui devflow cdp Runtime evaluate "document.querySelectorAll('.session-item')?.length || 0" -ap $PORT 2>&1
+          
+          echo ""
+          echo "=== Step 3: Click New Session button ==="
+          # Find and click the "New Session" / "+" button in the dashboard
+          maui devflow cdp Runtime evaluate "
+            // Find the new session button by its known class or content
+            const btn = document.querySelector('.new-session-btn') 
+                     || document.querySelector('[onclick*=\"CreateSession\"]')
+                     || document.querySelector('.create-session-button')
+                     || document.querySelector('button.add-session')
+                     || [...document.querySelectorAll('button')].find(b => b.textContent.includes('+') || b.title?.includes('New') || b.title?.includes('session'));
+            if (btn) { 
+              btn.click(); 
+              'clicked: ' + (btn.title || btn.textContent?.trim()?.substring(0,50) || btn.className); 
+            } else { 
+              // List all buttons for debugging
+              'no button found. Buttons: ' + [...document.querySelectorAll('button')].map(b => b.title || b.textContent?.trim()?.substring(0,30) || b.className).join(' | ');
+            }
+          " -ap $PORT 2>&1
+          
+          sleep 3
+          echo "Screenshot after clicking new session:"
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-new-session.png
+          echo "$(wc -c < /tmp/polypilot-after-new-session.png) bytes"
+          
+          echo ""
+          echo "=== Step 4: Check if session was created ==="
+          maui devflow cdp Runtime evaluate "
+            // Check if a session appeared or if we're in session view
+            const sessions = document.querySelectorAll('.session-item, .session-list-item');
+            const chatInput = document.querySelector('.chat-input, #prompt-input, textarea');
+            JSON.stringify({
+              sessionCount: sessions?.length || 0,
+              hasChatInput: !!chatInput,
+              currentUrl: location.href,
+              bodyPreview: document.body?.innerText?.substring(0, 500)
+            });
+          " -ap $PORT 2>&1 | python3 -m json.tool 2>/dev/null || maui devflow cdp Runtime evaluate "document.body?.innerText?.substring(0, 300)" -ap $PORT 2>&1
+          
+          echo ""
+          echo "=== Step 5: Try sending a message if chat input exists ==="
+          maui devflow cdp Runtime evaluate "
+            const input = document.querySelector('.chat-input, #prompt-input, textarea, [contenteditable]');
+            if (input) {
+              // Fill the input
+              if (input.tagName === 'TEXTAREA' || input.tagName === 'INPUT') {
+                input.value = 'Hello from CI! Testing PolyPilot integration.';
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+                input.dispatchEvent(new Event('change', {bubbles: true}));
+              } else {
+                input.textContent = 'Hello from CI! Testing PolyPilot integration.';
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+              }
+              'filled input: ' + input.tagName + '.' + input.className;
+            } else {
+              'no chat input found yet';
+            }
+          " -ap $PORT 2>&1
+          
+          sleep 2
+          
+          # Try to find and click the send button
+          maui devflow cdp Runtime evaluate "
+            const sendBtn = document.querySelector('.send-button, .submit-btn, [type=\"submit\"]')
+                         || [...document.querySelectorAll('button')].find(b => b.title?.includes('Send') || b.textContent?.includes('Send') || b.querySelector('svg'));
+            if (sendBtn) { sendBtn.click(); 'sent!'; } else { 'no send button found'; }
+          " -ap $PORT 2>&1
+          
+          echo ""
+          echo "=== Step 6: Wait and capture result ==="
+          sleep 15
+          
+          echo "Final session state:"
+          maui devflow cdp Runtime evaluate "
+            const messages = document.querySelectorAll('.message, .chat-message, .assistant-message');
+            JSON.stringify({
+              messageCount: messages?.length || 0,
+              lastMessage: messages?.length > 0 ? messages[messages.length-1]?.textContent?.substring(0, 200) : 'none',
+              sessionCount: document.querySelectorAll('.session-item, .session-list-item')?.length || 0
+            });
+          " -ap $PORT 2>&1 | python3 -m json.tool 2>/dev/null || echo "State check failed"
+          
+          echo ""
           curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-session.png
           echo "✅ Final screenshot: $(wc -c < /tmp/polypilot-after-session.png) bytes"
 
@@ -436,7 +496,7 @@ jobs:
           name: polypilot-maccatalyst
           path: |
             /tmp/polypilot-ci-screenshot.png
-            /tmp/polypilot-before-session.png
+            /tmp/polypilot-after-new-session.png
             /tmp/polypilot-after-session.png
             /tmp/polypilot-stdout.log
             /tmp/polypilot-stderr.log
