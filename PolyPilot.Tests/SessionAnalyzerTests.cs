@@ -2,6 +2,7 @@ using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
 
+[Collection("BaseDir")]
 public class SessionAnalyzerTests
 {
     [Fact]
@@ -13,12 +14,11 @@ public class SessionAnalyzerTests
         {
             SessionAnalyzerService.SetBaseDirForTesting(tempDir);
 
-            // Write a test diagnostic log
             File.WriteAllText(
                 Path.Combine(tempDir, "event-diagnostics.log"),
                 "[SEND] 'TestSession' IsProcessing=true\n[COMPLETE] 'TestSession' done\n");
 
-            var copilotService = TestHelpers.CreateTestCopilotService();
+            var copilotService = CreateService();
             var serverManager = new TestServerManager { IsRunning = true, Pid = 12345, Port = 4321 };
             var analyzer = new SessionAnalyzerService(copilotService, serverManager);
 
@@ -32,6 +32,7 @@ public class SessionAnalyzerTests
         }
         finally
         {
+            SessionAnalyzerService.SetBaseDirForTesting(TestSetup.TestBaseDir);
             Directory.Delete(tempDir, recursive: true);
         }
     }
@@ -49,7 +50,7 @@ public class SessionAnalyzerTests
                 Path.Combine(tempDir, "crash.log"),
                 "=== 2026-04-18 ===\nSystem.Exception: test crash\n");
 
-            var copilotService = TestHelpers.CreateTestCopilotService();
+            var copilotService = CreateService();
             var serverManager = new TestServerManager();
             var analyzer = new SessionAnalyzerService(copilotService, serverManager);
 
@@ -60,6 +61,7 @@ public class SessionAnalyzerTests
         }
         finally
         {
+            SessionAnalyzerService.SetBaseDirForTesting(TestSetup.TestBaseDir);
             Directory.Delete(tempDir, recursive: true);
         }
     }
@@ -73,18 +75,18 @@ public class SessionAnalyzerTests
         {
             SessionAnalyzerService.SetBaseDirForTesting(tempDir);
 
-            var copilotService = TestHelpers.CreateTestCopilotService();
+            var copilotService = CreateService();
             var serverManager = new TestServerManager();
             var analyzer = new SessionAnalyzerService(copilotService, serverManager);
 
             var diagnostics = analyzer.CollectDiagnostics();
 
-            // Should still have session states and server health sections
             Assert.Contains("Active Session States", diagnostics);
             Assert.Contains("Server Health", diagnostics);
         }
         finally
         {
+            SessionAnalyzerService.SetBaseDirForTesting(TestSetup.TestBaseDir);
             Directory.Delete(tempDir, recursive: true);
         }
     }
@@ -103,27 +105,31 @@ public class SessionAnalyzerTests
     }
 
     [Fact]
-    public void BuildAnalysisPrompt_InstructsAutoPrCreation()
+    public void BuildAnalysisPrompt_ReportOnly_NoAutonomousPrCreation()
     {
         var prompt = SessionAnalyzerService.BuildAnalysisPrompt("data");
 
-        Assert.Contains("create a branch", prompt);
-        Assert.Contains("open a PR", prompt);
+        // Must instruct report-only, NOT autonomous PR creation
+        Assert.Contains("Do NOT autonomously create branches or PRs", prompt);
+        Assert.Contains("report only", prompt);
+        Assert.DoesNotContain("create a branch, write the fix", prompt);
     }
 
     [Fact]
     public void Constants_HaveReasonableDefaults()
     {
         Assert.Equal(10, SessionAnalyzerService.DefaultAnalysisIntervalMinutes);
+        Assert.Equal(1, SessionAnalyzerService.MinAnalysisIntervalMinutes);
         Assert.Equal(200, SessionAnalyzerService.DiagnosticLogTailLines);
         Assert.Equal(50, SessionAnalyzerService.CrashLogTailLines);
         Assert.Equal("PolyPilot Monitor", SessionAnalyzerService.AnalyzerSessionName);
+        Assert.Equal(10 * 1024 * 1024, SessionAnalyzerService.MaxLogFileSizeBytes);
     }
 
     [Fact]
     public void IsRunning_FalseBeforeStart()
     {
-        var copilotService = TestHelpers.CreateTestCopilotService();
+        var copilotService = CreateService();
         var serverManager = new TestServerManager();
         var analyzer = new SessionAnalyzerService(copilotService, serverManager);
 
@@ -135,20 +141,115 @@ public class SessionAnalyzerTests
     [Fact]
     public void Dispose_StopsAnalyzer()
     {
-        var copilotService = TestHelpers.CreateTestCopilotService();
+        var copilotService = CreateService();
         var serverManager = new TestServerManager();
         var analyzer = new SessionAnalyzerService(copilotService, serverManager);
 
         analyzer.Dispose();
-
-        // Should not throw on double dispose
-        analyzer.Dispose();
+        analyzer.Dispose(); // double dispose is safe
         Assert.False(analyzer.IsRunning);
     }
 
-    /// <summary>
-    /// Test stub for IServerManager used by analyzer tests.
-    /// </summary>
+    [Fact]
+    public async Task DisposeAsync_StopsAnalyzer()
+    {
+        var copilotService = CreateService();
+        var serverManager = new TestServerManager();
+        var analyzer = new SessionAnalyzerService(copilotService, serverManager);
+
+        await analyzer.DisposeAsync();
+        await analyzer.DisposeAsync(); // double dispose is safe
+        Assert.False(analyzer.IsRunning);
+    }
+
+    [Fact]
+    public async Task RunSingleAnalysis_ReturnsNull_WhenNoSessionCreated()
+    {
+        var copilotService = CreateService();
+        var serverManager = new TestServerManager();
+        var analyzer = new SessionAnalyzerService(copilotService, serverManager);
+
+        // _analyzerSessionName is null — no session was created
+        var result = await analyzer.RunSingleAnalysisAsync();
+        Assert.Null(result);
+        Assert.Equal(0, analyzer.AnalysisCount);
+    }
+
+    [Fact]
+    public void TailFile_CapsLargeFiles()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            // Write a small file — TailFile should return last N lines
+            var lines = Enumerable.Range(1, 500).Select(i => $"line {i}").ToArray();
+            File.WriteAllLines(tempFile, lines);
+
+            var result = SessionAnalyzerService.TailFile(tempFile, 10);
+            Assert.Equal(10, result.Length);
+            Assert.Equal("line 491", result[0]);
+            Assert.Equal("line 500", result[9]);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void TailFile_HandlesSmallFile()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllLines(tempFile, new[] { "a", "b", "c" });
+            var result = SessionAnalyzerService.TailFile(tempFile, 10);
+            Assert.Equal(3, result.Length);
+        }
+        finally
+        {
+            File.Delete(tempFile);
+        }
+    }
+
+    [Fact]
+    public void TailFile_HandlesNonexistentFile()
+    {
+        var result = SessionAnalyzerService.TailFile("/nonexistent/path", 10);
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void SessionAnalyzerIntervalMinutes_ClampsToMinimum()
+    {
+        var settings = new PolyPilot.Models.ConnectionSettings();
+
+        settings.SessionAnalyzerIntervalMinutes = 0;
+        Assert.Equal(1, settings.SessionAnalyzerIntervalMinutes);
+
+        settings.SessionAnalyzerIntervalMinutes = -5;
+        Assert.Equal(1, settings.SessionAnalyzerIntervalMinutes);
+
+        settings.SessionAnalyzerIntervalMinutes = 30;
+        Assert.Equal(30, settings.SessionAnalyzerIntervalMinutes);
+    }
+
+    private static string GetTempDir() => Path.GetTempPath();
+
+    private static CopilotService CreateService()
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        var serviceProvider = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions
+            .BuildServiceProvider(services);
+        return new CopilotService(
+            new StubChatDatabase(),
+            new StubServerManager(),
+            new StubWsBridgeClient(),
+            new RepoManager(),
+            serviceProvider,
+            new StubDemoService());
+    }
+
     private class TestServerManager : IServerManager
     {
         public bool IsRunning { get; set; }
@@ -167,25 +268,5 @@ public class SessionAnalyzerTests
         public Task<bool> StartServerAsync(int port, string? githubToken = null) => Task.FromResult(true);
         public void StopServer() { }
         public bool DetectExistingServer() => IsRunning;
-    }
-}
-
-/// <summary>
-/// Shared test helpers for creating CopilotService instances for unit tests.
-/// </summary>
-internal static class TestHelpers
-{
-    internal static CopilotService CreateTestCopilotService()
-    {
-        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
-        var serviceProvider = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions
-            .BuildServiceProvider(services);
-        return new CopilotService(
-            new StubChatDatabase(),
-            new StubServerManager(),
-            new StubWsBridgeClient(),
-            new RepoManager(),
-            serviceProvider,
-            new StubDemoService());
     }
 }

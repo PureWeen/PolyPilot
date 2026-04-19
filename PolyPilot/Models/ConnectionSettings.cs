@@ -141,7 +141,12 @@ public class ConnectionSettings
     /// <summary>
     /// How often (in minutes) the session analyzer runs its diagnostic analysis.
     /// </summary>
-    public int SessionAnalyzerIntervalMinutes { get; set; } = 10;
+    public int SessionAnalyzerIntervalMinutes
+    {
+        get => _sessionAnalyzerIntervalMinutes;
+        set => _sessionAnalyzerIntervalMinutes = Math.Max(1, value);
+    }
+    private int _sessionAnalyzerIntervalMinutes = 10;
 
     /// <summary>
     /// Normalizes a remote URL by ensuring it has an http(s):// scheme.

@@ -5,10 +5,10 @@ namespace PolyPilot.Services;
 
 /// <summary>
 /// A background service that maintains a dedicated copilot CLI session to perpetually
-/// analyze running PolyPilot sessions for issues. When problems are detected, the
-/// analyzer session (running in autopilot) can create PRs with fixes.
+/// analyze running PolyPilot sessions for issues. The analyzer reports findings but
+/// does NOT autonomously create PRs — all actions require human review.
 /// </summary>
-public class SessionAnalyzerService : IDisposable
+public class SessionAnalyzerService : IAsyncDisposable, IDisposable
 {
     private readonly CopilotService _copilotService;
     private readonly IServerManager _serverManager;
@@ -16,20 +16,32 @@ public class SessionAnalyzerService : IDisposable
     private Task? _analysisLoop;
     private string? _analyzerSessionName;
     private bool _disposed;
+    private int _analysisCount;
+    private long _lastAnalysisAtTicks;
 
-    // The analyzer session lives in a dedicated hidden group
     internal const string AnalyzerGroupName = "🔍 Session Analyzer";
     internal const string AnalyzerSessionName = "PolyPilot Monitor";
     internal const int DefaultAnalysisIntervalMinutes = 10;
+    internal const int MinAnalysisIntervalMinutes = 1;
     internal const int DiagnosticLogTailLines = 200;
     internal const int CrashLogTailLines = 50;
+    internal const int MaxLogFileSizeBytes = 10 * 1024 * 1024; // 10 MB cap for TailFile
 
     private static string? _polypilotDir;
     private static string PolyPilotDir => _polypilotDir ??= CopilotService.BaseDir;
 
     public bool IsRunning => _analysisLoop is { IsCompleted: false };
-    public DateTime? LastAnalysisAt { get; private set; }
-    public int AnalysisCount { get; private set; }
+
+    public DateTime? LastAnalysisAt
+    {
+        get
+        {
+            var ticks = Interlocked.Read(ref _lastAnalysisAtTicks);
+            return ticks == 0 ? null : new DateTime(ticks, DateTimeKind.Utc);
+        }
+    }
+
+    public int AnalysisCount => Interlocked.CompareExchange(ref _analysisCount, 0, 0);
     public string? LastFinding { get; private set; }
 
     public SessionAnalyzerService(CopilotService copilotService, IServerManager serverManager)
@@ -45,38 +57,63 @@ public class SessionAnalyzerService : IDisposable
     {
         if (IsRunning) return;
 
+        var clampedInterval = Math.Max(MinAnalysisIntervalMinutes, intervalMinutes);
         _cts = new CancellationTokenSource();
         var token = _cts.Token;
 
-        // Create the analyzer session
-        _analyzerSessionName = AnalyzerSessionName;
         try
         {
             var session = await _copilotService.CreateSessionAsync(
-                _analyzerSessionName,
-                model: "claude-sonnet-4-5",
+                AnalyzerSessionName,
+                model: "claude-sonnet-4.5",
                 workingDirectory: repoWorkingDirectory,
                 cancellationToken: token);
 
             session.IsHidden = true;
+            // Only set name after successful creation
+            _analyzerSessionName = AnalyzerSessionName;
         }
         catch (Exception ex)
         {
             LogAnalyzer($"Failed to create analyzer session: {ex.Message}");
+            _analyzerSessionName = null;
             return;
         }
 
-        _analysisLoop = RunAnalysisLoopAsync(intervalMinutes, token);
+        _analysisLoop = RunAnalysisLoopAsync(clampedInterval, token);
     }
 
     /// <summary>
-    /// Stop the analysis loop and clean up.
+    /// Stop the analysis loop, await completion, and clean up the analyzer session.
+    /// </summary>
+    public async Task StopAsync()
+    {
+        _cts?.Cancel();
+
+        if (_analysisLoop is not null)
+        {
+            try { await _analysisLoop.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (TimeoutException) { LogAnalyzer("Analysis loop did not stop within 5s timeout"); }
+            catch (OperationCanceledException) { /* expected */ }
+            catch (Exception ex) { LogAnalyzer($"Error awaiting analysis loop: {ex.Message}"); }
+            _analysisLoop = null;
+        }
+
+        _cts?.Dispose();
+        _cts = null;
+        _analyzerSessionName = null;
+    }
+
+    /// <summary>
+    /// Synchronous stop for IDisposable — prefer StopAsync/DisposeAsync.
     /// </summary>
     public void Stop()
     {
         _cts?.Cancel();
         _cts?.Dispose();
         _cts = null;
+        _analysisLoop = null;
+        _analyzerSessionName = null;
     }
 
     /// <summary>
@@ -87,25 +124,31 @@ public class SessionAnalyzerService : IDisposable
         if (string.IsNullOrEmpty(_analyzerSessionName)) return null;
 
         var diagnostics = CollectDiagnostics();
-        if (string.IsNullOrEmpty(diagnostics)) return null;
-
         var prompt = BuildAnalysisPrompt(diagnostics);
 
         try
         {
+            // Use a linked token with a 10-minute timeout so autopilot can't block forever
+            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeoutCts.CancelAfter(TimeSpan.FromMinutes(10));
+
             var response = await _copilotService.SendPromptAsync(
                 _analyzerSessionName,
                 prompt,
-                cancellationToken: cancellationToken,
+                cancellationToken: timeoutCts.Token,
                 agentMode: "autopilot");
 
-            LastAnalysisAt = DateTime.UtcNow;
-            AnalysisCount++;
+            Interlocked.Exchange(ref _lastAnalysisAtTicks, DateTime.UtcNow.Ticks);
+            Interlocked.Increment(ref _analysisCount);
 
             if (!string.IsNullOrWhiteSpace(response))
                 LastFinding = response.Length > 200 ? response[..200] + "..." : response;
 
             return response;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw; // caller-initiated cancellation — propagate
         }
         catch (Exception ex)
         {
@@ -176,7 +219,7 @@ public class SessionAnalyzerService : IDisposable
             }
         }
 
-        // 3. Active session states
+        // 3. Active session states (snapshot to avoid torn reads)
         sb.AppendLine("## Active Session States");
         sb.AppendLine("```json");
         sb.AppendLine(CollectSessionStates());
@@ -197,15 +240,16 @@ public class SessionAnalyzerService : IDisposable
 
     /// <summary>
     /// Collect summary state for all active sessions.
+    /// Snapshots the enumeration with ToList() to avoid torn reads.
     /// </summary>
     private string CollectSessionStates()
     {
-        var sessions = _copilotService.GetAllSessions();
+        var sessions = _copilotService.GetAllSessions().ToList();
         var summaries = new List<object>();
 
         foreach (var session in sessions)
         {
-            if (session.Name == AnalyzerSessionName) continue; // skip self
+            if (session.Name == AnalyzerSessionName) continue;
 
             summaries.Add(new
             {
@@ -225,6 +269,8 @@ public class SessionAnalyzerService : IDisposable
 
     /// <summary>
     /// Build the analysis prompt with collected diagnostics.
+    /// The analyzer is instructed to REPORT issues only — never to autonomously create PRs.
+    /// This prevents prompt injection from untrusted log content directing autonomous actions.
     /// </summary>
     internal static string BuildAnalysisPrompt(string diagnostics)
     {
@@ -242,10 +288,11 @@ public class SessionAnalyzerService : IDisposable
             6. **Phantom sessions** — (previous) or (resumed) sessions that shouldn't exist
             7. **Resource leaks** — growing file descriptor counts, memory issues
 
-            ## What to do when you find issues:
-            - If the issue is a PolyPilot code bug, create a branch, write the fix, run tests, and open a PR
-            - If the issue is a stuck session that needs user intervention, report it clearly
-            - If the issue is transient (network blip, CLI restart), note it but don't act
+            ## How to report:
+            - Classify each finding as critical/warning/info
+            - Describe the issue, the evidence from the logs, and a recommended fix
+            - For code bugs, describe the root cause and which file/method to fix
+            - Do NOT autonomously create branches or PRs — report only so a human can review
 
             ## Current Diagnostic Data:
 
@@ -256,20 +303,31 @@ public class SessionAnalyzerService : IDisposable
             """;
     }
 
-    private static string[] TailFile(string path, int lineCount)
+    /// <summary>
+    /// Read the last N lines of a file efficiently using reverse seek.
+    /// Caps file read to MaxLogFileSizeBytes to avoid unbounded memory usage.
+    /// </summary>
+    internal static string[] TailFile(string path, int lineCount)
     {
         try
         {
             using var fs = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            // Cap how much we read from the end to avoid loading huge files
+            var readLength = Math.Min(fs.Length, MaxLogFileSizeBytes);
+            if (readLength < fs.Length)
+                fs.Seek(fs.Length - readLength, SeekOrigin.Begin);
+
             using var reader = new StreamReader(fs);
-            var allLines = new List<string>();
+            var buffer = new Queue<string>();
             string? line;
             while ((line = reader.ReadLine()) != null)
-                allLines.Add(line);
+            {
+                buffer.Enqueue(line);
+                if (buffer.Count > lineCount)
+                    buffer.Dequeue();
+            }
 
-            return allLines.Count <= lineCount
-                ? allLines.ToArray()
-                : allLines.Skip(allLines.Count - lineCount).ToArray();
+            return buffer.ToArray();
         }
         catch
         {
@@ -285,6 +343,13 @@ public class SessionAnalyzerService : IDisposable
             File.AppendAllText(logPath, $"{DateTime.UtcNow:yyyy-MM-dd HH:mm:ss.fff} [ANALYZER] {message}{Environment.NewLine}");
         }
         catch { /* best effort */ }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        await StopAsync();
     }
 
     public void Dispose()
