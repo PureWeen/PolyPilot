@@ -342,6 +342,14 @@ These issues are now **all closed** — documented here for historical context:
 | [gh-aw#23769](https://github.com/github/gh-aw/issues/23769) | ✅ Closed | Platform now auto-restores `.github/` and `.agents/` from base branch after checkout; `.mcp.json` deleted to prevent injection |
 | [gh-aw#25439](https://github.com/github/gh-aw/issues/25439) | ✅ Closed | `submit-pull-request-review` safe output previously allowed agents to accidentally approve PRs, bypassing branch protection. Resolution: use `allowed-events: [COMMENT, REQUEST_CHANGES]` to block approvals at infrastructure level |
 
+### Known Limitation: Stale Blocking Reviews
+
+`submit-pull-request-review` with `REQUEST_CHANGES` creates a blocking review that persists even after all findings are fixed and a re-review runs. gh-aw has no `dismiss-pull-request-review` safe output and forbids `pull-requests: write`, so stale bot reviews cannot be auto-dismissed. The `add-comment` output has `hide-older-comments: true` for this lifecycle, but reviews have no equivalent.
+
+**Our workaround:** Use `allowed-events: [COMMENT]` only — reviews communicate severity via 🔴/🟡/🟢 in the body but never block merging. This loses the GitHub-native "Changes requested" badge and merge-blocking semantics.
+
+**Upstream request:** A `supersede-older-reviews: true` option on `submit-pull-request-review` would solve this — auto-dismiss previous bot reviews from the same workflow when posting a new one, analogous to `hide-older-comments: true`. See gh-aw#25869 for another team that independently adopted the same COMMENT-only workaround.
+
 ## Troubleshooting
 
 | Symptom | Cause | Fix |
@@ -355,6 +363,7 @@ These issues are now **all closed** — documented here for historical context:
 | `/slash-command` doesn't trigger | Workflow not on default branch | Merge to `main` first |
 | Agent sees stale issue/PR content | Integrity filtering removed it | Check `min-integrity` level; content from `FIRST_TIMER` is filtered at `approved` |
 | Protected file error on PR creation | Agent modified `.github/` or package manifests | Set `protected-files: fallback-to-issue` or `allowed` if intentional |
+| Stale `CHANGES_REQUESTED` review blocks PR | Bot review from earlier run persists after fixes | Use `allowed-events: [COMMENT]` to avoid blocking reviews; manually dismiss stale reviews via API |
 
 ## Safe Outputs Quick Reference
 
