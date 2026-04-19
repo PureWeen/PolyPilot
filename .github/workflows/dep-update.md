@@ -1,7 +1,7 @@
 ---
 on:
   workflow_dispatch:
-  schedule: weekly on monday
+  schedule: daily
 
 permissions:
   contents: read
@@ -20,6 +20,7 @@ tools:
 
 safe-outputs:
   create-pull-request:
+    auto-merge: true
 
 ---
 
