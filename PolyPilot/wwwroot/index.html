@@ -42,6 +42,19 @@
                 }
             }, true);
         });
+
+        // On iOS WebKit, Blazor's @onclick:stopPropagation is unreliable for
+        // touch-originated events. When the user taps the ⋯ button, menu items,
+        // or menu overlay, the parent session-item's onclick also fires, selecting
+        // the session and opening the keyboard. This capture-phase handler sets a
+        // flag that the session-item click handler checks to bail out.
+        ['click', 'pointerdown', 'pointerup'].forEach(function(evtName) {
+            document.addEventListener(evtName, function(e) {
+                if (e.target.closest('.more-btn') || e.target.closest('.menu-overlay') || e.target.closest('.session-menu')) {
+                    window.__menuInteraction = Date.now();
+                }
+            }, true);
+        });
     </script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
     <script src="chobitsu.js"></script>

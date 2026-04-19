@@ -444,18 +444,21 @@
 
     private async Task HandleItemClick(MouseEventArgs e)
     {
-        if (IsDisabled || IsMenuOpen || _menuJustToggled) return;
+        if (IsDisabled || IsMenuOpen) return;
+        // On iOS WebKit, Blazor's stopPropagation is unreliable for touch events.
+        // A capture-phase JS handler sets __menuInteraction when ⋯/menu is touched.
+        try
+        {
+            var ts = await JS.InvokeAsync<double>("eval", "window.__menuInteraction || 0");
+            if (ts > 0 && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - ts) < 500) return;
+        }
+        catch { }
         await OnSelect.InvokeAsync();
     }
 
-    private bool _menuJustToggled;
-
     private async Task HandleMoreButtonClick()
     {
-        _menuJustToggled = true;
         await OnToggleMenu.InvokeAsync();
-        // Reset after a tick so subsequent session-item clicks work normally
-        _ = Task.Delay(100).ContinueWith(_ => _menuJustToggled = false);
     }
 
     protected override async Task OnAfterRenderAsync(bool firstRender)
