@@ -181,6 +181,9 @@
     flex-direction: column;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
+    touch-action: pan-y;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .menu-item {
@@ -193,6 +196,8 @@
     cursor: pointer;
     white-space: nowrap;
     box-sizing: border-box;
+    -webkit-user-select: none !important;
+    user-select: none !important;
 }
 .menu-item:hover { background: var(--control-border); color: #fff; }
 

@@ -1495,6 +1495,10 @@
             if (left + mw > containerW) left = containerW - mw - 4;
             menu.style.top = top + 'px';
             menu.style.left = left + 'px';
+            // Dismiss the keyboard on iOS — the ⋯ button focus can trigger the soft keyboard
+            if (document.activeElement && document.activeElement !== document.body) {
+                document.activeElement.blur();
+            }
             // Close menu if sidebar scrolls (fixed-position menu would drift)
             var scrollParent = buttonEl.closest('.session-list');
             if (scrollParent && !scrollParent.__menuScrollHandler) {

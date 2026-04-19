@@ -207,9 +207,14 @@
         return Task.CompletedTask;
     }
 
-    private void ToggleFlyout()
+    private async void ToggleFlyout()
     {
         flyoutOpen = !flyoutOpen;
+        if (flyoutOpen)
+        {
+            // Dismiss the keyboard on mobile — the chat input retains focus behind the flyout
+            try { await JS.InvokeVoidAsync("eval", "document.activeElement?.blur()"); } catch { }
+        }
     }
 
     private void CloseFlyout()
