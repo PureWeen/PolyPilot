@@ -2636,6 +2636,7 @@
 }
 
 .sidebar-header:has(.header-overflow:hover),
+.sidebar-header:has(.header-overflow.open),
 .sidebar-header:has(.header-overflow:focus-within) {
     z-index: 50;
 }

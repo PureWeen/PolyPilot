@@ -315,13 +315,34 @@ public class ScheduledTask
         {
             return Schedule switch
             {
-                ScheduleType.Interval => $"Every {IntervalMinutes} minute{(IntervalMinutes != 1 ? "s" : "")}",
+                ScheduleType.Interval => FormatInterval(),
                 ScheduleType.Daily => $"Daily at {TimeOfDay}",
                 ScheduleType.Weekly => $"Weekly ({FormatDays()}) at {TimeOfDay}",
                 ScheduleType.Cron => $"Cron: {CronExpression ?? "(not set)"}",
                 _ => "Unknown"
             };
         }
+    }
+
+    private string FormatInterval()
+    {
+        if (IntervalMinutes <= 0) return "Every 0 minutes";
+        if (IntervalMinutes % (7 * 24 * 60) == 0)
+        {
+            var weeks = IntervalMinutes / (7 * 24 * 60);
+            return weeks == 1 ? "Every week" : $"Every {weeks} weeks";
+        }
+        if (IntervalMinutes % (24 * 60) == 0)
+        {
+            var days = IntervalMinutes / (24 * 60);
+            return days == 1 ? "Every day" : $"Every {days} days";
+        }
+        if (IntervalMinutes % 60 == 0)
+        {
+            var hours = IntervalMinutes / 60;
+            return hours == 1 ? "Every hour" : $"Every {hours} hours";
+        }
+        return $"Every {IntervalMinutes} minute{(IntervalMinutes != 1 ? "s" : "")}";
     }
 
     private string FormatDays()

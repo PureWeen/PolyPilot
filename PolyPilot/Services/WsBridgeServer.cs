@@ -309,19 +309,24 @@ public class WsBridgeServer : IDisposable
     /// Called by CopilotService after IsRestoring transitions to false.
     /// Serialized via _drainLock to prevent concurrent drains from reordering prompts.
     /// </summary>
-    public async Task DrainPendingPromptsAsync()
+    public async Task DrainPendingPromptsAsync(CancellationToken ct = default)
     {
-        await _drainLock.WaitAsync();
+        await _drainLock.WaitAsync(ct);
         try
         {
             while (_pendingBridgePrompts.TryDequeue(out var pending))
             {
+                ct.ThrowIfCancellationRequested();
                 BridgeLog($"[BRIDGE] Replaying queued prompt for '{pending.SessionName}'");
                 try
                 {
-                    await DispatchBridgePromptAsync(pending.SessionName, pending.Message, pending.AgentMode);
-                    await WaitForBridgeSendToStartAsync(pending.SessionName);
+                    await DispatchBridgePromptAsync(pending.SessionName, pending.Message, pending.AgentMode, ct: ct);
+                    if (!await WaitForBridgeSendToStartAsync(pending.SessionName, ct))
+                    {
+                        BridgeLog($"[BRIDGE] Send confirmation timed out for '{pending.SessionName}' — continuing drain");
+                    }
                 }
+                catch (OperationCanceledException) { throw; }
                 catch (Exception ex)
                 {
                     BridgeLog($"[BRIDGE] Failed to replay prompt for '{pending.SessionName}': {ex.Message}");

@@ -206,6 +206,27 @@ public class ScheduledTaskTests
     }
 
     [Fact]
+    public void ScheduleDescription_Interval_Hours()
+    {
+        var task = new ScheduledTask { Schedule = ScheduleType.Interval, IntervalMinutes = 120 };
+        Assert.Equal("Every 2 hours", task.ScheduleDescription);
+    }
+
+    [Fact]
+    public void ScheduleDescription_Interval_Days()
+    {
+        var task = new ScheduledTask { Schedule = ScheduleType.Interval, IntervalMinutes = 2 * 24 * 60 };
+        Assert.Equal("Every 2 days", task.ScheduleDescription);
+    }
+
+    [Fact]
+    public void ScheduleDescription_Interval_Weeks()
+    {
+        var task = new ScheduledTask { Schedule = ScheduleType.Interval, IntervalMinutes = 7 * 24 * 60 };
+        Assert.Equal("Every week", task.ScheduleDescription);
+    }
+
+    [Fact]
     public void ScheduleDescription_Daily()
     {
         var task = new ScheduledTask { Schedule = ScheduleType.Daily, TimeOfDay = "14:00" };
@@ -837,7 +858,8 @@ public class ScheduledTaskTests
         finally
         {
             try { File.Delete(tempFile); } catch { }
-            ScheduledTaskService.SetTasksFilePathForTesting(previousPath!);
+            if (previousPath != null)
+                ScheduledTaskService.SetTasksFilePathForTesting(previousPath);
         }
     }
 
