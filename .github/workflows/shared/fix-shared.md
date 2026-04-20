@@ -131,7 +131,7 @@ git diff origin/main...HEAD
 
 ### 4a. Summary Comment
 
-Post an `add_comment` with the full iteration history:
+Post an `add_comment` with the **complete** iteration history. Every review round's full output must be included — this is the permanent record of what was found, what was fixed, and what remains.
 
 ```markdown
 ## 🔄 Review & Fix Report
@@ -140,15 +140,42 @@ Post an `add_comment` with the full iteration history:
 **Status:** ✅ Clean / ⚠️ Remaining findings
 
 ### Round 1 — Initial Review
-| # | Severity | Finding | Status |
-|---|----------|---------|--------|
-| 1 | 🔴 | <description> | ✅ Fixed in round 1 |
-| 2 | 🟡 | <description> | ✅ Fixed in round 1 |
+
+**Findings (ranked by severity):**
+
+| # | Severity | Consensus | File | Line | Finding |
+|---|----------|-----------|------|------|---------|
+| 1 | 🔴 CRITICAL | 3/3 | `path/file.cs` | 42 | <description> |
+| 2 | 🟡 MODERATE | 2/3 | `path/file.cs` | 88 | <description> |
+| 3 | 🟢 MINOR | 3/3 | `path/other.cs` | 15 | <description> |
+
+**Discarded findings (1/3 only):**
+- <description> — discarded per adversarial consensus
+
+**Actions taken:**
+| # | Finding | Action |
+|---|---------|--------|
+| 1 | <description> | ✅ Fixed in commit `abc1234` |
+| 2 | <description> | ✅ Fixed in commit `def5678` |
+| 3 | <description> | ➖ Skipped (MINOR, low risk) |
+
+---
 
 ### Round 2 — Re-Review After Fixes
-| # | Severity | Finding | Status |
-|---|----------|---------|--------|
-| (new findings or "No new findings") |
+
+**Findings:**
+
+| # | Severity | Consensus | File | Line | Finding |
+|---|----------|-----------|------|------|---------|
+| (new findings from re-review, or "✅ No new findings — all clear") |
+
+**Previous findings status:**
+| # | Original Finding | Status |
+|---|-----------------|--------|
+| 1 | <description> | ✅ FIXED |
+| 2 | <description> | ✅ FIXED |
+
+---
 
 ### Commits
 - `abc1234` fix: <description>
