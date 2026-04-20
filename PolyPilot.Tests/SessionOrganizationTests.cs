@@ -4912,3 +4912,82 @@ public class UrgencySortTests
 
     #endregion
 }
+
+/// <summary>
+/// Concurrent stress tests validating that GetOrCreateRepoGroup and GetOrCreateLocalFolderGroup
+/// produce exactly one group under concurrent access (race condition fix from PR #638).
+/// </summary>
+public class GroupCreationConcurrencyTests
+{
+    private readonly StubChatDatabase _chatDb = new();
+    private readonly StubServerManager _serverManager = new();
+    private readonly StubWsBridgeClient _bridgeClient = new();
+    private readonly StubDemoService _demoService = new();
+    private readonly RepoManager _repoManager = new();
+    private readonly IServiceProvider _serviceProvider;
+
+    public GroupCreationConcurrencyTests()
+    {
+        var services = new ServiceCollection();
+        _serviceProvider = services.BuildServiceProvider();
+    }
+
+    private CopilotService CreateService() =>
+        new CopilotService(_chatDb, _serverManager, _bridgeClient, _repoManager, _serviceProvider, _demoService);
+
+    [Fact]
+    public async Task GetOrCreateRepoGroup_ConcurrentCalls_CreatesExactlyOneGroup()
+    {
+        var svc = CreateService();
+        var tasks = Enumerable.Range(0, 20).Select(_ =>
+            Task.Run(() => svc.GetOrCreateRepoGroup("repo-1", "MyRepo")));
+        var results = await Task.WhenAll(tasks);
+
+        Assert.Single(svc.Organization.Groups.Where(g => g.RepoId == "repo-1" && !g.IsMultiAgent));
+        Assert.All(results, g => Assert.Equal(results[0]!.Id, g!.Id));
+    }
+
+    [Fact]
+    public async Task GetOrCreateLocalFolderGroup_ConcurrentCalls_CreatesExactlyOneGroup()
+    {
+        var svc = CreateService();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var tasks = Enumerable.Range(0, 20).Select(_ =>
+                Task.Run(() => svc.GetOrCreateLocalFolderGroup(tempDir, "repo-2")));
+            var results = await Task.WhenAll(tasks);
+
+            Assert.Single(svc.Organization.Groups.Where(g => g.IsLocalFolder && g.RepoId == "repo-2"));
+            Assert.All(results, g => Assert.Equal(results[0].Id, g.Id));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task PromoteOrCreateLocalFolderGroup_ConcurrentCalls_CreatesExactlyOneGroup()
+    {
+        var svc = CreateService();
+        var tempDir = Path.Combine(Path.GetTempPath(), $"polypilot-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(tempDir);
+        try
+        {
+            var tasks = Enumerable.Range(0, 20).Select(_ =>
+                Task.Run(() => svc.PromoteOrCreateLocalFolderGroup(tempDir, "repo-3")));
+            var results = await Task.WhenAll(tasks);
+
+            var localGroups = svc.Organization.Groups.Where(g =>
+                g.IsLocalFolder && g.RepoId == "repo-3").ToList();
+            Assert.Single(localGroups);
+            Assert.All(results, g => Assert.Equal(results[0].Id, g.Id));
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, recursive: true); } catch { }
+        }
+    }
+}
