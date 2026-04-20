@@ -21,10 +21,10 @@ jobs:
 
       - name: Select Xcode
         run: |
-          if [ -d "/Applications/Xcode_26.2.app" ]; then
-            XCODE_PATH="/Applications/Xcode_26.2.app"
-          elif [ -d "/Applications/Xcode_26.2.0.app" ]; then
-            XCODE_PATH="/Applications/Xcode_26.2.0.app"
+          if [ -d "/Applications/Xcode_26.3.app" ]; then
+            XCODE_PATH="/Applications/Xcode_26.3.app"
+          elif [ -d "/Applications/Xcode_26.3.0.app" ]; then
+            XCODE_PATH="/Applications/Xcode_26.3.0.app"
           else
             XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -rV | head -1)
           fi
