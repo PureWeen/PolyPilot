@@ -362,7 +362,7 @@ When a user changes the model via the UI dropdown:
 - Use `Convert.ToInt32(value)` for conversion, not `value as int?`
 - `AssistantUsageData` also includes: `Model`, `Cost` (billing multiplier), `Duration` (ms), `TtftMs` (time to first token), `InterTokenLatencyMs`, `ReasoningEffort`, `Initiator` (e.g., "sub-agent", "mcp-sampling"), `CopilotUsage`, `ApiCallId`, `ProviderCallId`, `ParentToolCallId`
 - `QuotaSnapshots` is `Dictionary<string, object>` with `JsonElement` values — the typed fields (`EntitlementRequests`, `UsedRequests`, `RemainingPercentage`, `Overage`, `OverageAllowedWithExhaustedQuota`, `ResetDate`) are defined on `Rpc.AccountGetQuotaResultQuotaSnapshotsValue`
-- `SessionIdleData` includes `BackgroundTasks` (agents + shells) and `Aborted` (bool?, true when turn was cancelled via abort)
+- `SessionIdleData` includes `Aborted` (bool?, true when turn was cancelled via abort). **Note (v0.2.2):** `BackgroundTasks` was removed from `SessionIdleData` — background task tracking is now exclusively via `SessionBackgroundTasksChangedEvent`. The idle handler reads tracked state from `DeferredBackgroundTaskFingerprint`/`DeferredBackgroundTasksFirstSeenAtTicks` (set by the background tasks changed handler).
 - `MessageOptions` has 3 properties: `Prompt`, `Attachments`, `Mode` — no `Model` or `ReasoningEffort` (those are session-level via `SwitchToAsync`)
 
 ### Blazor Input Performance
