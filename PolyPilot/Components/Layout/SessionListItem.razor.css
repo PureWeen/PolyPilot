@@ -181,7 +181,6 @@
     flex-direction: column;
     -webkit-overflow-scrolling: touch;
     overscroll-behavior: contain;
-    touch-action: none;
     -webkit-user-select: none;
     user-select: none;
 }
