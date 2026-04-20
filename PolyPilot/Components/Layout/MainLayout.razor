@@ -21,7 +21,7 @@
         </article>
     </main>
 
-    <div class="flyout-backdrop mobile-only @(flyoutOpen ? "open" : "")" @onclick="CloseFlyout"></div>
+    <div class="flyout-backdrop mobile-only @(flyoutOpen ? "open" : "")" @onclick="HandleBackdropClick"></div>
     <div class="flyout-panel mobile-only @(flyoutOpen ? "open" : "")">
         <SessionSidebar IsFlyoutPanel="true" OnToggleFlyout="CloseFlyout" OnSessionSelected="CloseFlyout" OnToggleStatistics="ToggleStatistics" />
     </div>
@@ -210,11 +210,26 @@
     private void ToggleFlyout()
     {
         flyoutOpen = !flyoutOpen;
+        if (flyoutOpen)
+        {
+            // Dismiss the keyboard on mobile — the chat input retains focus behind the flyout
+            _ = JS.InvokeVoidAsync("eval", "document.activeElement?.blur()")
+                .AsTask().ContinueWith(t => Console.WriteLine($"[MainLayout] blur failed: {t.Exception?.InnerException?.Message}"),
+                    TaskContinuationOptions.OnlyOnFaulted);
+        }
     }
 
     private void CloseFlyout()
     {
         flyoutOpen = false;
+    }
+
+    private void HandleBackdropClick()
+    {
+        // Ghost clicks from iOS are blocked by the capture-phase JS handler
+        // in index.html (stopImmediatePropagation on flyout-backdrop within 1s
+        // of __menuInteraction). If we get here, it's a real user tap.
+        CloseFlyout();
     }
 
     private void ToggleStatistics()

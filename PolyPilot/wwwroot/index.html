@@ -42,6 +42,25 @@
                 }
             }, true);
         });
+
+        // On iOS WebKit, tapping ⋯ causes a ghost touch on the flyout-backdrop
+        // because the menu-overlay hasn't rendered yet. This capture-phase handler:
+        // 1. Records when the ⋯ button or menu content is touched (timestamp)
+        // 2. Blocks flyout-backdrop clicks that occur within 350ms of a menu interaction
+        // Note: .menu-overlay is excluded — it's the dismiss action, not a ghost-click source.
+        ['click', 'pointerdown', 'pointerup'].forEach(function(evtName) {
+            document.addEventListener(evtName, function(e) {
+                if (e.target.closest('.more-btn') || e.target.closest('.session-menu')) {
+                    window.__menuInteraction = Date.now();
+                }
+                // Block flyout-backdrop events during menu interaction
+                if (e.target.closest('.flyout-backdrop') && window.__menuInteraction && (Date.now() - window.__menuInteraction) < 350) {
+                    e.stopImmediatePropagation();
+                    e.preventDefault();
+                    if (evtName === 'click') window.__menuInteraction = 0; // reset after consumed
+                }
+            }, true);
+        });
     </script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
     <script src="chobitsu.js"></script>
@@ -680,6 +699,8 @@
 
         // Capture-phase click handler: instantly switch CSS before Blazor processes the event
         document.addEventListener('click', function(e) {
+            // Don't switch sessions when interacting with the context menu
+            if (e.target.closest('.more-btn') || e.target.closest('.session-menu') || e.target.closest('.menu-overlay')) return;
             var item = e.target.closest('.session-item[data-session-name]');
             if (!item || item.closest('.persisted')) return;
             var name = item.getAttribute('data-session-name');
@@ -1468,28 +1489,69 @@
             if (!menu) menu = buttonEl.parentElement?.querySelector('.session-menu');
             if (!menu) return;
             var r = buttonEl.getBoundingClientRect();
-            // Cap menu height to viewport with scrolling
-            var maxH = window.innerHeight - 8;
+            // When inside a flyout panel with transform, fixed positioning is relative to the flyout,
+            // not the viewport. Detect and adjust coordinates accordingly.
+            var flyout = menu.closest('.flyout-panel');
+            var containerW = window.innerWidth, containerH = window.innerHeight;
+            if (flyout && getComputedStyle(flyout).transform !== 'none') {
+                var fr = flyout.getBoundingClientRect();
+                containerW = fr.width;
+                containerH = fr.height;
+                r = { top: r.top - fr.top, bottom: r.bottom - fr.top, left: r.left - fr.left, right: r.right - fr.left };
+            }
+            // Account for safe area insets (Android nav bar, iOS home indicator/notch)
+            var bottomInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-bar-height') || '0') || 0;
+            var topInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--status-bar-height') || '0') || 0;
+            if (!bottomInset || !topInset) {
+                var probe = document.createElement('div');
+                probe.style.cssText = 'position:fixed;visibility:hidden;';
+                document.body.appendChild(probe);
+                if (!bottomInset) { probe.style.height = 'env(safe-area-inset-bottom,0px)'; bottomInset = probe.offsetHeight || 0; }
+                if (!topInset) { probe.style.height = 'env(safe-area-inset-top,0px)'; topInset = probe.offsetHeight || 0; }
+                document.body.removeChild(probe);
+            }
+            var usableTop = topInset + 4;
+            var usableBottom = containerH - bottomInset - 4;
+            var maxH = usableBottom - usableTop;
             menu.style.maxHeight = maxH + 'px';
             menu.style.overflowY = 'auto';
             var mw = menu.offsetWidth, mh = Math.min(menu.scrollHeight, maxH);
-            var top = r.bottom + mh > window.innerHeight ? r.top - mh : r.bottom;
-            top = Math.max(4, Math.min(top, window.innerHeight - mh - 4));
-            // Try right-aligning to button; if that goes off-screen left, left-align instead
+            var top = r.bottom + mh > usableBottom ? r.top - mh : r.bottom;
+            top = Math.max(usableTop, Math.min(top, usableBottom - mh));
             var left = r.right - mw;
             if (left < 4) left = Math.max(4, r.left);
-            if (left + mw > window.innerWidth) left = window.innerWidth - mw - 4;
+            if (left + mw > containerW) left = containerW - mw - 4;
             menu.style.top = top + 'px';
             menu.style.left = left + 'px';
-            // Close menu if sidebar scrolls (fixed-position menu would drift)
-            var scrollParent = buttonEl.closest('.session-list');
-            if (scrollParent && !scrollParent.__menuScrollHandler) {
-                scrollParent.__menuScrollHandler = function() {
-                    var overlay = document.querySelector('.menu-overlay');
-                    if (overlay) overlay.click();
-                };
-                scrollParent.addEventListener('scroll', scrollParent.__menuScrollHandler, { passive: true });
+            // Dismiss the keyboard on iOS
+            if (document.activeElement && document.activeElement !== document.body) {
+                document.activeElement.blur();
             }
+            // Freeze the flyout AND session-list scroll while the menu is open so
+            // touch-scrolling inside the menu works on iOS.
+            var scrollParent = buttonEl.closest('.session-list');
+            if (flyout) flyout.style.overflow = 'hidden';
+            if (scrollParent) scrollParent.style.overflow = 'hidden';
+            // Restore scroll when menu closes (Blazor removes it from DOM)
+            var parent = menu.parentElement || document.body;
+            var cleanup = function() {
+                if (flyout) flyout.style.overflow = '';
+                if (scrollParent) scrollParent.style.overflow = '';
+            };
+            var observer = new MutationObserver(function(mutations) {
+                if (!parent.contains(menu)) {
+                    cleanup();
+                    observer.disconnect();
+                    clearTimeout(cleanupTimeout);
+                }
+            });
+            observer.observe(parent, { childList: true });
+            // Fallback: if Blazor removes the parent itself (e.g. navigation),
+            // the observer never fires. Clean up after 10s to prevent stuck overflow.
+            var cleanupTimeout = setTimeout(function() {
+                cleanup();
+                observer.disconnect();
+            }, 10000);
         };
     </script>
 

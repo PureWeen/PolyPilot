@@ -179,6 +179,10 @@
     box-shadow: 0 4px 16px rgba(0,0,0,0.4);
     display: flex;
     flex-direction: column;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    -webkit-user-select: none;
+    user-select: none;
 }
 
 .menu-item {
@@ -191,6 +195,8 @@
     cursor: pointer;
     white-space: nowrap;
     box-sizing: border-box;
+    -webkit-user-select: none !important;
+    user-select: none !important;
 }
 .menu-item:hover { background: var(--control-border); color: #fff; }
 
