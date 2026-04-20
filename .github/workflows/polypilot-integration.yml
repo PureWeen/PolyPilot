@@ -438,6 +438,43 @@ jobs:
           echo "=== Step 6: Check if session was created ==="
           cdp_eval "JSON.stringify({sessionItems: document.querySelectorAll('.session-item, .session-list-item, .sidebar-session')?.length || 0, cards: document.querySelectorAll('.session-card, .card')?.length || 0, pageText: document.body?.innerText?.substring(0,300)})"
           
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-create.png
+          echo "Screenshot: $(wc -c < /tmp/polypilot-after-create.png) bytes"
+          
+          echo ""
+          echo "=== Step 7: Click on the session to expand it ==="
+          # Click the first session item in the sidebar to open it
+          cdp_eval "const item = document.querySelector('.session-item, .session-list-item, .sidebar-session, [data-session]'); if (item) { item.click(); 'clicked session: ' + (item.dataset?.session || item.textContent?.trim()?.substring(0,30)); } else { 'no session item found'; }"
+          sleep 3
+          
+          echo ""
+          echo "=== Step 8: Find and fill the chat input ==="
+          # The session card should now have an input
+          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({inputs: [...document.querySelectorAll(\"input:not([type=hidden]), textarea\")].filter(i => i.offsetParent !== null).map(i => ({tag: i.tagName, id: i.id, class: i.className, placeholder: i.placeholder?.substring(0,50), parent: i.parentElement?.className?.substring(0,30)}))})"}}' | python3 -c "import sys,json; r=json.load(sys.stdin); v=r.get('result',{}).get('result',{}).get('value',''); print(json.dumps(json.loads(v), indent=2) if v.startswith('{') else v)" 2>/dev/null || echo "parse failed"
+          
+          # Fill the card input or textarea
+          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"const sel = \".card-input input, .card-input textarea, .input-row textarea, .expanded-card .input-area textarea, textarea\"; const input = [...document.querySelectorAll(sel)].find(i => i.offsetParent !== null); if (input) { input.value = \"Hello from CI! Testing PolyPilot integration.\"; input.dispatchEvent(new Event(\"input\", {bubbles:true})); input.dispatchEvent(new Event(\"change\", {bubbles:true})); \"filled: \" + input.tagName + \" \" + input.id + \" \" + input.className; } else { \"no visible input\"; }"}}' 2>/dev/null
+          
+          sleep 1
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-fill.png
+          echo "After fill: $(wc -c < /tmp/polypilot-after-fill.png) bytes"
+          
+          echo ""
+          echo "=== Step 9: Send the message ==="
+          # Simulate Enter key to send, or click the send button
+          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"const sel = \".card-input input, .card-input textarea, .input-row textarea, .expanded-card .input-area textarea, textarea\"; const input = [...document.querySelectorAll(sel)].find(i => i.offsetParent !== null); if (input) { const container = input.closest(\".card-input\") || input.closest(\".input-row\"); const sendBtn = container?.querySelector(\".send-btn:not(.stop-btn)\") || container?.querySelectorAll(\"button\")?.[container?.querySelectorAll(\"button\")?.length - 1]; if (sendBtn) { sendBtn.click(); \"clicked send: \" + sendBtn.className; } else { input.dispatchEvent(new KeyboardEvent(\"keydown\", {key: \"Enter\", bubbles: true})); \"dispatched Enter\"; } } else { \"no input to send from\"; }"}}' 2>/dev/null
+          
+          echo ""
+          echo "=== Step 10: Wait for Copilot response ==="
+          sleep 20
+          
+          # Check for messages
+          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({processingIndicators: document.querySelectorAll(\".thinking, .processing, .spinner, .loading\")?.length || 0, messages: [...document.querySelectorAll(\".message-content, .chat-bubble, .response-text, .markdown-body\")].map(m => m.textContent?.substring(0,100)).filter(Boolean), bodySnippet: document.body?.innerText?.substring(0,500)})"}}' | python3 -c "import sys,json; r=json.load(sys.stdin); v=r.get('result',{}).get('result',{}).get('value',''); print(json.dumps(json.loads(v), indent=2) if v.startswith('{') else v)" 2>/dev/null || echo "parse failed"
+          
           curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-session.png
           echo "✅ Final screenshot: $(wc -c < /tmp/polypilot-after-session.png) bytes"
 
@@ -449,6 +486,9 @@ jobs:
           path: |
             /tmp/polypilot-ci-screenshot.png
             /tmp/polypilot-after-new-session.png
+            /tmp/polypilot-after-create-form.png
+            /tmp/polypilot-after-create.png
+            /tmp/polypilot-after-fill.png
             /tmp/polypilot-after-session.png
             /tmp/polypilot-stdout.log
             /tmp/polypilot-stderr.log
