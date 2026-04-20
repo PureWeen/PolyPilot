@@ -7,9 +7,10 @@
     Reads a .sync.yaml manifest and checks:
     1. Target file(s) exist on disk
     2. Reference URLs are reachable (HTTP 200)
-    3. Tracked issues have not changed status
-    4. Releases feed has new entries since last_reviewed
+    3. Tracked issues have not changed status vs. manifest expected state
     Reports FRESH, STALE, or ERROR with actionable details.
+    Note: releases_source is declared in the manifest schema but not yet
+    checked by this script — planned for a future enhancement.
 
 .PARAMETER SyncManifest
     Path to the .sync.yaml file to check.
@@ -167,10 +168,15 @@ if ($issueMatches.Count -gt 0) {
     }
 }
 # Fallback: issues without status field (legacy format)
-$legacyIssues = [regex]::Matches($raw, 'url:\s*(https://github\.com/[^\s]+)(?!\s*\n\s*status:)')
-if ($legacyIssues.Count -gt 0) {
-    foreach ($lm in $legacyIssues) {
-        $issueResult = Get-TrackedIssueStatus -Url $lm.Groups[1].Value
+# Skip URLs already captured by the primary regex above to avoid truncated matches
+$primaryUrls = @()
+foreach ($pm in $issueMatches) { $primaryUrls += $pm.Groups[1].Value }
+$allIssueUrls = [regex]::Matches($raw, '-\s*url:\s*(https://github\.com/[^\s]+)')
+if ($allIssueUrls.Count -gt 0) {
+    foreach ($au in $allIssueUrls) {
+        $issueUrl = $au.Groups[1].Value
+        if ($primaryUrls -contains $issueUrl) { continue }
+        $issueResult = Get-TrackedIssueStatus -Url $issueUrl
         if ($issueResult.Ok -and $issueResult.State -eq 'CLOSED') {
             Write-Host "  🔒 $($issueResult.Url) — CLOSED (no expected status declared): $($issueResult.Title)" -ForegroundColor Yellow
             $signals += "Tracked issue CLOSED (no expected status in manifest): $($issueResult.Url)"
