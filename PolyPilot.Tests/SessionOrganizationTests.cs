@@ -1276,35 +1276,45 @@ Do something.
     public void ReconcileOrganization_NoPromotion_NestedWorktreeSession_StaysInUrlGroup()
     {
         // Sessions with nested worktrees (under the external path's .polypilot/worktrees)
-        // stay in the URL group — no promotion happens.
+        // stay in the URL group — no promotion happens. The external path must exist on
+        // disk so the Directory.Exists guard doesn't short-circuit the test.
         var repos = new List<RepositoryInfo>
         {
             new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
         };
-        var extPath = Path.Combine(Path.GetTempPath(), "MyRepo");
+        var extPath = Path.Combine(Path.GetTempPath(), $"test-MyRepo-{Guid.NewGuid():N}");
         var nestedPath = Path.Combine(extPath, ".polypilot", "worktrees", "feature-y");
-        var worktrees = new List<WorktreeInfo>
+        Directory.CreateDirectory(extPath);
+        try
         {
-            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = extPath },
-            new() { Id = "nested-1", RepoId = "repo-1", Branch = "feature-y", Path = nestedPath }
-        };
-        var rm = CreateRepoManagerWithState(repos, worktrees);
-        var svc = CreateService(rm);
+            var worktrees = new List<WorktreeInfo>
+            {
+                new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = extPath },
+                new() { Id = "nested-1", RepoId = "repo-1", Branch = "feature-y", Path = nestedPath }
+            };
+            var rm = CreateRepoManagerWithState(repos, worktrees);
+            var svc = CreateService(rm);
 
-        var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
-        svc.Organization.Sessions.Add(new SessionMeta
-        {
-            SessionName = "nested-session",
-            GroupId = urlGroup!.Id,
-            WorktreeId = "nested-1"
-        });
+            var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+            svc.Organization.Sessions.Add(new SessionMeta
+            {
+                SessionName = "nested-session",
+                GroupId = urlGroup!.Id,
+                WorktreeId = "nested-1"
+            });
 
-        typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
-        svc.ReconcileOrganization(allowPruning: false);
+            typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+            svc.ReconcileOrganization(allowPruning: false);
 
-        // The session stays in the URL group — no promotion or migration occurred
-        var meta = svc.Organization.Sessions.First(m => m.SessionName == "nested-session");
-        Assert.Equal(urlGroup.Id, meta.GroupId);
+            // URL group must remain URL-based
+            var originalGroup = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
+            Assert.False(originalGroup.IsLocalFolder);
+
+            // The session stays in the URL group — no promotion or migration occurred
+            var meta = svc.Organization.Sessions.First(m => m.SessionName == "nested-session");
+            Assert.Equal(urlGroup.Id, meta.GroupId);
+        }
+        finally { try { Directory.Delete(extPath, true); } catch { } }
     }
 
     [Fact]
@@ -1374,7 +1384,8 @@ Do something.
         var svc = CreateService(rm);
 
         var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
-        svc.ReconcileOrganization();
+        typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+        svc.ReconcileOrganization(allowPruning: false);
 
         // URL group must remain URL-based
         Assert.False(urlGroup!.IsLocalFolder);

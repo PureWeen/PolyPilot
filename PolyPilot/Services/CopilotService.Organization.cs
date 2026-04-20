@@ -573,11 +573,16 @@ public partial class CopilotService
                             var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
                             if (repo != null)
                             {
-                                // Prefer an existing local folder group for this repo over creating
-                                // a new URL-based repo group. This prevents duplicate sidebar entries
-                                // when the user added the repo via "Existing folder".
+                                // Prefer the local folder group whose LocalPath matches
+                                // the session's worktree path. With multiple local folder
+                                // groups per repo (one per external path), FirstOrDefault
+                                // by RepoId alone would pick the wrong one.
                                 var localFolderGroup = Organization.Groups.FirstOrDefault(g =>
-                                    g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
+                                    g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent &&
+                                    g.LocalPath != null &&
+                                    worktree.Path.StartsWith(g.LocalPath, StringComparison.OrdinalIgnoreCase))
+                                    ?? Organization.Groups.FirstOrDefault(g =>
+                                        g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
                                 if (localFolderGroup != null)
                                 {
                                     meta.GroupId = localFolderGroup.Id;
@@ -607,10 +612,14 @@ public partial class CopilotService
                     var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
                     if (repo != null)
                     {
-                        // Prefer an existing local folder group (same fix as the
-                        // workingDir-based block above) to avoid duplicate sidebar entries.
+                        // Prefer the local folder group whose LocalPath matches
+                        // the session's worktree path (same path-aware logic as above).
                         var localFolderGroup = Organization.Groups.FirstOrDefault(g =>
-                            g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
+                            g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent &&
+                            g.LocalPath != null &&
+                            worktree.Path.StartsWith(g.LocalPath, StringComparison.OrdinalIgnoreCase))
+                            ?? Organization.Groups.FirstOrDefault(g =>
+                                g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
                         if (localFolderGroup != null)
                         {
                             meta.GroupId = localFolderGroup.Id;
@@ -747,14 +756,17 @@ public partial class CopilotService
 
             // Create a dedicated local folder group for this external path.
             // This never touches the existing URL-based group.
-            GetOrCreateLocalFolderGroup(normalizedExtPath, ext.RepoId);
+            // skipNotify: true — batch the save to the end of ReconcileOrganization
+            GetOrCreateLocalFolderGroup(normalizedExtPath, ext.RepoId, skipNotify: true);
             changed = true;
             Debug($"ReconcileOrganization: created local folder group for external worktree '{normalizedExtPath}' (repo={ext.RepoId})");
         }
 
         // Heal sessions stranded in local folder groups: if a session's worktree path
         // is NOT under the group's LocalPath, move it to the URL-based repo group.
-        // This fixes state from before the promotion migration was added.
+        // This handles legacy state from older promotion-based reconciliation, explicit
+        // folder additions where sessions ended up in the wrong local folder group, or
+        // sessions whose worktree was moved after initial assignment.
         foreach (var localGroup in Organization.Groups.Where(g => g.IsLocalFolder && !g.IsMultiAgent && g.RepoId != null).ToList())
         {
             var normalizedLocalPath = Path.GetFullPath(localGroup.LocalPath!)
@@ -1461,6 +1473,15 @@ public partial class CopilotService
     /// full worktree/branch menu can be offered.
     /// </summary>
     public SessionGroup GetOrCreateLocalFolderGroup(string localPath, string? repoId = null)
+        => GetOrCreateLocalFolderGroup(localPath, repoId, skipNotify: false);
+
+    /// <summary>
+    /// Core implementation. When <paramref name="skipNotify"/> is true, the caller is
+    /// responsible for calling <see cref="SaveOrganization"/> and raising
+    /// <see cref="OnStateChanged"/> — used by <see cref="ReconcileOrganization"/> to
+    /// batch saves instead of firing N+1 times in the external worktree loop.
+    /// </summary>
+    internal SessionGroup GetOrCreateLocalFolderGroup(string localPath, string? repoId, bool skipNotify)
     {
         var normalized = Path.GetFullPath(localPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -1501,7 +1522,7 @@ public partial class CopilotService
                 notify = true;
             }
         }
-        if (notify) { SaveOrganization(); OnStateChanged?.Invoke(); }
+        if (notify && !skipNotify) { SaveOrganization(); OnStateChanged?.Invoke(); }
         return result;
     }
 
