@@ -431,8 +431,10 @@ Before adding or modifying watchdog, IsProcessing, or stuck-session detection co
 | Detect when agent turn ends | `AgentStop` hook (JS SDK only) | 🔴 **Not in .NET SDK** | JS SDK can block and force continuation; .NET SDK has `HookStartEvent`/`HookEndEvent` but no stop-gate |
 | Handle errors | `SessionHooks.OnErrorOccurred` | 🔴 **Not adopted** | Has retry count and user notification fields |
 | Session lifecycle | `SessionHooks.OnSessionStart` / `OnSessionEnd` | 🔴 **Not adopted** | Supplementary telemetry only — cannot replace restart/reconnect cleanup logic |
-| Context compaction | `session.Rpc.Compaction.CompactAsync()` | 🔴 **Not adopted** | Manual compaction trigger |
-| Auto-compaction | `SessionConfig.InfiniteSessions` | 🔴 **Not adopted** | Background compaction with configurable thresholds |
+| Context compaction | `session.Rpc.History.CompactAsync()` | 🔴 **Not adopted** | Manual compaction trigger (v0.2.2: moved from `CompactionApi` to `HistoryApi`) |
+| Auto-compaction | `SessionConfig.InfiniteSessions` | ✅ **Adopted** | Used in all session configs with `Enabled = true` |
+| History truncation | `session.Rpc.History.TruncateAsync()` | 🔴 **Not adopted** | New in v0.2.2 — truncate session history to a specific point |
+| Session forking | `ServerSessionsApi.ForkAsync()` | 🔴 **Not adopted** | New in v0.2.2 — create a copy of a session with independent history |
 
 ### What to Keep Custom (and Why)
 
