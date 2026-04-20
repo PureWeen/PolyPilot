@@ -23,10 +23,14 @@ When the user says **"Run the SDK update audit"** or updates the SDK NuGet packa
 
 ### Mac Catalyst (primary dev target)
 ```bash
-./relaunch.sh              # Build + async hot-relaunch (ALWAYS use this after code changes)
-./relaunch.sh --sync       # Build + blocking relaunch (for interactive terminal use only)
+PolyPilot/relaunch.sh      # Build + async hot-relaunch (ALWAYS use this after code changes)
+PolyPilot/relaunch.sh --sync  # Build + blocking relaunch (for interactive terminal use only)
 dotnet build -f net10.0-maccatalyst   # Build only
 ```
+
+> **Run relaunch.sh from YOUR worktree**, not from `~/Projects/AutoPilot/PolyPilot/`.
+> The script is tracked in git at `PolyPilot/relaunch.sh` and uses `dirname "$0"` to
+> resolve its build directory, so each worktree's copy builds its own code.
 
 #### ⚠️ Relaunch from a Copilot agent session
 
@@ -44,7 +48,7 @@ dotnet build -f net10.0-maccatalyst   # Build only
 **Correct pattern — keep working after relaunch:**
 ```bash
 # Tool call 1: relaunch (returns immediately after build)
-./relaunch.sh
+PolyPilot/relaunch.sh
 ```
 After relaunch.sh returns, the old UI will be killed in ~10s and a new one launched.
 Your turn may get interrupted if a tool call is in-flight when the kill happens — that's OK,
@@ -61,10 +65,10 @@ maui devflow cdp Runtime evaluate '...'
 **NEVER do this:**
 ```bash
 # ❌ WRONG — chaining in the same bash call blocks the tool return
-./relaunch.sh && sleep 15 && cat ~/.polypilot/relaunch.log
+PolyPilot/relaunch.sh && sleep 15 && cat ~/.polypilot/relaunch.log
 
 # ❌ WRONG — sleep/long commands chained after relaunch
-./relaunch.sh; sleep 10; tail ~/.polypilot/relaunch.log
+PolyPilot/relaunch.sh; sleep 10; tail ~/.polypilot/relaunch.log
 ```
 
 The `--sync` flag restores the old blocking behavior (for human terminal use only — NEVER use from an agent).
