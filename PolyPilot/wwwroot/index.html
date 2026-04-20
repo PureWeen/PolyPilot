@@ -56,6 +56,7 @@
                 if (e.target.closest('.flyout-backdrop') && window.__menuInteraction && (Date.now() - window.__menuInteraction) < 1000) {
                     e.stopImmediatePropagation();
                     e.preventDefault();
+                    if (evtName === 'click') window.__menuInteraction = 0; // reset after consumed
                 }
             }, true);
         });
@@ -1486,33 +1487,20 @@
             var menu = buttonEl.closest('.session-list-item, .session-list-item-wrapper, [b-sessionlistitem]')?.querySelector('.session-menu');
             if (!menu) menu = buttonEl.parentElement?.querySelector('.session-menu');
             if (!menu) return;
-            var overlay = menu.previousElementSibling;
-            if (overlay && !overlay.classList.contains('menu-overlay')) overlay = null;
-
-            // Portal the menu (and overlay) to document.body so it escapes the flyout's
-            // transform stacking context. This makes position:fixed work relative to the
-            // viewport and enables native overflow scroll on iOS WebKit.
-            var flyout = menu.closest('.flyout-panel');
-            var isInFlyout = flyout && getComputedStyle(flyout).transform !== 'none';
-            if (isInFlyout) {
-                // Remember original parent for restore
-                menu.__originalParent = menu.parentElement;
-                menu.__originalNextSibling = menu.nextSibling;
-                if (overlay) {
-                    overlay.__originalParent = overlay.parentElement;
-                    overlay.__originalNextSibling = overlay.nextSibling;
-                    document.body.appendChild(overlay);
-                }
-                document.body.appendChild(menu);
-            }
-
             var r = buttonEl.getBoundingClientRect();
-            // When portaled to body, coordinates are viewport-relative (no adjustment needed)
+            // When inside a flyout panel with transform, fixed positioning is relative to the flyout,
+            // not the viewport. Detect and adjust coordinates accordingly.
+            var flyout = menu.closest('.flyout-panel');
             var containerW = window.innerWidth, containerH = window.innerHeight;
+            if (flyout && getComputedStyle(flyout).transform !== 'none') {
+                var fr = flyout.getBoundingClientRect();
+                containerW = fr.width;
+                containerH = fr.height;
+                r = { top: r.top - fr.top, bottom: r.bottom - fr.top, left: r.left - fr.left, right: r.right - fr.left };
+            }
             // Account for safe area insets (Android nav bar, iOS home indicator/notch)
             var bottomInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-bar-height') || '0') || 0;
             var topInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--status-bar-height') || '0') || 0;
-            // Fallback to env() safe area for iOS (--nav-bar-height is only set on Android)
             if (!bottomInset || !topInset) {
                 var probe = document.createElement('div');
                 probe.style.cssText = 'position:fixed;visibility:hidden;';
@@ -1529,38 +1517,30 @@
             var mw = menu.offsetWidth, mh = Math.min(menu.scrollHeight, maxH);
             var top = r.bottom + mh > usableBottom ? r.top - mh : r.bottom;
             top = Math.max(usableTop, Math.min(top, usableBottom - mh));
-            // Try right-aligning to button; if that goes off-screen left, left-align instead
             var left = r.right - mw;
             if (left < 4) left = Math.max(4, r.left);
             if (left + mw > containerW) left = containerW - mw - 4;
             menu.style.top = top + 'px';
             menu.style.left = left + 'px';
-            // Dismiss the keyboard on iOS — the ⋯ button focus can trigger the soft keyboard
+            // Dismiss the keyboard on iOS
             if (document.activeElement && document.activeElement !== document.body) {
                 document.activeElement.blur();
             }
-            // Freeze the flyout AND session-list scroll while the menu is open
+            // Freeze the flyout AND session-list scroll while the menu is open so
+            // touch-scrolling inside the menu works on iOS.
             var scrollParent = buttonEl.closest('.session-list');
-            if (flyout) {
-                flyout.style.overflow = 'hidden';
-            }
-            if (scrollParent) {
-                scrollParent.style.overflow = 'hidden';
-            }
-            menu.__restoreScroll = function() {
-                if (flyout) flyout.style.overflow = '';
-                if (scrollParent) scrollParent.style.overflow = '';
-                menu.__restoreScroll = null;
-            };
-            // Watch for Blazor removing the menu (re-render) and clean up
-            var observer = new MutationObserver(function() {
-                // Menu was removed from body (Blazor re-rendered the component)
-                if (!document.body.contains(menu) && !document.querySelector('.session-menu')) {
-                    if (menu.__restoreScroll) menu.__restoreScroll();
+            if (flyout) flyout.style.overflow = 'hidden';
+            if (scrollParent) scrollParent.style.overflow = 'hidden';
+            // Restore scroll when menu closes (Blazor removes it from DOM)
+            var parent = menu.parentElement || document.body;
+            var observer = new MutationObserver(function(mutations) {
+                if (!parent.contains(menu)) {
+                    if (flyout) flyout.style.overflow = '';
+                    if (scrollParent) scrollParent.style.overflow = '';
                     observer.disconnect();
                 }
             });
-            observer.observe(document.body, { childList: true, subtree: true });
+            observer.observe(parent, { childList: true });
         };
     </script>
 

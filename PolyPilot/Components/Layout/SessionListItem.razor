@@ -35,9 +35,10 @@
 <div class="session-item @cssClass @(isPinned ? "pinned" : "") @(provider != null ? "provider-session" : "") @(CompactMode ? "compact" : "")"
      data-session-name="@Session.Name"
      style="@(provider != null ? $"border-left: 3px solid {provider.AccentColor};" : "")"
+     @onclick="HandleItemClick"
      @oncontextmenu="OpenContextMenu"
      @oncontextmenu:preventDefault="true">
-    <div class="session-info" @onclick="HandleItemClick">
+    <div class="session-info">
         @if (CompactMode && !IsRenaming)
         {
             <div class="session-compact-shell" title="@GetCompactTitle(providerDisplayName ?? Session.Name)">
@@ -443,7 +444,7 @@
 
     private async Task HandleItemClick(MouseEventArgs e)
     {
-        if (IsDisabled) return;
+        if (IsDisabled || IsMenuOpen) return;
         await OnSelect.InvokeAsync();
     }
 

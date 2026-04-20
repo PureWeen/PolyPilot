@@ -207,13 +207,13 @@
         return Task.CompletedTask;
     }
 
-    private async void ToggleFlyout()
+    private void ToggleFlyout()
     {
         flyoutOpen = !flyoutOpen;
         if (flyoutOpen)
         {
             // Dismiss the keyboard on mobile — the chat input retains focus behind the flyout
-            try { await JS.InvokeVoidAsync("eval", "document.activeElement?.blur()"); } catch { }
+            _ = JS.InvokeVoidAsync("eval", "document.activeElement?.blur()");
         }
     }
 
@@ -222,19 +222,11 @@
         flyoutOpen = false;
     }
 
-    private async Task HandleBackdropClick()
+    private void HandleBackdropClick()
     {
-        // On iOS WebKit, tapping the ⋯ button causes a second full touch event
-        // on the flyout-backdrop before Blazor renders the menu-overlay. The
-        // menu-overlay's click then closes the menu, and the backdrop's click
-        // closes the flyout. By the time this handler runs, the menu is already
-        // gone from DOM. Use the JS timestamp set in the capture-phase handler.
-        try
-        {
-            var ts = await JS.InvokeAsync<double>("eval", "window.__menuInteraction || 0");
-            if (ts > 0 && (DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - ts) < 1000) return;
-        }
-        catch { }
+        // Ghost clicks from iOS are blocked by the capture-phase JS handler
+        // in index.html (stopImmediatePropagation on flyout-backdrop within 1s
+        // of __menuInteraction). If we get here, it's a real user tap.
         CloseFlyout();
     }
 
