@@ -18,6 +18,9 @@ safe-outputs:
   push-to-pull-request-branch:
     max: 1
     protected-files: fallback-to-issue
+  dispatch-workflow:
+    workflows: [verify-build]
+    max: 1
   create-pull-request-review-comment:
     max: 30
   submit-pull-request-review:
@@ -197,6 +200,28 @@ Post `submit_pull_request_review` with:
 For any **unresolved** findings (e.g., too complex to auto-fix, or design-level):
 - Validate path + line against `gh pr diff --name-only` and `@@` hunks
 - Post `create_pull_request_review_comment` with the finding and why it wasn't auto-fixed
+
+## Step 5: Cross-Platform Verification
+
+After fixes are pushed, dispatch the `verify-build` workflow to build and test on macOS and Windows:
+
+```
+dispatch_workflow({
+  "workflow": "verify-build",
+  "inputs": {
+    "pr_number": "<PR number>",
+    "ref": "<PR branch name>"
+  }
+})
+```
+
+This triggers parallel builds on:
+- **macOS** — runs tests + builds Mac Catalyst
+- **Windows** — builds Windows target
+
+The verification workflow posts its results as a comment on the PR. If any platform fails, the PR author is notified.
+
+**Only dispatch if fixes were pushed.** If the review found zero findings and no changes were made, skip this step.
 
 ## Rules
 
