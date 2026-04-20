@@ -39,10 +39,10 @@ Review, fix, and re-review pull request #${{ github.event.pull_request.number ||
 ## Overview
 
 You are an orchestrator that iterates through **review → fix → re-review** cycles on a PR until either:
-1. A review round finds **zero** actionable findings (🔴 CRITICAL or 🟡 MODERATE), or
+1. A review round finds **zero** findings at any severity, or
 2. You have completed **3 fix rounds** (hard limit to prevent infinite loops)
 
-🟢 MINOR findings do **not** block completion — fix them if easy, but they don't require another cycle.
+**Every finding matters.** Fix ALL findings — 🔴 CRITICAL, 🟡 MODERATE, and 🟢 MINOR alike. Every PR is an opportunity to leave the codebase better than you found it. Never skip a finding because it's "minor" or "low risk."
 
 All fixes are made as **local git commits**. At the end, `push-to-pull-request-branch` pushes them all at once. The agent never pushes directly.
 
@@ -94,13 +94,13 @@ Each sub-agent prompt must include:
 
 ### 2c. Decision Gate
 
-- **Zero 🔴 or 🟡 findings?** → Go to Step 4 (done — post results)
-- **Has 🔴 or 🟡 findings AND fix rounds < 3?** → Go to Step 3 (fix)
+- **Zero findings at any severity?** → Go to Step 4 (done — post results)
+- **Has any findings AND fix rounds < 3?** → Go to Step 3 (fix)
 - **Has findings AND fix rounds = 3?** → Go to Step 4 (done — post results with remaining findings)
 
 ## Step 3: Fix Round
 
-For each 🔴 CRITICAL and 🟡 MODERATE finding from the review:
+For **every** finding from the review (🔴 CRITICAL, 🟡 MODERATE, and 🟢 MINOR):
 
 1. **Read the full source file** — use `cat` or `view` to understand context, not just the diff hunk
 2. **Make the fix** — use the `edit` tool for precise surgical changes. Fix only the reported issue; do not refactor unrelated code
@@ -120,7 +120,7 @@ For each 🔴 CRITICAL and 🟡 MODERATE finding from the review:
    Co-authored-by: copilot-agentic-workflow[bot] <224017+copilot-agentic-workflow[bot]@users.noreply.github.com>"
    ```
 
-For 🟢 MINOR findings: fix them if the change is straightforward (1-2 lines, no risk). Skip if the fix is complex or uncertain.
+For 🟢 MINOR findings: fix them with the same rigor as MODERATE findings. Every issue matters — naming inconsistencies, missing docs, suboptimal patterns, and minor nits all get fixed.
 
 **After all fixes are committed**, go back to **Step 2** for a re-review of the updated code. For re-reviews, generate the diff with:
 ```bash
@@ -157,7 +157,7 @@ Post an `add_comment` with the **complete** iteration history. Every review roun
 |---|---------|--------|
 | 1 | <description> | ✅ Fixed in commit `abc1234` |
 | 2 | <description> | ✅ Fixed in commit `def5678` |
-| 3 | <description> | ➖ Skipped (MINOR, low risk) |
+| 3 | <description> | ✅ Fixed in commit `ghi9012` |
 
 ---
 
