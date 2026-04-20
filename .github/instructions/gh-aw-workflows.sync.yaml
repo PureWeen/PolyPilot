@@ -1,0 +1,52 @@
+# Sync manifest for gh-aw workflow instructions
+# Used by the instruction-drift skill to detect when upstream docs change.
+# Run: pwsh .github/skills/instruction-drift/scripts/Check-Staleness.ps1 -SyncManifest .github/instructions/gh-aw-workflows.sync.yaml
+
+sync:
+  target: "../skills/gh-aw-guide/SKILL.md"
+  secondary_targets:
+    - "../skills/gh-aw-guide/references/architecture.md"
+
+  # Upstream documentation pages to monitor for changes
+  reference_urls:
+    - https://github.github.com/gh-aw/reference/triggers/
+    - https://github.github.com/gh-aw/reference/frontmatter/
+    - https://github.github.com/gh-aw/reference/safe-outputs/
+    - https://github.github.com/gh-aw/reference/command-triggers/
+    - https://github.github.com/gh-aw/reference/custom-safe-outputs/
+    - https://github.github.com/gh-aw/reference/triggering-ci/
+    - https://github.github.com/gh-aw/patterns/monitoring/
+    - https://securitylab.github.com/resources/github-actions-preventing-pwn-requests/
+
+  # GitHub issues whose resolution may require instruction updates
+  tracked_issues:
+    - url: https://github.com/github/gh-aw/issues/18481
+      status: closed
+      note: "Fork support tracking — all sub-items shipped"
+    - url: https://github.com/github/gh-aw/issues/18518
+      status: closed
+      note: "gh aw init now warns in forks"
+    - url: https://github.com/github/gh-aw/issues/18521
+      status: closed
+      note: "Fork support docs created"
+    - url: https://github.com/github/gh-aw/issues/23769
+      status: closed
+      note: "Platform auto-restores .github/ from base branch"
+    - url: https://github.com/github/gh-aw/issues/25439
+      status: closed
+      note: "submit-pull-request-review allowed-events fix shipped"
+    # PolyPilot-specific: tracking the stale review gap
+    # gh-aw#25869 — another team independently adopted COMMENT-only workaround
+    # No upstream issue for supersede-older-reviews yet; monitor gh-aw releases
+
+  # Sections that intentionally diverge from upstream / other repos
+  divergence_sections:
+    - "Known Limitation: Stale Blocking Reviews"
+    - "Security Boundaries"
+    - "Safe Pattern: Checkout + Restore"
+    - "Common Patterns"
+
+  # Monitor for new gh-aw platform releases
+  releases_source: https://github.com/github/gh-aw/releases.atom
+
+  last_reviewed: "2025-07-14"
