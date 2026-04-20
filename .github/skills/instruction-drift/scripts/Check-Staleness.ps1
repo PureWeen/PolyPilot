@@ -65,7 +65,9 @@ function Get-TrackedIssueStatus {
                 return @{ Url = $Url; State = $data.state; Title = $data.title; Ok = $true }
             }
         }
-        catch { }
+        catch {
+            Write-Verbose "Failed to check issue $Url`: $_"
+        }
     }
     return @{ Url = $Url; State = 'UNKNOWN'; Title = ''; Ok = $false }
 }
@@ -127,26 +129,51 @@ if ($urlMatches.Count -gt 0) {
         }
         else {
             Write-Host "  ⚠️  $($result.Url) — $($result.Status)" -ForegroundColor Yellow
-            $signals += "Reference URL changed or unreachable: $($result.Url)"
+            $signals += "Reference URL unreachable (may have moved or been removed): $($result.Url)"
         }
     }
 }
 
-# Check tracked issues
-$issueMatches = [regex]::Matches($raw, 'url:\s*(https://github\.com/[^\s]+)')
+# Check tracked issues — compare actual state vs. manifest expected state
+$issueMatches = [regex]::Matches($raw, 'url:\s*(https://github\.com/[^\s]+)\s*\n\s*status:\s*(\w+)')
 if ($issueMatches.Count -gt 0) {
     Write-Host "`nChecking tracked issues..." -ForegroundColor Cyan
     foreach ($im in $issueMatches) {
-        $issueResult = Get-TrackedIssueStatus -Url $im.Groups[1].Value
+        $issueUrl = $im.Groups[1].Value
+        $expectedStatus = $im.Groups[2].Value.ToUpper()
+        $issueResult = Get-TrackedIssueStatus -Url $issueUrl
         if ($issueResult.Ok) {
-            $stateIcon = if ($issueResult.State -eq 'CLOSED') { '🔒' } else { '🔓' }
-            Write-Host "  $stateIcon $($issueResult.Url) — $($issueResult.State): $($issueResult.Title)" -ForegroundColor $(if ($issueResult.State -eq 'CLOSED') { 'Yellow' } else { 'Green' })
-            if ($issueResult.State -eq 'CLOSED') {
-                $signals += "Tracked issue CLOSED — may need instruction update: $($issueResult.Url)"
+            $actualState = $issueResult.State.ToUpper()
+            $stateIcon = if ($actualState -eq 'CLOSED') { '🔒' } else { '🔓' }
+            if ($actualState -eq $expectedStatus) {
+                Write-Host "  $stateIcon $($issueResult.Url) — $($issueResult.State) (matches expected)" -ForegroundColor Green
+            }
+            elseif ($actualState -eq 'CLOSED' -and $expectedStatus -eq 'OPEN') {
+                Write-Host "  $stateIcon $($issueResult.Url) — CLOSED (was expected OPEN): $($issueResult.Title)" -ForegroundColor Yellow
+                $signals += "Tracked issue just CLOSED — may need instruction update: $($issueResult.Url)"
+            }
+            elseif ($actualState -eq 'OPEN' -and $expectedStatus -eq 'CLOSED') {
+                Write-Host "  $stateIcon $($issueResult.Url) — REOPENED (was expected CLOSED): $($issueResult.Title)" -ForegroundColor Yellow
+                $signals += "Tracked issue REOPENED — was recorded as closed: $($issueResult.Url)"
+            }
+            else {
+                Write-Host "  ⚠️  $($issueResult.Url) — $actualState (expected $expectedStatus)" -ForegroundColor Yellow
+                $signals += "Tracked issue state mismatch ($actualState vs expected $expectedStatus): $($issueResult.Url)"
             }
         }
         else {
-            Write-Host "  ❓ $($im.Groups[1].Value) — could not check" -ForegroundColor Yellow
+            Write-Host "  ❓ $issueUrl — could not check" -ForegroundColor Yellow
+        }
+    }
+}
+# Fallback: issues without status field (legacy format)
+$legacyIssues = [regex]::Matches($raw, 'url:\s*(https://github\.com/[^\s]+)(?!\s*\n\s*status:)')
+if ($legacyIssues.Count -gt 0) {
+    foreach ($lm in $legacyIssues) {
+        $issueResult = Get-TrackedIssueStatus -Url $lm.Groups[1].Value
+        if ($issueResult.Ok -and $issueResult.State -eq 'CLOSED') {
+            Write-Host "  🔒 $($issueResult.Url) — CLOSED (no expected status declared): $($issueResult.Title)" -ForegroundColor Yellow
+            $signals += "Tracked issue CLOSED (no expected status in manifest): $($issueResult.Url)"
         }
     }
 }

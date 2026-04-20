@@ -26,7 +26,7 @@
 #   Imports:
 #     - shared/review-shared.md
 #
-# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"700564783043bc1aa208bccc50f966fd7054aab029907af497553e38b0e33a58","compiler_version":"v0.62.2","strict":true}
+# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"377cfad596a061f4e7798a69e2a92312ff6364c10927b473c1f77fa311c5d25e","compiler_version":"v0.62.2","strict":true}
 
 name: "Expert Code Review (auto)"
 "on":

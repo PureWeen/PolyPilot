@@ -60,9 +60,9 @@ sync:
 ## Output
 
 The script produces a structured report:
-- **FRESH**: All reference URLs respond 200, no tracked issues changed status, no new releases
-- **STALE**: One or more signals indicate the instructions may need updating
-- **ERROR**: Could not reach one or more reference URLs
+- **FRESH** (exit 0): All reference URLs respond 200, no tracked issues changed state vs. manifest, review window not exceeded
+- **STALE** (exit 1): One or more signals — reference URLs unreachable, tracked issues changed state vs. manifest expected status, or review window exceeded
+- **ERROR** (exit 2): Target file(s) declared in the manifest are missing from disk
 
 Each signal includes actionable guidance on what to review and update.
 

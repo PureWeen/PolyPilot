@@ -264,7 +264,7 @@ These issues are now **all closed** — documented here for historical context:
 | [gh-aw#18518](https://github.com/github/gh-aw/issues/18518) | ✅ Closed | `gh aw init` now warns in forks, lists required secrets |
 | [gh-aw#18521](https://github.com/github/gh-aw/issues/18521) | ✅ Closed | Fork support docs created — forks are not supported by default; agents will not run on fork PRs unless `forks:` is configured |
 | [gh-aw#23769](https://github.com/github/gh-aw/issues/23769) | ✅ Closed | Platform now auto-restores `.github/` and `.agents/` from base branch after checkout; `.mcp.json` deleted to prevent injection |
-| [gh-aw#25439](https://github.com/github/gh-aw/issues/25439) | ✅ Closed | `submit-pull-request-review` safe output previously allowed agents to accidentally approve PRs, bypassing branch protection. Resolution: use `allowed-events: [COMMENT, REQUEST_CHANGES]` to block approvals at infrastructure level |
+| [gh-aw#25439](https://github.com/github/gh-aw/issues/25439) | ✅ Closed | `submit-pull-request-review` safe output previously allowed agents to accidentally approve PRs, bypassing branch protection. Upstream resolution: `allowed-events` filtering. PolyPilot uses `[COMMENT]` only — see Known Limitation: Stale Blocking Reviews |
 
 ## Troubleshooting
 

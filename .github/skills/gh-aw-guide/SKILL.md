@@ -61,7 +61,7 @@ gh aw compile .github/workflows/<name>.md
 | Custom post-processing jobs for agent output | `safe-outputs.jobs:` custom jobs with MCP tool access | [Custom Safe Outputs](https://github.github.com/gh-aw/reference/custom-safe-outputs/) |
 | Wrapping GitHub Actions as agent-callable tools | `safe-outputs.actions:` action wrappers | [Custom Safe Outputs](https://github.github.com/gh-aw/reference/custom-safe-outputs/) |
 | Triggering CI on agent-created PRs | `github-token-for-extra-empty-commit:` on `create-pull-request` | [Triggering CI](https://github.github.com/gh-aw/reference/triggering-ci/) |
-| No guard against agent approving PRs | `allowed-events: [COMMENT, REQUEST_CHANGES]` on `submit-pull-request-review` | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
+| No guard against agent approving/blocking PRs | `allowed-events: [COMMENT]` on `submit-pull-request-review` — blocks both APPROVE and stale REQUEST_CHANGES | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
 
 **Note:** gh-aw is actively developed. If a capability feels like something a framework would provide natively, check the reference docs — it probably exists even if it's not in this table yet.
 
@@ -147,7 +147,7 @@ These four patterns are the most commonly missed when building secure workflows.
 ```yaml
 safe-outputs:
   submit-pull-request-review:
-    allowed-events: [COMMENT, REQUEST_CHANGES]  # Blocks APPROVE at infrastructure level
+    allowed-events: [COMMENT]  # Blocks APPROVE and REQUEST_CHANGES — stale blocking reviews can't be auto-dismissed
 ```
 
 **2. CI triggering + protected file safety** for agent-created PRs — `GITHUB_TOKEN` pushes don't trigger CI; a PAT/App token is required. `protected-files` controls what happens when the agent modifies package manifests or `.github/`:

@@ -11,6 +11,7 @@ permissions:
   contents: read
   pull-requests: read
 
+# Intentional: shared group with review.agent.md — a /review cancels in-progress auto-review.
 concurrency:
   group: "review-${{ github.event.pull_request.number || github.run_id }}"
   cancel-in-progress: true
