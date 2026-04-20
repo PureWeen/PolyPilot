@@ -1509,9 +1509,18 @@
             var r = buttonEl.getBoundingClientRect();
             // When portaled to body, coordinates are viewport-relative (no adjustment needed)
             var containerW = window.innerWidth, containerH = window.innerHeight;
-            // Account for safe area insets (Android nav bar, iOS home indicator)
+            // Account for safe area insets (Android nav bar, iOS home indicator/notch)
             var bottomInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--nav-bar-height') || '0') || 0;
             var topInset = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--status-bar-height') || '0') || 0;
+            // Fallback to env() safe area for iOS (--nav-bar-height is only set on Android)
+            if (!bottomInset || !topInset) {
+                var probe = document.createElement('div');
+                probe.style.cssText = 'position:fixed;visibility:hidden;';
+                document.body.appendChild(probe);
+                if (!bottomInset) { probe.style.height = 'env(safe-area-inset-bottom,0px)'; bottomInset = probe.offsetHeight || 0; }
+                if (!topInset) { probe.style.height = 'env(safe-area-inset-top,0px)'; topInset = probe.offsetHeight || 0; }
+                document.body.removeChild(probe);
+            }
             var usableTop = topInset + 4;
             var usableBottom = containerH - bottomInset - 4;
             var maxH = usableBottom - usableTop;
