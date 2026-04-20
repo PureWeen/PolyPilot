@@ -577,10 +577,14 @@ public partial class CopilotService
                                 // the session's worktree path. With multiple local folder
                                 // groups per repo (one per external path), FirstOrDefault
                                 // by RepoId alone would pick the wrong one.
+                                // Use separator-aware matching to avoid /maui matching /maui2.
+                                var normalizedWtPathAuto = Path.GetFullPath(worktree.Path)
+                                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                                 var localFolderGroup = Organization.Groups.FirstOrDefault(g =>
                                     g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent &&
                                     g.LocalPath != null &&
-                                    worktree.Path.StartsWith(g.LocalPath, StringComparison.OrdinalIgnoreCase))
+                                    (normalizedWtPathAuto.StartsWith(g.LocalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                                     || string.Equals(normalizedWtPathAuto, g.LocalPath, StringComparison.OrdinalIgnoreCase)))
                                     ?? Organization.Groups.FirstOrDefault(g =>
                                         g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
                                 if (localFolderGroup != null)
@@ -613,11 +617,14 @@ public partial class CopilotService
                     if (repo != null)
                     {
                         // Prefer the local folder group whose LocalPath matches
-                        // the session's worktree path (same path-aware logic as above).
+                        // the session's worktree path (same separator-aware logic as above).
+                        var normalizedWtPathAuto2 = Path.GetFullPath(worktree.Path)
+                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                         var localFolderGroup = Organization.Groups.FirstOrDefault(g =>
                             g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent &&
                             g.LocalPath != null &&
-                            worktree.Path.StartsWith(g.LocalPath, StringComparison.OrdinalIgnoreCase))
+                            (normalizedWtPathAuto2.StartsWith(g.LocalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                             || string.Equals(normalizedWtPathAuto2, g.LocalPath, StringComparison.OrdinalIgnoreCase)))
                             ?? Organization.Groups.FirstOrDefault(g =>
                                 g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
                         if (localFolderGroup != null)

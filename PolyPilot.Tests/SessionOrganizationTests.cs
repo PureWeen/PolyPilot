@@ -1366,6 +1366,65 @@ Do something.
     }
 
     [Fact]
+    public void AutoAssignment_SiblingPaths_DoesNotCrossMatch()
+    {
+        // Regression test: /Users/alice/maui must NOT match a group with
+        // LocalPath=/Users/alice/maui2 (and vice versa). StartsWith without
+        // a trailing separator causes false prefix matches.
+        var basePath = Path.Combine(Path.GetTempPath(), $"test-sibling-{Guid.NewGuid():N}");
+        var mauiPath = Path.Combine(basePath, "maui");
+        var maui2Path = Path.Combine(basePath, "maui2");
+        Directory.CreateDirectory(mauiPath);
+        Directory.CreateDirectory(maui2Path);
+        try
+        {
+            var repos = new List<RepositoryInfo>
+            {
+                new() { Id = "dotnet-maui", Name = "maui", Url = "https://github.com/dotnet/maui" }
+            };
+            // Worktree under maui2, NOT maui
+            var worktrees = new List<WorktreeInfo>
+            {
+                new() { Id = "wt-maui2", RepoId = "dotnet-maui", Branch = "feature", Path = maui2Path }
+            };
+            var rm = CreateRepoManagerWithState(repos, worktrees);
+            var svc = CreateService(rm);
+
+            // Create both local folder groups
+            var mauiGroup = svc.GetOrCreateLocalFolderGroup(mauiPath, "dotnet-maui");
+            var maui2Group = svc.GetOrCreateLocalFolderGroup(maui2Path, "dotnet-maui");
+
+            // Add active session (must be in _sessions for auto-assignment to trigger)
+            var sessionsField = typeof(CopilotService).GetField("_sessions",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            var dict = sessionsField.GetValue(svc)!;
+            var stateType = sessionsField.FieldType.GenericTypeArguments[1];
+            var info = new AgentSessionInfo { Name = "s1", Model = "test-model" };
+            var state = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(stateType);
+            stateType.GetProperty("Info")!.SetValue(state, info);
+            dict.GetType().GetMethod("TryAdd")!.Invoke(dict, new[] { "s1", state });
+            // Add session meta in _default with WorktreeId already linked to maui2
+            svc.Organization.Sessions.Add(new SessionMeta
+            {
+                SessionName = "s1",
+                GroupId = "_default",
+                WorktreeId = "wt-maui2"
+            });
+
+            typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+            svc.ReconcileOrganization(allowPruning: false);
+
+            // Auto-assignment should place s1 in maui2Group (not mauiGroup)
+            var session = svc.Organization.Sessions.First(m => m.SessionName == "s1");
+            Assert.Equal(maui2Group!.Id, session.GroupId);
+        }
+        finally
+        {
+            try { Directory.Delete(basePath, true); } catch { }
+        }
+    }
+
+    [Fact]
     public void ReconcileOrganization_StaleExternalWorktree_SkippedWhenPathNotOnDisk()
     {
         // If an external worktree's path no longer exists on disk (stale repos.json entry),
