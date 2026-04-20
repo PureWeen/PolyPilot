@@ -1,7 +1,7 @@
 ---
 name: copilot-sdk-reference
 description: >
-  Complete API reference for GitHub.Copilot.SDK v0.2.1. Consult before implementing
+  Complete API reference for GitHub.Copilot.SDK v0.2.2. Consult before implementing
   session lifecycle, orchestration, event handling, hooks, plan management, context
   compaction, tool monitoring, or any feature that interacts with the Copilot CLI server.
   Use when: (1) Adding new session management code, (2) Modifying event handlers,
@@ -10,11 +10,11 @@ description: >
   (7) Updating the SDK NuGet package version.
 ---
 
-# GitHub Copilot SDK v0.2.1 — Complete API Reference
+# GitHub Copilot SDK v0.2.2 — Complete API Reference
 
-**Package:** `GitHub.Copilot.SDK` v0.2.1
-**NuGet:** `<PackageReference Include="GitHub.Copilot.SDK" Version="0.2.1" />`
-**XML Docs:** `~/.nuget/packages/github.copilot.sdk/0.2.1/lib/net8.0/GitHub.Copilot.SDK.xml`
+**Package:** `GitHub.Copilot.SDK` v0.2.2
+**NuGet:** `<PackageReference Include="GitHub.Copilot.SDK" Version="0.2.2" />`
+**XML Docs:** `~/.nuget/packages/github.copilot.sdk/0.2.2/lib/net8.0/GitHub.Copilot.SDK.xml`
 **Types:** 453 total
 
 > **Rule:** Before implementing custom session/event/orchestration code, check this reference.
@@ -388,6 +388,7 @@ Three built-in agents (in `definitions/*.agent.yaml`):
 
 | Version | Key Additions |
 |---------|---------------|
+| **0.2.2** | **Breaking:** `SessionIdleData.BackgroundTasks` removed (use `SessionBackgroundTasksChangedEvent` instead), `ModelApi.SwitchToAsync` added `ModelCapabilitiesOverride?` parameter, `CompactionApi` removed (use `HistoryApi.CompactAsync`). **New:** `ISessionFsHandler` (10 filesystem methods), `HistoryApi.TruncateAsync`, `ServerSessionsApi.ForkAsync`, `ModelCapabilitiesOverride`/`ModelCapabilitiesOverrideLimits`/`ModelCapabilitiesOverrideLimitsVision` (vision support), `EntryType` enum, `ResumeSessionConfig.EnableConfigDiscovery`/`ModelCapabilities`, `ElicitationCompletedData.Action`/`Content`, `AssistantMessageData.RequestId` |
 | **0.2.1** | `CommandDefinition`/`CommandHandler` (custom slash commands), `ElicitationHandler`/`ElicitationContext` (structured input callbacks), `ServerMcpApi`, `ServerSessionFsApi`, `CapabilitiesChangedEvent`, `SamplingRequestedEvent`, `SessionRemoteSteerableChangedEvent`, `SessionCustomAgentsUpdatedEvent`, `ISessionUiApi`, `InputOptions` |
 | **0.2.0** | Hooks (PreToolUse, PostToolUse, UserPromptSubmitted, SessionStart, SessionEnd, ErrorOccurred), Plan API, Fleet API, Agent API, Skills API, MCP API, Compaction API, Workspace API, Elicitation API, ReasoningEffort, InfiniteSessionConfig, CustomAgentConfig, SystemMessageConfig with SectionOverride |
 

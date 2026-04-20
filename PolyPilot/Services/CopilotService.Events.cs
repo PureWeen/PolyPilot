@@ -959,12 +959,12 @@ public partial class CopilotService
                 // Cancel the TurnEnd→Idle fallback — normal SessionIdleEvent arrived
                 CancelTurnEndFallback(state);
 
-                // Diagnostic: dump raw backgroundTasks payload to prove whether CLI populates it consistently
+                // Diagnostic: log tracked background task state (v0.2.2 removed BackgroundTasks
+                // from SessionIdleData — tracking is now via SessionBackgroundTasksChangedEvent)
                 {
-                    var bt = idle.Data?.BackgroundTasks;
-                    var agentCount = bt?.Agents?.Length ?? -1;
-                    var shellCount = bt?.Shells?.Length ?? -1;
-                    Debug($"[IDLE-DIAG] '{sessionName}' session.idle payload: backgroundTasks={{agents={agentCount}, shells={shellCount}, null={bt == null}}}");
+                    var trackedFingerprint = state.DeferredBackgroundTaskFingerprint;
+                    var trackedTicks = Interlocked.Read(ref state.DeferredBackgroundTasksFirstSeenAtTicks);
+                    Debug($"[IDLE-DIAG] '{sessionName}' session.idle payload: tracked fingerprint={trackedFingerprint ?? "null"}, ticks={trackedTicks}");
                 }
 
                 // KEY FIX: age background tasks by stable fingerprint (agent/shell IDs), not just
@@ -989,20 +989,43 @@ public partial class CopilotService
                 var preIdleFingerprint = state.DeferredBackgroundTaskFingerprint;
                 var preIdleTicks = Interlocked.Read(ref state.DeferredBackgroundTasksFirstSeenAtTicks);
 
-                var tracking = RefreshDeferredBackgroundTaskTracking(state, idle.Data?.BackgroundTasks);
-                var deferTicks = tracking.FirstSeenTicks;
+                // SDK v0.2.2: BackgroundTasks removed from SessionIdleData. Background task
+                // tracking is now entirely via SessionBackgroundTasksChangedEvent, which calls
+                // RefreshDeferredBackgroundTaskTracking with real data. Here we just READ the
+                // tracked state — no RefreshDeferredBackgroundTaskTracking call (passing null
+                // would reset the tracked fingerprint/ticks to empty, destroying the state).
+                var deferTicks = Interlocked.Read(ref state.DeferredBackgroundTasksFirstSeenAtTicks);
 
-                bool idlePayloadIsStale = preIdleFingerprint == string.Empty && preIdleTicks == 0 && tracking.Snapshot.HasAny;
+                // Fingerprint tells us if background tasks are active:
+                //   null         → no backgroundTasksChanged has fired (initial state)
+                //   string.Empty → backgroundTasksChanged confirmed zero tasks
+                //   non-empty    → active tasks with this fingerprint
+                var currentFingerprint = state.DeferredBackgroundTaskFingerprint;
+                var hasTrackedTasks = !string.IsNullOrEmpty(currentFingerprint) && deferTicks > 0;
+
+                bool idlePayloadIsStale = preIdleFingerprint == string.Empty && preIdleTicks == 0 && hasTrackedTasks;
                 if (idlePayloadIsStale)
-                    Debug($"[IDLE-DIAG-STALE] '{sessionName}' session.idle backgroundTasks " +
-                          $"({tracking.Snapshot.AgentCount} agents, {tracking.Snapshot.ShellCount} shells) are stale — " +
-                          $"backgroundTasksChanged already confirmed empty, completing normally");
+                    Debug($"[IDLE-DIAG-STALE] '{sessionName}' session.idle — tracked tasks present but " +
+                          $"backgroundTasksChanged previously confirmed empty, completing normally");
 
-                var hasActiveTasks = !idlePayloadIsStale && HasActiveBackgroundTasks(idle, deferTicks);
-                var onlyCarryOverShellsRemain = !idlePayloadIsStale && ShouldIgnoreCarryOverShellOnlyTasks(
-                    tracking.Snapshot,
-                    deferTicks,
-                    state.Info.ProcessingStartedAt);
+                var hasActiveTasks = !idlePayloadIsStale && hasTrackedTasks;
+
+                // Zombie timeout: check if tracked tasks have been active longer than the timeout
+                if (hasActiveTasks && deferTicks > 0)
+                {
+                    var elapsed = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - deferTicks);
+                    if (elapsed.TotalMinutes >= SubagentZombieTimeoutMinutes)
+                    {
+                        Debug($"[IDLE-DEFER] '{sessionName}' tracked background tasks exceeded zombie timeout " +
+                              $"({elapsed.TotalMinutes:F1}min >= {SubagentZombieTimeoutMinutes}min) — allowing completion");
+                        hasActiveTasks = false;
+                    }
+                }
+
+                // Carry-over shell detection: if tasks predate this turn, allow completion
+                var onlyCarryOverShellsRemain = hasActiveTasks && deferTicks > 0
+                    && state.Info.ProcessingStartedAt.HasValue
+                    && deferTicks < state.Info.ProcessingStartedAt.Value.ToUniversalTime().Ticks;
                 if (onlyCarryOverShellsRemain)
                 {
                     hasActiveTasks = false;
@@ -1011,14 +1034,12 @@ public partial class CopilotService
                           $"by {carryOverMinutes:F1}min — allowing completion");
                 }
 
-                // Log zombie expiry here where Debug() is available (HasActiveBackgroundTasks is static)
-                var zombieAgentCount = tracking.Snapshot.AgentCount;
-                var zombieShellCount = tracking.Snapshot.ShellCount;
+                // Log zombie expiry (fingerprint indicates tasks were present but timed out)
                 if (!hasActiveTasks && !idlePayloadIsStale && !onlyCarryOverShellsRemain && deferTicks != 0 &&
-                    (zombieAgentCount > 0 || zombieShellCount > 0))
+                    !string.IsNullOrEmpty(currentFingerprint))
                 {
                     var expiredMinutes = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - deferTicks).TotalMinutes;
-                    Debug($"[IDLE-DEFER-ZOMBIE] '{sessionName}' {zombieAgentCount} agent(s) + {zombieShellCount} shell(s) " +
+                    Debug($"[IDLE-DEFER-ZOMBIE] '{sessionName}' background tasks " +
                           $"expired after {expiredMinutes:F0}min " +
                           $"(threshold={SubagentZombieTimeoutMinutes}min) — allowing session to complete");
                 }
@@ -2591,10 +2612,9 @@ public partial class CopilotService
     /// legitimate long-running shell work.
     /// </summary>
     internal static bool HasActiveBackgroundTasks(
-        SessionIdleEvent idle,
+        BackgroundTaskSnapshot snapshot,
         long idleDeferStartedAtTicks = 0)
     {
-        var snapshot = GetBackgroundTaskSnapshot(idle.Data?.BackgroundTasks);
         bool hasAgents = snapshot.AgentCount > 0;
         bool hasShells = snapshot.ShellCount > 0;
 

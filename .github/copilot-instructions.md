@@ -2,7 +2,7 @@
 
 ## SDK-First Development
 
-Before implementing new session lifecycle, orchestration, watchdog, or event handling code, check the Copilot SDK API surface. The `copilot-sdk-reference` skill has the complete v0.2.1 API reference (453 types, 76 events, 6 hooks, 16 RPC APIs). The `processing-state-safety` and `multi-agent-orchestration` skills each contain SDK migration matrices for their domains. Prefer SDK APIs over custom implementations. When custom code is necessary, add a `// SDK-gap: <reason>` comment explaining why.
+Before implementing new session lifecycle, orchestration, watchdog, or event handling code, check the Copilot SDK API surface. The `copilot-sdk-reference` skill has the complete v0.2.2 API reference (453 types, 76 events, 6 hooks, 16 RPC APIs). The `processing-state-safety` and `multi-agent-orchestration` skills each contain SDK migration matrices for their domains. Prefer SDK APIs over custom implementations. When custom code is necessary, add a `// SDK-gap: <reason>` comment explaining why.
 
 ### SDK Update Audit (run when bumping `GitHub.Copilot.SDK` version)
 
