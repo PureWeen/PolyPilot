@@ -960,34 +960,48 @@ Do something.
     }
 
     [Fact]
-    public void ReconcileOrganization_ExternalWorktree_PreservesGroupName_WhenPromoting()
+    public void ReconcileOrganization_ExternalWorktree_DoesNotPromoteUrlGroup()
     {
-        // Regression test: ReconcileOrganization's external worktree migration must
-        // preserve the group's name when promoting it to a local folder group.
+        // ReconcileOrganization must never promote a URL-based group to a local folder
+        // group. Instead, it creates a separate local folder group for the external path.
+        // This prevents the "3 maui groups" bug where promotion + session migration
+        // created multiple groups for the same repo.
         var repos = new List<RepositoryInfo>
         {
             new() { Id = "dotnet-maui", Name = "maui", Url = "https://github.com/dotnet/maui" }
         };
         // External worktree folder name is "maui2" — differs from group name "maui"
-        // Note: path need not exist on disk; ReconcileOrganization matches on repoId, not disk state.
-        var extPath = Path.Combine(Path.GetTempPath(), "maui2");
-        var worktrees = new List<WorktreeInfo>
+        var extPath = Path.Combine(Path.GetTempPath(), $"test-maui2-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(extPath);
+        try
         {
-            new() { Id = "ext-1", RepoId = "dotnet-maui", Branch = "main", Path = extPath }
-        };
-        var rm = CreateRepoManagerWithState(repos, worktrees);
-        var svc = CreateService(rm);
+            var worktrees = new List<WorktreeInfo>
+            {
+                new() { Id = "ext-1", RepoId = "dotnet-maui", Branch = "main", Path = extPath }
+            };
+            var rm = CreateRepoManagerWithState(repos, worktrees);
+            var svc = CreateService(rm);
 
-        // Create a URL-based group named "maui" (user's custom name)
-        var urlGroup = svc.GetOrCreateRepoGroup("dotnet-maui", "maui");
-        Assert.Equal("maui", urlGroup!.Name);
+            // Create a URL-based group named "maui" (user's custom name)
+            var urlGroup = svc.GetOrCreateRepoGroup("dotnet-maui", "maui");
+            Assert.Equal("maui", urlGroup!.Name);
 
-        svc.ReconcileOrganization();
+            svc.ReconcileOrganization();
 
-        var promoted = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
-        Assert.True(promoted.IsLocalFolder);
-        // Name must be "maui" — NOT "maui2" (the folder basename)
-        Assert.Equal("maui", promoted.Name);
+            // URL group must remain URL-based — NOT promoted
+            var originalGroup = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
+            Assert.False(originalGroup.IsLocalFolder);
+            Assert.Equal("maui", originalGroup.Name);
+
+            // A separate local folder group should be created for the external path
+            var localGroup = svc.Organization.Groups.FirstOrDefault(g =>
+                g.IsLocalFolder && g.LocalPath != null &&
+                string.Equals(Path.GetFullPath(g.LocalPath).TrimEnd(Path.DirectorySeparatorChar),
+                    Path.GetFullPath(extPath).TrimEnd(Path.DirectorySeparatorChar),
+                    StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(localGroup);
+        }
+        finally { try { Directory.Delete(extPath, true); } catch { } }
     }
 
     [Fact]
@@ -1033,39 +1047,47 @@ Do something.
     }
 
     [Fact]
-    public void ReconcileOrganization_ExternalWorktree_PromotesUrlGroupToLocalFolderGroup()
+    public void ReconcileOrganization_ExternalWorktree_CreatesLocalFolderGroup_LeavesUrlGroupAlone()
     {
-        // Regression test: on startup, ReconcileOrganization should automatically promote
-        // URL-based groups to local folder groups when an external worktree is registered
-        // but no local folder group exists yet.
+        // ReconcileOrganization should create a separate local folder group for the
+        // external worktree path WITHOUT modifying the existing URL-based group.
         var repos = new List<RepositoryInfo>
         {
             new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
         };
-        // Use cross-platform temp paths to avoid Windows-only literal failures on macOS/Linux
-        var extPath = Path.Combine(Path.GetTempPath(), "MyRepo");
+        var extPath = Path.Combine(Path.GetTempPath(), $"test-MyRepo-{Guid.NewGuid():N}");
         var centralPath = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees", "repo-1-wt1");
-        var worktrees = new List<WorktreeInfo>
+        Directory.CreateDirectory(extPath);
+        try
         {
-            // External: user's local folder, NOT under the managed worktrees dir and NOT nested
-            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = extPath },
-            // Centralized: under the managed worktrees dir (simulated by putting it under .polypilot/worktrees)
-            new() { Id = "wt-1", RepoId = "repo-1", Branch = "session-123", Path = centralPath }
-        };
-        var rm = CreateRepoManagerWithState(repos, worktrees);
-        var svc = CreateService(rm);
+            var worktrees = new List<WorktreeInfo>
+            {
+                new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = extPath },
+                new() { Id = "wt-1", RepoId = "repo-1", Branch = "session-123", Path = centralPath }
+            };
+            var rm = CreateRepoManagerWithState(repos, worktrees);
+            var svc = CreateService(rm);
 
-        // Set up: a URL-based group (no LocalPath) — simulates old code behavior
-        var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
-        Assert.False(urlGroup!.IsLocalFolder);
+            // Set up: a URL-based group (no LocalPath) — simulates old code behavior
+            var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+            Assert.False(urlGroup!.IsLocalFolder);
 
-        // Run reconciliation — it should detect the external worktree and promote urlGroup
-        svc.ReconcileOrganization();
+            svc.ReconcileOrganization();
 
-        var promoted = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
-        Assert.True(promoted.IsLocalFolder);
-        Assert.Equal(Path.GetFullPath(extPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-            promoted.LocalPath);
+            // URL group must remain URL-based
+            var originalGroup = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
+            Assert.False(originalGroup.IsLocalFolder);
+
+            // A new local folder group should exist for the external path
+            var normalizedExt = Path.GetFullPath(extPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var localGroup = svc.Organization.Groups.FirstOrDefault(g =>
+                g.IsLocalFolder && g.LocalPath != null &&
+                string.Equals(
+                    Path.GetFullPath(g.LocalPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    normalizedExt, StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(localGroup);
+        }
+        finally { try { Directory.Delete(extPath, true); } catch { } }
     }
 
     [Fact]
@@ -1206,56 +1228,55 @@ Do something.
     }
 
     [Fact]
-    public void ReconcileOrganization_Promotion_MigratesNonLocalSessions()
+    public void ReconcileOrganization_NoPromotion_SessionsStayInUrlGroup()
     {
-        // When a URL-based group is promoted to a local folder group, sessions whose
-        // worktree paths are NOT under the new LocalPath should be migrated to a
-        // fresh URL-based group instead of being stranded in the local folder group.
+        // With the no-promotion fix, sessions in a URL-based group stay exactly where
+        // they are even when external worktrees exist. No migration is needed.
         var repos = new List<RepositoryInfo>
         {
             new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
         };
-        var extPath = Path.Combine(Path.GetTempPath(), "MyRepo");
+        var extPath = Path.Combine(Path.GetTempPath(), $"test-MyRepo-{Guid.NewGuid():N}");
         var managedPath = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees", "repo-1-wt1");
-        var worktrees = new List<WorktreeInfo>
+        Directory.CreateDirectory(extPath);
+        try
         {
-            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = extPath },
-            new() { Id = "managed-1", RepoId = "repo-1", Branch = "feature-x", Path = managedPath }
-        };
-        var rm = CreateRepoManagerWithState(repos, worktrees);
-        var svc = CreateService(rm);
+            var worktrees = new List<WorktreeInfo>
+            {
+                new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = extPath },
+                new() { Id = "managed-1", RepoId = "repo-1", Branch = "feature-x", Path = managedPath }
+            };
+            var rm = CreateRepoManagerWithState(repos, worktrees);
+            var svc = CreateService(rm);
 
-        // Create URL-based group and put a session with a managed worktree in it
-        var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
-        svc.Organization.Sessions.Add(new SessionMeta
-        {
-            SessionName = "managed-session",
-            GroupId = urlGroup!.Id,
-            WorktreeId = "managed-1"
-        });
+            // Create URL-based group and put a session with a managed worktree in it
+            var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+            svc.Organization.Sessions.Add(new SessionMeta
+            {
+                SessionName = "managed-session",
+                GroupId = urlGroup!.Id,
+                WorktreeId = "managed-1"
+            });
 
-        // Must set IsInitialized or the guard skips reconciliation when Sessions.Count > 0
-        typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+            typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+            svc.ReconcileOrganization(allowPruning: false);
 
-        // Run reconcile — should promote urlGroup to local folder AND migrate managed-session out
-        svc.ReconcileOrganization(allowPruning: false);
+            // URL group must remain URL-based
+            var originalGroup = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
+            Assert.False(originalGroup.IsLocalFolder);
 
-        // The promoted group should now be a local folder
-        var promoted = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
-        Assert.True(promoted.IsLocalFolder);
-
-        // managed-session should NOT be in the promoted group — it should be in a new URL-based group
-        var meta = svc.Organization.Sessions.First(m => m.SessionName == "managed-session");
-        Assert.NotEqual(urlGroup.Id, meta.GroupId);
-        var newGroup = svc.Organization.Groups.First(g => g.Id == meta.GroupId);
-        Assert.False(newGroup.IsLocalFolder);
-        Assert.Equal("repo-1", newGroup.RepoId);
+            // Session must stay in the URL group — NOT migrated anywhere
+            var meta = svc.Organization.Sessions.First(m => m.SessionName == "managed-session");
+            Assert.Equal(urlGroup.Id, meta.GroupId);
+        }
+        finally { try { Directory.Delete(extPath, true); } catch { } }
     }
 
     [Fact]
-    public void ReconcileOrganization_Promotion_SessionUnderLocalPath_StaysInPromotedGroup()
+    public void ReconcileOrganization_NoPromotion_NestedWorktreeSession_StaysInUrlGroup()
     {
-        // Sessions whose worktree IS under the LocalPath should stay in the promoted group.
+        // Sessions with nested worktrees (under the external path's .polypilot/worktrees)
+        // stay in the URL group — no promotion happens.
         var repos = new List<RepositoryInfo>
         {
             new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
@@ -1281,9 +1302,85 @@ Do something.
         typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
         svc.ReconcileOrganization(allowPruning: false);
 
-        // The session's worktree is under the local path — it should stay in the promoted group
+        // The session stays in the URL group — no promotion or migration occurred
         var meta = svc.Organization.Sessions.First(m => m.SessionName == "nested-session");
         Assert.Equal(urlGroup.Id, meta.GroupId);
+    }
+
+    [Fact]
+    public void ReconcileOrganization_MultipleExternalWorktrees_SameRepo_CreatesGroupPerPath()
+    {
+        // When multiple external worktrees exist for the same repo (e.g., ~/Projects/maui2
+        // and ~/Projects/maui3), ReconcileOrganization should create a separate local
+        // folder group for each path — NOT modify the URL-based group.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "dotnet-maui", Name = "maui", Url = "https://github.com/dotnet/maui" }
+        };
+        var extPath1 = Path.Combine(Path.GetTempPath(), $"test-maui2-{Guid.NewGuid():N}");
+        var extPath2 = Path.Combine(Path.GetTempPath(), $"test-maui3-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(extPath1);
+        Directory.CreateDirectory(extPath2);
+        try
+        {
+            var worktrees = new List<WorktreeInfo>
+            {
+                new() { Id = "ext-1", RepoId = "dotnet-maui", Branch = "main", Path = extPath1 },
+                new() { Id = "ext-2", RepoId = "dotnet-maui", Branch = "feature", Path = extPath2 }
+            };
+            var rm = CreateRepoManagerWithState(repos, worktrees);
+            var svc = CreateService(rm);
+
+            var urlGroup = svc.GetOrCreateRepoGroup("dotnet-maui", "maui");
+            // Add sessions to the URL group
+            svc.Organization.Sessions.Add(new SessionMeta { SessionName = "s1", GroupId = urlGroup!.Id });
+            svc.Organization.Sessions.Add(new SessionMeta { SessionName = "s2", GroupId = urlGroup.Id });
+
+            typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+            svc.ReconcileOrganization(allowPruning: false);
+
+            // URL group must remain URL-based with all its sessions
+            var originalGroup = svc.Organization.Groups.First(g => g.Id == urlGroup.Id);
+            Assert.False(originalGroup.IsLocalFolder);
+            Assert.Equal(2, svc.Organization.Sessions.Count(m => m.GroupId == urlGroup.Id));
+
+            // Two separate local folder groups should exist
+            var localGroups = svc.Organization.Groups.Where(g => g.IsLocalFolder && g.RepoId == "dotnet-maui").ToList();
+            Assert.Equal(2, localGroups.Count);
+        }
+        finally
+        {
+            try { Directory.Delete(extPath1, true); } catch { }
+            try { Directory.Delete(extPath2, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ReconcileOrganization_StaleExternalWorktree_SkippedWhenPathNotOnDisk()
+    {
+        // If an external worktree's path no longer exists on disk (stale repos.json entry),
+        // ReconcileOrganization should skip it — not create an empty local folder group.
+        var repos = new List<RepositoryInfo>
+        {
+            new() { Id = "repo-1", Name = "MyRepo", Url = "https://github.com/test/repo" }
+        };
+        // Use a path that definitely doesn't exist
+        var stalePath = Path.Combine(Path.GetTempPath(), $"nonexistent-{Guid.NewGuid():N}");
+        var worktrees = new List<WorktreeInfo>
+        {
+            new() { Id = "ext-1", RepoId = "repo-1", Branch = "main", Path = stalePath }
+        };
+        var rm = CreateRepoManagerWithState(repos, worktrees);
+        var svc = CreateService(rm);
+
+        var urlGroup = svc.GetOrCreateRepoGroup("repo-1", "MyRepo");
+        svc.ReconcileOrganization();
+
+        // URL group must remain URL-based
+        Assert.False(urlGroup!.IsLocalFolder);
+        // No local folder group should be created for the stale path
+        var localGroups = svc.Organization.Groups.Where(g => g.IsLocalFolder && g.RepoId == "repo-1").ToList();
+        Assert.Empty(localGroups);
     }
 
     [Fact]
@@ -1462,59 +1559,61 @@ public class AddExistingFolderScenarioTests
     public void Scenario_StartupMigration_AutoFixesExistingInstall()
     {
         // User had folder added via old code that created a URL-based group (no LocalPath).
-        // On startup, ReconcileOrganization should detect the external worktree and promote
-        // the URL-based group to a local folder group — without user intervention.
+        // On startup, ReconcileOrganization creates a separate local folder group for the
+        // external worktree — the URL-based group and its sessions stay untouched.
 
-        var sourceReposPath = Path.Combine(Path.GetTempPath(), "source", "repos", "PolyPilot");
+        var sourceReposPath = Path.Combine(Path.GetTempPath(), $"test-PolyPilot-{Guid.NewGuid():N}");
         var centralPath = Path.Combine(Path.GetTempPath(), ".polypilot", "worktrees", "polypilot-abc12345");
-
-        var repos = new List<RepositoryInfo>
+        Directory.CreateDirectory(sourceReposPath);
+        try
         {
-            new() { Id = "owner-polypilot", Name = "PolyPilot", Url = "https://github.com/owner/PolyPilot" }
-        };
-        var worktrees = new List<WorktreeInfo>
-        {
-            new() { Id = "ext-1", RepoId = "owner-polypilot", Branch = "main", Path = sourceReposPath },
-            new() { Id = "cen-1", RepoId = "owner-polypilot", Branch = "session-1", Path = centralPath }
-        };
-        var rm = CreateRepoManagerWithState(repos, worktrees);
-        var svc = CreateService(rm);
+            var repos = new List<RepositoryInfo>
+            {
+                new() { Id = "owner-polypilot", Name = "PolyPilot", Url = "https://github.com/owner/PolyPilot" }
+            };
+            var worktrees = new List<WorktreeInfo>
+            {
+                new() { Id = "ext-1", RepoId = "owner-polypilot", Branch = "main", Path = sourceReposPath },
+                new() { Id = "cen-1", RepoId = "owner-polypilot", Branch = "session-1", Path = centralPath }
+            };
+            var rm = CreateRepoManagerWithState(repos, worktrees);
+            var svc = CreateService(rm);
 
-        // Old-style state: only a URL-based group, no LocalPath
-        var oldUrlGroup = svc.GetOrCreateRepoGroup("owner-polypilot", "PolyPilot");
-        Assert.False(oldUrlGroup!.IsLocalFolder);
-        Assert.Null(oldUrlGroup.LocalPath);
+            // Old-style state: only a URL-based group, no LocalPath
+            var oldUrlGroup = svc.GetOrCreateRepoGroup("owner-polypilot", "PolyPilot");
+            Assert.False(oldUrlGroup!.IsLocalFolder);
+            Assert.Null(oldUrlGroup.LocalPath);
 
-        // Existing session in the URL group (simulating old persisted sessions)
-        svc.Organization.Sessions.Add(new SessionMeta
-        {
-            SessionName = "my-old-session",
-            GroupId = oldUrlGroup.Id,
-            WorktreeId = "cen-1"
-        });
+            // Existing session in the URL group (simulating old persisted sessions)
+            svc.Organization.Sessions.Add(new SessionMeta
+            {
+                SessionName = "my-old-session",
+                GroupId = oldUrlGroup.Id,
+                WorktreeId = "cen-1"
+            });
 
-        // Simulate the restore-phase reconciliation: IsInitialized must be true to pass the
-        // startup guard, and allowPruning=false prevents sessions without live counterparts
-        // from being pruned (matching RestorePreviousSessionsAsync behavior).
-        typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+            typeof(CopilotService).GetProperty("IsInitialized")!.SetValue(svc, true);
+            svc.ReconcileOrganization(allowPruning: false);
 
-        // Startup reconciliation runs (allowPruning:false = during session-restore window)
-        svc.ReconcileOrganization(allowPruning: false);
+            // URL group must remain URL-based — NOT promoted
+            var originalGroup = svc.Organization.Groups.First(g => g.Id == oldUrlGroup.Id);
+            Assert.False(originalGroup.IsLocalFolder);
 
-        // The URL group should be promoted to a local folder group
-        var promotedGroup = svc.Organization.Groups.First(g => g.Id == oldUrlGroup.Id);
-        Assert.True(promotedGroup.IsLocalFolder);
-        Assert.Equal(
-            Path.GetFullPath(sourceReposPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-            promotedGroup.LocalPath);
+            // Session stays in the URL group
+            var oldSession = svc.Organization.Sessions.First(m => m.SessionName == "my-old-session");
+            Assert.Equal(oldUrlGroup.Id, oldSession.GroupId);
 
-        // Existing session has a centralized worktree (not under the local folder path),
-        // so it should be migrated to a new URL-based group by the promotion migration logic.
-        var oldSession = svc.Organization.Sessions.First(m => m.SessionName == "my-old-session");
-        Assert.NotEqual(oldUrlGroup.Id, oldSession.GroupId);
-        var urlGroup = svc.Organization.Groups.First(g => g.Id == oldSession.GroupId);
-        Assert.False(urlGroup.IsLocalFolder);
-        Assert.Equal("owner-polypilot", urlGroup.RepoId);
+            // A separate local folder group should exist for the external path
+            var normalizedExt = Path.GetFullPath(sourceReposPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+            var localGroup = svc.Organization.Groups.FirstOrDefault(g =>
+                g.IsLocalFolder && g.LocalPath != null &&
+                string.Equals(
+                    Path.GetFullPath(g.LocalPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    normalizedExt, StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(localGroup);
+            Assert.Equal("owner-polypilot", localGroup!.RepoId);
+        }
+        finally { try { Directory.Delete(sourceReposPath, true); } catch { } }
     }
 
     [Fact]
