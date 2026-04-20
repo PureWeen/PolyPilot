@@ -1428,48 +1428,54 @@ public partial class CopilotService
     /// </summary>
     public SessionGroup? GetOrCreateRepoGroup(string repoId, string repoName, bool explicitly = false)
     {
-        // Skip multi-agent groups — they have a RepoId for worktree context but are
-        // not the "repo group" that regular sessions should auto-join.
-        // Also skip local folder groups — they are a separate concept from URL-based repo groups,
-        // and coexist with them when the same repo is added both ways.
-        // Also skip groups that have orchestrator/worker sessions (defensive: protects against
-        // IsMultiAgent being lost due to stale writes or serialization issues).
-        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent && !g.IsLocalFolder
-            && !Organization.Sessions.Any(m => m.GroupId == g.Id && m.Role == MultiAgentRole.Orchestrator));
-        if (existing != null) return existing;
-
-        // Don't recreate groups the user explicitly deleted (unless re-adding)
-        if (!explicitly && Organization.DeletedRepoGroupRepoIds.Contains(repoId))
-            return null;
-
-        // Don't create a URL-based group when a local folder group already covers this repo
-        // and no URL-based group exists. This prevents duplicate sidebar entries for local-only
-        // repos (e.g., "maui" appearing twice — once as local folder, once as URL-based).
-        // Local-only repos are identified by RepoManager.IsLocalOnlyRepoId (IDs containing the
-        // "-local-" infix from AddRepositoryFromLocalAsync). For these repos, the local folder
-        // group IS the repo's group — no URL-based group should be created.
-        // Exception: repos WITHOUT the local infix (same ID for both URL and local groups)
-        // are allowed to create URL groups for the heal-stranded-sessions scenario.
-        if (!explicitly && RepoManager.IsLocalOnlyRepoId(repoId)
-            && Organization.Groups.Any(g => g.RepoId == repoId && g.IsLocalFolder && !g.IsMultiAgent))
+        // Lock the entire check-then-create to prevent concurrent callers (e.g., ReconcileOrganization
+        // on ThreadPool + session restore) from both seeing "no existing group" and creating duplicates.
+        // Monitor is reentrant, so nested AddGroup() calls are safe.
+        lock (_organizationLock)
         {
-            return null;
+            // Skip multi-agent groups — they have a RepoId for worktree context but are
+            // not the "repo group" that regular sessions should auto-join.
+            // Also skip local folder groups — they are a separate concept from URL-based repo groups,
+            // and coexist with them when the same repo is added both ways.
+            // Also skip groups that have orchestrator/worker sessions (defensive: protects against
+            // IsMultiAgent being lost due to stale writes or serialization issues).
+            var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent && !g.IsLocalFolder
+                && !Organization.Sessions.Any(m => m.GroupId == g.Id && m.Role == MultiAgentRole.Orchestrator));
+            if (existing != null) return existing;
+
+            // Don't recreate groups the user explicitly deleted (unless re-adding)
+            if (!explicitly && Organization.DeletedRepoGroupRepoIds.Contains(repoId))
+                return null;
+
+            // Don't create a URL-based group when a local folder group already covers this repo
+            // and no URL-based group exists. This prevents duplicate sidebar entries for local-only
+            // repos (e.g., "maui" appearing twice — once as local folder, once as URL-based).
+            // Local-only repos are identified by RepoManager.IsLocalOnlyRepoId (IDs containing the
+            // "-local-" infix from AddRepositoryFromLocalAsync). For these repos, the local folder
+            // group IS the repo's group — no URL-based group should be created.
+            // Exception: repos WITHOUT the local infix (same ID for both URL and local groups)
+            // are allowed to create URL groups for the heal-stranded-sessions scenario.
+            if (!explicitly && RepoManager.IsLocalOnlyRepoId(repoId)
+                && Organization.Groups.Any(g => g.RepoId == repoId && g.IsLocalFolder && !g.IsMultiAgent))
+            {
+                return null;
+            }
+
+            // Clear the deleted flag when explicitly re-adding
+            Organization.DeletedRepoGroupRepoIds.Remove(repoId);
+
+            var group = new SessionGroup
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = repoName,
+                RepoId = repoId,
+                SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
+            };
+            AddGroup(group);
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+            return group;
         }
-
-        // Clear the deleted flag when explicitly re-adding
-        Organization.DeletedRepoGroupRepoIds.Remove(repoId);
-
-        var group = new SessionGroup
-        {
-            Id = Guid.NewGuid().ToString(),
-            Name = repoName,
-            RepoId = repoId,
-            SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
-        };
-        AddGroup(group);
-        SaveOrganization();
-        OnStateChanged?.Invoke();
-        return group;
     }
 
     /// <summary>
@@ -1483,36 +1489,40 @@ public partial class CopilotService
         var normalized = Path.GetFullPath(localPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        var existing = Organization.Groups.FirstOrDefault(g =>
-            g.IsLocalFolder &&
-            !g.IsMultiAgent &&
-            string.Equals(
-                Path.GetFullPath(g.LocalPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                normalized,
-                StringComparison.OrdinalIgnoreCase));
-        if (existing != null)
+        // Lock the entire check-then-create to prevent concurrent callers from creating duplicates.
+        lock (_organizationLock)
         {
-            bool changed = false;
-            if (existing.IsCollapsed) { existing.IsCollapsed = false; changed = true; }
-            // Back-fill RepoId if we now know it
-            if (repoId != null && existing.RepoId == null) { existing.RepoId = repoId; changed = true; }
-            if (changed) { SaveOrganization(); OnStateChanged?.Invoke(); }
-            return existing;
-        }
+            var existing = Organization.Groups.FirstOrDefault(g =>
+                g.IsLocalFolder &&
+                !g.IsMultiAgent &&
+                string.Equals(
+                    Path.GetFullPath(g.LocalPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    normalized,
+                    StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                bool changed = false;
+                if (existing.IsCollapsed) { existing.IsCollapsed = false; changed = true; }
+                // Back-fill RepoId if we now know it
+                if (repoId != null && existing.RepoId == null) { existing.RepoId = repoId; changed = true; }
+                if (changed) { SaveOrganization(); OnStateChanged?.Invoke(); }
+                return existing;
+            }
 
-        var folderName = Path.GetFileName(normalized);
-        var group = new SessionGroup
-        {
-            Id = Guid.NewGuid().ToString(),
-            Name = folderName,
-            LocalPath = normalized,
-            RepoId = repoId,
-            SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
-        };
-        AddGroup(group);
-        SaveOrganization();
-        OnStateChanged?.Invoke();
-        return group;
+            var folderName = Path.GetFileName(normalized);
+            var group = new SessionGroup
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = folderName,
+                LocalPath = normalized,
+                RepoId = repoId,
+                SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
+            };
+            AddGroup(group);
+            SaveOrganization();
+            OnStateChanged?.Invoke();
+            return group;
+        }
     }
 
     /// <summary>
