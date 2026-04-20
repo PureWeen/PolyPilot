@@ -1431,6 +1431,9 @@ public partial class CopilotService
         // Lock the entire check-then-create to prevent concurrent callers (e.g., ReconcileOrganization
         // on ThreadPool + session restore) from both seeing "no existing group" and creating duplicates.
         // Monitor is reentrant, so nested AddGroup() calls are safe.
+        // Side effects (SaveOrganization + OnStateChanged) are outside the lock to match the
+        // file-wide convention and avoid latent deadlock risk from event subscribers.
+        SessionGroup? created = null;
         lock (_organizationLock)
         {
             // Skip multi-agent groups — they have a RepoId for worktree context but are
@@ -1464,18 +1467,18 @@ public partial class CopilotService
             // Clear the deleted flag when explicitly re-adding
             Organization.DeletedRepoGroupRepoIds.Remove(repoId);
 
-            var group = new SessionGroup
+            created = new SessionGroup
             {
                 Id = Guid.NewGuid().ToString(),
                 Name = repoName,
                 RepoId = repoId,
                 SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
             };
-            AddGroup(group);
-            SaveOrganization();
-            OnStateChanged?.Invoke();
-            return group;
+            AddGroup(created);
         }
+        SaveOrganization();
+        OnStateChanged?.Invoke();
+        return created;
     }
 
     /// <summary>
@@ -1490,6 +1493,10 @@ public partial class CopilotService
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
         // Lock the entire check-then-create to prevent concurrent callers from creating duplicates.
+        // Side effects (SaveOrganization + OnStateChanged) are outside the lock to match the
+        // file-wide convention and avoid latent deadlock risk from event subscribers.
+        SessionGroup result;
+        bool notify = false;
         lock (_organizationLock)
         {
             var existing = Organization.Groups.FirstOrDefault(g =>
@@ -1501,28 +1508,28 @@ public partial class CopilotService
                     StringComparison.OrdinalIgnoreCase));
             if (existing != null)
             {
-                bool changed = false;
-                if (existing.IsCollapsed) { existing.IsCollapsed = false; changed = true; }
+                if (existing.IsCollapsed) { existing.IsCollapsed = false; notify = true; }
                 // Back-fill RepoId if we now know it
-                if (repoId != null && existing.RepoId == null) { existing.RepoId = repoId; changed = true; }
-                if (changed) { SaveOrganization(); OnStateChanged?.Invoke(); }
-                return existing;
+                if (repoId != null && existing.RepoId == null) { existing.RepoId = repoId; notify = true; }
+                result = existing;
             }
-
-            var folderName = Path.GetFileName(normalized);
-            var group = new SessionGroup
+            else
             {
-                Id = Guid.NewGuid().ToString(),
-                Name = folderName,
-                LocalPath = normalized,
-                RepoId = repoId,
-                SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
-            };
-            AddGroup(group);
-            SaveOrganization();
-            OnStateChanged?.Invoke();
-            return group;
+                var folderName = Path.GetFileName(normalized);
+                result = new SessionGroup
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Name = folderName,
+                    LocalPath = normalized,
+                    RepoId = repoId,
+                    SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
+                };
+                AddGroup(result);
+                notify = true;
+            }
         }
+        if (notify) { SaveOrganization(); OnStateChanged?.Invoke(); }
+        return result;
     }
 
     /// <summary>
@@ -1538,45 +1545,56 @@ public partial class CopilotService
         var normalized = Path.GetFullPath(localPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        // If a local folder group already exists for this exact path, just update it.
-        var alreadyLocal = Organization.Groups.FirstOrDefault(g =>
-            g.IsLocalFolder && !g.IsMultiAgent &&
-            string.Equals(
-                Path.GetFullPath(g.LocalPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                normalized, StringComparison.OrdinalIgnoreCase));
-        if (alreadyLocal != null)
+        // Lock the entire check-then-promote/create to prevent concurrent callers from racing
+        // on the same candidate group (same TOCTOU pattern as GetOrCreateRepoGroup).
+        // Side effects (SaveOrganization + OnStateChanged) are outside the lock.
+        SessionGroup? result = null;
+        bool notify = false;
+        lock (_organizationLock)
         {
-            bool changed = false;
-            if (alreadyLocal.IsCollapsed) { alreadyLocal.IsCollapsed = false; changed = true; }
-            if (repoId != null && alreadyLocal.RepoId == null) { alreadyLocal.RepoId = repoId; changed = true; }
-            if (changed) { SaveOrganization(); OnStateChanged?.Invoke(); }
-            return alreadyLocal;
+            // If a local folder group already exists for this exact path, just update it.
+            var alreadyLocal = Organization.Groups.FirstOrDefault(g =>
+                g.IsLocalFolder && !g.IsMultiAgent &&
+                string.Equals(
+                    Path.GetFullPath(g.LocalPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    normalized, StringComparison.OrdinalIgnoreCase));
+            if (alreadyLocal != null)
+            {
+                if (alreadyLocal.IsCollapsed) { alreadyLocal.IsCollapsed = false; notify = true; }
+                if (repoId != null && alreadyLocal.RepoId == null) { alreadyLocal.RepoId = repoId; notify = true; }
+                result = alreadyLocal;
+            }
+
+            // Look for an existing URL-based group for this repo to promote in-place.
+            // Pick the most recently created (highest SortOrder) non-multi-agent group.
+            // This handles migration from older code versions that created URL-based groups
+            // instead of local folder groups when the user added an existing folder.
+            if (result == null && repoId != null)
+            {
+                var candidate = Organization.Groups
+                    .Where(g => g.RepoId == repoId && !g.IsLocalFolder && !g.IsMultiAgent)
+                    .OrderByDescending(g => g.SortOrder)
+                    .FirstOrDefault();
+                if (candidate != null)
+                {
+                    candidate.LocalPath = normalized;
+                    // Preserve the user's group name — don't overwrite with the folder basename.
+                    // The old code did: candidate.Name = Path.GetFileName(normalized)
+                    // which destroyed user-customized names (e.g., "maui" → "maui2").
+                    // Fallback: if the group somehow has an empty name, use the folder basename.
+                    if (string.IsNullOrWhiteSpace(candidate.Name))
+                        candidate.Name = Path.GetFileName(normalized);
+                    notify = true;
+                    result = candidate;
+                    Debug($"PromoteOrCreateLocalFolderGroup: promoted '{candidate.Id}' ('{candidate.Name}') to local folder group for '{normalized}'");
+                }
+            }
         }
 
-        // Look for an existing URL-based group for this repo to promote in-place.
-        // Pick the most recently created (highest SortOrder) non-multi-agent group.
-        // This handles migration from older code versions that created URL-based groups
-        // instead of local folder groups when the user added an existing folder.
-        if (repoId != null)
+        if (result != null)
         {
-            var candidate = Organization.Groups
-                .Where(g => g.RepoId == repoId && !g.IsLocalFolder && !g.IsMultiAgent)
-                .OrderByDescending(g => g.SortOrder)
-                .FirstOrDefault();
-            if (candidate != null)
-            {
-                candidate.LocalPath = normalized;
-                // Preserve the user's group name — don't overwrite with the folder basename.
-                // The old code did: candidate.Name = Path.GetFileName(normalized)
-                // which destroyed user-customized names (e.g., "maui" → "maui2").
-                // Fallback: if the group somehow has an empty name, use the folder basename.
-                if (string.IsNullOrWhiteSpace(candidate.Name))
-                    candidate.Name = Path.GetFileName(normalized);
-                SaveOrganization();
-                OnStateChanged?.Invoke();
-                Debug($"PromoteOrCreateLocalFolderGroup: promoted '{candidate.Id}' ('{candidate.Name}') to local folder group for '{normalized}'");
-                return candidate;
-            }
+            if (notify) { SaveOrganization(); OnStateChanged?.Invoke(); }
+            return result;
         }
 
         // No existing group to promote — create a fresh local folder group.
