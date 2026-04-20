@@ -585,6 +585,9 @@ public partial class CopilotService
                                     g.LocalPath != null &&
                                     (normalizedWtPathAuto.StartsWith(g.LocalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                                      || string.Equals(normalizedWtPathAuto, g.LocalPath, StringComparison.OrdinalIgnoreCase)))
+                                    // Fallback: if no path-aware match (e.g., managed worktree under
+                                    // ~/.polypilot/worktrees/), pick any local folder group for this repo.
+                                    // The heal-stranded-sessions block below corrects any misassignment.
                                     ?? Organization.Groups.FirstOrDefault(g =>
                                         g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
                                 if (localFolderGroup != null)
@@ -625,6 +628,7 @@ public partial class CopilotService
                             g.LocalPath != null &&
                             (normalizedWtPathAuto2.StartsWith(g.LocalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
                              || string.Equals(normalizedWtPathAuto2, g.LocalPath, StringComparison.OrdinalIgnoreCase)))
+                            // Fallback: same heal-stranded-sessions dependency as above.
                             ?? Organization.Groups.FirstOrDefault(g =>
                                 g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
                         if (localFolderGroup != null)

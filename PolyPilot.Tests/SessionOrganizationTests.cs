@@ -996,8 +996,8 @@ Do something.
             // A separate local folder group should be created for the external path
             var localGroup = svc.Organization.Groups.FirstOrDefault(g =>
                 g.IsLocalFolder && g.LocalPath != null &&
-                string.Equals(Path.GetFullPath(g.LocalPath).TrimEnd(Path.DirectorySeparatorChar),
-                    Path.GetFullPath(extPath).TrimEnd(Path.DirectorySeparatorChar),
+                string.Equals(Path.GetFullPath(g.LocalPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    Path.GetFullPath(extPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
                     StringComparison.OrdinalIgnoreCase));
             Assert.NotNull(localGroup);
         }
