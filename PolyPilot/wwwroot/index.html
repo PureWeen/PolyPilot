@@ -45,15 +45,16 @@
 
         // On iOS WebKit, tapping ⋯ causes a ghost touch on the flyout-backdrop
         // because the menu-overlay hasn't rendered yet. This capture-phase handler:
-        // 1. Records when menu elements are touched (timestamp)
-        // 2. Blocks flyout-backdrop clicks that occur within 1s of a menu interaction
+        // 1. Records when the ⋯ button or menu content is touched (timestamp)
+        // 2. Blocks flyout-backdrop clicks that occur within 350ms of a menu interaction
+        // Note: .menu-overlay is excluded — it's the dismiss action, not a ghost-click source.
         ['click', 'pointerdown', 'pointerup'].forEach(function(evtName) {
             document.addEventListener(evtName, function(e) {
-                if (e.target.closest('.more-btn') || e.target.closest('.menu-overlay') || e.target.closest('.session-menu')) {
+                if (e.target.closest('.more-btn') || e.target.closest('.session-menu')) {
                     window.__menuInteraction = Date.now();
                 }
                 // Block flyout-backdrop events during menu interaction
-                if (e.target.closest('.flyout-backdrop') && window.__menuInteraction && (Date.now() - window.__menuInteraction) < 1000) {
+                if (e.target.closest('.flyout-backdrop') && window.__menuInteraction && (Date.now() - window.__menuInteraction) < 350) {
                     e.stopImmediatePropagation();
                     e.preventDefault();
                     if (evtName === 'click') window.__menuInteraction = 0; // reset after consumed
@@ -1533,14 +1534,24 @@
             if (scrollParent) scrollParent.style.overflow = 'hidden';
             // Restore scroll when menu closes (Blazor removes it from DOM)
             var parent = menu.parentElement || document.body;
+            var cleanup = function() {
+                if (flyout) flyout.style.overflow = '';
+                if (scrollParent) scrollParent.style.overflow = '';
+            };
             var observer = new MutationObserver(function(mutations) {
                 if (!parent.contains(menu)) {
-                    if (flyout) flyout.style.overflow = '';
-                    if (scrollParent) scrollParent.style.overflow = '';
+                    cleanup();
                     observer.disconnect();
+                    clearTimeout(cleanupTimeout);
                 }
             });
             observer.observe(parent, { childList: true });
+            // Fallback: if Blazor removes the parent itself (e.g. navigation),
+            // the observer never fires. Clean up after 10s to prevent stuck overflow.
+            var cleanupTimeout = setTimeout(function() {
+                cleanup();
+                observer.disconnect();
+            }, 10000);
         };
     </script>
 

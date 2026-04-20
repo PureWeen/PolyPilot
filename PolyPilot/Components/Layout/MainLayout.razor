@@ -213,7 +213,9 @@
         if (flyoutOpen)
         {
             // Dismiss the keyboard on mobile — the chat input retains focus behind the flyout
-            _ = JS.InvokeVoidAsync("eval", "document.activeElement?.blur()");
+            _ = JS.InvokeVoidAsync("eval", "document.activeElement?.blur()")
+                .AsTask().ContinueWith(t => Console.WriteLine($"[MainLayout] blur failed: {t.Exception?.InnerException?.Message}"),
+                    TaskContinuationOptions.OnlyOnFaulted);
         }
     }
 
