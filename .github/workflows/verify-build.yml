@@ -85,34 +85,92 @@ jobs:
     runs-on: ubuntu-latest
     needs: [test, build-catalyst, build-windows]
     if: always()
+    permissions:
+      pull-requests: write
     steps:
-      - name: Post result to PR
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Gather build context
+        id: context
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           PR=${{ inputs.pr_number }}
-          TEST="${{ needs.test.result }}"
-          CATALYST="${{ needs.build-catalyst.result }}"
-          WINDOWS="${{ needs.build-windows.result }}"
 
-          if [ "$TEST" = "success" ] && [ "$CATALYST" = "success" ] && [ "$WINDOWS" = "success" ]; then
+          # Get previous review comments from gh-aw bot
+          gh api repos/${{ github.repository }}/pulls/${PR}/reviews \
+            --jq '.[] | select(.user.login == "github-actions[bot]") | .body' \
+            > /tmp/previous-reviews.txt 2>/dev/null || true
+
+          # Get the full diff
+          gh pr diff "$PR" > /tmp/pr-diff.txt 2>/dev/null || true
+
+          # Get PR description
+          gh pr view "$PR" --json title,body --jq '.title + "\n\n" + .body' > /tmp/pr-desc.txt 2>/dev/null || true
+
+          # Get changed files
+          gh pr diff "$PR" --name-only > /tmp/changed-files.txt 2>/dev/null || true
+
+          # Collect build results
+          echo "test=${{ needs.test.result }}" >> "$GITHUB_OUTPUT"
+          echo "catalyst=${{ needs.build-catalyst.result }}" >> "$GITHUB_OUTPUT"
+          echo "windows=${{ needs.build-windows.result }}" >> "$GITHUB_OUTPUT"
+
+      - name: Post verification report
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_RESULT: ${{ steps.context.outputs.test }}
+          CATALYST_RESULT: ${{ steps.context.outputs.catalyst }}
+          WINDOWS_RESULT: ${{ steps.context.outputs.windows }}
+        run: |
+          PR=${{ inputs.pr_number }}
+
+          if [ "$TEST_RESULT" = "success" ] && [ "$CATALYST_RESULT" = "success" ] && [ "$WINDOWS_RESULT" = "success" ]; then
             STATUS="✅ All platforms verified"
-            EMOJI="white_check_mark"
           else
             STATUS="❌ Platform verification failed"
-            EMOJI="x"
           fi
 
-          BODY="## Cross-Platform Verification — PR #${PR}
+          # Build the report
+          cat > /tmp/report.md << 'REPORT_HEADER'
+          ## Cross-Platform Verification — PR #PRNUM
+
+          ### Build Results
 
           | Platform | Status |
           |----------|--------|
-          | Tests (macOS) | $([ \"$TEST\" = 'success' ] && echo '✅' || echo '❌') $TEST |
-          | Mac Catalyst build | $([ \"$CATALYST\" = 'success' ] && echo '✅' || echo '❌') $CATALYST |
-          | Windows build | $([ \"$WINDOWS\" = 'success' ] && echo '✅' || echo '❌') $WINDOWS |
+          REPORT_HEADER
 
-          **${STATUS}**
+          sed -i "s/PRNUM/$PR/" /tmp/report.md
 
-          Triggered by: [verify-build run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+          echo "| Tests (macOS) | $([ "$TEST_RESULT" = 'success' ] && echo '✅' || echo '❌') $TEST_RESULT |" >> /tmp/report.md
+          echo "| Mac Catalyst build | $([ "$CATALYST_RESULT" = 'success' ] && echo '✅' || echo '❌') $CATALYST_RESULT |" >> /tmp/report.md
+          echo "| Windows build | $([ "$WINDOWS_RESULT" = 'success' ] && echo '✅' || echo '❌') $WINDOWS_RESULT |" >> /tmp/report.md
 
-          gh pr comment "$PR" --body "$BODY"
+          echo "" >> /tmp/report.md
+          echo "**${STATUS}**" >> /tmp/report.md
+          echo "" >> /tmp/report.md
+
+          # If any build failed, include diagnostic info
+          if [ "$STATUS" != "✅ All platforms verified" ]; then
+            echo "### ⚠️ Failed Platforms Need Investigation" >> /tmp/report.md
+            echo "" >> /tmp/report.md
+            echo "Check the [workflow run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}) for build logs." >> /tmp/report.md
+            echo "" >> /tmp/report.md
+          fi
+
+          # Include previous review context summary
+          if [ -s /tmp/previous-reviews.txt ]; then
+            REVIEW_COUNT=$(grep -c "^##" /tmp/previous-reviews.txt 2>/dev/null || echo "0")
+            echo "### Previous Review History" >> /tmp/report.md
+            echo "" >> /tmp/report.md
+            echo "Found $REVIEW_COUNT automated review(s) on this PR. Build verification validates that all review-driven fixes compile and pass tests across platforms." >> /tmp/report.md
+            echo "" >> /tmp/report.md
+          fi
+
+          echo "---" >> /tmp/report.md
+          echo "Triggered by: [verify-build run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> /tmp/report.md
+
+          gh pr comment "$PR" --body "$(cat /tmp/report.md)"
