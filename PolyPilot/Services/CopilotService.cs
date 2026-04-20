@@ -1955,12 +1955,12 @@ public partial class CopilotService : IAsyncDisposable
     /// <summary>
     /// Load MCP server configurations for per-session registration via SessionConfig.McpServers.
     /// Merges servers from ~/.copilot/mcp-servers.json, ~/.copilot/mcp-config.json, and installed plugins.
-    /// Returns McpLocalServerConfig or McpRemoteServerConfig objects that the SDK can serialize properly.
+    /// Returns McpStdioServerConfig or McpHttpServerConfig objects that the SDK can serialize properly.
     /// Skips servers in the disabled list.
     /// </summary>
-    internal static Dictionary<string, object>? LoadMcpServers(IReadOnlyCollection<string>? disabledServers = null, IReadOnlyCollection<string>? disabledPlugins = null)
+    internal static Dictionary<string, McpServerConfig>? LoadMcpServers(IReadOnlyCollection<string>? disabledServers = null, IReadOnlyCollection<string>? disabledPlugins = null)
     {
-        var servers = new Dictionary<string, object>();
+        var servers = new Dictionary<string, McpServerConfig>();
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var copilotDir = Path.Combine(home, ".copilot");
         var disabled = disabledServers ?? Array.Empty<string>();
@@ -2075,7 +2075,7 @@ public partial class CopilotService : IAsyncDisposable
     /// Appends MCP server guidance to the session system message so the model knows which
     /// servers are configured and can suggest /mcp reload instead of looping on failures.
     /// </summary>
-    private static void AppendMcpServerGuidance(StringBuilder systemContent, Dictionary<string, object>? mcpServers)
+    private static void AppendMcpServerGuidance(StringBuilder systemContent, Dictionary<string, McpServerConfig>? mcpServers)
     {
         if (mcpServers == null || mcpServers.Count == 0) return;
         systemContent.AppendLine($@"
@@ -2320,11 +2320,11 @@ The user can also check configured servers with the /mcp command.
 
     /// <summary>
     /// Parse a JSON element into the appropriate MCP server config type.
-    /// HTTP-type servers (with "type": "http" or a "url" property) use McpRemoteServerConfig.
-    /// Command-based servers use McpLocalServerConfig with a default CWD to prevent
+    /// HTTP-type servers (with "type": "http" or a "url" property) use McpHttpServerConfig.
+    /// Command-based servers use McpStdioServerConfig with a default CWD to prevent
     /// child process ENOENT crashes when the headless server's CWD is invalid.
     /// </summary>
-    private static object ParseMcpServerConfig(JsonElement element)
+    private static McpServerConfig ParseMcpServerConfig(JsonElement element)
     {
         var isRemote = false;
         if (element.TryGetProperty("type", out var typeEl))
@@ -2342,15 +2342,13 @@ The user can also check configured servers with the /mcp command.
         return ParseLocalMcpServerConfig(element);
     }
 
-    private static McpRemoteServerConfig ParseRemoteMcpServerConfig(JsonElement element)
+    private static McpHttpServerConfig ParseRemoteMcpServerConfig(JsonElement element)
     {
-        var config = new McpRemoteServerConfig();
+        var config = new McpHttpServerConfig();
         if (element.TryGetProperty("url", out var url))
             config.Url = url.GetString() ?? "";
         if (element.TryGetProperty("headers", out var headers) && headers.ValueKind == JsonValueKind.Object)
             config.Headers = headers.EnumerateObject().ToDictionary(p => p.Name, p => p.Value.GetString() ?? "");
-        if (element.TryGetProperty("type", out var type))
-            config.Type = type.GetString() ?? "";
         if (element.TryGetProperty("tools", out var tools) && tools.ValueKind == JsonValueKind.Array)
             config.Tools = tools.EnumerateArray().Select(t => t.GetString() ?? "").ToList();
         else
@@ -2360,9 +2358,9 @@ The user can also check configured servers with the /mcp command.
         return config;
     }
 
-    private static McpLocalServerConfig ParseLocalMcpServerConfig(JsonElement element)
+    private static McpStdioServerConfig ParseLocalMcpServerConfig(JsonElement element)
     {
-        var config = new McpLocalServerConfig();
+        var config = new McpStdioServerConfig();
         if (element.TryGetProperty("command", out var cmd))
             config.Command = cmd.GetString() ?? "";
         if (element.TryGetProperty("args", out var args) && args.ValueKind == JsonValueKind.Array)
@@ -2375,8 +2373,6 @@ The user can also check configured servers with the /mcp command.
         // headless server's CWD is an invalid/deleted directory (e.g., staging path).
         if (string.IsNullOrEmpty(config.Cwd))
             config.Cwd = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (element.TryGetProperty("type", out var type))
-            config.Type = type.GetString() ?? "";
         if (element.TryGetProperty("tools", out var tools) && tools.ValueKind == JsonValueKind.Array)
             config.Tools = tools.EnumerateArray().Select(t => t.GetString() ?? "").ToList();
         else
@@ -3313,7 +3309,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // Use the SDK's Model.SwitchToAsync for a lightweight mid-session model switch.
             // This preserves the session, conversation history, and event handlers — no need
             // to dispose/recreate the session or rewire event callbacks.
-            await state.Session.Rpc.Model.SwitchToAsync(normalizedModel, reasoningEffort, cancellationToken);
+            await state.Session.Rpc.Model.SwitchToAsync(normalizedModel, reasoningEffort, null, cancellationToken);
 
             state.Info.Model = normalizedModel;
             state.Info.ReasoningEffort = reasoningEffort;
