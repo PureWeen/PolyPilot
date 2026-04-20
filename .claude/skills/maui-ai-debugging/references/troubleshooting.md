@@ -8,7 +8,7 @@
 
 ## Connection Refused / Cannot Connect
 
-If `maui devflow MAUI status` fails with connection refused:
+If `maui devflow ui status` fails with connection refused:
 
 1. **App not running?** Verify the app launched: check the build output for errors.
 2. **Check the broker:** Run `maui devflow list` to see if the agent registered. If the list
@@ -60,11 +60,11 @@ profiles via `apple appstoreconnect profiles list`.
 
 ## CDP Not Connecting (Blazor Hybrid)
 
-If `maui devflow cdp status` fails but `MAUI status` works:
+If `maui devflow webview status` fails but `ui status` works:
 
 1. **Chobitsu not loading?** Check logs for `[BlazorDevFlow]` messages. If auto-injection failed, add `<script src="chobitsu.js"></script>` manually to `wwwroot/index.html`
 2. **Blazor not initialized?** Navigate to a Blazor page first, then retry
-3. Check app logs: `maui devflow MAUI logs --limit 20` — look for `[BlazorDevFlow]` errors
+3. Check app logs: `maui devflow logs --limit 20` — look for `[BlazorDevFlow]` errors
 
 ## Mac Catalyst: Repeated Permission Dialogs on Rebuild
 
