@@ -232,6 +232,11 @@ resources:                                                       # Companion fil
   - triage-issue.md
   - shared/helper-action.yml
 labels: ["automation", "ci"]                                     # For gh aw status --label filtering
+checkout: false                                                  # Skip repo checkout (for workflows that only use MCP/API, no source needed)
+
+rate-limit:                  # Throttle slash commands to prevent abuse
+  max: 5                     # Max invocations per window
+  window: 60                 # Window in seconds
 
 runtimes:                    # Override default runtime versions
   dotnet:
@@ -245,6 +250,12 @@ imports:                     # APM package dependencies
       packages:
         - microsoft/apm-sample-package
 ```
+
+**`checkout: false`** — Skip the default repository checkout when the workflow doesn't need source code (e.g., ChatOps commands that only call APIs via `web-fetch`). Saves ~10-30s of runner time.
+
+**`rate-limit:`** — Throttle slash command invocations to prevent abuse or accidental spam. The `max` field limits invocations per `window` seconds. Useful for commands that call external APIs or create issues.
+
+**Available tools:** `web-fetch` (fetch URLs), `bash` (shell commands), GitHub MCP toolsets (`pull_requests`, `repos`, `issues`, etc.). Use `tools: [web-fetch]` for workflows that call external APIs.
 
 Supported runtimes: `node`, `python`, `go`, `uv`, `bun`, `deno`, `ruby`, `java`, `dotnet`, `elixir`.
 
