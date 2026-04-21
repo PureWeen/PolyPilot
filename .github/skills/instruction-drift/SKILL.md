@@ -127,3 +127,22 @@ style: |
 - **Respect `divergence:` sections.** These contain hard-won operational knowledge that doesn't come from upstream docs. Never suggest removing this content.
 - **Report fetch failures loudly.** A 404 on a tracked URL is a signal that the manifest needs updating, not that nothing changed.
 - **Distinguish mechanical vs. judgment changes.** A closed issue is a mechanical fact. A restructured docs page requires human judgment about what to update.
+
+## Upstream Knowledge Extraction (Scan-GhAwUpdates.ps1)
+
+For the `gh-aw-guide` skill specifically, a second script mines the `github/gh-aw` repo directly:
+
+```powershell
+pwsh .github/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1
+pwsh .github/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1 -MaxCommits 100 -DryRun
+```
+
+This script:
+1. **Tracks a watermark** (last checked commit SHA in `.gh-aw-watermark.json`)
+2. **Fetches new commits** since the watermark
+3. **Filters to high-signal changes** — features, safe-output additions, trigger changes, compiler updates, security fixes, breaking changes
+4. **Extracts new features** categorized by type (safe-output, trigger, compiler, security, engine, breaking)
+5. **Samples shared/ workflow configs** for real-world safe-output patterns
+6. **Outputs a JSON knowledge report** with categorized changes
+
+Use this when the Check-Staleness.ps1 reports that gh-aw docs pages have changed — Scan-GhAwUpdates tells you *what* changed at the commit level so you can update the skill with specific new features rather than re-reading entire doc pages.
