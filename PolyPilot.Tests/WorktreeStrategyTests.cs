@@ -802,6 +802,13 @@ public class WorktreeStrategyTests
             // Borrowed worktree should NOT set group.WorktreeId (prevents DeleteGroup from destroying it)
             Assert.Null(group!.WorktreeId);
 
+            // Session metadata WorktreeId must also be null — DeleteGroup collects from
+            // session metadata too, so borrowed IDs must not leak there.
+            var allMetas = svc.Organization.Sessions
+                .Where(s => s.GroupId == group!.Id)
+                .ToList();
+            Assert.All(allMetas, m => Assert.Null(m.WorktreeId));
+
             // Sessions should use the existing worktree path, not a temp dir
             var organized = svc.GetOrganizedSessions();
             var groupSessions = organized.FirstOrDefault(g => g.Group.Id == group!.Id).Sessions;
@@ -871,6 +878,11 @@ public class WorktreeStrategyTests
             Assert.NotNull(group);
             // Borrowed worktree should NOT set group.WorktreeId (prevents DeleteGroup from destroying it)
             Assert.Null(group!.WorktreeId);
+
+            // Session metadata WorktreeId must also be null — DeleteGroup collects from
+            // session metadata too, so borrowed IDs must not leak there.
+            Assert.All(svc.Organization.Sessions.Where(s => s.GroupId == group!.Id),
+                m => Assert.Null(m.WorktreeId));
 
             // Sessions should still be created
             var members = svc.Organization.Sessions

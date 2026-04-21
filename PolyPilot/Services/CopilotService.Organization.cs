@@ -3645,7 +3645,7 @@ public partial class CopilotService
             catch (Exception ex)
             {
                 Debug($"[WorktreeStrategy] Failed to create shared worktree for strategy={strategy}, repoId={repoId}: {ex.GetType().Name}: {ex.Message}");
-                orchWorkDir = TryGetExistingWorktreePath(repoId, ref orchWtId, group);
+                orchWorkDir = TryGetExistingWorktreePath(repoId);
                 if (orchWorkDir != null)
                     Debug($"[WorktreeStrategy] Using existing worktree as fallback: {orchWorkDir}");
                 else
@@ -3672,7 +3672,7 @@ public partial class CopilotService
                 // Try to fall back to an existing worktree for this repo instead of temp dir
                 if (orchWorkDir == null)
                 {
-                    orchWorkDir = TryGetExistingWorktreePath(repoId, ref orchWtId, group);
+                    orchWorkDir = TryGetExistingWorktreePath(repoId);
                     if (orchWorkDir != null)
                         Debug($"[WorktreeStrategy] Using existing worktree as fallback: {orchWorkDir}");
                     else
@@ -3697,7 +3697,7 @@ public partial class CopilotService
                 Debug($"[WorktreeStrategy] Failed to create orchestrator worktree for strategy={strategy}, repoId={repoId}: {ex.GetType().Name}: {ex.Message}");
                 if (orchWorkDir == null)
                 {
-                    orchWorkDir = TryGetExistingWorktreePath(repoId, ref orchWtId, group);
+                    orchWorkDir = TryGetExistingWorktreePath(repoId);
                     if (orchWorkDir != null)
                         Debug($"[WorktreeStrategy] Using existing worktree as fallback: {orchWorkDir}");
                     else
@@ -4728,17 +4728,14 @@ public partial class CopilotService
     /// <summary>
     /// When worktree creation fails (e.g., long paths on Windows), try to find an existing
     /// worktree for the repo so sessions get a real working directory instead of a temp dir.
-    /// Does NOT set group.WorktreeId — the worktree is borrowed, not owned. This prevents
-    /// DeleteGroup from destroying a worktree that belongs to another group.
+    /// Returns only the path — does NOT propagate the worktree ID. This prevents the borrowed
+    /// ID from leaking into session metadata, which would cause DeleteGroup to destroy a
+    /// worktree that belongs to another group (DeleteGroup collects IDs from session metadata).
     /// </summary>
-    private string? TryGetExistingWorktreePath(string repoId, ref string? worktreeId, SessionGroup group)
+    private string? TryGetExistingWorktreePath(string repoId)
     {
         var existing = _repoManager.Worktrees.FirstOrDefault(w => w.RepoId == repoId && Directory.Exists(w.Path));
-        if (existing == null) return null;
-        worktreeId = existing.Id;
-        // Intentionally not setting group.WorktreeId or CreatedWorktreeIds —
-        // this is a borrowed worktree. DeleteGroup only cleans up owned worktrees.
-        return existing.Path;
+        return existing?.Path;
     }
 
     #endregion
