@@ -272,6 +272,12 @@ public class WsBridgeServer : IDisposable
         {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.SessionComplete,
                 new SessionCompletePayload { SessionName = session, Summary = summary }));
+            // Push authoritative history on completion — belt-and-suspenders for when
+            // the fire-and-forget TurnEnd history broadcast was lost or slow.
+            _ = BroadcastSessionHistoryAsync(session);
+            // Push sessions list immediately (bypass debounce) so mobile gets
+            // IsProcessing=false without waiting up to 500ms for the debounce timer.
+            BroadcastSessionsList();
             // Only notify when session is truly complete and waiting for user input
             BroadcastAttentionNeeded(session, AttentionReason.ReadyForMore, TruncateSummary(summary));
         };
@@ -279,6 +285,8 @@ public class WsBridgeServer : IDisposable
         {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
                 new ErrorPayload { SessionName = session, Error = error }));
+            // Push sessions list immediately so mobile gets IsProcessing=false on errors
+            BroadcastSessionsList();
             BroadcastAttentionNeeded(session, AttentionReason.Error, TruncateSummary(error));
         };
     }
@@ -969,7 +977,13 @@ public class WsBridgeServer : IDisposable
                         // Dispatch with orchestrator routing on the UI thread (fire-and-forget).
                         _ = Task.Run(async () =>
                         {
-                            try { await DispatchBridgePromptAsync(sendSession, sendMessage, sendAgentMode, sendImagePaths, ct); }
+                            try
+                            {
+                                await DispatchBridgePromptAsync(sendSession, sendMessage, sendAgentMode, sendImagePaths, ct);
+                                // Push sessions list immediately after dispatch so mobile gets
+                                // IsProcessing=true without waiting for the debounce timer.
+                                BroadcastSessionsList();
+                            }
                             catch (Exception ex) { BridgeLog($"[BRIDGE] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
                             finally
                             {
