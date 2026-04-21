@@ -93,7 +93,7 @@ If the broker isn't available (fallback mode), forward the port from `.mauidevfl
 adb reverse tcp:9223 tcp:9223                # Fallback: direct agent port
 ```
 
-Then verify: `maui devflow MAUI status` and `maui devflow cdp status`.
+Then verify: `maui devflow ui status` and `maui devflow webview status`.
 
 ### Install APK manually
 ```bash

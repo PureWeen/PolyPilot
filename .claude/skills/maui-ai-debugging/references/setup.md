@@ -16,12 +16,12 @@ Complete guide for integrating MauiDevFlow into a .NET MAUI app.
 ## 1. Install CLI Tools
 
 ```bash
-dotnet tool install --global Microsoft.Maui.Cli --prerelease   # maui devflow
+dotnet tool install --global Microsoft.Maui.Cli --prerelease
 dotnet tool install --global androidsdk.tool               # android (Android only)
 dotnet tool install --global appledev.tools                # apple (iOS/Mac only)
 ```
 
-Verify: `maui devflow --version`
+Verify: `maui devflow version`
 
 ## 2. Add NuGet Packages
 
@@ -138,7 +138,7 @@ file in the project directory to set an explicit port:
 
 Both the MSBuild targets and the CLI read this file automatically:
 - **Build**: `dotnet build -t:Run` — agent starts on the configured port
-- **CLI**: `maui devflow MAUI status` — connects to the configured port (when run from project dir)
+- **CLI**: `maui devflow ui status` — connects to the configured port (when run from project dir)
 
 **Port priority:** Explicit `--agent-port` > Broker discovery > `.mauidevflow` > default 9223.
 
@@ -152,7 +152,7 @@ Both the MSBuild targets and the CLI read this file automatically:
 **Multiple apps simultaneously:** The broker assigns unique ports from range 10223–10899.
 Use `maui devflow list` to see all agents, then target a specific one:
 ```bash
-maui devflow MAUI status --agent-port 10224    # target specific agent
+maui devflow ui status --agent-port 10224    # target specific agent
 ```
 
 **Blazor options:**
@@ -273,8 +273,8 @@ After building and running the app:
 
 ```bash
 maui devflow list                 # Should show registered agents (via broker)
-maui devflow MAUI status          # Should show agent info, platform, app name
-maui devflow cdp status           # Should show "Connected" (Blazor Hybrid only)
+maui devflow ui status            # Should show agent info, platform, app name
+maui devflow webview status       # Should show "Connected" (Blazor Hybrid only)
 ```
 
 If status commands fail:
@@ -302,7 +302,7 @@ For an AI agent setting up MauiDevFlow in a new project:
 7. [ ] `adb reverse tcp:19223` for broker + `adb forward tcp:<port>` for agent (Android only)
 8. [ ] Linux/GTK: `app.StartDevFlowAgent()` called after app activation
 9. [ ] macOS (AppKit): `UseMauiAppMacOS()`, `AddMacOSEssentials()`, `MacOSBlazorWebView` — see [macos.md](macos.md)
-10. [ ] Verify with `maui devflow list` and `maui devflow MAUI status`
+10. [ ] Verify with `maui devflow list` and `maui devflow ui status`
 
 ## Checking for Updates
 
@@ -311,13 +311,13 @@ packages are up to date. Outdated components can cause confusing failures or mis
 
 ### Check CLI version
 ```bash
-maui devflow --version
-dotnet tool search Microsoft.Maui.Cli | head -5
+maui devflow version
+dotnet tool search Microsoft.Maui.DevFlow.CLI | head -5
 ```
 
 If a newer version is available:
 ```bash
-dotnet tool update --global Microsoft.Maui.Cli --prerelease
+dotnet tool update --global Microsoft.Maui.DevFlow.CLI
 ```
 
 ### Update the skill
