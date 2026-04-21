@@ -769,4 +769,149 @@ public class WorktreeStrategyTests
     }
 
     #endregion
+
+    #region Worktree Failure Fallback (Windows long-path / git failure scenarios)
+
+    [Fact]
+    public async Task GroupShared_WorktreeFailure_FallsBackToExistingWorktree()
+    {
+        // Simulate scenario: worktree creation fails (e.g., Windows long-path issue)
+        // but an existing worktree for the repo exists — should use it instead of temp dir.
+        var existingWt = new WorktreeInfo
+        {
+            Id = "existing-wt",
+            RepoId = "repo-1",
+            Branch = "main",
+            Path = "/existing/worktree/path"
+        };
+        var rm = new FailingRepoManagerWithExistingWorktree(
+            new() { new() { Id = "repo-1", Name = "Repo" } },
+            new() { existingWt });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.GroupShared);
+
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: null,
+            repoId: "repo-1");
+
+        Assert.NotNull(group);
+        // Should have fallen back to the existing worktree
+        Assert.Equal("existing-wt", group!.WorktreeId);
+
+        // Sessions should use the existing worktree path, not a temp dir
+        var organized = svc.GetOrganizedSessions();
+        var groupSessions = organized.FirstOrDefault(g => g.Group.Id == group!.Id).Sessions;
+        Assert.NotNull(groupSessions);
+        Assert.All(groupSessions, s =>
+        {
+            Assert.NotNull(s.WorkingDirectory);
+            Assert.Equal("/existing/worktree/path", s.WorkingDirectory);
+        });
+    }
+
+    [Fact]
+    public async Task GroupShared_WorktreeFailure_WithWorkingDirectory_UsesWorkingDirectory()
+    {
+        // When worktree creation fails but a workingDirectory was provided,
+        // sessions should use the workingDirectory (not temp)
+        var rm = new FailingRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.GroupShared);
+
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: "/provided/fallback",
+            repoId: "repo-1");
+
+        Assert.NotNull(group);
+
+        // orchWorkDir should still be /provided/fallback since worktree failed
+        var organized = svc.GetOrganizedSessions();
+        var groupSessions = organized.FirstOrDefault(g => g.Group.Id == group!.Id).Sessions;
+        Assert.NotNull(groupSessions);
+        Assert.All(groupSessions, s =>
+        {
+            Assert.NotNull(s.WorkingDirectory);
+            Assert.Equal("/provided/fallback", s.WorkingDirectory);
+        });
+    }
+
+    [Fact]
+    public async Task FullyIsolated_WorktreeFailure_FallsBackToExistingWorktree()
+    {
+        var existingWt = new WorktreeInfo
+        {
+            Id = "existing-wt",
+            RepoId = "repo-1",
+            Branch = "main",
+            Path = "/existing/worktree/path"
+        };
+        var rm = new FailingRepoManagerWithExistingWorktree(
+            new() { new() { Id = "repo-1", Name = "Repo" } },
+            new() { existingWt });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.FullyIsolated);
+
+        var group = await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: null,
+            repoId: "repo-1");
+
+        Assert.NotNull(group);
+        // Orchestrator should have fallen back to existing worktree
+        Assert.Equal("existing-wt", group!.WorktreeId);
+
+        // Sessions should still be created
+        var members = svc.Organization.Sessions
+            .Where(s => s.GroupId == group!.Id)
+            .ToList();
+        Assert.Equal(3, members.Count); // 1 orch + 2 workers
+    }
+
+    [Fact]
+    public async Task GroupShared_BranchName_UsesSharedPrefix()
+    {
+        // GroupShared should create a worktree with "-shared-" in the branch name,
+        // not "-orchestrator-" — this is the explicit handling fix.
+        var rm = new FakeRepoManager(new() { new() { Id = "repo-1", Name = "Repo" } });
+        var svc = CreateDemoService(rm);
+        var preset = MakePreset(2, WorktreeStrategy.GroupShared);
+
+        await svc.CreateGroupFromPresetAsync(preset,
+            workingDirectory: null,
+            repoId: "repo-1",
+            nameOverride: "MyTeam");
+
+        Assert.Single(rm.CreateCalls);
+        Assert.Contains("shared", rm.CreateCalls[0].BranchName);
+        Assert.DoesNotContain("orchestrator", rm.CreateCalls[0].BranchName);
+    }
+
+    /// <summary>
+    /// A FailingRepoManager that also has existing worktrees in its state,
+    /// so the fallback logic can find them.
+    /// </summary>
+    private class FailingRepoManagerWithExistingWorktree : RepoManager
+    {
+        public FailingRepoManagerWithExistingWorktree(List<RepositoryInfo> repos, List<WorktreeInfo> worktrees)
+        {
+            var stateField = typeof(RepoManager).GetField("_state",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            var loadedField = typeof(RepoManager).GetField("_loaded",
+                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            stateField.SetValue(this, new RepositoryState { Repositories = repos, Worktrees = worktrees });
+            loadedField.SetValue(this, true);
+        }
+
+        public override Task<WorktreeInfo> CreateWorktreeAsync(string repoId, string branchName,
+            string? baseBranch = null, bool skipFetch = false, CancellationToken ct = default)
+        {
+            throw new InvalidOperationException("Simulated Windows long-path failure");
+        }
+
+        public override Task FetchAsync(string repoId, CancellationToken ct = default)
+        {
+            return Task.CompletedTask; // Fetch succeeds, only worktree creation fails
+        }
+    }
+
+    #endregion
 }

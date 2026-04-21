@@ -3622,14 +3622,15 @@ public partial class CopilotService
         var orchWorkDir = workingDirectory;
         var orchWtId = worktreeId;
 
-        // Pre-fetch once to avoid parallel git lock contention (local mode only; server handles fetch in remote)
-        if (repoId != null && strategy != WorktreeStrategy.Shared && !IsRemoteMode)
+        // Pre-fetch once to avoid parallel git lock contention (local mode only; server handles fetch in remote).
+        // Shared and GroupShared fetch inside their own block below.
+        if (repoId != null && strategy != WorktreeStrategy.Shared && strategy != WorktreeStrategy.GroupShared && !IsRemoteMode)
         {
             try { await _repoManager.FetchAsync(repoId, ct); }
             catch (Exception ex) { Debug($"Pre-fetch failed (continuing): {ex.Message}"); }
         }
 
-        // For Shared strategy with a repo but no worktree, create a single shared worktree
+        // For Shared strategy with a repo but no worktree/dir, create a single shared worktree
         if (repoId != null && strategy == WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId) && string.IsNullOrEmpty(workingDirectory))
         {
             try
@@ -3643,11 +3644,45 @@ public partial class CopilotService
             }
             catch (Exception ex)
             {
-                Debug($"Failed to create shared worktree (sessions will use temp dirs): {ex.Message}");
+                Debug($"[WorktreeStrategy] Failed to create shared worktree for strategy={strategy}, repoId={repoId}: {ex.GetType().Name}: {ex.Message}");
+                orchWorkDir = TryGetExistingWorktreePath(repoId, ref orchWtId, group);
+                if (orchWorkDir != null)
+                    Debug($"[WorktreeStrategy] Using existing worktree as fallback: {orchWorkDir}");
+                else
+                    Debug($"[WorktreeStrategy] No existing worktree found — sessions will use temp dirs");
             }
         }
 
-        if (repoId != null && strategy != WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId))
+        // GroupShared: always create one shared worktree for the group (even if workingDirectory is set,
+        // because the group needs its own branch). Uses same naming as Shared.
+        if (repoId != null && strategy == WorktreeStrategy.GroupShared && string.IsNullOrEmpty(worktreeId))
+        {
+            try
+            {
+                if (!IsRemoteMode) await _repoManager.FetchAsync(repoId, ct);
+                var sharedWt = await CreateWorktreeLocalOrRemoteAsync(repoId, $"{branchPrefix}-shared-{Guid.NewGuid().ToString()[..4]}", ct);
+                orchWorkDir = sharedWt.Path;
+                orchWtId = sharedWt.Id;
+                group.WorktreeId = orchWtId;
+                group.CreatedWorktreeIds.Add(orchWtId);
+            }
+            catch (Exception ex)
+            {
+                Debug($"[WorktreeStrategy] Failed to create shared worktree for strategy={strategy}, repoId={repoId}: {ex.GetType().Name}: {ex.Message}");
+                // Try to fall back to an existing worktree for this repo instead of temp dir
+                if (orchWorkDir == null)
+                {
+                    orchWorkDir = TryGetExistingWorktreePath(repoId, ref orchWtId, group);
+                    if (orchWorkDir != null)
+                        Debug($"[WorktreeStrategy] Using existing worktree as fallback: {orchWorkDir}");
+                    else
+                        Debug($"[WorktreeStrategy] No existing worktree found — sessions will use temp dirs");
+                }
+            }
+        }
+
+        // OrchestratorIsolated / FullyIsolated: create a dedicated orchestrator worktree
+        if (repoId != null && strategy != WorktreeStrategy.Shared && strategy != WorktreeStrategy.GroupShared && string.IsNullOrEmpty(worktreeId))
         {
             try
             {
@@ -3659,7 +3694,15 @@ public partial class CopilotService
             }
             catch (Exception ex)
             {
-                Debug($"Failed to create orchestrator worktree (falling back to shared): {ex.Message}");
+                Debug($"[WorktreeStrategy] Failed to create orchestrator worktree for strategy={strategy}, repoId={repoId}: {ex.GetType().Name}: {ex.Message}");
+                if (orchWorkDir == null)
+                {
+                    orchWorkDir = TryGetExistingWorktreePath(repoId, ref orchWtId, group);
+                    if (orchWorkDir != null)
+                        Debug($"[WorktreeStrategy] Using existing worktree as fallback: {orchWorkDir}");
+                    else
+                        Debug($"[WorktreeStrategy] No existing worktree found — sessions will use temp dirs");
+                }
             }
         }
 
@@ -3679,7 +3722,7 @@ public partial class CopilotService
                 }
                 catch (Exception ex)
                 {
-                    Debug($"Failed to create worker-{i + 1} worktree (falling back to shared): {ex.Message}");
+                    Debug($"[WorktreeStrategy] Failed to create worker-{i + 1} worktree: {ex.GetType().Name}: {ex.Message}");
                 }
             }
         }
@@ -3697,7 +3740,7 @@ public partial class CopilotService
             }
             catch (Exception ex)
             {
-                Debug($"Failed to create shared worker worktree (falling back to shared): {ex.Message}");
+                Debug($"[WorktreeStrategy] Failed to create shared worker worktree: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -4679,6 +4722,19 @@ public partial class CopilotService
             var wt = await _repoManager.CreateWorktreeAsync(repoId, branchName, skipFetch: true, ct: ct);
             return (wt.Id, wt.Path);
         }
+    }
+
+    /// <summary>
+    /// When worktree creation fails (e.g., long paths on Windows), try to find an existing
+    /// worktree for the repo so sessions get a real working directory instead of a temp dir.
+    /// </summary>
+    private string? TryGetExistingWorktreePath(string repoId, ref string? worktreeId, SessionGroup group)
+    {
+        var existing = _repoManager.Worktrees.FirstOrDefault(w => w.RepoId == repoId);
+        if (existing == null) return null;
+        worktreeId = existing.Id;
+        group.WorktreeId = existing.Id;
+        return existing.Path;
     }
 
     #endregion

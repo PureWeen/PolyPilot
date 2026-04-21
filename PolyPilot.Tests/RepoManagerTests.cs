@@ -6,6 +6,15 @@ namespace PolyPilot.Tests;
 [Collection("BaseDir")]
 public class RepoManagerTests
 {
+    /// <summary>
+    /// Create the minimal files a bare git repo needs so IsValidBareRepository returns true.
+    /// </summary>
+    private static void CreateFakeBareRepoSkeleton(string bareDir)
+    {
+        Directory.CreateDirectory(bareDir);
+        Directory.CreateDirectory(Path.Combine(bareDir, "refs"));
+        File.WriteAllText(Path.Combine(bareDir, "HEAD"), "ref: refs/heads/main\n");
+    }
     [Theory]
     [InlineData("https://github.com/Owner/Repo.git", "Owner-Repo")]
     [InlineData("https://github.com/Owner/Repo", "Owner-Repo")]
@@ -365,7 +374,7 @@ public class RepoManagerTests
         {
             // Create a fake bare clone directory with a git config
             var bareDir = Path.Combine(reposDir, "Owner-Repo.git");
-            Directory.CreateDirectory(bareDir);
+            CreateFakeBareRepoSkeleton(bareDir);
             File.WriteAllText(Path.Combine(bareDir, "config"),
                 "[remote \"origin\"]\n\turl = https://github.com/Owner/Repo\n\tfetch = +refs/heads/*:refs/remotes/origin/*\n");
 
@@ -458,7 +467,7 @@ public class RepoManagerTests
             foreach (var name in new[] { "dotnet-maui.git", "PureWeen-PolyPilot.git", "github-sdk.git" })
             {
                 var dir = Path.Combine(reposDir, name);
-                Directory.CreateDirectory(dir);
+                CreateFakeBareRepoSkeleton(dir);
                 File.WriteAllText(Path.Combine(dir, "config"),
                     $"[remote \"origin\"]\n\turl = https://github.com/test/{name.Replace(".git", "")}\n");
             }
@@ -501,7 +510,7 @@ public class RepoManagerTests
         {
             // Create a bare clone on disk
             var bareDir = Path.Combine(reposDir, "Owner-Repo.git");
-            Directory.CreateDirectory(bareDir);
+            CreateFakeBareRepoSkeleton(bareDir);
             File.WriteAllText(Path.Combine(bareDir, "config"),
                 "[remote \"origin\"]\n\turl = https://github.com/Owner/Repo\n");
 
