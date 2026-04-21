@@ -16,13 +16,18 @@ namespace PolyPilot.Models;
 public static class PlatformPaths
 {
     private static string? _testPolyPilotDir;
-    private static string? _testCopilotDir;
 
-    /// <summary>Test-only: override returned paths to prevent tests from touching real filesystem.</summary>
-    internal static void SetForTesting(string? polyPilotDir, string? copilotDir)
+    /// <summary>
+    /// Test-only: override returned path to prevent tests from touching real filesystem.
+    /// Also clears static caches in services that use <c>??=</c> patterns (PluginLoader, ShowImageTool)
+    /// so the override takes effect even if the cache was previously populated.
+    /// </summary>
+    internal static void SetForTesting(string? polyPilotDir)
     {
         _testPolyPilotDir = polyPilotDir;
-        _testCopilotDir = copilotDir;
+        // Clear static caches that use ??= so the override takes effect
+        Services.PluginLoader.ResetCachedPathForTesting();
+        Services.ShowImageTool.ResetCachedPathForTesting();
     }
 
     /// <summary>
@@ -36,20 +41,6 @@ public static class PlatformPaths
         if (_testPolyPilotDir != null) return _testPolyPilotDir;
         // Mac Catalyst sandbox remaps HOME (UserProfile) into the container.
         // ~/.polypilot/ already resolves inside the sandbox. No override needed.
-        return null;
-    }
-
-    /// <summary>
-    /// Get the Copilot SDK state directory (~/.copilot/) override for the current platform.
-    /// Returns a test override if set, otherwise null on all platforms.
-    /// On MACCATALYST the sandbox remaps UserProfile into the container, so
-    /// ~/.copilot/ resolves inside the sandbox automatically.
-    /// </summary>
-    public static string? GetCopilotDirOverride()
-    {
-        if (_testCopilotDir != null) return _testCopilotDir;
-        // Mac Catalyst sandbox remaps HOME (UserProfile) into the container.
-        // ~/.copilot/ already resolves inside the sandbox. No override needed.
         return null;
     }
 }
