@@ -269,12 +269,14 @@ function Get-RecentClosedIssues {
                 error  = "Failed to fetch issues: $raw"
             }
         }
-        if (-not $raw -or $raw.Trim() -eq '') {
+        if (-not $raw -or ($raw -is [array] -and $raw.Count -eq 0) -or ([string]::IsNullOrWhiteSpace(($raw -join '')))) {
             $issues = @()
         }
         else {
-            # Each line is a JSON object — wrap in array for parsing
-            $jsonArray = "[$($raw -replace "`n", ',')]"
+            # $raw is an Object[] of JSON lines from gh --paginate --jq.
+            # Join into a comma-separated array for ConvertFrom-Json.
+            $lines = @($raw) | Where-Object { $_ -and $_.Trim() -ne '' }
+            $jsonArray = "[" + ($lines -join ",") + "]"
             $issues = $jsonArray | ConvertFrom-Json
         }
         $untracked = $issues | Where-Object { $_.number -notin $TrackedIssueNumbers }
