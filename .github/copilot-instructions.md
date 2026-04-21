@@ -2,7 +2,7 @@
 
 ## SDK-First Development
 
-Before implementing new session lifecycle, orchestration, watchdog, or event handling code, check the Copilot SDK API surface. The `copilot-sdk-reference` skill has the complete v0.2.1 API reference (453 types, 76 events, 6 hooks, 16 RPC APIs). The `processing-state-safety` and `multi-agent-orchestration` skills each contain SDK migration matrices for their domains. Prefer SDK APIs over custom implementations. When custom code is necessary, add a `// SDK-gap: <reason>` comment explaining why.
+Before implementing new session lifecycle, orchestration, watchdog, or event handling code, check the Copilot SDK API surface. The `copilot-sdk-reference` skill has the complete v0.2.2 API reference (453 types, 76 events, 6 hooks, 16 RPC APIs). The `processing-state-safety` and `multi-agent-orchestration` skills each contain SDK migration matrices for their domains. Prefer SDK APIs over custom implementations. When custom code is necessary, add a `// SDK-gap: <reason>` comment explaining why.
 
 ### SDK Update Audit (run when bumping `GitHub.Copilot.SDK` version)
 
@@ -23,10 +23,14 @@ When the user says **"Run the SDK update audit"** or updates the SDK NuGet packa
 
 ### Mac Catalyst (primary dev target)
 ```bash
-./relaunch.sh              # Build + async hot-relaunch (ALWAYS use this after code changes)
-./relaunch.sh --sync       # Build + blocking relaunch (for interactive terminal use only)
+PolyPilot/relaunch.sh      # Build + async hot-relaunch (ALWAYS use this after code changes)
+PolyPilot/relaunch.sh --sync  # Build + blocking relaunch (for interactive terminal use only)
 dotnet build -f net10.0-maccatalyst   # Build only
 ```
+
+> **Run relaunch.sh from YOUR worktree**, not from `~/Projects/AutoPilot/PolyPilot/`.
+> The script is tracked in git at `PolyPilot/relaunch.sh` and uses `dirname "$0"` to
+> resolve its build directory, so each worktree's copy builds its own code.
 
 #### ⚠️ Relaunch from a Copilot agent session
 
@@ -44,7 +48,7 @@ dotnet build -f net10.0-maccatalyst   # Build only
 **Correct pattern — keep working after relaunch:**
 ```bash
 # Tool call 1: relaunch (returns immediately after build)
-./relaunch.sh
+PolyPilot/relaunch.sh
 ```
 After relaunch.sh returns, the old UI will be killed in ~10s and a new one launched.
 Your turn may get interrupted if a tool call is in-flight when the kill happens — that's OK,
@@ -61,10 +65,10 @@ maui devflow cdp Runtime evaluate '...'
 **NEVER do this:**
 ```bash
 # ❌ WRONG — chaining in the same bash call blocks the tool return
-./relaunch.sh && sleep 15 && cat ~/.polypilot/relaunch.log
+PolyPilot/relaunch.sh && sleep 15 && cat ~/.polypilot/relaunch.log
 
 # ❌ WRONG — sleep/long commands chained after relaunch
-./relaunch.sh; sleep 10; tail ~/.polypilot/relaunch.log
+PolyPilot/relaunch.sh; sleep 10; tail ~/.polypilot/relaunch.log
 ```
 
 The `--sync` flag restores the old blocking behavior (for human terminal use only — NEVER use from an agent).
@@ -308,6 +312,10 @@ The processing watchdog (`RunProcessingWatchdogAsync` in `CopilotService.Events.
   - The session was resumed mid-turn after app restart (`IsResumed`)
   - Tools have been used this turn (`HasUsedToolsThisTurn`) — even between tool rounds when the model is thinking
 
+**Live-event-stream gap (PR #619)**: `ToolExecutionStartEvent` may not be delivered via the live SDK event stream even though the CLI is actively executing a tool (the event only appears in `events.jsonl`). This causes `ActiveToolCallCount` to remain 0 during tool execution. Two mechanisms compensate:
+1. **TurnEnd fallback**: After the 34s extended wait, checks `GetLastEventType()` on `events.jsonl`. If the last event is `tool.execution_start`, defers to the watchdog instead of completing prematurely. Also checks `events.jsonl` freshness (`TurnEndFallbackFreshnessSeconds = 30`) with a 15s recheck (`TurnEndFallbackRecheckMs`).
+2. **Watchdog Case B pre-check**: Before running Case B completion logic, checks `GetLastEventType()`. If `tool.execution_start`, resets the inactivity timer and continues — same as Case A server-alive behavior. This allows tools of any duration to complete.
+
 For multi-agent sessions, Case B also checks **file-size-growth**: if events.jsonl hasn't grown for `WatchdogCaseBMaxStaleChecks` (2) consecutive deferrals, the session is force-completed — the connection is dead. This catches `ConnectionLostException` scenarios where mtime stays fresh but no new data arrives, reducing detection from 30+ min to ~360s (3 cycles: 1 baseline + 2 stale checks). The 1800s freshness window is preserved.
 
 Note: `session.idle` is an ephemeral event (`ephemeral: true` in the SDK schema) — it is delivered over the live event stream but intentionally NOT written to `events.jsonl`. When `session.idle` includes active `backgroundTasks` (sub-agents, shells), the IDLE-DEFER logic defers completion until a subsequent idle arrives with empty/null backgroundTasks. In rare cases where `IsProcessing` was already cleared (by watchdog timeout or reconnect) before the deferred idle arrives, the session may appear stuck until the watchdog fires again — see issue #403.
@@ -330,6 +338,8 @@ The event diagnostics log (`~/.polypilot/event-diagnostics.log`) uses these tags
 - `[BRIDGE-COMPLETE]` — bridge OnTurnEnd cleared IsProcessing
 - `[INTERRUPTED]` — app restart detected interrupted turn (watchdog timeout after resume)
 - `[WATCHDOG]` — watchdog clearing IsResumed or timing out a stuck session
+- `[IDLE-FALLBACK]` — TurnEnd fallback timer fired, skipped (tools active/fresh events), or deferred to watchdog
+- `[TOOL-HEALTH]` — tool health check (events flowing, server liveness, stale detection)
 
 Every code path that sets `IsProcessing = false` MUST have a diagnostic log entry. This is critical for debugging stuck-session issues.
 
@@ -356,7 +366,7 @@ When a user changes the model via the UI dropdown:
 - Use `Convert.ToInt32(value)` for conversion, not `value as int?`
 - `AssistantUsageData` also includes: `Model`, `Cost` (billing multiplier), `Duration` (ms), `TtftMs` (time to first token), `InterTokenLatencyMs`, `ReasoningEffort`, `Initiator` (e.g., "sub-agent", "mcp-sampling"), `CopilotUsage`, `ApiCallId`, `ProviderCallId`, `ParentToolCallId`
 - `QuotaSnapshots` is `Dictionary<string, object>` with `JsonElement` values — the typed fields (`EntitlementRequests`, `UsedRequests`, `RemainingPercentage`, `Overage`, `OverageAllowedWithExhaustedQuota`, `ResetDate`) are defined on `Rpc.AccountGetQuotaResultQuotaSnapshotsValue`
-- `SessionIdleData` includes `BackgroundTasks` (agents + shells) and `Aborted` (bool?, true when turn was cancelled via abort)
+- `SessionIdleData` includes `Aborted` (bool?, true when turn was cancelled via abort). **Note (v0.2.2):** `BackgroundTasks` was removed from `SessionIdleData` — background task tracking is now exclusively via `SessionBackgroundTasksChangedEvent`. The idle handler reads tracked state from `DeferredBackgroundTaskFingerprint`/`DeferredBackgroundTasksFirstSeenAtTicks` (set by the background tasks changed handler).
 - `MessageOptions` has 3 properties: `Prompt`, `Attachments`, `Mode` — no `Model` or `ReasoningEffort` (those are session-level via `SwitchToAsync`)
 
 ### Blazor Input Performance

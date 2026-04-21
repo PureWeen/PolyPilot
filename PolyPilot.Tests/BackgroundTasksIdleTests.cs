@@ -1,4 +1,3 @@
-using GitHub.Copilot.SDK;
 using PolyPilot.Models;
 using PolyPilot.Services;
 
@@ -8,108 +7,99 @@ namespace PolyPilot.Tests;
 /// Tests for HasActiveBackgroundTasks — the fix that prevents premature idle completion
 /// when the SDK reports active background tasks (sub-agents, shells) in SessionIdleEvent.
 /// See: session.idle with backgroundTasks means "foreground quiesced, background still running."
+///
+/// SDK v0.2.2: SessionIdleDataBackgroundTasks removed. Background tasks are now tracked
+/// via BackgroundTaskSnapshot and SessionBackgroundTasksChangedEvent.
 /// </summary>
 public class BackgroundTasksIdleTests
 {
-    private static SessionIdleEvent MakeIdle(SessionIdleDataBackgroundTasks? bt = null)
+    // Test DTOs for reflection-based GetBackgroundTaskSnapshot / GetBackgroundTaskFirstSeenTicks
+    private class FakeBackgroundTasks
     {
-        return new SessionIdleEvent
+        public FakeAgent[] Agents { get; set; } = Array.Empty<FakeAgent>();
+        public FakeShell[] Shells { get; set; } = Array.Empty<FakeShell>();
+    }
+    private class FakeAgent
+    {
+        public string AgentId { get; set; } = "";
+        public string AgentType { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+    private class FakeShell
+    {
+        public string ShellId { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+
+    private static CopilotService.BackgroundTaskSnapshot MakeSnapshot(int agents = 0, int shells = 0)
+    {
+        var parts = new List<string>();
+        for (int i = 0; i < agents; i++) parts.Add($"agent:agent-{i}");
+        for (int i = 0; i < shells; i++) parts.Add($"shell:shell-{i}");
+        return new CopilotService.BackgroundTaskSnapshot(agents, shells, string.Join("|", parts), IsKnown: true);
+    }
+
+    private static FakeBackgroundTasks MakeFakeBt(int agents = 0, int shells = 0)
+    {
+        return new FakeBackgroundTasks
         {
-            Data = new SessionIdleData { BackgroundTasks = bt }
+            Agents = Enumerable.Range(0, agents)
+                .Select(i => new FakeAgent { AgentId = $"agent-{i}", AgentType = "copilot", Description = "" })
+                .ToArray(),
+            Shells = Enumerable.Range(0, shells)
+                .Select(i => new FakeShell { ShellId = $"shell-{i}", Description = "" })
+                .ToArray()
         };
     }
 
     [Fact]
     public void HasActiveBackgroundTasks_NullBackgroundTasks_ReturnsFalse()
     {
-        var idle = MakeIdle(bt: null);
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle));
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(null);
+        Assert.False(CopilotService.HasActiveBackgroundTasks(snapshot));
     }
 
     [Fact]
     public void HasActiveBackgroundTasks_EmptyBackgroundTasks_ReturnsFalse()
     {
-        var idle = MakeIdle(new SessionIdleDataBackgroundTasks
-        {
-            Agents = Array.Empty<SessionIdleDataBackgroundTasksAgentsItem>(),
-            Shells = Array.Empty<SessionIdleDataBackgroundTasksShellsItem>()
-        });
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle));
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(MakeFakeBt());
+        Assert.False(CopilotService.HasActiveBackgroundTasks(snapshot));
     }
 
     [Fact]
     public void HasActiveBackgroundTasks_WithAgents_ReturnsTrue()
     {
-        var idle = MakeIdle(new SessionIdleDataBackgroundTasks
-        {
-            Agents = new[]
-            {
-                new SessionIdleDataBackgroundTasksAgentsItem
-                {
-                    AgentId = "agent-42",
-                    AgentType = "copilot",
-                    Description = "PR reviewer"
-                }
-            },
-            Shells = Array.Empty<SessionIdleDataBackgroundTasksShellsItem>()
-        });
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle));
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(MakeFakeBt(agents: 1));
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot));
     }
 
     [Fact]
     public void HasActiveBackgroundTasks_WithShells_ReturnsTrue()
     {
-        var idle = MakeIdle(new SessionIdleDataBackgroundTasks
-        {
-            Agents = Array.Empty<SessionIdleDataBackgroundTasksAgentsItem>(),
-            Shells = new[]
-            {
-                new SessionIdleDataBackgroundTasksShellsItem
-                {
-                    ShellId = "shell-1",
-                    Description = "Running npm test"
-                }
-            }
-        });
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle));
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(MakeFakeBt(shells: 1));
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot));
     }
 
     [Fact]
     public void HasActiveBackgroundTasks_WithBothAgentsAndShells_ReturnsTrue()
     {
-        var idle = MakeIdle(new SessionIdleDataBackgroundTasks
-        {
-            Agents = new[]
-            {
-                new SessionIdleDataBackgroundTasksAgentsItem
-                {
-                    AgentId = "a1", AgentType = "copilot", Description = ""
-                }
-            },
-            Shells = new[]
-            {
-                new SessionIdleDataBackgroundTasksShellsItem
-                {
-                    ShellId = "s1", Description = ""
-                }
-            }
-        });
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle));
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(MakeFakeBt(agents: 1, shells: 1));
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot));
     }
 
     [Fact]
-    public void HasActiveBackgroundTasks_DefaultIdle_ReturnsFalse()
+    public void HasActiveBackgroundTasks_DefaultEmpty_ReturnsFalse()
     {
-        // Default SessionIdleEvent — Data is auto-initialized but BackgroundTasks is null
-        var idle = new SessionIdleEvent { Data = new SessionIdleData() };
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle));
+        // Empty snapshot — no agents, no shells
+        var snapshot = new CopilotService.BackgroundTaskSnapshot(0, 0, string.Empty, IsKnown: true);
+        Assert.False(CopilotService.HasActiveBackgroundTasks(snapshot));
     }
 
     [Fact]
-    public void HasActiveBackgroundTasks_DataNull_ReturnsFalse()
+    public void HasActiveBackgroundTasks_NullInput_ReturnsFalse()
     {
-        var idle = new SessionIdleEvent { Data = null! };
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle));
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(null);
+        Assert.False(CopilotService.HasActiveBackgroundTasks(snapshot));
     }
 
     // --- IDLE-DEFER-REARM tests (issue #403) ---
@@ -125,24 +115,14 @@ public class BackgroundTasksIdleTests
         var info = new AgentSessionInfo { Name = "test", Model = "test-model" };
         info.IsProcessing = false; // Cleared by watchdog
 
-        var idle = MakeIdle(new SessionIdleDataBackgroundTasks
-        {
-            Agents = new[]
-            {
-                new SessionIdleDataBackgroundTasksAgentsItem
-                {
-                    AgentId = "agent-1", AgentType = "copilot", Description = "worker"
-                }
-            },
-            Shells = Array.Empty<SessionIdleDataBackgroundTasksShellsItem>()
-        });
+        var snapshot = MakeSnapshot(agents: 1);
 
         // Verify preconditions
         Assert.False(info.IsProcessing);
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle));
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot));
 
         // The re-arm logic: if !IsProcessing && HasActiveBackgroundTasks && !WasUserAborted → re-arm
-        bool shouldRearm = !info.IsProcessing && CopilotService.HasActiveBackgroundTasks(idle);
+        bool shouldRearm = !info.IsProcessing && CopilotService.HasActiveBackgroundTasks(snapshot);
         Assert.True(shouldRearm, "Should re-arm when background tasks active and not processing");
 
         // Simulate re-arm
@@ -163,9 +143,9 @@ public class BackgroundTasksIdleTests
         var info = new AgentSessionInfo { Name = "test", Model = "test-model" };
         info.IsProcessing = false;
 
-        var idle = MakeIdle(bt: null);
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(null);
 
-        bool shouldRearm = !info.IsProcessing && CopilotService.HasActiveBackgroundTasks(idle);
+        bool shouldRearm = !info.IsProcessing && CopilotService.HasActiveBackgroundTasks(snapshot);
         Assert.False(shouldRearm, "Should NOT re-arm when no background tasks");
     }
 
@@ -177,19 +157,9 @@ public class BackgroundTasksIdleTests
         var info = new AgentSessionInfo { Name = "test", Model = "test-model" };
         info.IsProcessing = true; // Already processing
 
-        var idle = MakeIdle(new SessionIdleDataBackgroundTasks
-        {
-            Agents = new[]
-            {
-                new SessionIdleDataBackgroundTasksAgentsItem
-                {
-                    AgentId = "a1", AgentType = "copilot", Description = ""
-                }
-            },
-            Shells = Array.Empty<SessionIdleDataBackgroundTasksShellsItem>()
-        });
+        var snapshot = MakeSnapshot(agents: 1);
 
-        bool shouldRearm = !info.IsProcessing && CopilotService.HasActiveBackgroundTasks(idle);
+        bool shouldRearm = !info.IsProcessing && CopilotService.HasActiveBackgroundTasks(snapshot);
         Assert.False(shouldRearm, "Should NOT re-arm when already processing");
     }
 
@@ -202,20 +172,10 @@ public class BackgroundTasksIdleTests
         info.IsProcessing = false;
         bool wasUserAborted = true;
 
-        var idle = MakeIdle(new SessionIdleDataBackgroundTasks
-        {
-            Agents = new[]
-            {
-                new SessionIdleDataBackgroundTasksAgentsItem
-                {
-                    AgentId = "a1", AgentType = "copilot", Description = ""
-                }
-            },
-            Shells = Array.Empty<SessionIdleDataBackgroundTasksShellsItem>()
-        });
+        var snapshot = MakeSnapshot(agents: 1);
 
         // The full re-arm condition includes WasUserAborted check
-        bool shouldRearm = !info.IsProcessing && CopilotService.HasActiveBackgroundTasks(idle) && !wasUserAborted;
+        bool shouldRearm = !info.IsProcessing && CopilotService.HasActiveBackgroundTasks(snapshot) && !wasUserAborted;
         Assert.False(shouldRearm, "Should NOT re-arm when user aborted");
     }
 
@@ -277,14 +237,7 @@ public class BackgroundTasksIdleTests
     [Fact]
     public void GetBackgroundTaskFirstSeenTicks_PreservesExistingTimestampWhenFingerprintMatches()
     {
-        var bt = new SessionIdleDataBackgroundTasks
-        {
-            Agents = Array.Empty<SessionIdleDataBackgroundTasksAgentsItem>(),
-            Shells = new[]
-            {
-                new SessionIdleDataBackgroundTasksShellsItem { ShellId = "shell-1", Description = "" }
-            }
-        };
+        var bt = MakeFakeBt(shells: 1);
         var snapshot = CopilotService.GetBackgroundTaskSnapshot(bt);
         var existingTicks = DateTime.UtcNow.AddMinutes(-5).Ticks;
 
@@ -300,13 +253,10 @@ public class BackgroundTasksIdleTests
     [Fact]
     public void GetBackgroundTaskFirstSeenTicks_RefreshesWhenFingerprintChanges()
     {
-        var bt = new SessionIdleDataBackgroundTasks
+        var bt = new FakeBackgroundTasks
         {
-            Agents = Array.Empty<SessionIdleDataBackgroundTasksAgentsItem>(),
-            Shells = new[]
-            {
-                new SessionIdleDataBackgroundTasksShellsItem { ShellId = "shell-2", Description = "" }
-            }
+            Agents = Array.Empty<FakeAgent>(),
+            Shells = new[] { new FakeShell { ShellId = "shell-2", Description = "" } }
         };
         var before = DateTime.UtcNow;
 
@@ -348,7 +298,8 @@ public class BackgroundTasksIdleTests
         Assert.Contains("idlePayloadIsStale", handler);
         Assert.Contains("preIdleFingerprint == string.Empty", handler);
         Assert.Contains("preIdleTicks == 0", handler);
-        Assert.Contains("tracking.Snapshot.HasAny", handler);
+        // hasActiveTasks uses tracked fingerprint state (not null snapshot)
+        Assert.Contains("hasTrackedTasks", handler);
         // hasActiveTasks must be guarded by !idlePayloadIsStale
         Assert.Contains("!idlePayloadIsStale", handler);
     }

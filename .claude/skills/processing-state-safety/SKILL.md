@@ -192,7 +192,7 @@ When `ReconcileOrganization` hasn't run yet (during `IsRestoring` window),
 during this window must call `ReconcileOrganization(allowPruning: false)` first.
 This additive mode safely adds missing entries without pruning loading sessions.
 
-### INV-10: TurnEnd fallback must not be permanently suppressed (PR #332)
+### INV-10: TurnEnd fallback must not be permanently suppressed (PR #332, #619)
 The `AssistantTurnEndEvent` 4s fallback → `CompleteResponse` guards against
 premature firing during multi-tool sessions. **Do NOT** use `HasUsedToolsThisTurn`
 to skip this fallback entirely — that permanently disables recovery for all
@@ -206,7 +206,20 @@ event is dropped (SDK bug #299), the session sticks for 600s.
 `AssistantTurnStartEvent` is the correct mechanism to prevent premature firing
 when the LLM does multi-round tool use.
 
-### INV-11: Watchdog must distinguish active tools from lost events (PR #332)
+**Live-event-stream gap (PR #619)**: `ToolExecutionStartEvent` may not be
+delivered via the live SDK event stream even though the CLI is actively executing
+a tool (the event only appears in `events.jsonl`). This causes `ActiveToolCallCount`
+to stay at 0 during tool execution. After the 30s extended wait, two additional
+guards prevent premature completion:
+1. **events.jsonl freshness** (`TurnEndFallbackFreshnessSeconds = 30`): If the
+   file was written after the wait started AND recently, defer with a 15s recheck
+   (`TurnEndFallbackRecheckMs`), then defer to the watchdog if still fresh.
+2. **Last-event-type check**: `GetLastEventType()` reads the last line of
+   `events.jsonl`. If it's `tool.execution_start` (no matching
+   `tool.execution_complete`), a tool IS running — defer to watchdog regardless
+   of file age. This handles long-running tools (e.g., `read_bash delay:600`).
+
+### INV-11: Watchdog must distinguish active tools from lost events (PR #332, #619)
 Blindly waiting the full 600s tool timeout when `ActiveToolCallCount == 0`
 (tools finished) is wrong — the SDK may have silently dropped the terminal event
 (`SessionIdleEvent`). The watchdog timeout path must use a 3-way branch:
@@ -215,6 +228,12 @@ Blindly waiting the full 600s tool timeout when `ActiveToolCallCount == 0`
   (TCP port check). If alive → reset `LastEventAtTicks` and continue. If dead → fall through to kill.
 - **Case B** (`!hasActiveTool && HasUsedToolsThisTurn && !exceededMaxTime`): Call
   `CompleteResponse` cleanly (no error message) then `break`. Lost terminal event scenario.
+  **Pre-check (PR #619)**: Before running Case B logic, check `GetLastEventType()` on
+  `events.jsonl`. If the last event is `tool.execution_start` AND the server is alive,
+  a tool IS running even though `ActiveToolCallCount == 0` (live event not delivered).
+  Reset `LastEventAtTicks` and `continue` — similar to Case A server-alive behavior
+  (bounded by `exceededMaxTime` at 60 min). If the server is dead, skip the pre-check
+  and let normal Case B recovery handle it (~30s).
 - **Case C** (default): Kill with "⚠️ Session appears stuck" error message. Max time
   exceeded, server dead, or something genuinely wrong.
 
@@ -395,7 +414,7 @@ When a session shows "Thinking..." indefinitely:
 ## Regression History
 
 10 PRs of fix/regression cycles: #141 → #147 → #148 → #153 → #158 → #163 → #164 → #276 → #284 → #332.
-Additional safety PRs: #373 (orphaned state guards), #375 (premature idle re-arm), #399 (IDLE-DEFER for background tasks), #472 (poll-then-resume + IDLE-DEFER-REARM + model selection).
+Additional safety PRs: #373 (orphaned state guards), #375 (premature idle re-arm), #399 (IDLE-DEFER for background tasks), #472 (poll-then-resume + IDLE-DEFER-REARM + model selection), #612 (CompleteResponse generation increment), #619 (TurnEnd fallback events.jsonl freshness + last-event-type guard).
 See `references/regression-history.md` for the full timeline with root causes.
 
 ---
@@ -412,8 +431,10 @@ Before adding or modifying watchdog, IsProcessing, or stuck-session detection co
 | Detect when agent turn ends | `AgentStop` hook (JS SDK only) | 🔴 **Not in .NET SDK** | JS SDK can block and force continuation; .NET SDK has `HookStartEvent`/`HookEndEvent` but no stop-gate |
 | Handle errors | `SessionHooks.OnErrorOccurred` | 🔴 **Not adopted** | Has retry count and user notification fields |
 | Session lifecycle | `SessionHooks.OnSessionStart` / `OnSessionEnd` | 🔴 **Not adopted** | Supplementary telemetry only — cannot replace restart/reconnect cleanup logic |
-| Context compaction | `session.Rpc.Compaction.CompactAsync()` | 🔴 **Not adopted** | Manual compaction trigger |
-| Auto-compaction | `SessionConfig.InfiniteSessions` | 🔴 **Not adopted** | Background compaction with configurable thresholds |
+| Context compaction | `session.Rpc.History.CompactAsync()` | 🔴 **Not adopted** | Manual compaction trigger (v0.2.2: moved from `CompactionApi` to `HistoryApi`) |
+| Auto-compaction | `SessionConfig.InfiniteSessions` | ✅ **Adopted** | Used in all session configs with `Enabled = true` |
+| History truncation | `session.Rpc.History.TruncateAsync()` | 🔴 **Not adopted** | New in v0.2.2 — truncate session history to a specific point |
+| Session forking | `ServerSessionsApi.ForkAsync()` | 🔴 **Not adopted** | New in v0.2.2 — create a copy of a session with independent history |
 
 ### What to Keep Custom (and Why)
 

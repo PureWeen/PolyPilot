@@ -866,6 +866,7 @@ public partial class CopilotService
                                 // can cancel this fallback before we complete the turn prematurely.
                                 Debug($"[IDLE-FALLBACK] '{sessionName}' tools were used this turn — waiting additional " +
                                       $"{TurnEndIdleToolFallbackAdditionalMs}ms for another round before completing");
+                                var freshnessCheckStart = DateTime.UtcNow;
                                 await Task.Delay(TurnEndIdleToolFallbackAdditionalMs, fallbackToken);
                                 if (fallbackToken.IsCancellationRequested) return;
                                 if (state.IsOrphaned) return;
@@ -873,6 +874,62 @@ public partial class CopilotService
                                 {
                                     Debug($"[IDLE-FALLBACK] '{sessionName}' skipped after extended wait — tools became active");
                                     return;
+                                }
+                                // Final guard: check if the CLI has an in-flight tool execution.
+                                // ToolExecutionStartEvent may not be delivered via the live event
+                                // stream even though the CLI is actively executing a tool (the event
+                                // only appears in events.jsonl). Two checks:
+                                // 1. If events.jsonl was written recently AND after the wait started
+                                // 2. If the last event in events.jsonl IS tool.execution_start
+                                //    (tool is running but we never got the live event)
+                                // Either means the session is still active — don't complete prematurely.
+                                if (!IsDemoMode && !IsRemoteMode)
+                                {
+                                    try
+                                    {
+                                        var sid = state.Info.SessionId;
+                                        if (!string.IsNullOrEmpty(sid))
+                                        {
+                                            var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                                            if (File.Exists(ep))
+                                            {
+                                                // Check 1: events.jsonl freshness (file written during our wait)
+                                                var lastWrite = File.GetLastWriteTimeUtc(ep);
+                                                var fileAge = Math.Max(0.0, (DateTime.UtcNow - lastWrite).TotalSeconds);
+                                                if (lastWrite > freshnessCheckStart && fileAge < TurnEndFallbackFreshnessSeconds)
+                                                {
+                                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — events.jsonl written {fileAge:F0}s ago (after wait started), CLI still active — rescheduling");
+                                                    await Task.Delay(TurnEndFallbackRecheckMs, fallbackToken);
+                                                    if (fallbackToken.IsCancellationRequested) return;
+                                                    if (state.IsOrphaned) return;
+                                                    if (Volatile.Read(ref state.ActiveToolCallCount) > 0)
+                                                    {
+                                                        Debug($"[IDLE-FALLBACK] '{sessionName}' skipped on recheck — tools became active");
+                                                        return;
+                                                    }
+                                                    var recheckAge = Math.Max(0.0, (DateTime.UtcNow - File.GetLastWriteTimeUtc(ep)).TotalSeconds);
+                                                    if (recheckAge < TurnEndFallbackFreshnessSeconds)
+                                                    {
+                                                        Debug($"[IDLE-FALLBACK] '{sessionName}' still fresh on recheck ({recheckAge:F0}s ago) — deferring to watchdog");
+                                                        return;
+                                                    }
+                                                }
+
+                                                // Check 2: if the last event is tool.execution_start,
+                                                // a tool is actively running even though ActiveToolCallCount=0
+                                                // (ToolExecutionStartEvent wasn't delivered via live stream).
+                                                // This handles long-running tools (e.g., read_bash delay:600)
+                                                // where events.jsonl was written before our wait started.
+                                                var lastEventType = GetLastEventType(ep);
+                                                if (lastEventType == "tool.execution_start")
+                                                {
+                                                    Debug($"[IDLE-FALLBACK] '{sessionName}' skipped — last event in events.jsonl is tool.execution_start (tool running without live event) — deferring to watchdog");
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    }
+                                    catch (Exception ex) { Debug($"[IDLE-FALLBACK] '{sessionName}' freshness check failed: {ex.Message}"); }
                                 }
                             }
                             var totalFallbackDelayMs = toolsUsedThisTurn
@@ -902,12 +959,12 @@ public partial class CopilotService
                 // Cancel the TurnEnd→Idle fallback — normal SessionIdleEvent arrived
                 CancelTurnEndFallback(state);
 
-                // Diagnostic: dump raw backgroundTasks payload to prove whether CLI populates it consistently
+                // Diagnostic: log tracked background task state (v0.2.2 removed BackgroundTasks
+                // from SessionIdleData — tracking is now via SessionBackgroundTasksChangedEvent)
                 {
-                    var bt = idle.Data?.BackgroundTasks;
-                    var agentCount = bt?.Agents?.Length ?? -1;
-                    var shellCount = bt?.Shells?.Length ?? -1;
-                    Debug($"[IDLE-DIAG] '{sessionName}' session.idle payload: backgroundTasks={{agents={agentCount}, shells={shellCount}, null={bt == null}}}");
+                    var trackedFingerprint = state.DeferredBackgroundTaskFingerprint;
+                    var trackedTicks = Interlocked.Read(ref state.DeferredBackgroundTasksFirstSeenAtTicks);
+                    Debug($"[IDLE-DIAG] '{sessionName}' session.idle payload: tracked fingerprint={trackedFingerprint ?? "null"}, ticks={trackedTicks}");
                 }
 
                 // KEY FIX: age background tasks by stable fingerprint (agent/shell IDs), not just
@@ -932,20 +989,43 @@ public partial class CopilotService
                 var preIdleFingerprint = state.DeferredBackgroundTaskFingerprint;
                 var preIdleTicks = Interlocked.Read(ref state.DeferredBackgroundTasksFirstSeenAtTicks);
 
-                var tracking = RefreshDeferredBackgroundTaskTracking(state, idle.Data?.BackgroundTasks);
-                var deferTicks = tracking.FirstSeenTicks;
+                // SDK v0.2.2: BackgroundTasks removed from SessionIdleData. Background task
+                // tracking is now entirely via SessionBackgroundTasksChangedEvent, which calls
+                // RefreshDeferredBackgroundTaskTracking with real data. Here we just READ the
+                // tracked state — no RefreshDeferredBackgroundTaskTracking call (passing null
+                // would reset the tracked fingerprint/ticks to empty, destroying the state).
+                var deferTicks = Interlocked.Read(ref state.DeferredBackgroundTasksFirstSeenAtTicks);
 
-                bool idlePayloadIsStale = preIdleFingerprint == string.Empty && preIdleTicks == 0 && tracking.Snapshot.HasAny;
+                // Fingerprint tells us if background tasks are active:
+                //   null         → no backgroundTasksChanged has fired (initial state)
+                //   string.Empty → backgroundTasksChanged confirmed zero tasks
+                //   non-empty    → active tasks with this fingerprint
+                var currentFingerprint = state.DeferredBackgroundTaskFingerprint;
+                var hasTrackedTasks = !string.IsNullOrEmpty(currentFingerprint) && deferTicks > 0;
+
+                bool idlePayloadIsStale = preIdleFingerprint == string.Empty && preIdleTicks == 0 && hasTrackedTasks;
                 if (idlePayloadIsStale)
-                    Debug($"[IDLE-DIAG-STALE] '{sessionName}' session.idle backgroundTasks " +
-                          $"({tracking.Snapshot.AgentCount} agents, {tracking.Snapshot.ShellCount} shells) are stale — " +
-                          $"backgroundTasksChanged already confirmed empty, completing normally");
+                    Debug($"[IDLE-DIAG-STALE] '{sessionName}' session.idle — tracked tasks present but " +
+                          $"backgroundTasksChanged previously confirmed empty, completing normally");
 
-                var hasActiveTasks = !idlePayloadIsStale && HasActiveBackgroundTasks(idle, deferTicks);
-                var onlyCarryOverShellsRemain = !idlePayloadIsStale && ShouldIgnoreCarryOverShellOnlyTasks(
-                    tracking.Snapshot,
-                    deferTicks,
-                    state.Info.ProcessingStartedAt);
+                var hasActiveTasks = !idlePayloadIsStale && hasTrackedTasks;
+
+                // Zombie timeout: check if tracked tasks have been active longer than the timeout
+                if (hasActiveTasks && deferTicks > 0)
+                {
+                    var elapsed = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - deferTicks);
+                    if (elapsed.TotalMinutes >= SubagentZombieTimeoutMinutes)
+                    {
+                        Debug($"[IDLE-DEFER] '{sessionName}' tracked background tasks exceeded zombie timeout " +
+                              $"({elapsed.TotalMinutes:F1}min >= {SubagentZombieTimeoutMinutes}min) — allowing completion");
+                        hasActiveTasks = false;
+                    }
+                }
+
+                // Carry-over shell detection: if tasks predate this turn, allow completion
+                var onlyCarryOverShellsRemain = hasActiveTasks && deferTicks > 0
+                    && state.Info.ProcessingStartedAt.HasValue
+                    && deferTicks < state.Info.ProcessingStartedAt.Value.ToUniversalTime().Ticks;
                 if (onlyCarryOverShellsRemain)
                 {
                     hasActiveTasks = false;
@@ -954,14 +1034,12 @@ public partial class CopilotService
                           $"by {carryOverMinutes:F1}min — allowing completion");
                 }
 
-                // Log zombie expiry here where Debug() is available (HasActiveBackgroundTasks is static)
-                var zombieAgentCount = tracking.Snapshot.AgentCount;
-                var zombieShellCount = tracking.Snapshot.ShellCount;
+                // Log zombie expiry (fingerprint indicates tasks were present but timed out)
                 if (!hasActiveTasks && !idlePayloadIsStale && !onlyCarryOverShellsRemain && deferTicks != 0 &&
-                    (zombieAgentCount > 0 || zombieShellCount > 0))
+                    !string.IsNullOrEmpty(currentFingerprint))
                 {
                     var expiredMinutes = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - deferTicks).TotalMinutes;
-                    Debug($"[IDLE-DEFER-ZOMBIE] '{sessionName}' {zombieAgentCount} agent(s) + {zombieShellCount} shell(s) " +
+                    Debug($"[IDLE-DEFER-ZOMBIE] '{sessionName}' background tasks " +
                           $"expired after {expiredMinutes:F0}min " +
                           $"(threshold={SubagentZombieTimeoutMinutes}min) — allowing session to complete");
                 }
@@ -2247,6 +2325,23 @@ public partial class CopilotService
     /// </summary>
     internal const int TurnEndIdleToolFallbackAdditionalMs = 30_000;
 
+    /// <summary>
+    /// Seconds threshold for events.jsonl freshness in the TurnEnd fallback.
+    /// If the CLI wrote to events.jsonl within this window AND after the extended wait started,
+    /// the fallback skips completion (the CLI is still active but ToolExecutionStartEvent
+    /// wasn't delivered via the live stream). Separate from WatchdogCaseBFreshnessSeconds
+    /// because the fallback needs a tighter window (30s vs 300s).
+    /// </summary>
+    internal const int TurnEndFallbackFreshnessSeconds = 30;
+
+    /// <summary>
+    /// Milliseconds to wait before rechecking events.jsonl freshness when the first check
+    /// found the CLI was still active. Provides faster recovery than deferring entirely to
+    /// the watchdog (15s check interval). After this recheck, if the file is still fresh,
+    /// the fallback defers to the watchdog for long-running tool safety.
+    /// </summary>
+    internal const int TurnEndFallbackRecheckMs = 15_000;
+
     private static void CancelProcessingWatchdog(SessionState state)
     {
         if (state.ProcessingWatchdog != null)
@@ -2517,10 +2612,9 @@ public partial class CopilotService
     /// legitimate long-running shell work.
     /// </summary>
     internal static bool HasActiveBackgroundTasks(
-        SessionIdleEvent idle,
+        BackgroundTaskSnapshot snapshot,
         long idleDeferStartedAtTicks = 0)
     {
-        var snapshot = GetBackgroundTaskSnapshot(idle.Data?.BackgroundTasks);
         bool hasAgents = snapshot.AgentCount > 0;
         bool hasShells = snapshot.ShellCount > 0;
 
@@ -2805,6 +2899,33 @@ public partial class CopilotService
                             // BUT: ActiveToolCallCount can drop to 0 between tool rounds (the model
                             // is deciding what to do next). If events.jsonl is still being written,
                             // the session is alive — don't complete prematurely.
+
+                            // Pre-check: if the last event in events.jsonl is tool.execution_start,
+                            // a tool IS actively running even though ActiveToolCallCount=0
+                            // (ToolExecutionStartEvent wasn't delivered via live stream).
+                            // Only defer if the server is alive — if it crashed, the tool can't
+                            // be running and we should fall through to normal Case B recovery.
+                            if (!IsDemoMode && !IsRemoteMode && _serverManager.IsServerRunning)
+                            {
+                                try
+                                {
+                                    var sid = state.Info.SessionId;
+                                    if (!string.IsNullOrEmpty(sid))
+                                    {
+                                        var ep = Path.Combine(SessionStatePath, sid, "events.jsonl");
+                                        var lastEvtType = GetLastEventType(ep);
+                                        if (lastEvtType == "tool.execution_start")
+                                        {
+                                            Debug($"[WATCHDOG] '{sessionName}' Case B skipped — last event is tool.execution_start " +
+                                                  $"(tool running without live event, server alive, elapsed={elapsed:F0}s) — deferring");
+                                            Interlocked.Exchange(ref state.LastEventAtTicks, DateTime.UtcNow.Ticks);
+                                            continue;
+                                        }
+                                    }
+                                }
+                                catch (Exception ex) { Debug($"[WATCHDOG] '{sessionName}' Case B pre-check failed: {ex.Message}"); }
+                            }
+
                             if (!IsDemoMode && !IsRemoteMode && startedAt.HasValue)
                             {
                                 // Compare events.jsonl modification time to when this turn started
@@ -3114,6 +3235,11 @@ public partial class CopilotService
             state.PendingReasoningMessages.Clear();
             if (state.Info.ProcessingStartedAt is { } started)
                 state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - started).TotalSeconds;
+            // Increment generation to invalidate stale InvokeOnUI callbacks —
+            // mirrors ClearProcessingState (see PR #612).
+            // Skip if orphaned (long.MaxValue) to avoid overflow.
+            if (Interlocked.Read(ref state.ProcessingGeneration) != long.MaxValue)
+                Interlocked.Increment(ref state.ProcessingGeneration);
             state.Info.IsProcessing = false;
             state.Info.IsResumed = false;
             state.HasUsedToolsThisTurn = false;

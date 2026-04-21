@@ -573,11 +573,23 @@ public partial class CopilotService
                             var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
                             if (repo != null)
                             {
-                                // Prefer an existing local folder group for this repo over creating
-                                // a new URL-based repo group. This prevents duplicate sidebar entries
-                                // when the user added the repo via "Existing folder".
+                                // Prefer the local folder group whose LocalPath matches
+                                // the session's worktree path. With multiple local folder
+                                // groups per repo (one per external path), FirstOrDefault
+                                // by RepoId alone would pick the wrong one.
+                                // Use separator-aware matching to avoid /maui matching /maui2.
+                                var normalizedWtPathAuto = Path.GetFullPath(worktree.Path)
+                                    .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                                 var localFolderGroup = Organization.Groups.FirstOrDefault(g =>
-                                    g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
+                                    g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent &&
+                                    g.LocalPath != null &&
+                                    (normalizedWtPathAuto.StartsWith(g.LocalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                                     || string.Equals(normalizedWtPathAuto, g.LocalPath, StringComparison.OrdinalIgnoreCase)))
+                                    // Fallback: if no path-aware match (e.g., managed worktree under
+                                    // ~/.polypilot/worktrees/), pick any local folder group for this repo.
+                                    // The heal-stranded-sessions block below corrects any misassignment.
+                                    ?? Organization.Groups.FirstOrDefault(g =>
+                                        g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
                                 if (localFolderGroup != null)
                                 {
                                     meta.GroupId = localFolderGroup.Id;
@@ -607,10 +619,18 @@ public partial class CopilotService
                     var repo = _repoManager.Repositories.FirstOrDefault(r => r.Id == worktree.RepoId);
                     if (repo != null)
                     {
-                        // Prefer an existing local folder group (same fix as the
-                        // workingDir-based block above) to avoid duplicate sidebar entries.
+                        // Prefer the local folder group whose LocalPath matches
+                        // the session's worktree path (same separator-aware logic as above).
+                        var normalizedWtPathAuto2 = Path.GetFullPath(worktree.Path)
+                            .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                         var localFolderGroup = Organization.Groups.FirstOrDefault(g =>
-                            g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
+                            g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent &&
+                            g.LocalPath != null &&
+                            (normalizedWtPathAuto2.StartsWith(g.LocalPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                             || string.Equals(normalizedWtPathAuto2, g.LocalPath, StringComparison.OrdinalIgnoreCase)))
+                            // Fallback: same heal-stranded-sessions dependency as above.
+                            ?? Organization.Groups.FirstOrDefault(g =>
+                                g.RepoId == repo.Id && g.IsLocalFolder && !g.IsMultiAgent);
                         if (localFolderGroup != null)
                         {
                             meta.GroupId = localFolderGroup.Id;
@@ -650,6 +670,31 @@ public partial class CopilotService
                 if (GetOrCreateRepoGroup(repo.Id, repo.Name) != null)
                     changed = true;
             }
+
+            // Migration: update group names that were derived from id.Split('-').Last() (issue #570).
+            // E.g., groups named "maui" for repo "nicknisi-vscode-maui" should become "vscode-maui".
+            // Only migrate names that still match the old broken derivation — if the user
+            // renamed the group (e.g., "maui - PP"), preserve their customization.
+            foreach (var g in Organization.Groups.Where(g => g.RepoId == repo.Id && !g.IsMultiAgent && !g.IsLocalFolder))
+            {
+                var correctName = repo.Name;
+                if (string.IsNullOrEmpty(correctName) || g.Name == correctName)
+                    continue;
+                if (Organization.Groups.Any(other => other != g && other.RepoId == repo.Id && other.Name == correctName && !other.IsMultiAgent && !other.IsLocalFolder))
+                    continue;
+
+                // The old code derived names via id.Split('-').Last(). Only overwrite if
+                // the current group name matches that old pattern — otherwise user renamed it.
+                var oldDerivedName = repo.Id.Contains('-')
+                    ? repo.Id.Split('-').Last()
+                    : repo.Id;
+                if (string.Equals(g.Name, oldDerivedName, StringComparison.Ordinal))
+                {
+                    Debug($"ReconcileOrganization: migrating group name '{g.Name}' → '{correctName}' (repoId: {repo.Id})");
+                    g.Name = correctName;
+                    changed = true;
+                }
+            }
         }
 
         // Migration: back-fill LocalPath/RepoId on groups that were created by an older version
@@ -686,8 +731,14 @@ public partial class CopilotService
         // folders) have a corresponding 📁 local folder group. An external worktree is any
         // worktree whose path is NOT under the managed worktrees directory AND does NOT contain
         // ".polypilot/worktrees" (which marks nested worktrees inside local folders).
-        // When a local folder group is missing, promote the most-recently-created URL-based
-        // group for that repo to a local folder group rather than creating a duplicate.
+        // When a local folder group is missing, create one via GetOrCreateLocalFolderGroup.
+        //
+        // IMPORTANT: We do NOT promote the URL-based group to a local folder group anymore.
+        // Promotion caused the "3 maui groups" bug: when the URL-based group was promoted,
+        // all its sessions on managed worktrees (~/.polypilot/worktrees/...) had to be migrated
+        // to a new URL-based group, resulting in 2+ groups for the same repo. Instead, we
+        // always create a separate local folder group for each external path, leaving the
+        // URL-based group untouched.
         var sep = Path.DirectorySeparatorChar;
         var polypilotWorktreesMarker = $".polypilot{sep}worktrees";
         var externalWorktrees = _repoManager.Worktrees.Where(wt =>
@@ -707,51 +758,26 @@ public partial class CopilotService
                     normalizedExtPath, StringComparison.OrdinalIgnoreCase));
             if (hasLocalGroup) continue;
 
-            // Promote the most-recently-added URL-based group for this repo.
-            var groupToPromote = Organization.Groups
-                .Where(g => g.RepoId == ext.RepoId && !g.IsLocalFolder && !g.IsMultiAgent)
-                .OrderByDescending(g => g.SortOrder)
-                .FirstOrDefault();
-
-            if (groupToPromote != null)
+            // Verify the external path still exists on disk — skip stale entries
+            if (!Directory.Exists(normalizedExtPath))
             {
-                groupToPromote.LocalPath = normalizedExtPath;
-                groupToPromote.Name = Path.GetFileName(normalizedExtPath);
-                changed = true;
-                Debug($"ReconcileOrganization: promoted group '{groupToPromote.Id}' to local folder group for '{normalizedExtPath}'");
-
-                // Migrate sessions whose worktrees are NOT under the new LocalPath to the
-                // URL-based repo group. Without this, sessions linked to managed worktrees
-                // (~/.polypilot/worktrees/...) get stranded in the promoted local folder group.
-                var repoName = _repoManager.Repositories.FirstOrDefault(r => r.Id == ext.RepoId)?.Name ?? ext.RepoId;
-                var urlGroup = GetOrCreateRepoGroup(ext.RepoId, repoName);
-                if (urlGroup != null)
-                {
-                    foreach (var meta in Organization.Sessions.Where(m => m.GroupId == groupToPromote.Id))
-                    {
-                        if (meta.WorktreeId == null) continue;
-                        var wt = _repoManager.Worktrees.FirstOrDefault(w => w.Id == meta.WorktreeId);
-                        if (wt != null)
-                        {
-                            // Normalize wt.Path before comparing: on Windows, stored paths may use
-                            // forward slashes or relative forms that differ from the GetFullPath result.
-                            var normalizedWtPath = Path.GetFullPath(wt.Path)
-                                .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-                            if (!normalizedWtPath.StartsWith(normalizedExtPath + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
-                                && !string.Equals(normalizedWtPath, normalizedExtPath, StringComparison.OrdinalIgnoreCase))
-                            {
-                                Debug($"ReconcileOrganization: migrating '{meta.SessionName}' from promoted local folder group to URL group '{urlGroup.Id}'");
-                                meta.GroupId = urlGroup.Id;
-                            }
-                        }
-                    }
-                }
+                Debug($"ReconcileOrganization: skipping external worktree '{normalizedExtPath}' — path no longer exists");
+                continue;
             }
+
+            // Create a dedicated local folder group for this external path.
+            // This never touches the existing URL-based group.
+            // skipNotify: true — batch the save to the end of ReconcileOrganization
+            GetOrCreateLocalFolderGroup(normalizedExtPath, ext.RepoId, skipNotify: true);
+            changed = true;
+            Debug($"ReconcileOrganization: created local folder group for external worktree '{normalizedExtPath}' (repo={ext.RepoId})");
         }
 
         // Heal sessions stranded in local folder groups: if a session's worktree path
         // is NOT under the group's LocalPath, move it to the URL-based repo group.
-        // This fixes state from before the promotion migration was added.
+        // This handles legacy state from older promotion-based reconciliation, explicit
+        // folder additions where sessions ended up in the wrong local folder group, or
+        // sessions whose worktree was moved after initial assignment.
         foreach (var localGroup in Organization.Groups.Where(g => g.IsLocalFolder && !g.IsMultiAgent && g.RepoId != null).ToList())
         {
             var normalizedLocalPath = Path.GetFullPath(localGroup.LocalPath!)
@@ -777,6 +803,10 @@ public partial class CopilotService
                             Debug($"ReconcileOrganization: healing '{meta.SessionName}' from local folder group '{localGroup.Name}' to URL group '{urlGroup.Id}'");
                             meta.GroupId = urlGroup.Id;
                             changed = true;
+                        }
+                        else
+                        {
+                            Debug($"ReconcileOrganization: keeping '{meta.SessionName}' in local folder group '{localGroup.Name}' — no URL group for local-only repo '{localGroup.RepoId}'");
                         }
                     }
                 }
@@ -1394,34 +1424,57 @@ public partial class CopilotService
     /// </summary>
     public SessionGroup? GetOrCreateRepoGroup(string repoId, string repoName, bool explicitly = false)
     {
-        // Skip multi-agent groups — they have a RepoId for worktree context but are
-        // not the "repo group" that regular sessions should auto-join.
-        // Also skip local folder groups — they are a separate concept from URL-based repo groups,
-        // and coexist with them when the same repo is added both ways.
-        // Also skip groups that have orchestrator/worker sessions (defensive: protects against
-        // IsMultiAgent being lost due to stale writes or serialization issues).
-        var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent && !g.IsLocalFolder
-            && !Organization.Sessions.Any(m => m.GroupId == g.Id && m.Role == MultiAgentRole.Orchestrator));
-        if (existing != null) return existing;
-
-        // Don't recreate groups the user explicitly deleted (unless re-adding)
-        if (!explicitly && Organization.DeletedRepoGroupRepoIds.Contains(repoId))
-            return null;
-
-        // Clear the deleted flag when explicitly re-adding
-        Organization.DeletedRepoGroupRepoIds.Remove(repoId);
-
-        var group = new SessionGroup
+        // Lock the entire check-then-create to prevent concurrent callers (e.g., ReconcileOrganization
+        // on ThreadPool + session restore) from both seeing "no existing group" and creating duplicates.
+        // Monitor is reentrant, so nested AddGroup() calls are safe.
+        // Side effects (SaveOrganization + OnStateChanged) are outside the lock to match the
+        // file-wide convention and avoid latent deadlock risk from event subscribers.
+        SessionGroup? created = null;
+        lock (_organizationLock)
         {
-            Id = Guid.NewGuid().ToString(),
-            Name = repoName,
-            RepoId = repoId,
-            SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
-        };
-        AddGroup(group);
+            // Skip multi-agent groups — they have a RepoId for worktree context but are
+            // not the "repo group" that regular sessions should auto-join.
+            // Also skip local folder groups — they are a separate concept from URL-based repo groups,
+            // and coexist with them when the same repo is added both ways.
+            // Also skip groups that have orchestrator/worker sessions (defensive: protects against
+            // IsMultiAgent being lost due to stale writes or serialization issues).
+            var existing = Organization.Groups.FirstOrDefault(g => g.RepoId == repoId && !g.IsMultiAgent && !g.IsLocalFolder
+                && !Organization.Sessions.Any(m => m.GroupId == g.Id && m.Role == MultiAgentRole.Orchestrator));
+            if (existing != null) return existing;
+
+            // Don't recreate groups the user explicitly deleted (unless re-adding)
+            if (!explicitly && Organization.DeletedRepoGroupRepoIds.Contains(repoId))
+                return null;
+
+            // Don't create a URL-based group when a local folder group already covers this repo
+            // and no URL-based group exists. This prevents duplicate sidebar entries for local-only
+            // repos (e.g., "maui" appearing twice — once as local folder, once as URL-based).
+            // Local-only repos are identified by RepoManager.IsLocalOnlyRepoId (IDs containing the
+            // "-local-" infix from AddRepositoryFromLocalAsync). For these repos, the local folder
+            // group IS the repo's group — no URL-based group should be created.
+            // Exception: repos WITHOUT the local infix (same ID for both URL and local groups)
+            // are allowed to create URL groups for the heal-stranded-sessions scenario.
+            if (!explicitly && RepoManager.IsLocalOnlyRepoId(repoId)
+                && Organization.Groups.Any(g => g.RepoId == repoId && g.IsLocalFolder && !g.IsMultiAgent))
+            {
+                return null;
+            }
+
+            // Clear the deleted flag when explicitly re-adding
+            Organization.DeletedRepoGroupRepoIds.Remove(repoId);
+
+            created = new SessionGroup
+            {
+                Id = Guid.NewGuid().ToString(),
+                Name = repoName,
+                RepoId = repoId,
+                SortOrder = Organization.Groups.Max(g => g.SortOrder) + 1
+            };
+            AddGroup(created);
+        }
         SaveOrganization();
         OnStateChanged?.Invoke();
-        return group;
+        return created;
     }
 
     /// <summary>
@@ -1431,40 +1484,57 @@ public partial class CopilotService
     /// full worktree/branch menu can be offered.
     /// </summary>
     public SessionGroup GetOrCreateLocalFolderGroup(string localPath, string? repoId = null)
+        => GetOrCreateLocalFolderGroup(localPath, repoId, skipNotify: false);
+
+    /// <summary>
+    /// Core implementation. When <paramref name="skipNotify"/> is true, the caller is
+    /// responsible for calling <see cref="SaveOrganization"/> and raising
+    /// <see cref="OnStateChanged"/> — used by <see cref="ReconcileOrganization"/> to
+    /// batch saves instead of firing N+1 times in the external worktree loop.
+    /// </summary>
+    internal SessionGroup GetOrCreateLocalFolderGroup(string localPath, string? repoId, bool skipNotify)
     {
         var normalized = Path.GetFullPath(localPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        var existing = Organization.Groups.FirstOrDefault(g =>
-            g.IsLocalFolder &&
-            !g.IsMultiAgent &&
-            string.Equals(
-                Path.GetFullPath(g.LocalPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                normalized,
-                StringComparison.OrdinalIgnoreCase));
-        if (existing != null)
+        // Lock the entire check-then-create to prevent concurrent callers from creating duplicates.
+        // Side effects (SaveOrganization + OnStateChanged) are outside the lock to match the
+        // file-wide convention and avoid latent deadlock risk from event subscribers.
+        SessionGroup result;
+        bool notify = false;
+        lock (_organizationLock)
         {
-            bool changed = false;
-            if (existing.IsCollapsed) { existing.IsCollapsed = false; changed = true; }
-            // Back-fill RepoId if we now know it
-            if (repoId != null && existing.RepoId == null) { existing.RepoId = repoId; changed = true; }
-            if (changed) { SaveOrganization(); OnStateChanged?.Invoke(); }
-            return existing;
+            var existing = Organization.Groups.FirstOrDefault(g =>
+                g.IsLocalFolder &&
+                !g.IsMultiAgent &&
+                string.Equals(
+                    Path.GetFullPath(g.LocalPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    normalized,
+                    StringComparison.OrdinalIgnoreCase));
+            if (existing != null)
+            {
+                if (existing.IsCollapsed) { existing.IsCollapsed = false; notify = true; }
+                // Back-fill RepoId if we now know it
+                if (repoId != null && existing.RepoId == null) { existing.RepoId = repoId; notify = true; }
+                result = existing;
+            }
+            else
+            {
+                var folderName = Path.GetFileName(normalized);
+                result = new SessionGroup
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    Name = folderName,
+                    LocalPath = normalized,
+                    RepoId = repoId,
+                    SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
+                };
+                AddGroup(result);
+                notify = true;
+            }
         }
-
-        var folderName = Path.GetFileName(normalized);
-        var group = new SessionGroup
-        {
-            Id = Guid.NewGuid().ToString(),
-            Name = folderName,
-            LocalPath = normalized,
-            RepoId = repoId,
-            SortOrder = Organization.Groups.Any() ? Organization.Groups.Max(g => g.SortOrder) + 1 : 0
-        };
-        AddGroup(group);
-        SaveOrganization();
-        OnStateChanged?.Invoke();
-        return group;
+        if (notify && !skipNotify) { SaveOrganization(); OnStateChanged?.Invoke(); }
+        return result;
     }
 
     /// <summary>
@@ -1480,43 +1550,63 @@ public partial class CopilotService
         var normalized = Path.GetFullPath(localPath)
             .TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-        // If a local folder group already exists for this exact path, just update it.
-        var alreadyLocal = Organization.Groups.FirstOrDefault(g =>
-            g.IsLocalFolder && !g.IsMultiAgent &&
-            string.Equals(
-                Path.GetFullPath(g.LocalPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
-                normalized, StringComparison.OrdinalIgnoreCase));
-        if (alreadyLocal != null)
+        // Lock the entire check-then-promote/create to prevent concurrent callers from racing
+        // on the same candidate group (same TOCTOU pattern as GetOrCreateRepoGroup).
+        // Side effects (SaveOrganization + OnStateChanged) are outside the lock.
+        SessionGroup? result = null;
+        bool notify = false;
+        lock (_organizationLock)
         {
-            bool changed = false;
-            if (alreadyLocal.IsCollapsed) { alreadyLocal.IsCollapsed = false; changed = true; }
-            if (repoId != null && alreadyLocal.RepoId == null) { alreadyLocal.RepoId = repoId; changed = true; }
-            if (changed) { SaveOrganization(); OnStateChanged?.Invoke(); }
-            return alreadyLocal;
-        }
-
-        // Look for an existing URL-based group for this repo to promote in-place.
-        // Pick the most recently created (highest SortOrder) non-multi-agent group.
-        // This handles migration from older code versions that created URL-based groups
-        // instead of local folder groups when the user added an existing folder.
-        if (repoId != null)
-        {
-            var candidate = Organization.Groups
-                .Where(g => g.RepoId == repoId && !g.IsLocalFolder && !g.IsMultiAgent)
-                .OrderByDescending(g => g.SortOrder)
-                .FirstOrDefault();
-            if (candidate != null)
+            // If a local folder group already exists for this exact path, just update it.
+            var alreadyLocal = Organization.Groups.FirstOrDefault(g =>
+                g.IsLocalFolder && !g.IsMultiAgent &&
+                string.Equals(
+                    Path.GetFullPath(g.LocalPath!).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+                    normalized, StringComparison.OrdinalIgnoreCase));
+            if (alreadyLocal != null)
             {
-                candidate.LocalPath = normalized;
-                candidate.Name = Path.GetFileName(normalized);
-                SaveOrganization();
-                OnStateChanged?.Invoke();
-                Debug($"PromoteOrCreateLocalFolderGroup: promoted '{candidate.Id}' to local folder group for '{normalized}'");
-                return candidate;
+                if (alreadyLocal.IsCollapsed) { alreadyLocal.IsCollapsed = false; notify = true; }
+                if (repoId != null && alreadyLocal.RepoId == null) { alreadyLocal.RepoId = repoId; notify = true; }
+                result = alreadyLocal;
+            }
+
+            // Look for an existing URL-based group for this repo to promote in-place.
+            // Pick the most recently created (highest SortOrder) non-multi-agent group.
+            // This handles migration from older code versions that created URL-based groups
+            // instead of local folder groups when the user added an existing folder.
+            if (result == null && repoId != null)
+            {
+                var candidate = Organization.Groups
+                    .Where(g => g.RepoId == repoId && !g.IsLocalFolder && !g.IsMultiAgent)
+                    .OrderByDescending(g => g.SortOrder)
+                    .FirstOrDefault();
+                if (candidate != null)
+                {
+                    candidate.LocalPath = normalized;
+                    // Preserve the user's group name — don't overwrite with the folder basename.
+                    // The old code did: candidate.Name = Path.GetFileName(normalized)
+                    // which destroyed user-customized names (e.g., "maui" → "maui2").
+                    // Fallback: if the group somehow has an empty name, use the folder basename.
+                    if (string.IsNullOrWhiteSpace(candidate.Name))
+                        candidate.Name = Path.GetFileName(normalized);
+                    notify = true;
+                    result = candidate;
+                    Debug($"PromoteOrCreateLocalFolderGroup: promoted '{candidate.Id}' ('{candidate.Name}') to local folder group for '{normalized}'");
+                }
             }
         }
 
+        if (result != null)
+        {
+            if (notify) { SaveOrganization(); OnStateChanged?.Invoke(); }
+            return result;
+        }
+
         // No existing group to promote — create a fresh local folder group.
+        // Note: the creation path uses Path.GetFileName(localPath) as the group name,
+        // which differs from promotion (which preserves the existing name). This is
+        // intentional: new groups get a sensible default from the folder name, while
+        // existing groups keep whatever the user (or auto-creation) named them.
         return GetOrCreateLocalFolderGroup(localPath, repoId);
     }
 
@@ -3532,14 +3622,15 @@ public partial class CopilotService
         var orchWorkDir = workingDirectory;
         var orchWtId = worktreeId;
 
-        // Pre-fetch once to avoid parallel git lock contention (local mode only; server handles fetch in remote)
-        if (repoId != null && strategy != WorktreeStrategy.Shared && !IsRemoteMode)
+        // Pre-fetch once to avoid parallel git lock contention (local mode only; server handles fetch in remote).
+        // Shared and GroupShared fetch inside their own block below.
+        if (repoId != null && strategy != WorktreeStrategy.Shared && strategy != WorktreeStrategy.GroupShared && !IsRemoteMode)
         {
             try { await _repoManager.FetchAsync(repoId, ct); }
             catch (Exception ex) { Debug($"Pre-fetch failed (continuing): {ex.Message}"); }
         }
 
-        // For Shared strategy with a repo but no worktree, create a single shared worktree
+        // For Shared strategy with a repo but no worktree/dir, create a single shared worktree
         if (repoId != null && strategy == WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId) && string.IsNullOrEmpty(workingDirectory))
         {
             try
@@ -3553,11 +3644,45 @@ public partial class CopilotService
             }
             catch (Exception ex)
             {
-                Debug($"Failed to create shared worktree (sessions will use temp dirs): {ex.Message}");
+                Debug($"[WorktreeStrategy] Failed to create shared worktree for strategy={strategy}, repoId={repoId}: {ex.GetType().Name}: {ex.Message}");
+                orchWorkDir = TryGetExistingWorktreePath(repoId);
+                if (orchWorkDir != null)
+                    Debug($"[WorktreeStrategy] Using existing worktree as fallback: {orchWorkDir}");
+                else
+                    Debug($"[WorktreeStrategy] No existing worktree found — sessions will use temp dirs");
             }
         }
 
-        if (repoId != null && strategy != WorktreeStrategy.Shared && string.IsNullOrEmpty(worktreeId))
+        // GroupShared: always create one shared worktree for the group (even if workingDirectory is set,
+        // because the group needs its own branch). Uses same naming as Shared.
+        if (repoId != null && strategy == WorktreeStrategy.GroupShared && string.IsNullOrEmpty(worktreeId))
+        {
+            try
+            {
+                if (!IsRemoteMode) await _repoManager.FetchAsync(repoId, ct);
+                var sharedWt = await CreateWorktreeLocalOrRemoteAsync(repoId, $"{branchPrefix}-shared-{Guid.NewGuid().ToString()[..4]}", ct);
+                orchWorkDir = sharedWt.Path;
+                orchWtId = sharedWt.Id;
+                group.WorktreeId = orchWtId;
+                group.CreatedWorktreeIds.Add(orchWtId);
+            }
+            catch (Exception ex)
+            {
+                Debug($"[WorktreeStrategy] Failed to create shared worktree for strategy={strategy}, repoId={repoId}: {ex.GetType().Name}: {ex.Message}");
+                // Try to fall back to an existing worktree for this repo instead of temp dir
+                if (orchWorkDir == null)
+                {
+                    orchWorkDir = TryGetExistingWorktreePath(repoId);
+                    if (orchWorkDir != null)
+                        Debug($"[WorktreeStrategy] Using existing worktree as fallback: {orchWorkDir}");
+                    else
+                        Debug($"[WorktreeStrategy] No existing worktree found — sessions will use temp dirs");
+                }
+            }
+        }
+
+        // OrchestratorIsolated / FullyIsolated: create a dedicated orchestrator worktree
+        if (repoId != null && strategy != WorktreeStrategy.Shared && strategy != WorktreeStrategy.GroupShared && string.IsNullOrEmpty(worktreeId))
         {
             try
             {
@@ -3569,7 +3694,15 @@ public partial class CopilotService
             }
             catch (Exception ex)
             {
-                Debug($"Failed to create orchestrator worktree (falling back to shared): {ex.Message}");
+                Debug($"[WorktreeStrategy] Failed to create orchestrator worktree for strategy={strategy}, repoId={repoId}: {ex.GetType().Name}: {ex.Message}");
+                if (orchWorkDir == null)
+                {
+                    orchWorkDir = TryGetExistingWorktreePath(repoId);
+                    if (orchWorkDir != null)
+                        Debug($"[WorktreeStrategy] Using existing worktree as fallback: {orchWorkDir}");
+                    else
+                        Debug($"[WorktreeStrategy] No existing worktree found — sessions will use temp dirs");
+                }
             }
         }
 
@@ -3589,7 +3722,8 @@ public partial class CopilotService
                 }
                 catch (Exception ex)
                 {
-                    Debug($"Failed to create worker-{i + 1} worktree (falling back to shared): {ex.Message}");
+                    Debug($"[WorktreeStrategy] Failed to create worker-{i + 1} worktree: {ex.GetType().Name}: {ex.Message}");
+                    Debug($"[WorktreeStrategy] Worker-{i + 1} will fall back to orchestrator dir: {orchWorkDir}");
                 }
             }
         }
@@ -3607,7 +3741,7 @@ public partial class CopilotService
             }
             catch (Exception ex)
             {
-                Debug($"Failed to create shared worker worktree (falling back to shared): {ex.Message}");
+                Debug($"[WorktreeStrategy] Failed to create shared worker worktree: {ex.GetType().Name}: {ex.Message}");
             }
         }
 
@@ -4589,6 +4723,19 @@ public partial class CopilotService
             var wt = await _repoManager.CreateWorktreeAsync(repoId, branchName, skipFetch: true, ct: ct);
             return (wt.Id, wt.Path);
         }
+    }
+
+    /// <summary>
+    /// When worktree creation fails (e.g., long paths on Windows), try to find an existing
+    /// worktree for the repo so sessions get a real working directory instead of a temp dir.
+    /// Returns only the path — does NOT propagate the worktree ID. This prevents the borrowed
+    /// ID from leaking into session metadata, which would cause DeleteGroup to destroy a
+    /// worktree that belongs to another group (DeleteGroup collects IDs from session metadata).
+    /// </summary>
+    private string? TryGetExistingWorktreePath(string repoId)
+    {
+        var existing = _repoManager.Worktrees.FirstOrDefault(w => w.RepoId == repoId && Directory.Exists(w.Path));
+        return existing?.Path;
     }
 
     #endregion

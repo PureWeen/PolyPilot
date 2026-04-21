@@ -1,4 +1,3 @@
-using GitHub.Copilot.SDK;
 using PolyPilot.Services;
 
 namespace PolyPilot.Tests;
@@ -12,50 +11,51 @@ namespace PolyPilot.Tests;
 /// SubagentDeferStartedAtTicks) and expires the background agent block after
 /// SubagentZombieTimeoutMinutes, allowing the session to complete normally.
 /// See: issue #509 (expose CancelBackgroundTaskAsync via SDK).
+///
+/// SDK v0.2.2: SessionIdleDataBackgroundTasks removed. Background tasks are now tracked
+/// via BackgroundTaskSnapshot and SessionBackgroundTasksChangedEvent.
 /// </summary>
 public class ZombieSubagentExpiryTests
 {
     private static long TicksAgo(double minutes) =>
         DateTime.UtcNow.AddMinutes(-minutes).Ticks;
 
-    private static SessionIdleEvent MakeIdleWithAgents(int agentCount = 1)
+    // Test DTOs for reflection-based GetBackgroundTaskSnapshot
+    private class FakeBackgroundTasks
     {
-        return new SessionIdleEvent
-        {
-            Data = new SessionIdleData
-            {
-                BackgroundTasks = new SessionIdleDataBackgroundTasks
-                {
-                    Agents = Enumerable.Range(0, agentCount)
-                        .Select(i => new SessionIdleDataBackgroundTasksAgentsItem
-                        {
-                            AgentId = $"agent-{i}",
-                            AgentType = "copilot",
-                            Description = ""
-                        }).ToArray(),
-                    Shells = Array.Empty<SessionIdleDataBackgroundTasksShellsItem>()
-                }
-            }
-        };
+        public FakeAgent[] Agents { get; set; } = Array.Empty<FakeAgent>();
+        public FakeShell[] Shells { get; set; } = Array.Empty<FakeShell>();
+    }
+    private class FakeAgent
+    {
+        public string AgentId { get; set; } = "";
+        public string AgentType { get; set; } = "";
+        public string Description { get; set; } = "";
+    }
+    private class FakeShell
+    {
+        public string ShellId { get; set; } = "";
+        public string Description { get; set; } = "";
     }
 
-    private static SessionIdleEvent MakeIdleWithShells(int shellCount = 1)
+    private static CopilotService.BackgroundTaskSnapshot MakeSnapshot(int agents = 0, int shells = 0)
     {
-        return new SessionIdleEvent
+        var parts = new List<string>();
+        for (int i = 0; i < agents; i++) parts.Add($"agent:agent-{i}");
+        for (int i = 0; i < shells; i++) parts.Add($"shell:shell-{i}");
+        return new CopilotService.BackgroundTaskSnapshot(agents, shells, string.Join("|", parts), IsKnown: true);
+    }
+
+    private static FakeBackgroundTasks MakeFakeBt(int agents = 0, int shells = 0)
+    {
+        return new FakeBackgroundTasks
         {
-            Data = new SessionIdleData
-            {
-                BackgroundTasks = new SessionIdleDataBackgroundTasks
-                {
-                    Agents = Array.Empty<SessionIdleDataBackgroundTasksAgentsItem>(),
-                    Shells = Enumerable.Range(0, shellCount)
-                        .Select(i => new SessionIdleDataBackgroundTasksShellsItem
-                        {
-                            ShellId = $"shell-{i}",
-                            Description = ""
-                        }).ToArray()
-                }
-            }
+            Agents = Enumerable.Range(0, agents)
+                .Select(i => new FakeAgent { AgentId = $"agent-{i}", AgentType = "copilot", Description = "" })
+                .ToArray(),
+            Shells = Enumerable.Range(0, shells)
+                .Select(i => new FakeShell { ShellId = $"shell-{i}", Description = "" })
+                .ToArray()
         };
     }
 
@@ -65,15 +65,15 @@ public class ZombieSubagentExpiryTests
     public void ZeroTicks_ActiveAgent_ReturnsTrue()
     {
         // 0 means "not set" — behaviour is unchanged: any agent means "still running".
-        var idle = MakeIdleWithAgents();
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle, idleDeferStartedAtTicks: 0));
+        var snapshot = MakeSnapshot(agents: 1);
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot, idleDeferStartedAtTicks: 0));
     }
 
     [Fact]
     public void ZeroTicks_NoTasks_ReturnsFalse()
     {
-        var idle = new SessionIdleEvent { Data = new SessionIdleData() };
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle, idleDeferStartedAtTicks: 0));
+        var snapshot = MakeSnapshot();
+        Assert.False(CopilotService.HasActiveBackgroundTasks(snapshot, idleDeferStartedAtTicks: 0));
     }
 
     // --- Fresh IDLE-DEFER (started recently — well within timeout) ---
@@ -81,16 +81,16 @@ public class ZombieSubagentExpiryTests
     [Fact]
     public void FreshDeferStart_ActiveAgent_ReturnsTrue()
     {
-        var idle = MakeIdleWithAgents();
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle, TicksAgo(1)));
+        var snapshot = MakeSnapshot(agents: 1);
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot, TicksAgo(1)));
     }
 
     [Fact]
     public void DeferStartJustBelowThreshold_ReturnsTrue()
     {
-        var idle = MakeIdleWithAgents();
+        var snapshot = MakeSnapshot(agents: 1);
         Assert.True(CopilotService.HasActiveBackgroundTasks(
-            idle, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes - 1)));
+            snapshot, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes - 1)));
     }
 
     // --- Zombie threshold reached ---
@@ -98,17 +98,17 @@ public class ZombieSubagentExpiryTests
     [Fact]
     public void ZombieThresholdExceeded_SingleAgent_ReturnsFalse()
     {
-        var idle = MakeIdleWithAgents();
+        var snapshot = MakeSnapshot(agents: 1);
         Assert.False(CopilotService.HasActiveBackgroundTasks(
-            idle, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes + 1)));
+            snapshot, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes + 1)));
     }
 
     [Fact]
     public void ZombieThresholdExceeded_MultipleAgents_ReturnsFalse()
     {
         // All 8 agents reported — none complete — reproduces the real incident
-        var idle = MakeIdleWithAgents(agentCount: 8);
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle, TicksAgo(42)));
+        var snapshot = MakeSnapshot(agents: 8);
+        Assert.False(CopilotService.HasActiveBackgroundTasks(snapshot, TicksAgo(42)));
     }
 
     [Fact]
@@ -117,9 +117,9 @@ public class ZombieSubagentExpiryTests
         // At exactly the threshold, the session is considered expired.
         // TicksAgo(20) produces ticks > 20min ago (test executes in microseconds, not minutes),
         // so elapsed will be just over 20min and the threshold check fires correctly.
-        var idle = MakeIdleWithAgents();
+        var snapshot = MakeSnapshot(agents: 1);
         Assert.False(CopilotService.HasActiveBackgroundTasks(
-            idle, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes)));
+            snapshot, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes)));
     }
 
     // --- Shells get a longer zombie timeout than agents ---
@@ -129,47 +129,25 @@ public class ZombieSubagentExpiryTests
     {
         // At 30 minutes, agents should have expired but shells should still keep the
         // session deferred. This protects legitimate long-running build/test shells.
-        var idle = new SessionIdleEvent
-        {
-            Data = new SessionIdleData
-            {
-                BackgroundTasks = new SessionIdleDataBackgroundTasks
-                {
-                    Agents = new[]
-                    {
-                        new SessionIdleDataBackgroundTasksAgentsItem
-                        {
-                            AgentId = "zombie-agent", AgentType = "copilot", Description = ""
-                        }
-                    },
-                    Shells = new[]
-                    {
-                        new SessionIdleDataBackgroundTasksShellsItem
-                        {
-                            ShellId = "shell-1", Description = "npm test"
-                        }
-                    }
-                }
-            }
-        };
+        var snapshot = MakeSnapshot(agents: 1, shells: 1);
         Assert.True(CopilotService.HasActiveBackgroundTasks(
-            idle, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes + 10)));
+            snapshot, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes + 10)));
     }
 
     [Fact]
     public void ZombieThresholdExceeded_ShellsOnly_ReturnsFalse()
     {
         // Shells alone should eventually expire too — just with a longer threshold than agents.
-        var idle = MakeIdleWithShells();
+        var snapshot = MakeSnapshot(shells: 1);
         Assert.False(CopilotService.HasActiveBackgroundTasks(
-            idle, TicksAgo(CopilotService.ShellZombieTimeoutMinutes + 1)));
+            snapshot, TicksAgo(CopilotService.ShellZombieTimeoutMinutes + 1)));
     }
 
     [Fact]
     public void FreshDeferStart_ShellsOnly_ReturnsTrue()
     {
-        var idle = MakeIdleWithShells();
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle, TicksAgo(1)));
+        var snapshot = MakeSnapshot(shells: 1);
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot, TicksAgo(1)));
     }
 
     [Fact]
@@ -177,9 +155,9 @@ public class ZombieSubagentExpiryTests
     {
         // Shells should survive past the 20-minute agent timeout so legitimate long-running
         // commands do not get truncated just because they're shell-backed instead of subagents.
-        var idle = MakeIdleWithShells();
+        var snapshot = MakeSnapshot(shells: 1);
         Assert.True(CopilotService.HasActiveBackgroundTasks(
-            idle, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes + 5)));
+            snapshot, TicksAgo(CopilotService.SubagentZombieTimeoutMinutes + 5)));
     }
 
     [Fact]
@@ -188,55 +166,50 @@ public class ZombieSubagentExpiryTests
         // The same orphaned shell IDs can be reported again on later prompts. Their zombie age
         // must continue from the first time we saw them — otherwise every new prompt resets the
         // timer and the session can stay "busy" forever.
-        var idle = MakeIdleWithShells(shellCount: 2);
-        var snapshot = CopilotService.GetBackgroundTaskSnapshot(idle.Data?.BackgroundTasks);
+        var bt = MakeFakeBt(shells: 2);
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(bt);
         var staleTicks = TicksAgo(CopilotService.ShellZombieTimeoutMinutes + 5);
 
         var preservedTicks = CopilotService.GetBackgroundTaskFirstSeenTicks(
-            idle.Data?.BackgroundTasks,
+            bt,
             snapshot.Fingerprint,
             staleTicks,
             DateTime.UtcNow);
 
         Assert.Equal(staleTicks, preservedTicks);
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle, preservedTicks));
+        Assert.False(CopilotService.HasActiveBackgroundTasks(snapshot, preservedTicks));
     }
 
     [Fact]
     public void DifferentShellFingerprint_RefreshesAgeForNewBackgroundWork()
     {
-        var newShells = new SessionIdleDataBackgroundTasks
+        var bt = new FakeBackgroundTasks
         {
-            Agents = Array.Empty<SessionIdleDataBackgroundTasksAgentsItem>(),
+            Agents = Array.Empty<FakeAgent>(),
             Shells = new[]
             {
-                new SessionIdleDataBackgroundTasksShellsItem
-                {
-                    ShellId = "shell-new",
-                    Description = "fresh build"
-                }
+                new FakeShell { ShellId = "shell-new", Description = "fresh build" }
             }
         };
         var staleTicks = TicksAgo(CopilotService.ShellZombieTimeoutMinutes + 5);
         var before = DateTime.UtcNow;
 
         var refreshedTicks = CopilotService.GetBackgroundTaskFirstSeenTicks(
-            newShells,
+            bt,
             "shell:shell-old",
             staleTicks,
             before);
 
         Assert.Equal(before.Ticks, refreshedTicks);
-        Assert.True(CopilotService.HasActiveBackgroundTasks(
-            new SessionIdleEvent { Data = new SessionIdleData { BackgroundTasks = newShells } },
-            refreshedTicks));
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(bt);
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot, refreshedTicks));
     }
 
     [Fact]
     public void CarryOverShellOnlyTasks_FromPriorTurn_ShouldNotBlockNewTurn()
     {
-        var idle = MakeIdleWithShells(shellCount: 2);
-        var snapshot = CopilotService.GetBackgroundTaskSnapshot(idle.Data?.BackgroundTasks);
+        var bt = MakeFakeBt(shells: 2);
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(bt);
 
         Assert.True(CopilotService.ShouldIgnoreCarryOverShellOnlyTasks(
             snapshot,
@@ -247,41 +220,14 @@ public class ZombieSubagentExpiryTests
     [Fact]
     public void CarryOverShellOnlyTasks_DoNotApplyToCurrentTurnOrActiveAgents()
     {
-        var shellsOnly = MakeIdleWithShells(shellCount: 1);
-        var shellSnapshot = CopilotService.GetBackgroundTaskSnapshot(shellsOnly.Data?.BackgroundTasks);
+        var shellSnapshot = CopilotService.GetBackgroundTaskSnapshot(MakeFakeBt(shells: 1));
 
         Assert.False(CopilotService.ShouldIgnoreCarryOverShellOnlyTasks(
             shellSnapshot,
             TicksAgo(1),
             DateTime.UtcNow.AddMinutes(-3)));
 
-        var withAgents = new SessionIdleEvent
-        {
-            Data = new SessionIdleData
-            {
-                BackgroundTasks = new SessionIdleDataBackgroundTasks
-                {
-                    Agents = new[]
-                    {
-                        new SessionIdleDataBackgroundTasksAgentsItem
-                        {
-                            AgentId = "agent-1",
-                            AgentType = "copilot",
-                            Description = "worker"
-                        }
-                    },
-                    Shells = new[]
-                    {
-                        new SessionIdleDataBackgroundTasksShellsItem
-                        {
-                            ShellId = "shell-1",
-                            Description = "tail -f"
-                        }
-                    }
-                }
-            }
-        };
-        var mixedSnapshot = CopilotService.GetBackgroundTaskSnapshot(withAgents.Data?.BackgroundTasks);
+        var mixedSnapshot = CopilotService.GetBackgroundTaskSnapshot(MakeFakeBt(agents: 1, shells: 1));
         Assert.False(CopilotService.ShouldIgnoreCarryOverShellOnlyTasks(
             mixedSnapshot,
             TicksAgo(10),
@@ -308,7 +254,7 @@ public class ZombieSubagentExpiryTests
         // After the fix, SubagentDeferStartedAtTicks is reset at turn boundaries, so the
         // ??= CompareExchange sets a fresh timestamp for the new turn, and zombie expiry
         // is based on the new turn's actual elapsed time.
-        var idle = MakeIdleWithAgents();
+        var snapshot = MakeSnapshot(agents: 1);
 
         // Simulate: stale ticks from 25 minutes ago NOT cleared at turn boundary
         long staleTicks = TicksAgo(25);
@@ -317,36 +263,36 @@ public class ZombieSubagentExpiryTests
         // The test ASSERTS false to document what the broken behavior looks like,
         // and to verify that HasActiveBackgroundTasks correctly respects the ticks value.
         // The real invariant is: callers MUST pass 0 (not stale ticks) for new turns.
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle, staleTicks),
+        Assert.False(CopilotService.HasActiveBackgroundTasks(snapshot, staleTicks),
             "HasActiveBackgroundTasks correctly expires based on elapsed ticks — " +
             "the caller is responsible for resetting SubagentDeferStartedAtTicks at turn boundaries.");
 
         // The safe path: passing fresh ticks (new turn, new timestamp) should NOT expire agents
         long freshTicks = TicksAgo(1);
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle, freshTicks),
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot, freshTicks),
             "With fresh ticks (new turn), agents should NOT be expired — confirms the fix works.");
     }
 
-    // --- Backward compatibility with existing BackgroundTasksIdleTests ---
+    // --- Backward compatibility ---
 
     [Fact]
     public void BackwardCompat_NullBackgroundTasks_ReturnsFalse()
     {
-        var idle = new SessionIdleEvent { Data = new SessionIdleData { BackgroundTasks = null } };
-        Assert.False(CopilotService.HasActiveBackgroundTasks(idle));
+        var snapshot = CopilotService.GetBackgroundTaskSnapshot(null);
+        Assert.False(CopilotService.HasActiveBackgroundTasks(snapshot));
     }
 
     [Fact]
     public void BackwardCompat_WithAgents_ReturnsTrue()
     {
-        var idle = MakeIdleWithAgents();
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle));
+        var snapshot = MakeSnapshot(agents: 1);
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot));
     }
 
     [Fact]
     public void BackwardCompat_WithShells_ReturnsTrue()
     {
-        var idle = MakeIdleWithShells();
-        Assert.True(CopilotService.HasActiveBackgroundTasks(idle));
+        var snapshot = MakeSnapshot(shells: 1);
+        Assert.True(CopilotService.HasActiveBackgroundTasks(snapshot));
     }
 }

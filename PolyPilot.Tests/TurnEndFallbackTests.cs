@@ -251,4 +251,217 @@ public class TurnEndFallbackTests
         await fallbackTask;
         Assert.True(await completion.Task, "Fallback must fire when no TurnStart or SessionIdle arrives");
     }
+
+    // ===== Events.jsonl freshness guard constants =====
+
+    [Fact]
+    public void TurnEndFallbackFreshnessSeconds_IsReasonable()
+    {
+        // Must be tight enough to avoid false positives from prior-turn writes
+        // but wide enough to catch genuinely active tools.
+        Assert.InRange(CopilotService.TurnEndFallbackFreshnessSeconds, 5, 60);
+    }
+
+    [Fact]
+    public void TurnEndFallbackRecheckMs_IsReasonable()
+    {
+        // Must be shorter than the watchdog check interval (15s) to provide
+        // faster recovery than deferring entirely to the watchdog.
+        Assert.InRange(CopilotService.TurnEndFallbackRecheckMs, 5_000, 30_000);
+        Assert.True(CopilotService.TurnEndFallbackRecheckMs <=
+            CopilotService.WatchdogCheckIntervalSeconds * 1000,
+            "Recheck delay should be at most one watchdog interval");
+    }
+
+    [Fact]
+    public void TurnEndFallbackFreshnessSeconds_IsSeparateFromWatchdog()
+    {
+        // The TurnEnd fallback freshness threshold must NOT be the same constant
+        // as the watchdog's Case B freshness (300s). They serve different purposes:
+        // the fallback needs a tight window, the watchdog needs a wide one.
+        Assert.NotEqual(
+            CopilotService.TurnEndFallbackFreshnessSeconds,
+            CopilotService.WatchdogCaseBFreshnessSeconds);
+        Assert.True(
+            CopilotService.TurnEndFallbackFreshnessSeconds < CopilotService.WatchdogCaseBFreshnessSeconds,
+            "Fallback freshness must be tighter than watchdog Case B freshness");
+    }
+
+    // ===== Events.jsonl freshness guard behavior =====
+
+    [Fact]
+    public void TurnEndFallback_FreshnessGuard_HasTurnStartAnchor()
+    {
+        // The freshness check must use a turn-start anchor to avoid false positives
+        // from prior-turn writes. Verify the code captures freshnessCheckStart before
+        // the delay and uses it in the comparison.
+        var source = File.ReadAllText("../../../../PolyPilot/Services/CopilotService.Events.cs");
+
+        // Must capture timestamp before the extended delay
+        var captureIdx = source.IndexOf("var freshnessCheckStart = DateTime.UtcNow;", StringComparison.Ordinal);
+        var delayIdx = source.IndexOf("await Task.Delay(TurnEndIdleToolFallbackAdditionalMs", StringComparison.Ordinal);
+        Assert.True(captureIdx >= 0, "freshnessCheckStart must be captured");
+        Assert.True(delayIdx >= 0, "Extended delay must exist");
+        Assert.True(captureIdx < delayIdx, "freshnessCheckStart must be captured BEFORE the delay");
+
+        // Must use the anchor in the comparison (not just fileAge)
+        Assert.Contains("lastWrite > freshnessCheckStart", source);
+    }
+
+    [Fact]
+    public void TurnEndFallback_FreshnessGuard_HasRecheckLoop()
+    {
+        // After the first freshness skip, the fallback must recheck rather than
+        // permanently returning (which would leave the session stuck until the watchdog).
+        var source = File.ReadAllText("../../../../PolyPilot/Services/CopilotService.Events.cs");
+        Assert.Contains("TurnEndFallbackRecheckMs", source);
+        Assert.Contains("rescheduling", source); // Debug log mentions rescheduling
+        Assert.Contains("deferring to watchdog", source); // Eventual defer after recheck
+    }
+
+    [Fact]
+    public void TurnEndFallback_FreshnessGuard_HasClockSkewProtection()
+    {
+        // fileAge must use Math.Max(0.0, ...) to prevent negative values from clock skew.
+        var source = File.ReadAllText("../../../../PolyPilot/Services/CopilotService.Events.cs");
+        // The freshness guard uses Math.Max for both initial and recheck age
+        Assert.Contains("Math.Max(0.0, (DateTime.UtcNow - lastWrite).TotalSeconds)", source);
+        Assert.Contains("Math.Max(0.0, (DateTime.UtcNow - File.GetLastWriteTimeUtc(ep)).TotalSeconds)", source);
+    }
+
+    [Fact]
+    public void TurnEndFallback_FreshnessGuard_ChecksLastEventType()
+    {
+        // The fallback must check GetLastEventType for tool.execution_start to handle
+        // long-running tools where events.jsonl was written before the wait started.
+        var source = File.ReadAllText("../../../../PolyPilot/Services/CopilotService.Events.cs");
+        // GetLastEventType is called in the IDLE-FALLBACK context
+        Assert.Contains("var lastEventType = GetLastEventType(ep);", source);
+        Assert.Contains("lastEventType == \"tool.execution_start\"", source);
+        // Must defer to watchdog when tool detected
+        Assert.Contains("tool running without live event", source);
+    }
+
+    [Fact]
+    public void TurnEndFallback_SkipsDemoAndRemoteMode()
+    {
+        // The events.jsonl check must be bypassed in Demo and Remote modes.
+        var source = File.ReadAllText("../../../../PolyPilot/Services/CopilotService.Events.cs");
+        var guardIdx = source.IndexOf("check if the CLI has an in-flight", StringComparison.Ordinal);
+        Assert.True(guardIdx >= 0, "Freshness guard comment must exist");
+        var afterComment = source.Substring(guardIdx, Math.Min(800, source.Length - guardIdx));
+        Assert.Contains("IsDemoMode", afterComment);
+        Assert.Contains("IsRemoteMode", afterComment);
+    }
+
+    [Fact]
+    public void WatchdogCaseB_PreCheck_HasServerLivenessGuard()
+    {
+        // The watchdog Case B pre-check must verify the server is alive.
+        var source = File.ReadAllText("../../../../PolyPilot/Services/CopilotService.Events.cs");
+        var preCheckIdx = source.IndexOf("Case B skipped", StringComparison.Ordinal);
+        Assert.True(preCheckIdx >= 0, "Case B pre-check debug message must exist");
+        var beforeDebug = source.Substring(Math.Max(0, preCheckIdx - 800), 800);
+        Assert.Contains("_serverManager.IsServerRunning", beforeDebug);
+    }
+
+    // ===== Behavioral tests for GetLastEventType (PR #619 review follow-up) =====
+
+    [Fact]
+    public void GetLastEventType_ReturnsToolExecutionStart_WhenLastEvent()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile,
+                "{\"type\":\"assistant.turn_end\"}\n" +
+                "{\"type\":\"assistant.message\"}\n" +
+                "{\"type\":\"tool.execution_start\",\"data\":{\"name\":\"bash\"}}\n");
+            var result = CopilotService.GetLastEventType(tempFile);
+            Assert.Equal("tool.execution_start", result);
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void GetLastEventType_ReturnsSessionIdle_WhenTerminalEvent()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile,
+                "{\"type\":\"assistant.turn_end\"}\n" +
+                "{\"type\":\"session.idle\"}\n");
+            var result = CopilotService.GetLastEventType(tempFile);
+            Assert.Equal("session.idle", result);
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void GetLastEventType_ReturnsNull_WhenFileDoesNotExist()
+    {
+        var result = CopilotService.GetLastEventType("/nonexistent/path/events.jsonl");
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetLastEventType_ReturnsNull_WhenFileIsEmpty()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, "");
+            var result = CopilotService.GetLastEventType(tempFile);
+            Assert.Null(result);
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void GetLastEventType_ReturnsNull_WhenInvalidJson()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile, "not json at all\n");
+            var result = CopilotService.GetLastEventType(tempFile);
+            Assert.Null(result);
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void GetLastEventType_IgnoresTrailingBlankLines()
+    {
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            File.WriteAllText(tempFile,
+                "{\"type\":\"tool.execution_complete\"}\n\n\n");
+            var result = CopilotService.GetLastEventType(tempFile);
+            Assert.Equal("tool.execution_complete", result);
+        }
+        finally { File.Delete(tempFile); }
+    }
+
+    [Fact]
+    public void GetLastEventType_ReadsWithFileShareReadWrite()
+    {
+        // Verifies the file can be read while another process is writing
+        var tempFile = Path.GetTempFileName();
+        try
+        {
+            using (var writer = new FileStream(tempFile, FileMode.Create, FileAccess.Write, FileShare.ReadWrite))
+            {
+                var bytes = System.Text.Encoding.UTF8.GetBytes("{\"type\":\"assistant.turn_start\"}\n");
+                writer.Write(bytes);
+                writer.Flush();
+                // Read while writer is still open
+                var result = CopilotService.GetLastEventType(tempFile);
+                Assert.Equal("assistant.turn_start", result);
+            }
+        }
+        finally { File.Delete(tempFile); }
+    }
 }
