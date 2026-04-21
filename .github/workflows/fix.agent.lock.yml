@@ -26,7 +26,7 @@
 #   Imports:
 #     - shared/fix-shared.md
 #
-# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"4a8ecf053326a095ea434151517e92eb97f44207024e807476ca01652c427c8d","compiler_version":"v0.62.2","strict":true}
+# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"7bbd1c0cb2318d866f74a5cb6e40631648a3cd7779249bd867bf280e672df1cc","compiler_version":"v0.62.2","strict":true}
 
 name: "Review & Fix"
 "on":
@@ -48,7 +48,7 @@ name: "Review & Fix"
 permissions: {}
 
 concurrency:
-  cancel-in-progress: true
+  cancel-in-progress: false
   group: review-${{ github.event.issue.number || inputs.pr_number || github.run_id }}
 
 run-name: "Review & Fix"

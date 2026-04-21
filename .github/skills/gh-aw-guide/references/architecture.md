@@ -179,6 +179,59 @@ Reference: https://securitylab.github.com/resources/github-actions-preventing-pw
 
 The platform now **automatically preserves `.github/` and `.agents/` from the base branch**. The activation job saves these directories as an artifact, and after `checkout_pr_branch.cjs` checks out the PR branch, the platform restores them from the artifact. Additionally, `.mcp.json` is deleted from the workspace to prevent injection. This means fork PRs can no longer overwrite agent infrastructure (skills, instructions, copilot-instructions) by including modified copies in their branch.
 
+**What #23769 fixed (and what it didn't):**
+
+| Before #23769 | After #23769 |
+|---------------|-------------|
+| Fork PRs inject modified `.github/skills/`, `.github/instructions/`, `.agents/` | ✅ Platform restores these from base branch artifact |
+| Fork PRs inject `.mcp.json` to add malicious MCP servers | ✅ Platform deletes `.mcp.json` after checkout |
+| User `steps:` run BEFORE `checkout_pr_branch.cjs` — restore was overwritten | ✅ Platform restore happens AFTER checkout |
+| `pre-agent-steps:` not available | ✅ `pre-agent-steps:` run after restore, before agent |
+
+**Remaining risks (not fixed by #23769):**
+- `steps:` and `pre-agent-steps:` that execute workspace code after checkout still run with `GITHUB_TOKEN` — if they run fork PR scripts, it's a pwn-request
+- The agent container has `COPILOT_TOKEN` in the environment — build commands (`dotnet build`, `npm install`) executed by the agent on fork PR code can read it via build hooks
+- `workflow_dispatch` skips `checkout_pr_branch.cjs` entirely — use `Checkout-GhAwPr.ps1` for defense-in-depth
+
+### Dangerous Triggers Checklist
+
+Use this checklist when reviewing any workflow that uses high-risk triggers. The platform's #23769 restore makes these **safer** but not **safe** — the remaining risks require workflow-author discipline.
+
+#### `pull_request_target`
+- ⚠️ Grants **write permissions and secrets access** even for fork PRs
+- ✅ `.github/` is now restored from base branch (gh-aw#23769)
+- ❌ `steps:` and `pre-agent-steps:` still run fork code with `GITHUB_TOKEN`
+- **Checks:**
+  - [ ] No `steps:` or `pre-agent-steps:` execute workspace scripts after checkout
+  - [ ] No build commands in the agent prompt (agent has `COPILOT_TOKEN`)
+  - [ ] `roles:` is NOT `all` (gate on write-access minimum)
+  - [ ] `min-integrity: approved` is set if processing PR content
+  - [ ] `protected-files:` is set if `create-pull-request` or `push-to-pull-request-branch` is used
+
+#### `workflow_run`
+- ⚠️ Inherits secrets access, runs after another workflow completes
+- ✅ Separates privilege from code execution (the pattern gh-aw uses internally)
+- ❌ Artifacts from the first run could contain executable payloads
+- **Checks:**
+  - [ ] `branches:` is restricted (not open to all branches)
+  - [ ] Artifact contents are treated as untrusted data (never `eval`, `source`, or execute)
+  - [ ] The triggering workflow is pinned (not modifiable by fork PRs)
+
+#### `push` with broad branch patterns
+- ⚠️ Runs with write permissions on every push
+- **Checks:**
+  - [ ] `branches:` is narrowed to specific branches (e.g., `[main]`), never `['**']`
+  - [ ] No `roles: all` — meaningless on push but indicates careless authoring
+
+#### `issue_comment` / `slash_command` on fork PRs
+- ✅ Platform restores `.github/` from base branch (gh-aw#23769)
+- ✅ Only write-access users can trigger (default `roles:`)
+- ⚠️ The PR code is checked out — agent reads it as passive data (safe), but `steps:` must not execute it
+- **Checks:**
+  - [ ] `events:` is narrowed (e.g., `[pull_request_comment]` not all events)
+  - [ ] `cancel-in-progress: false` (prevent non-matching comments from killing agent)
+  - [ ] No workspace script execution in `steps:` after checkout
+
 ### Fork PR Behavior by Trigger
 
 | Trigger | `checkout_pr_branch.cjs` runs? | Fork handling |

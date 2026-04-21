@@ -26,7 +26,7 @@ permissions:
 # Intentional: shared prefix with review workflows — /fix cancels in-progress /review.
 concurrency:
   group: "review-${{ github.event.issue.number || inputs.pr_number || github.run_id }}"
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 engine:
   id: copilot
