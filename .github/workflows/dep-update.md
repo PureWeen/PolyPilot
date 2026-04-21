@@ -21,7 +21,11 @@ tools:
 safe-outputs:
   create-pull-request:
     auto-merge: true
+    expires: 1
+    preserve-branch-name: true
     protected-files: fallback-to-issue
+  close-pull-request:
+    max: 5
 
 timeout-minutes: 45
 
@@ -51,9 +55,13 @@ Update ALL of these to the **same** version:
 
 ### Group 2: MauiDevFlow Packages + CLI Tool (Azure DevOps dotnet10 feed)
 
-Query the latest version — the ADO feed does NOT sort versions correctly, so use `sort -t. -k4,4n -k5,5n -k6,6n` to sort by preview number then build:
+Query the latest version — the ADO feed does NOT sort versions semantically. Versions have mixed formats (`preview.N.BUILD.SUB` and `preview.BUILD.SUB`). Use `dotnet nuget` to find the latest:
 ```bash
-DEVFLOW_LATEST=$(curl -s 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/flat2/microsoft.maui.devflow.agent/index.json' | jq -r '.versions[]' | sort -t. -k4,4n -k5,5n -k6,6n | tail -1)
+DEVFLOW_LATEST=$(dotnet package search Microsoft.Maui.DevFlow.Agent --source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json --prerelease --take 1 --format json 2>/dev/null | jq -r '.searchResult[0].packages[0].latestVersion // empty')
+if [ -z "$DEVFLOW_LATEST" ]; then
+  # Fallback: query flat2 API and pick the version with the highest preview number
+  DEVFLOW_LATEST=$(curl -s 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/flat2/microsoft.maui.devflow.agent/index.json' | jq -r '.versions[]' | grep -E 'preview\.[0-9]+\.[0-9]{5}\.' | sort -t. -k4,4n -k5,5n -k6,6n | tail -1)
+fi
 echo "Latest DevFlow: $DEVFLOW_LATEST"
 ```
 
@@ -117,9 +125,11 @@ Skip these — they track the .NET SDK version or use variables:
 
 ## Steps
 
-1. **Query latest versions** for all package groups.
+1. **Close previous dep-update PRs** — before doing anything, close any open PRs from previous runs of this workflow so we don't accumulate stale PRs. Use the `close_pull_request` safe output tool for any open PRs with title containing "update NuGet dependencies" that were created by this workflow.
 
-2. **Compare with current versions** across all csproj files and `dotnet-tools.json`. If everything is already up to date, stop and do not create a PR.
+2. **Query latest versions** for all package groups.
+
+3. **Compare with current versions** across all csproj files and `dotnet-tools.json`. If everything is already up to date, stop and do not create a PR.
 
 3. **Update MauiDevFlow packages + CLI tool** — query the latest DevFlow version from the ADO feed. If it differs from the current version in the csproj files, update all four `Microsoft.Maui.DevFlow.*` PackageReference versions AND the `microsoft.maui.cli` version in `dotnet-tools.json`. Then install the maui CLI and run `maui devflow update-skill`. Include any changed files under `.claude/skills/maui-ai-debugging/` in the commit.
 
