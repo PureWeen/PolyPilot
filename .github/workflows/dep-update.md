@@ -21,6 +21,7 @@ tools:
 safe-outputs:
   create-pull-request:
     auto-merge: true
+    protected-files: fallback-to-issue
 
 timeout-minutes: 45
 

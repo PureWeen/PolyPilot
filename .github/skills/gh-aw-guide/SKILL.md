@@ -1,15 +1,13 @@
 ---
 name: gh-aw-guide
 description: >-
-  Comprehensive guide for building and maintaining GitHub Agentic Workflows
-  (gh-aw). Covers architecture, security boundaries, fork handling, safe
-  outputs, anti-patterns, compilation, and troubleshooting. Use when creating
-  or editing gh-aw workflow .md files, writing safe-outputs configurations,
-  configuring fork PR handling, setting up integrity filtering, debugging
-  "why doesn't my workflow trigger", or any task involving
-  .github/workflows/*.md or .lock.yml files. Also use when asked about gh-aw
-  features, slash commands, pre-agent-steps, protected files, or agentic
-  workflow security.
+  Comprehensive guide for building and maintaining GitHub Agentic Workflows (gh-aw).
+  Covers architecture, security boundaries, fork handling, safe outputs, anti-patterns,
+  compilation, and troubleshooting. Use when creating or editing gh-aw workflow .md files,
+  writing safe-outputs configurations, configuring fork PR handling, setting up integrity
+  filtering, debugging "why doesn't my workflow trigger", or any task involving
+  .github/workflows/*.md or .lock.yml files. Also use when asked about gh-aw features,
+  slash commands, pre-agent-steps, protected files, or agentic workflow security.
 ---
 
 # gh-aw (GitHub Agentic Workflows) Guide
@@ -61,7 +59,10 @@ gh aw compile .github/workflows/<name>.md
 | Custom post-processing jobs for agent output | `safe-outputs.jobs:` custom jobs with MCP tool access | [Custom Safe Outputs](https://github.github.com/gh-aw/reference/custom-safe-outputs/) |
 | Wrapping GitHub Actions as agent-callable tools | `safe-outputs.actions:` action wrappers | [Custom Safe Outputs](https://github.github.com/gh-aw/reference/custom-safe-outputs/) |
 | Triggering CI on agent-created PRs | `github-token-for-extra-empty-commit:` on `create-pull-request` | [Triggering CI](https://github.github.com/gh-aw/reference/triggering-ci/) |
-| No guard against agent approving/blocking PRs | `allowed-events: [COMMENT]` on `submit-pull-request-review` — blocks both APPROVE and stale REQUEST_CHANGES | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
+| No guard against agent approving PRs | `allowed-events: [COMMENT]` on `submit-pull-request-review` (prefer over `[COMMENT, REQUEST_CHANGES]` to avoid stale blocking reviews) | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
+| `slash_command:` without `events:` filter (subscribes to ALL comment events) | `events: [pull_request_comment]` or `events: [issue_comment]` | [Command Triggers](https://github.github.com/gh-aw/reference/command-triggers/) |
+| `cancel-in-progress: true` on `slash_command:` workflows | `cancel-in-progress: false` — non-matching events cancel in-progress agent runs | [Concurrency](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/using-concurrency) |
+| Using `pull_request` trigger for agentic workflows | `slash_command:` or `schedule` — `pull_request` causes the "Approve and run" gate for ALL workflows | [Triggers](https://github.github.com/gh-aw/reference/triggers/) |
 
 **Note:** gh-aw is actively developed. If a capability feels like something a framework would provide natively, check the reference docs — it probably exists even if it's not in this table yet.
 
@@ -95,13 +96,56 @@ safe-outputs:
 
 ### Concurrency
 
-Include all trigger-specific PR number sources:
+Include all trigger-specific PR number sources. **Use `cancel-in-progress: false` for `slash_command:` workflows** — a non-matching event (ordinary comment) in the same concurrency group can cancel an in-progress matching run (the actual `/command`), killing the agent mid-execution:
 
 ```yaml
+# For slash_command workflows — never cancel in-progress
 concurrency:
   group: "my-workflow-${{ github.event.issue.number || github.event.pull_request.number || inputs.pr_number || github.run_id }}"
+  cancel-in-progress: false
+
+# For schedule/workflow_dispatch only — safe to cancel
+concurrency:
+  group: "my-workflow-${{ github.ref || github.run_id }}"
   cancel-in-progress: true
 ```
+
+### `slash_command:` Event Subscription
+
+`slash_command:` compiles to broad event subscriptions — by default it listens to **all** comment-related events (issue open/edit, PR open/edit, every comment, every review comment, every discussion comment), then filters post-activation. This means:
+
+- **Runner cost**: The pre-activation job runs on every matching event (~5-30s each), even when skipped. On busy repos this can be hundreds of skipped runs per day.
+- **Actions UI noise**: Operators learn to ignore "skipped" runs and may miss real failures.
+- **Concurrency collisions**: Non-matching events in the same concurrency group can cancel matching ones (see above).
+
+**Always narrow `events:`** to the minimum needed:
+
+```yaml
+on:
+  slash_command:
+    name: review
+    events: [pull_request_comment]  # Only PR comments, not issues/discussions
+```
+
+### The "Approve and Run Workflows" Gate
+
+The `pull_request` trigger causes an "Approve and run workflows" button for first-time fork contributors. **This gate is dangerous, not protective**:
+
+1. **Alert fatigue** — After clicking through dozens of legitimate first-time PRs, the click becomes muscle memory
+2. **No per-workflow granularity** — A single click approves ALL gated workflows, including any `pull_request_target` workflows with full secrets
+3. **No diff preview** — The UI shows no preview of what will execute or which secrets are exposed
+
+**Design rule**: Assume the approval gate will always be clicked. The only safe workflows are ones that produce the same outcome whether the actor is trusted or untrusted. Prefer `issue_comment`/`slash_command:` (not subject to the gate) or `schedule`/`workflow_dispatch` over `pull_request` when possible.
+
+### LabelOps
+
+gh-aw provides label-based triggering patterns for both one-shot commands and persistent state tracking:
+
+- **`label_command:`** — One-shot command triggered by applying a label. The label is auto-removed after the workflow fires, making it self-resetting. Use for operations like "apply this label to trigger a review".
+- **`names:` filtering** — Filter label events to specific label names for persistent label-state awareness.
+- **`remove_label: false`** — Keep the label after triggering (for persistent state markers rather than one-shot commands).
+
+See the [LabelOps pattern guide](https://github.github.com/gh-aw/patterns/label-ops/) for detailed examples and best practices.
 
 ### Noise Reduction
 
@@ -142,12 +186,12 @@ For `pull_request` + fork support (not `workflow_dispatch`): add `forks: ["*"]` 
 
 These four patterns are the most commonly missed when building secure workflows. Use all where applicable:
 
-**1. Prevent accidental PR approvals** — always restrict review workflows; otherwise the agent can approve PRs and bypass branch protection rules (gh-aw#25439):
+**1. Prevent accidental PR approvals** — always restrict review workflows; otherwise the agent can approve PRs and bypass branch protection rules (gh-aw#25439). Use `[COMMENT]` to avoid stale blocking reviews that can't be dismissed:
 
 ```yaml
 safe-outputs:
   submit-pull-request-review:
-    allowed-events: [COMMENT]  # Blocks APPROVE and REQUEST_CHANGES — stale blocking reviews can't be auto-dismissed
+    allowed-events: [COMMENT]  # Blocks APPROVE; avoids un-dismissable REQUEST_CHANGES
 ```
 
 **2. CI triggering + protected file safety** for agent-created PRs — `GITHUB_TOKEN` pushes don't trigger CI; a PAT/App token is required. `protected-files` controls what happens when the agent modifies package manifests or `.github/`:
@@ -156,7 +200,7 @@ safe-outputs:
 safe-outputs:
   create-pull-request:
     github-token-for-extra-empty-commit: ${{ secrets.PAT_OR_APP_TOKEN }}  # Required to trigger CI
-    protected-files: fallback-to-issue  # Create issue instead of failing if agent touches .github/ or package manifests
+    protected-files: fallback-to-issue   # Create issue instead of failing if agent touches .github/ or package manifests
     # protected-files: blocked (default) | allowed (disables protection)
 ```
 
@@ -165,7 +209,7 @@ safe-outputs:
 ```yaml
 tools:
   github:
-    min-integrity: approved  # Filters FIRST_TIMER / CONTRIBUTOR content; use on workflows that process external PR content
+    min-integrity: approved   # Filters FIRST_TIMER / CONTRIBUTOR content; use on workflows that process external PR content
 ```
 
 **4. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you **must** use `.github/scripts/Checkout-GhAwPr.ps1` to check out the PR branch, verify write access, reject fork PRs, and restore trusted `.github/` from the base branch. Without it, the agent evaluates the workflow branch instead of the PR:
@@ -188,29 +232,32 @@ resources:                                                       # Companion fil
   - triage-issue.md
   - shared/helper-action.yml
 labels: ["automation", "ci"]                                     # For gh aw status --label filtering
+checkout: false                                                  # Skip repo checkout (for workflows that only use MCP/API, no source needed)
 
-runtimes:                                                        # Override default runtime versions
+rate-limit:                  # Throttle slash commands to prevent abuse
+  max: 5                     # Max invocations per window
+  window: 60                 # Window in seconds
+
+runtimes:                    # Override default runtime versions
   dotnet:
     version: "9.0"
   node:
     version: "22"
 
-imports:                                                         # APM package dependencies
+imports:                     # APM package dependencies
   - uses: shared/apm.md
     with:
       packages:
         - microsoft/apm-sample-package
 ```
 
+**`checkout: false`** — Skip the default repository checkout when the workflow doesn't need source code (e.g., ChatOps commands that only call APIs via `web-fetch`). Saves ~10-30s of runner time.
+
+**`rate-limit:`** — Throttle slash command invocations to prevent abuse or accidental spam. The `max` field limits invocations per `window` seconds. Useful for commands that call external APIs or create issues.
+
+**Available tools:** `web-fetch` (fetch URLs), `bash` (shell commands), GitHub MCP toolsets (`pull_requests`, `repos`, `issues`, etc.). Use `tools: [web-fetch]` for workflows that call external APIs.
+
 Supported runtimes: `node`, `python`, `go`, `uv`, `bun`, `deno`, `ruby`, `java`, `dotnet`, `elixir`.
-
-## Known Limitation: Stale Blocking Reviews
-
-`submit-pull-request-review` with `REQUEST_CHANGES` creates a blocking review that persists even after all findings are fixed and a re-review runs. gh-aw has no `dismiss-pull-request-review` safe output and forbids `pull-requests: write`, so stale bot reviews cannot be auto-dismissed. The `add-comment` output has `hide-older-comments: true` for this lifecycle, but reviews have no equivalent.
-
-**Our workaround:** Use `allowed-events: [COMMENT]` only — reviews communicate severity via 🔴/🟡/🟢 in the body but never block merging. This loses the GitHub-native "Changes requested" badge and merge-blocking semantics.
-
-**Upstream request:** A `supersede-older-reviews: true` option on `submit-pull-request-review` would solve this — auto-dismiss previous bot reviews from the same workflow when posting a new one, analogous to `hide-older-comments: true`. See gh-aw#25869 for another team that independently adopted the same COMMENT-only workaround.
 
 ## When to Read the Full Reference
 

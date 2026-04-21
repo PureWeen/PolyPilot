@@ -23,12 +23,6 @@ permissions:
   contents: read
   pull-requests: read
 
-# Intentional: shared group across review.agent.md and review-on-open.agent.md
-# so a manual /review cancels any in-progress auto-review on the same PR.
-concurrency:
-  group: "review-${{ github.event.issue.number || inputs.pr_number || github.run_id }}"
-  cancel-in-progress: true
-
 engine:
   id: copilot
   model: claude-opus-4.6
