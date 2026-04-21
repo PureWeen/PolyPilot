@@ -89,16 +89,22 @@ if ($BuildExitCode -ne 0) {
 # Build succeeded, show brief success message
 $BuildOutput -split "`n" | Select-Object -Last 3 | Write-Host
 
-# Detect the runtime identifier by finding the subdirectory containing the exe
+# Detect the build output directory.
+# With WindowsPackageType=None the exe lands directly in the framework dir (no RID subfolder).
+# With packaged builds or other platforms, there may be a RID subfolder (e.g. win-x64).
 $FrameworkDir = Join-Path (Join-Path (Join-Path $ProjectDir 'bin') $Configuration) $Framework
-$RidDir = Get-ChildItem -Path $FrameworkDir -Directory |
-    Where-Object { Test-Path (Join-Path $_.FullName $ExeName) } |
-    Select-Object -First 1 -ExpandProperty Name
-if (-not $RidDir) {
-    Write-Host '[X] Could not detect runtime identifier in build output'
-    exit 1
+if (Test-Path (Join-Path $FrameworkDir $ExeName)) {
+    $BuildDir = $FrameworkDir
+} else {
+    $RidDir = Get-ChildItem -Path $FrameworkDir -Directory |
+        Where-Object { Test-Path (Join-Path $_.FullName $ExeName) } |
+        Select-Object -First 1 -ExpandProperty Name
+    if (-not $RidDir) {
+        Write-Host '[X] Could not find' $ExeName 'in build output'
+        exit 1
+    }
+    $BuildDir = Join-Path $FrameworkDir $RidDir
 }
-$BuildDir = Join-Path $FrameworkDir $RidDir
 Write-Host '[OK] Build output:' $BuildDir
 
 for ($Attempt = 1; $Attempt -le $MaxLaunchAttempts; $Attempt++) {
