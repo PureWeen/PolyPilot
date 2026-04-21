@@ -1,6 +1,6 @@
-# gh-aw Architecture Deep-Dive
+# gh-aw Architecture & Security Reference
 
-This document provides the full architecture, security model, and reference details for GitHub Agentic Workflows (gh-aw). Read the parent `SKILL.md` for the quick-start guide and common patterns.
+Deep reference for gh-aw execution model, security boundaries, fork handling, safe outputs, and troubleshooting. Read this file when the SKILL.md quick-start and common patterns aren't sufficient.
 
 ## Execution Model
 
@@ -27,9 +27,9 @@ agent job:
 | Agent container | ❌ Scrubbed | ❌ Scrubbed | ❌ Scrubbed | ✅ But sandboxed |
 | `post-steps:` | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes — runs after agent |
 
-**⚠️ Agent container credential nuance:** `GITHUB_TOKEN` and `gh` CLI credentials are scrubbed inside the agent container. However, `COPILOT_TOKEN` (used for LLM inference) is present in the environment via `--env-all`. Any subprocess (e.g., `dotnet build`, `npm install`) inherits this variable. The AWF network firewall, `redact_secrets.cjs` (post-agent log scrubbing), and the threat detection agent limit the blast radius. See [Security Boundaries](#security-boundaries) below.
+**Agent container credential nuance:** `GITHUB_TOKEN` and `gh` CLI credentials are scrubbed inside the agent container. However, `COPILOT_TOKEN` (used for LLM inference) is present in the environment via `--env-all`. Any subprocess (e.g., `dotnet build`, `npm install`) inherits this variable. The AWF network firewall, `redact_secrets.cjs` (post-agent log scrubbing), and the threat detection agent limit the blast radius.
 
-## Step Ordering
+### Step Ordering
 
 User `steps:` run in the **pre-activation job** (before the agent job starts). Within the agent job, the ordering is: platform steps → `pre-agent-steps:` → agent → `post-steps:`.
 
@@ -46,18 +46,20 @@ pre-agent-steps:
 
 **`post-steps:`** run after the agent completes but before safe-outputs. Use these for cleanup, metrics, or post-processing.
 
-## Prompt Rendering
+### Prompt Rendering
 
 The prompt is built in the **activation job** via `{{#runtime-import .github/workflows/<name>.md}}`. This reads the `.md` file from the **base branch** workspace (before any PR checkout). The rendered prompt is uploaded as an artifact and downloaded by the agent job.
 
 - The agent prompt is always the base branch version — fork PRs cannot alter it
 - The prompt references files on disk (e.g., `SKILL.md`) — those files must exist in the agent's workspace
 
-## Fork PR Activation Gate
+### Fork PR Activation Gate
 
 By default, `gh aw compile` automatically injects a fork guard into the activation job's `if:` condition: `head.repo.id == repository_id`. This blocks fork PRs on `pull_request` events.
 
 To **allow fork PRs**, add `forks: ["*"]` to the `pull_request` trigger in the `.md` frontmatter. The compiler removes the auto-injected guard from the compiled `if:` conditions. This is safe when the workflow uses the `Checkout-GhAwPr.ps1` pattern (checkout + trusted-infra restore) and the agent is sandboxed.
+
+---
 
 ## Security Boundaries
 
@@ -129,9 +131,41 @@ Configure behavior with `protected-files:` on the safe output:
 - ✅ **DO** treat PR contents as passive data (read, analyze, diff)
 - ✅ **DO** run data-gathering scripts in `steps:` (pre-agent, trusted context) not inside the agent
 - ✅ **DO** use `Checkout-GhAwPr.ps1` for `workflow_dispatch` to restore trusted `.github/` from base
+- ✅ **DO** narrow `slash_command: events:` to the minimum needed (e.g., `[pull_request_comment]`)
+- ✅ **DO** use `cancel-in-progress: false` for `slash_command:` workflows to prevent non-matching events from killing in-progress agent runs
+- ✅ **DO** prefer `slash_command:` or `schedule` over `pull_request` trigger — `pull_request` causes the "Approve and run" gate that approves ALL workflows with a single click
 - ❌ **DO NOT** run `dotnet build`, `npm install`, or any build command on untrusted PR code inside the agent — build tool hooks (MSBuild targets, postinstall scripts) can read `COPILOT_TOKEN` from the environment
 - ❌ **DO NOT** execute workspace scripts (`.ps1`, `.sh`, `.py`) after checking out a fork PR in `steps:` — those run with `GITHUB_TOKEN`
-- ❌ **DO NOT** set `roles: all` on workflows that process PR content — this allows any user to trigger the workflow
+- ❌ **DO NOT** set `roles: all` on workflows that process PR content — the agent's `permissions:` and `safe-outputs:` determine what actions are taken, NOT the actor's role. Setting `roles: all` gives any read-only user bot-level write access to anything the workflow grants.
+
+### Authorization Model (`on.roles:`)
+
+**What the agent can do is determined by the workflow's `permissions:` and `safe-outputs:` — NOT by the actor who fired it.** When a workflow accepts a read-only contributor as the trigger (via `roles: all`), that contributor effectively gets bot-level write access to anything the workflow grants.
+
+`on.roles:` defaults to `[admin, maintainer, write]`. This deny-by-default gate prevents read-only users from inducing the bot to act with elevated permissions. Available roles: `admin`, `maintainer`/`maintain`, `write`, `triage`, `read`, `all`.
+
+**Key interactions:**
+- A `read` user can fire any `slash_command:`, `issues`, `issue_comment`, or `discussion` trigger — they just can't pass the default `roles:` check
+- A `read` user **cannot** fire `label_command:` (requires `triage` to apply label) or `workflow_dispatch` (requires `write`)
+- `triage` users can apply labels but are excluded from the default `roles:` allowlist — `label_command:` workflows need `roles: [admin, maintainer, write, triage]` to work for triagers
+
+### Concurrency Race Conditions
+
+With `cancel-in-progress: true` on `slash_command:` workflows, a **non-matching event** (e.g., an ordinary comment) in the same concurrency group can cancel an **in-progress matching run** (the actual `/command`). This happens because `slash_command:` compiles to broad `issue_comment` event subscriptions — every comment triggers the pre-activation job, which runs in the same concurrency group.
+
+**Fix:** Always use `cancel-in-progress: false` for `slash_command:` workflows. Redundant runs from rapid re-invocation are preferable to killed agents.
+
+### The "Approve and Run" Gate
+
+The `pull_request` trigger causes an "Approve and run workflows" button for first-time fork contributors. **This gate is dangerous, not protective:**
+
+1. **Alert fatigue** — After clicking through dozens of legitimate first-time PRs, the click becomes muscle memory
+2. **No per-workflow granularity** — A single click approves ALL gated workflows, including any `pull_request_target` workflows with full secrets
+3. **No diff preview** — The UI shows no preview of what will execute or which secrets are exposed
+
+**Design rule**: Assume the approval gate will always be clicked. Prefer `slash_command:` or `schedule` over `pull_request` when possible.
+
+---
 
 ## Fork PR Handling
 
@@ -144,6 +178,59 @@ Reference: https://securitylab.github.com/resources/github-actions-preventing-pw
 ### Platform `.github/` Restore (gh-aw#23769 — Resolved)
 
 The platform now **automatically preserves `.github/` and `.agents/` from the base branch**. The activation job saves these directories as an artifact, and after `checkout_pr_branch.cjs` checks out the PR branch, the platform restores them from the artifact. Additionally, `.mcp.json` is deleted from the workspace to prevent injection. This means fork PRs can no longer overwrite agent infrastructure (skills, instructions, copilot-instructions) by including modified copies in their branch.
+
+**What #23769 fixed (and what it didn't):**
+
+| Before #23769 | After #23769 |
+|---------------|-------------|
+| Fork PRs inject modified `.github/skills/`, `.github/instructions/`, `.agents/` | ✅ Platform restores these from base branch artifact |
+| Fork PRs inject `.mcp.json` to add malicious MCP servers | ✅ Platform deletes `.mcp.json` after checkout |
+| User `steps:` run BEFORE `checkout_pr_branch.cjs` — restore was overwritten | ✅ Platform restore happens AFTER checkout |
+| `pre-agent-steps:` not available | ✅ `pre-agent-steps:` run after restore, before agent |
+
+**Remaining risks (not fixed by #23769):**
+- `steps:` and `pre-agent-steps:` that execute workspace code after checkout still run with `GITHUB_TOKEN` — if they run fork PR scripts, it's a pwn-request
+- The agent container has `COPILOT_TOKEN` in the environment — build commands (`dotnet build`, `npm install`) executed by the agent on fork PR code can read it via build hooks
+- `workflow_dispatch` skips `checkout_pr_branch.cjs` entirely — use `Checkout-GhAwPr.ps1` for defense-in-depth
+
+### Dangerous Triggers Checklist
+
+Use this checklist when reviewing any workflow that uses high-risk triggers. The platform's #23769 restore makes these **safer** but not **safe** — the remaining risks require workflow-author discipline.
+
+#### `pull_request_target`
+- ⚠️ Grants **write permissions and secrets access** even for fork PRs
+- ✅ `.github/` is now restored from base branch (gh-aw#23769)
+- ❌ `steps:` and `pre-agent-steps:` still run fork code with `GITHUB_TOKEN`
+- **Checks:**
+  - [ ] No `steps:` or `pre-agent-steps:` execute workspace scripts after checkout
+  - [ ] No build commands in the agent prompt (agent has `COPILOT_TOKEN`)
+  - [ ] `roles:` is NOT `all` (gate on write-access minimum)
+  - [ ] `min-integrity: approved` is set if processing PR content
+  - [ ] `protected-files:` is set if `create-pull-request` or `push-to-pull-request-branch` is used
+
+#### `workflow_run`
+- ⚠️ Inherits secrets access, runs after another workflow completes
+- ✅ Separates privilege from code execution (the pattern gh-aw uses internally)
+- ❌ Artifacts from the first run could contain executable payloads
+- **Checks:**
+  - [ ] `branches:` is restricted (not open to all branches)
+  - [ ] Artifact contents are treated as untrusted data (never `eval`, `source`, or execute)
+  - [ ] The triggering workflow is pinned (not modifiable by fork PRs)
+
+#### `push` with broad branch patterns
+- ⚠️ Runs with write permissions on every push
+- **Checks:**
+  - [ ] `branches:` is narrowed to specific branches (e.g., `[main]`), never `['**']`
+  - [ ] No `roles: all` — meaningless on push but indicates careless authoring
+
+#### `issue_comment` / `slash_command` on fork PRs
+- ✅ Platform restores `.github/` from base branch (gh-aw#23769)
+- ✅ Only write-access users can trigger (default `roles:`)
+- ⚠️ The PR code is checked out — agent reads it as passive data (safe), but `steps:` must not execute it
+- **Checks:**
+  - [ ] `events:` is narrowed (e.g., `[pull_request_comment]` not all events)
+  - [ ] `cancel-in-progress: false` (prevent non-matching comments from killing agent)
+  - [ ] No workspace script execution in `steps:` after checkout
 
 ### Fork PR Behavior by Trigger
 
@@ -210,6 +297,8 @@ If you need to run scripts, either:
 1. Run them **before** the checkout (from the base branch)
 2. Run them **inside the agent container** (sandboxed, no tokens)
 
+---
+
 ## Safe Outputs Quick Reference
 
 Safe outputs enforce security through separation: agents run read-only and request actions via structured output, while separate permission-controlled jobs execute those requests.
@@ -226,7 +315,7 @@ Safe outputs enforce security through separation: agents run read-only and reque
 | **System (auto-enabled)** | `noop`, `missing-tool`, `missing-data` |
 | **Custom** | `jobs:` (custom post-processing with MCP tool access), `actions:` (GitHub Action wrappers) |
 
-### Key Safe Output Features for Our Workflows
+### Key Safe Output Features
 
 **`create-pull-request` notable options:**
 - `draft: true` — Enforced as policy (agent cannot override)
@@ -236,23 +325,31 @@ Safe outputs enforce security through separation: agents run read-only and reque
 - `protected-files: fallback-to-issue` — Create issue instead of failing when protected files modified
 - `base-branch: "vnext"` — Target non-default branch
 - `auto-close-issue: false` — Don't add `Fixes #N` to PR description
+- `allowed-events: [COMMENT]` — On `submit-pull-request-review`, blocks agent from approving PRs (bypasses branch protection). **Always use this** for review workflows.
+- **Stale review limitation**: Prefer `allowed-events: [COMMENT]` unless you need the "Changes requested" badge. `REQUEST_CHANGES` reviews from `github-actions[bot]` cannot be dismissed by the agent (no `dismiss-pull-request-review` safe output, `pull-requests: write` rejected by compiler). A stale blocking review persists until a human dismisses it manually.
 
 **`add-comment` notable options:**
 - `hide-older-comments: true` — Collapse previous comments from same workflow
 - `max: N` — Limit comments per run (default: 1)
 - `target: "*"` — Required for `workflow_dispatch` (no triggering PR context)
 
+---
+
 ## Limitations
 
 | What | Behavior | Workaround |
 |------|----------|------------|
 | Agent-created PRs don't trigger CI | GitHub Actions ignores pushes from `GITHUB_TOKEN` | Use `github-token-for-extra-empty-commit:` with a PAT or GitHub App token on `create-pull-request`. See [Triggering CI](https://github.github.com/gh-aw/reference/triggering-ci/) |
+| Stale `REQUEST_CHANGES` reviews | Agent reviews with `REQUEST_CHANGES` block PRs and can't be dismissed (no `dismiss-pull-request-review` safe output) | Use `allowed-events: [COMMENT]` — communicate severity via markers in the review body instead |
+| `slash_command:` runs on every comment event | Default subscription listens to all comment-related events, not just the `/command` | Always narrow `events:` (e.g., `events: [pull_request_comment]`). Each skipped run costs ~5-30s of runner time. |
+| Non-matching event cancels matching run | With `cancel-in-progress: true`, a non-matching comment in the same concurrency group cancels an in-progress `/command` run | Use `cancel-in-progress: false` for `slash_command:` workflows |
+| `pull_request` trigger causes "Approve and run" gate | The button approves ALL gated workflows with a single click — no per-workflow granularity, no diff preview | Prefer `slash_command:` or `schedule` over `pull_request`; assume the gate will always be clicked |
 | `--allow-all-tools` in lock.yml | Emitted by `gh aw compile` | Cannot override from `.md` source |
 | `gh` CLI inside agent | Credentials scrubbed | Use `steps:` for API calls, or MCP tools |
 | `issue_comment` trigger | Requires workflow on default branch | Must merge to `main` before `/slash-commands` work |
 | Duplicate runs | gh-aw sometimes creates 2 runs per dispatch | Harmless, use concurrency groups |
-| `slash_command` + `pull_request` in same workflow | Compiler rejects: `cannot use 'slash_command' with 'pull_request' in the same workflow` | Create two separate workflow files importing the same `shared/*.md`. E.g., `review.agent.md` (slash_command) + `review-on-open.agent.md` (pull_request). Both import `shared/review-shared.md` for shared config and orchestration instructions. |
-| Stale `CHANGES_REQUESTED` bot reviews | `REQUEST_CHANGES` creates blocking review that persists after re-review | Use `allowed-events: [COMMENT]` to avoid blocking reviews; manually dismiss stale reviews via API |
+
+---
 
 ## Upstream References (All Resolved)
 
@@ -264,7 +361,9 @@ These issues are now **all closed** — documented here for historical context:
 | [gh-aw#18518](https://github.com/github/gh-aw/issues/18518) | ✅ Closed | `gh aw init` now warns in forks, lists required secrets |
 | [gh-aw#18521](https://github.com/github/gh-aw/issues/18521) | ✅ Closed | Fork support docs created — forks are not supported by default; agents will not run on fork PRs unless `forks:` is configured |
 | [gh-aw#23769](https://github.com/github/gh-aw/issues/23769) | ✅ Closed | Platform now auto-restores `.github/` and `.agents/` from base branch after checkout; `.mcp.json` deleted to prevent injection |
-| [gh-aw#25439](https://github.com/github/gh-aw/issues/25439) | ✅ Closed | `submit-pull-request-review` safe output previously allowed agents to accidentally approve PRs, bypassing branch protection. Upstream resolution: `allowed-events` filtering. PolyPilot uses `[COMMENT]` only — see Known Limitation: Stale Blocking Reviews |
+| [gh-aw#25439](https://github.com/github/gh-aw/issues/25439) | ✅ Closed | `submit-pull-request-review` safe output previously allowed agents to accidentally approve PRs, bypassing branch protection. Resolution: use `allowed-events: [COMMENT, REQUEST_CHANGES]` to block approvals at infrastructure level |
+
+---
 
 ## Troubleshooting
 
@@ -279,4 +378,8 @@ These issues are now **all closed** — documented here for historical context:
 | `/slash-command` doesn't trigger | Workflow not on default branch | Merge to `main` first |
 | Agent sees stale issue/PR content | Integrity filtering removed it | Check `min-integrity` level; content from `FIRST_TIMER` is filtered at `approved` |
 | Protected file error on PR creation | Agent modified `.github/` or package manifests | Set `protected-files: fallback-to-issue` or `allowed` if intentional |
-| Stale `CHANGES_REQUESTED` review blocks PR | Bot review from earlier run persists after fixes | Use `allowed-events: [COMMENT]` to avoid blocking reviews; manually dismiss stale reviews via API |
+| Stale blocking review after fixes | Agent posted `REQUEST_CHANGES` but can't dismiss it | Switch to `allowed-events: [COMMENT]`; use severity markers in body instead |
+| Agent run killed by unrelated comment | `cancel-in-progress: true` + `slash_command:` with broad event subscription | Use `cancel-in-progress: false`; narrow `events:` to reduce concurrency group collisions |
+| Hundreds of "skipped" runs per day | `slash_command:` default subscribes to ALL comment events | Narrow `events:` field; accept remaining noise as cost of low-latency invocation |
+| `label_command:` denies triage users | `triage` role not in default `on.roles:` allowlist | Add `roles: [admin, maintainer, write, triage]` |
+| Forked workflows fire unexpectedly in forks | Workflows copied to fork run on routine events inside the fork | Add job-level guard: `if: github.event.repository.fork == false \|\| github.event_name == 'workflow_dispatch'` |
