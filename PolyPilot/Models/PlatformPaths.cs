@@ -1,13 +1,17 @@
 namespace PolyPilot.Models;
 
 /// <summary>
-/// Platform-specific path resolution for Mac Catalyst sandbox.
+/// Platform-specific path resolution and test isolation for file paths.
 /// 
 /// On Mac App Store (MACCATALYST sandbox):
-///   ~/.polypilot/ → {AppDataDirectory}/.polypilot/
-///   ~/.copilot/   → {UserProfile}/.copilot/ (sandbox remaps HOME into container)
+///   The sandbox remaps HOME (UserProfile) into ~/Library/Containers/&lt;bundle-id&gt;/Data/,
+///   so both ~/.polypilot/ and ~/.copilot/ resolve inside the container automatically.
+///   No override is needed — callers use their existing UserProfile-based logic unchanged.
 /// 
 /// On all other platforms: returns null (callers use their existing logic unchanged).
+/// 
+/// The primary value of this class is providing a centralized test override via
+/// <see cref="SetForTesting"/> so tests never touch the real filesystem.
 /// </summary>
 public static class PlatformPaths
 {
@@ -22,40 +26,30 @@ public static class PlatformPaths
     }
 
     /// <summary>
-    /// Get the PolyPilot configuration directory (~/.polypilot/) for the current platform.
-    /// On MACCATALYST: returns FileSystem.AppDataDirectory/.polypilot/
-    /// On other platforms: returns null (caller uses existing logic).
+    /// Get the PolyPilot configuration directory (~/.polypilot/) override for the current platform.
+    /// Returns a test override if set, otherwise null on all platforms.
+    /// On MACCATALYST the sandbox remaps UserProfile into the container, so the
+    /// existing UserProfile-based paths resolve correctly without an override.
     /// </summary>
     public static string? GetPolyPilotDirOverride()
     {
         if (_testPolyPilotDir != null) return _testPolyPilotDir;
-#if MACCATALYST
-        try
-        {
-            return Path.Combine(FileSystem.AppDataDirectory, ".polypilot");
-        }
-        catch
-        {
-            return null;
-        }
-#else
+        // Mac Catalyst sandbox remaps HOME (UserProfile) into the container.
+        // ~/.polypilot/ already resolves inside the sandbox. No override needed.
         return null;
-#endif
     }
 
     /// <summary>
-    /// Get the Copilot SDK state directory (~/.copilot/) for the current platform.
-    /// On MACCATALYST: the sandbox remaps UserProfile to the container,
-    /// so ~/.copilot/ resolves inside the sandbox automatically.
-    /// Returns null on all platforms (existing logic is correct everywhere).
+    /// Get the Copilot SDK state directory (~/.copilot/) override for the current platform.
+    /// Returns a test override if set, otherwise null on all platforms.
+    /// On MACCATALYST the sandbox remaps UserProfile into the container, so
+    /// ~/.copilot/ resolves inside the sandbox automatically.
     /// </summary>
     public static string? GetCopilotDirOverride()
     {
         if (_testCopilotDir != null) return _testCopilotDir;
-        // The sandbox remaps HOME (UserProfile) into the container on Mac Catalyst.
+        // Mac Catalyst sandbox remaps HOME (UserProfile) into the container.
         // ~/.copilot/ already resolves inside the sandbox. No override needed.
         return null;
     }
 }
-
-
