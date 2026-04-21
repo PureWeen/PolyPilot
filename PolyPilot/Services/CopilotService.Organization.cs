@@ -3723,6 +3723,7 @@ public partial class CopilotService
                 catch (Exception ex)
                 {
                     Debug($"[WorktreeStrategy] Failed to create worker-{i + 1} worktree: {ex.GetType().Name}: {ex.Message}");
+                    Debug($"[WorktreeStrategy] Worker-{i + 1} will fall back to orchestrator dir: {orchWorkDir}");
                 }
             }
         }
@@ -4727,13 +4728,16 @@ public partial class CopilotService
     /// <summary>
     /// When worktree creation fails (e.g., long paths on Windows), try to find an existing
     /// worktree for the repo so sessions get a real working directory instead of a temp dir.
+    /// Does NOT set group.WorktreeId — the worktree is borrowed, not owned. This prevents
+    /// DeleteGroup from destroying a worktree that belongs to another group.
     /// </summary>
     private string? TryGetExistingWorktreePath(string repoId, ref string? worktreeId, SessionGroup group)
     {
-        var existing = _repoManager.Worktrees.FirstOrDefault(w => w.RepoId == repoId);
+        var existing = _repoManager.Worktrees.FirstOrDefault(w => w.RepoId == repoId && Directory.Exists(w.Path));
         if (existing == null) return null;
         worktreeId = existing.Id;
-        group.WorktreeId = existing.Id;
+        // Intentionally not setting group.WorktreeId or CreatedWorktreeIds —
+        // this is a borrowed worktree. DeleteGroup only cleans up owned worktrees.
         return existing.Path;
     }
 

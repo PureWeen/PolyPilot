@@ -15,6 +15,7 @@ public class RepoManagerTests
         Directory.CreateDirectory(Path.Combine(bareDir, "refs"));
         File.WriteAllText(Path.Combine(bareDir, "HEAD"), "ref: refs/heads/main\n");
     }
+
     [Theory]
     [InlineData("https://github.com/Owner/Repo.git", "Owner-Repo")]
     [InlineData("https://github.com/Owner/Repo", "Owner-Repo")]

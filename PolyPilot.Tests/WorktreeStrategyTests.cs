@@ -777,36 +777,45 @@ public class WorktreeStrategyTests
     {
         // Simulate scenario: worktree creation fails (e.g., Windows long-path issue)
         // but an existing worktree for the repo exists — should use it instead of temp dir.
-        var existingWt = new WorktreeInfo
+        var wtDir = Path.Combine(Path.GetTempPath(), $"wt-fallback-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(wtDir);
+        try
         {
-            Id = "existing-wt",
-            RepoId = "repo-1",
-            Branch = "main",
-            Path = "/existing/worktree/path"
-        };
-        var rm = new FailingRepoManagerWithExistingWorktree(
-            new() { new() { Id = "repo-1", Name = "Repo" } },
-            new() { existingWt });
-        var svc = CreateDemoService(rm);
-        var preset = MakePreset(2, WorktreeStrategy.GroupShared);
+            var existingWt = new WorktreeInfo
+            {
+                Id = "existing-wt",
+                RepoId = "repo-1",
+                Branch = "main",
+                Path = wtDir
+            };
+            var rm = new FailingRepoManagerWithExistingWorktree(
+                new() { new() { Id = "repo-1", Name = "Repo" } },
+                new() { existingWt });
+            var svc = CreateDemoService(rm);
+            var preset = MakePreset(2, WorktreeStrategy.GroupShared);
 
-        var group = await svc.CreateGroupFromPresetAsync(preset,
-            workingDirectory: null,
-            repoId: "repo-1");
+            var group = await svc.CreateGroupFromPresetAsync(preset,
+                workingDirectory: null,
+                repoId: "repo-1");
 
-        Assert.NotNull(group);
-        // Should have fallen back to the existing worktree
-        Assert.Equal("existing-wt", group!.WorktreeId);
+            Assert.NotNull(group);
+            // Borrowed worktree should NOT set group.WorktreeId (prevents DeleteGroup from destroying it)
+            Assert.Null(group!.WorktreeId);
 
-        // Sessions should use the existing worktree path, not a temp dir
-        var organized = svc.GetOrganizedSessions();
-        var groupSessions = organized.FirstOrDefault(g => g.Group.Id == group!.Id).Sessions;
-        Assert.NotNull(groupSessions);
-        Assert.All(groupSessions, s =>
+            // Sessions should use the existing worktree path, not a temp dir
+            var organized = svc.GetOrganizedSessions();
+            var groupSessions = organized.FirstOrDefault(g => g.Group.Id == group!.Id).Sessions;
+            Assert.NotNull(groupSessions);
+            Assert.All(groupSessions, s =>
+            {
+                Assert.NotNull(s.WorkingDirectory);
+                Assert.Equal(wtDir, s.WorkingDirectory);
+            });
+        }
+        finally
         {
-            Assert.NotNull(s.WorkingDirectory);
-            Assert.Equal("/existing/worktree/path", s.WorkingDirectory);
-        });
+            try { Directory.Delete(wtDir, true); } catch { }
+        }
     }
 
     [Fact]
@@ -838,32 +847,51 @@ public class WorktreeStrategyTests
     [Fact]
     public async Task FullyIsolated_WorktreeFailure_FallsBackToExistingWorktree()
     {
-        var existingWt = new WorktreeInfo
+        var wtDir = Path.Combine(Path.GetTempPath(), $"wt-fallback-test-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(wtDir);
+        try
         {
-            Id = "existing-wt",
-            RepoId = "repo-1",
-            Branch = "main",
-            Path = "/existing/worktree/path"
-        };
-        var rm = new FailingRepoManagerWithExistingWorktree(
-            new() { new() { Id = "repo-1", Name = "Repo" } },
-            new() { existingWt });
-        var svc = CreateDemoService(rm);
-        var preset = MakePreset(2, WorktreeStrategy.FullyIsolated);
+            var existingWt = new WorktreeInfo
+            {
+                Id = "existing-wt",
+                RepoId = "repo-1",
+                Branch = "main",
+                Path = wtDir
+            };
+            var rm = new FailingRepoManagerWithExistingWorktree(
+                new() { new() { Id = "repo-1", Name = "Repo" } },
+                new() { existingWt });
+            var svc = CreateDemoService(rm);
+            var preset = MakePreset(2, WorktreeStrategy.FullyIsolated);
 
-        var group = await svc.CreateGroupFromPresetAsync(preset,
-            workingDirectory: null,
-            repoId: "repo-1");
+            var group = await svc.CreateGroupFromPresetAsync(preset,
+                workingDirectory: null,
+                repoId: "repo-1");
 
-        Assert.NotNull(group);
-        // Orchestrator should have fallen back to existing worktree
-        Assert.Equal("existing-wt", group!.WorktreeId);
+            Assert.NotNull(group);
+            // Borrowed worktree should NOT set group.WorktreeId (prevents DeleteGroup from destroying it)
+            Assert.Null(group!.WorktreeId);
 
-        // Sessions should still be created
-        var members = svc.Organization.Sessions
-            .Where(s => s.GroupId == group!.Id)
-            .ToList();
-        Assert.Equal(3, members.Count); // 1 orch + 2 workers
+            // Sessions should still be created
+            var members = svc.Organization.Sessions
+                .Where(s => s.GroupId == group!.Id)
+                .ToList();
+            Assert.Equal(3, members.Count); // 1 orch + 2 workers
+
+            // All sessions should use the existing worktree path, not a temp dir
+            var organized = svc.GetOrganizedSessions();
+            var groupSessions = organized.FirstOrDefault(g => g.Group.Id == group!.Id).Sessions;
+            Assert.NotNull(groupSessions);
+            Assert.All(groupSessions, s =>
+            {
+                Assert.NotNull(s.WorkingDirectory);
+                Assert.Equal(wtDir, s.WorkingDirectory);
+            });
+        }
+        finally
+        {
+            try { Directory.Delete(wtDir, true); } catch { }
+        }
     }
 
     [Fact]
