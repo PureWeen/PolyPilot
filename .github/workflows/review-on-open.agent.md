@@ -7,9 +7,17 @@ on:
     types: [opened, ready_for_review]
   roles: [admin, maintainer, write]
 
+# Skip draft PRs — ready_for_review handles draft→ready transition
+if: github.event.pull_request.draft == false
+
 permissions:
   contents: read
   pull-requests: read
+
+# Shared group with review.agent.md — serializes with any in-progress /review.
+concurrency:
+  group: "review-${{ github.event.pull_request.number || github.run_id }}"
+  cancel-in-progress: false
 
 engine:
   id: copilot

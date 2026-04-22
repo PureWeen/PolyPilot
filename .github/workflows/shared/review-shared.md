@@ -14,9 +14,9 @@ permissions:
 tools:
   github:
     toolsets: [pull_requests, repos]
-    # min-integrity: omitted — compiler v0.62.2 emits incomplete guard policy
-    # (missing repos field) that crashes MCP Gateway. Runtime lockdown applies
-    # appropriate integrity levels automatically.
+    # min-integrity: omitted intentionally — compiler v0.62.2 emits incomplete
+    # guard policy that crashes MCP Gateway. Runtime determine-automatic-lockdown
+    # applies appropriate integrity levels automatically.
 
 safe-outputs:
   create-pull-request-review-comment:
@@ -49,6 +49,8 @@ Fetch the PR data using the GitHub MCP tools (not `gh` CLI — credentials are s
 - Use `get_pull_request_diff` to read the full diff
 - Use `get_pull_request_reviews` to check existing reviews
 
+**Do NOT read source files yourself.** Pass only the diff and PR description to sub-agents — they will read source files independently in their own context windows. Pre-reading files wastes your token budget.
+
 ### Step 2: Dispatch 3 Parallel Expert Reviewers
 
 Launch **exactly 3 sub-agents in parallel** using the `task` tool. Each calls the `expert-reviewer` agent with a different model. All 3 must be launched — do not skip any.
@@ -56,7 +58,7 @@ Launch **exactly 3 sub-agents in parallel** using the `task` tool. Each calls th
 ```
 task(agent_type: "general-purpose", model: "claude-opus-4.6", mode: "background",
      description: "Reviewer 1: deep reasoning review",
-     prompt: "<full diff + PR description + instruction to follow .github/agents/expert-reviewer.agent.md>")
+     prompt: "<full diff + PR description + inline review instructions>")
 
 task(agent_type: "general-purpose", model: "claude-sonnet-4.6", mode: "background",
      description: "Reviewer 2: pattern matching review",
@@ -70,7 +72,7 @@ task(agent_type: "general-purpose", model: "gpt-5.3-codex", mode: "background",
 Each sub-agent prompt must include:
 - The full PR diff
 - The PR description
-- This instruction: "You are an expert PolyPilot code reviewer. Read and follow `.github/agents/expert-reviewer.agent.md` in this repo. Apply all review dimensions from that file. Return your findings as a structured list with severity, file, line, scenario, finding, and recommendation for each issue. Do NOT call any safe-output tools — just return your findings as text. Do NOT emit test messages."
+- This instruction: "You are an expert PolyPilot code reviewer (MAUI Blazor Hybrid app). Read `.github/copilot-instructions.md` for project conventions. Review for: regressions, security issues, bugs, data loss, race conditions, and code quality. Do NOT comment on style or formatting. Read full source files, not just the diff — trace callers, callees, shared state, error paths, and data flow. For each finding: file path, line number, severity (🔴 CRITICAL, 🟡 MODERATE, 🟢 MINOR), concrete failing scenario, and fix suggestion. Return findings as text. Do NOT call safe-output tools, do NOT dispatch sub-agents or use the task tool — act as an individual reviewer only."
 
 **Wait for all 3 to complete before proceeding.**
 
@@ -80,9 +82,10 @@ Collect findings from all 3 sub-agents and apply consensus:
 
 1. **3/3 agree** on a finding → include immediately
 2. **2/3 agree** → include with median severity
-3. **Only 1/3 flagged** → dispatch 2 follow-up sub-agents (the other 2 models) asking: "Reviewer X found this issue: [finding]. Do you agree or disagree? Explain why."
+3. **Only 1/3 flagged** → dispatch **exactly 2** follow-up sub-agents (the other 2 models that didn't flag it) asking: "Reviewer X found this issue: [finding]. Do you agree or disagree? Explain why."
    - If 2+ now agree → include
    - If still 1/3 → discard (note as "discarded — single reviewer only")
+   - **Cap at 3 disputed findings** — if more than 3 findings are 1/3, discard the rest without follow-up to preserve token budget for posting.
 
 ### Step 4: Validate Paths and Line Numbers
 

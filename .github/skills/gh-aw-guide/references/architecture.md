@@ -83,7 +83,7 @@ To **allow fork PRs**, add `forks: ["*"]` to the `pull_request` trigger in the `
 | **`redact_secrets.cjs`** | Scrubs known secret values from logs/artifacts post-agent | Doesn't catch encoded/obfuscated values |
 | **Threat detection agent** | Reviews agent outputs before safe-outputs publishes them | Can miss novel exfiltration techniques |
 | **Safe-outputs permission separation** | Write operations happen in separate job, not the agent | Agent can still request writes via safe-output tools |
-| **Integrity filtering** | Filters untrusted GitHub content before agent sees it (DIFC proxy) | Requires explicit `min-integrity` configuration |
+| **Integrity filtering** | Filters untrusted GitHub content before agent sees it (DIFC proxy) | Runtime auto-lockdown varies by event type — verify for sensitive workflows |
 | **Protected files** | Blocks agent from modifying package manifests, `.github/`, etc. | Only applies to `create-pull-request` and `push-to-pull-request-branch` |
 | **`max: N` on safe outputs** | Limits number of operations per type | That output could still contain sensitive data (mitigated by redaction) |
 | **XPIA prompt** | Instructs LLM to resist prompt injection from untrusted content | LLM compliance is probabilistic, not guaranteed |
@@ -93,13 +93,22 @@ To **allow fork PRs**, add `forks: ["*"]` to the `pull_request` trigger in the `
 
 Integrity filtering (`tools.github.min-integrity`) controls which GitHub content an agent can access during a workflow run. The MCP gateway filters content by trust level before the agent sees it.
 
+> **⚠️ Known Issue (compiler v0.62.2 + MCP Gateway v0.1.19):** Do NOT set `min-integrity` explicitly in workflow source. The compiler emits an incomplete guard policy (missing `repos` field) that crashes the MCP Gateway at startup with: `"invalid guard policy JSON: allow-only must include repos"`. Instead, **omit `min-integrity`** and rely on the runtime `determine-automatic-lockdown` step, which populates both `min-integrity` and `repos` dynamically based on event type, actor trust level, and repository context. This is the standard gh-aw pattern — most workflows don't set it explicitly.
+
 ```yaml
+# ✅ CORRECT — omit min-integrity, let runtime handle it
+# blocked-users, trusted-users, and approval-labels are still valid without min-integrity
 tools:
   github:
-    min-integrity: approved
+    toolsets: [pull_requests, repos]
     blocked-users: ["known-spammer"]
     trusted-users: ["trusted-contributor"]
     approval-labels: ["approved-for-agent"]
+
+# ❌ BROKEN (compiler v0.62.2 + MCP Gateway v0.1.19) — crashes gateway
+# tools:
+#   github:
+#     min-integrity: approved  # Compiler omits required 'repos' field
 ```
 
 **Integrity hierarchy** (highest to lowest):
@@ -112,7 +121,7 @@ tools:
 | `none` | All content including `FIRST_TIMER` and no-association users |
 | `blocked` | Users in `blocked-users` — always denied, cannot be promoted |
 
-**Recommendation for our workflows:** Use `min-integrity: approved` for workflows that process PR content from external contributors. This prevents prompt injection via untrusted issue comments or PR descriptions.
+**Recommendation for our workflows:** Omit `min-integrity` and rely on the automatic runtime lockdown (see Known Issue above). The `determine-automatic-lockdown` step applies appropriate integrity levels based on event type and actor trust.
 
 ### Protected Files (Auto-Enabled)
 
@@ -205,7 +214,7 @@ Use this checklist when reviewing any workflow that uses high-risk triggers. The
   - [ ] No `steps:` or `pre-agent-steps:` execute workspace scripts after checkout
   - [ ] No build commands in the agent prompt (agent has `COPILOT_TOKEN`)
   - [ ] `roles:` is NOT `all` (gate on write-access minimum)
-  - [ ] `min-integrity: approved` is set if processing PR content
+  - [ ] Do NOT set `min-integrity` explicitly (compiler bug — crashes MCP Gateway). Rely on automatic runtime lockdown.
   - [ ] `protected-files:` is set if `create-pull-request` or `push-to-pull-request-branch` is used
 
 #### `workflow_run`

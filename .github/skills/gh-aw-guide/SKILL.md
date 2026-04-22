@@ -29,6 +29,22 @@ gh aw compile .github/workflows/<name>.md
 
 **Always commit the compiled lock file alongside the source `.md`.**
 
+### CLI Commands
+
+```bash
+gh aw compile <name>          # Compile .md → .lock.yml
+gh aw run <name>              # Trigger a workflow_dispatch run
+gh aw run <name> --ref main   # Run on a specific branch
+gh aw status                  # List all workflows and their status
+gh aw trial ./<name>.md --clone-repo owner/repo  # Test a workflow before merging to main
+gh aw audit <run-id>          # Analyze a completed workflow run
+gh aw upgrade                 # Upgrade gh-aw CLI extension
+```
+
+**`gh aw trial`** — Test workflows that aren't on main yet. Creates a temporary private repo, installs the workflow, and runs it. Essential for validating new workflows before merge, since `workflow_dispatch` requires the lock file on the default branch.
+
+**`gh aw run --ref`** — Trigger a workflow on a specific branch. The workflow must already exist on that branch (registered by GitHub after the lock file is pushed).
+
 ## 🚨 Before You Build: Prefer Built-in gh-aw Features
 
 **CRITICAL RULE:** Before implementing any trigger, output, scheduling, or interaction mechanism in a gh-aw workflow, check whether gh-aw has a built-in feature that does it. gh-aw extends GitHub Actions with many convenience features — manually reimplementing them is always worse (more code, more bugs, missing platform integration like emoji reactions, sanitized inputs, and noise reduction).
@@ -204,12 +220,18 @@ safe-outputs:
     # protected-files: blocked (default) | allowed (disables protection)
 ```
 
-**3. Filter untrusted content before the agent sees it** — prevents prompt injection from issue comments or PR descriptions authored by first-timers or contributors:
+**3. Filter untrusted content before the agent sees it** — the gh-aw runtime automatically applies integrity filtering via the `determine-automatic-lockdown` step, which inspects event type, actor trust level, and repository context. **Do NOT set `min-integrity` explicitly in the workflow source** — compiler v0.62.2 emits an incomplete guard policy (missing `repos` field) that crashes the MCP Gateway at startup. Rely on the automatic lockdown instead:
 
 ```yaml
+# ✅ CORRECT — let runtime determine integrity level
 tools:
   github:
-    min-integrity: approved   # Filters FIRST_TIMER / CONTRIBUTOR content; use on workflows that process external PR content
+    toolsets: [pull_requests, repos]
+
+# ❌ BROKEN (compiler v0.62.2 + MCP Gateway v0.1.19) — crashes gateway
+# tools:
+#   github:
+#     min-integrity: approved   # Compiler omits required 'repos' field
 ```
 
 **4. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you **must** use `.github/scripts/Checkout-GhAwPr.ps1` to check out the PR branch, verify write access, reject fork PRs, and restore trusted `.github/` from the base branch. Without it, the agent evaluates the workflow branch instead of the PR:

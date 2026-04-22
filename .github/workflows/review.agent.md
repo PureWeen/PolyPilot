@@ -23,6 +23,13 @@ permissions:
   contents: read
   pull-requests: read
 
+# Shared group with review-on-open — a /review serializes with any in-progress auto-review.
+# cancel-in-progress: false because slash_command compiles to broad issue_comment events
+# and cancel-in-progress: true would let non-matching comments kill agent runs.
+concurrency:
+  group: "review-${{ github.event.issue.number || inputs.pr_number || github.run_id }}"
+  cancel-in-progress: false
+
 engine:
   id: copilot
   model: claude-opus-4.6

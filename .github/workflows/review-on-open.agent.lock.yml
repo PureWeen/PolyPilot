@@ -26,7 +26,7 @@
 #   Imports:
 #     - shared/review-shared.md
 #
-# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"c7b6892ffcb0c6642363459d044aa7038009dce45fae862240c7db8ce397af3f","compiler_version":"v0.62.2","strict":true}
+# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"7d4024cba7673b3d3eb07b640ec32ab86fe2a54da6a60d1360e9ff1b496d7673","compiler_version":"v0.62.2","strict":true}
 
 name: "Expert Code Review (auto)"
 "on":
@@ -42,8 +42,8 @@ name: "Expert Code Review (auto)"
 permissions: {}
 
 concurrency:
-  group: "gh-aw-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}"
-  cancel-in-progress: true
+  cancel-in-progress: false
+  group: review-${{ github.event.pull_request.number || github.run_id }}
 
 run-name: "Expert Code Review (auto)"
 
@@ -51,7 +51,8 @@ jobs:
   activation:
     needs: pre_activation
     if: >
-      (needs.pre_activation.outputs.activated == 'true') && ((github.event_name != 'pull_request') || (github.event.pull_request.head.repo.id == github.repository_id))
+      (needs.pre_activation.outputs.activated == 'true') && ((github.event.pull_request.draft == false) && ((github.event_name != 'pull_request') ||
+      (github.event.pull_request.head.repo.id == github.repository_id)))
     runs-on: ubuntu-slim
     permissions:
       contents: read
@@ -886,7 +887,8 @@ jobs:
             await main();
 
   pre_activation:
-    if: (github.event_name != 'pull_request') || (github.event.pull_request.head.repo.id == github.repository_id)
+    if: >
+      (github.event.pull_request.draft == false) && ((github.event_name != 'pull_request') || (github.event.pull_request.head.repo.id == github.repository_id))
     runs-on: ubuntu-slim
     outputs:
       activated: ${{ steps.check_membership.outputs.is_team_member == 'true' }}
