@@ -31,17 +31,19 @@ fail() { FAIL=$((FAIL + 1)); ERRORS="${ERRORS}\n  ❌ $1"; echo "  ❌ $1"; }
 # Helper: evaluate JS in the Blazor WebView via CDP
 cdp_eval() {
   local expr="$1"
+  local payload
+  payload=$(python3 -c "import json,sys; print(json.dumps({'method':'Runtime.evaluate','params':{'expression':sys.argv[1],'returnByValue':True}}))" "$expr")
   local result
-  result=$(curl -s --max-time 10 "$BASE/api/cdp/evaluate" \
+  result=$(curl -s --max-time 10 -X POST "$BASE/api/cdp" \
     -H "Content-Type: application/json" \
-    -d "{\"expression\": \"$expr\"}" 2>/dev/null) || true
+    -d "$payload" 2>/dev/null) || true
   echo "$result"
 }
 
-# Helper: click an element by CSS selector
+# Helper: click an element by CSS selector (Blazor needs PointerEvent)
 cdp_click() {
   local selector="$1"
-  cdp_eval "document.querySelector('$selector')?.click()"
+  cdp_eval "(() => { const el = document.querySelector('$selector'); if (!el) return 'not found'; el.dispatchEvent(new PointerEvent('pointerdown', {bubbles:true})); el.dispatchEvent(new PointerEvent('pointerup', {bubbles:true})); el.dispatchEvent(new MouseEvent('click', {bubbles:true})); return 'clicked'; })()"
 }
 
 # Helper: set input value and trigger change
@@ -63,7 +65,8 @@ cdp_exists() {
   local selector="$1"
   local result
   result=$(cdp_eval "document.querySelector('$selector') !== null")
-  echo "$result" | jq -r '.result.value // false' 2>/dev/null
+  # CDP response: {"result":{"type":"boolean","value":true}}
+  echo "$result" | python3 -c "import sys,json; r=json.load(sys.stdin); print(str(r.get('result',{}).get('value',False)).lower())" 2>/dev/null || echo "false"
 }
 
 # Helper: get text content
@@ -71,7 +74,7 @@ cdp_text() {
   local selector="$1"
   local result
   result=$(cdp_eval "document.querySelector('$selector')?.textContent?.trim()")
-  echo "$result" | jq -r '.result.value // empty' 2>/dev/null
+  echo "$result" | python3 -c "import sys,json; r=json.load(sys.stdin); v=r.get('result',{}).get('value',''); print(v if v else '')" 2>/dev/null
 }
 
 # Helper: wait for element to appear
@@ -106,8 +109,8 @@ echo ""
 
 # ─── Test 1: Navigate to Scheduled Tasks page ───
 echo "▸ Test 1: Navigate to /scheduled-tasks"
-cdp_eval "window.location.href = '/scheduled-tasks'"
-sleep 2
+cdp_eval "document.querySelector('a[href=\\\"/scheduled-tasks\\\"]')?.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true})); document.querySelector('a[href=\\\"/scheduled-tasks\\\"]')?.dispatchEvent(new PointerEvent('pointerup',{bubbles:true})); document.querySelector('a[href=\\\"/scheduled-tasks\\\"]')?.dispatchEvent(new MouseEvent('click',{bubbles:true})); 'navigating'"
+sleep 3
 if wait_for "#scheduled-tasks-page" "scheduled tasks page" 10; then
   pass "Navigated to /scheduled-tasks page"
 else
