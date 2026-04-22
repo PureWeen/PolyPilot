@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Text.Json;
 using Microsoft.Extensions.AI;
+using PolyPilot.Models;
 
 namespace PolyPilot.Services;
 
@@ -15,8 +16,18 @@ public static class ShowImageTool
     private static readonly string[] SupportedExtensions = { ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".svg" };
 
     private static string? _imagesDir;
-    private static string ImagesDir => _imagesDir ??= Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot", "images");
+    private static string ImagesDir => _imagesDir ??= ComputeImagesDir();
+
+    private static string ComputeImagesDir()
+    {
+        var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+        if (sandboxPath != null) return Path.Combine(sandboxPath, "images");
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot", "images");
+    }
+
+    /// <summary>Test-only: clear the cached path so <see cref="PlatformPaths.SetForTesting"/> takes effect.</summary>
+    internal static void ResetCachedPathForTesting() => _imagesDir = null;
 
     /// <summary>Returns the images directory path. Used by FetchImage validation.</summary>
     public static string GetImagesDir() => ImagesDir;

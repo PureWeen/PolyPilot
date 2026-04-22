@@ -29,9 +29,11 @@ public class Program
 	{
 		try
 		{
-			var lockDir = Path.Combine(
-				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-				".polypilot");
+			var sandboxPath = PolyPilot.Models.PlatformPaths.GetPolyPilotDirOverride();
+			var lockDir = sandboxPath
+				?? Path.Combine(
+					Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+					".polypilot");
 			Directory.CreateDirectory(lockDir);
 			var lockPath = Path.Combine(lockDir, "instance.lock");
 
@@ -69,9 +71,11 @@ public class Program
 			{
 				try
 				{
-					var navDir = Path.Combine(
-						Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-						".polypilot");
+					var sandboxPath = PolyPilot.Models.PlatformPaths.GetPolyPilotDirOverride();
+					var navDir = sandboxPath
+						?? Path.Combine(
+							Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+							".polypilot");
 					Directory.CreateDirectory(navDir);
 					var navPath = Path.Combine(navDir, "pending-navigation.json");
 					// Include writtenAt so the 30s TTL in CheckPendingNavigation applies if the

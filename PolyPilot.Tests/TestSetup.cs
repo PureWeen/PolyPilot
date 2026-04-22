@@ -16,8 +16,9 @@ namespace PolyPilot.Tests;
 /// If you add new file paths to CopilotService or any service that persists state,
 /// you MUST also redirect them in Initialize() or they will leak to the real filesystem.
 ///
-/// Currently isolated: CopilotService BaseDir/CaptureDir, RepoManager, AuditLogService,
-/// PromptLibraryService, FiestaService state file, ConnectionSettings settings file.
+/// Currently isolated: CopilotService BaseDir/CaptureDir, PlatformPaths, RepoManager,
+/// AuditLogService, PromptLibraryService, FiestaService state file, ConnectionSettings
+/// settings file, PluginLoader plugins dir, ShowImageTool images dir.
 /// </summary>
 internal static class TestSetup
 {
@@ -30,6 +31,7 @@ internal static class TestSetup
         Directory.CreateDirectory(TestBaseDir);
         CopilotService.SetBaseDirForTesting(TestBaseDir);
         CopilotService.SetCaptureDirForTesting(Path.Combine(TestBaseDir, "zero-idle-captures"));
+        PlatformPaths.SetForTesting(TestBaseDir);
         RepoManager.SetBaseDirForTesting(TestBaseDir);
         AuditLogService.SetLogDirForTesting(Path.Combine(TestBaseDir, "audit_logs"));
         PromptLibraryService.SetUserPromptsDirForTesting(Path.Combine(TestBaseDir, "prompts"));

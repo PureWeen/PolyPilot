@@ -20,8 +20,18 @@ namespace PolyPilot.Services;
 public static class PluginLoader
 {
     private static string? _pluginsDir;
-    private static string PluginsDir => _pluginsDir ??= Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot", "plugins");
+    private static string PluginsDir => _pluginsDir ??= ComputePluginsDir();
+
+    private static string ComputePluginsDir()
+    {
+        var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+        if (sandboxPath != null) return Path.Combine(sandboxPath, "plugins");
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".polypilot", "plugins");
+    }
+
+    /// <summary>Test-only: clear the cached path so <see cref="PlatformPaths.SetForTesting"/> takes effect.</summary>
+    internal static void ResetCachedPathForTesting() => _pluginsDir = null;
 
     /// <summary>
     /// Scans the plugins directory for subdirectories containing a plugin.json manifest.

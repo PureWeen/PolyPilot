@@ -76,10 +76,18 @@ public class NotificationManagerService : INotificationManagerService
         NotificationTapped?.Invoke(this, new NotificationTappedEventArgs { SessionId = sessionId });
     }
 
-    private static string PendingNavigationPath =>
-        Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            ".polypilot", "pending-navigation.json");
+    private static string PendingNavigationPath
+    {
+        get
+        {
+            var sandboxPath = PolyPilot.Models.PlatformPaths.GetPolyPilotDirOverride();
+            var baseDir = sandboxPath
+                ?? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".polypilot");
+            return Path.Combine(baseDir, "pending-navigation.json");
+        }
+    }
 
     private static void WritePendingNavigation(string sessionId)
     {

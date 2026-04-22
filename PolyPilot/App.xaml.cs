@@ -1,3 +1,4 @@
+using PolyPilot.Models;
 using PolyPilot.Services;
 
 namespace PolyPilot;
@@ -72,9 +73,12 @@ public partial class App : Application
 	{
 		try
 		{
-			var navPath = Path.Combine(
-				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-				".polypilot", "pending-navigation.json");
+			var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+			var baseDir = sandboxPath
+				?? Path.Combine(
+					Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+					".polypilot");
+			var navPath = Path.Combine(baseDir, "pending-navigation.json");
 
 			if (!File.Exists(navPath))
 				return;

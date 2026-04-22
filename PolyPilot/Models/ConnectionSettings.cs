@@ -228,6 +228,9 @@ public class ConnectionSettings
 
     private static string GetPolyPilotDir()
     {
+        var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+        if (sandboxPath != null) return sandboxPath;
+
 #if IOS || ANDROID
         try
         {

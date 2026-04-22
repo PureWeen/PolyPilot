@@ -44,6 +44,10 @@ public sealed class AuditLogService : IDisposable
     {
         try
         {
+            var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+            if (sandboxPath != null)
+                return Path.Combine(sandboxPath, LogDirName);
+
 #if IOS || ANDROID
             return Path.Combine(FileSystem.AppDataDirectory, ".polypilot", LogDirName);
 #else

@@ -25,6 +25,10 @@ public static class MauiProgram
 	{
 		try
 		{
+			var sandboxPath = PlatformPaths.GetPolyPilotDirOverride();
+			if (sandboxPath != null)
+				return Path.Combine(sandboxPath, "crash.log");
+
 #if ANDROID || IOS
 			return Path.Combine(FileSystem.AppDataDirectory, ".polypilot", "crash.log");
 #else
