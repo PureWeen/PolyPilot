@@ -167,12 +167,25 @@ public abstract class IntegrationTestBase
     }
 
     /// <summary>Take a screenshot for debugging.</summary>
-    protected async Task<byte[]> ScreenshotAsync(string? label = null)
+    protected async Task ScreenshotAsync(string? label = null)
     {
-        var bytes = await Client.ScreenshotAsync();
-        if (label != null)
-            Output.WriteLine($"📸 Screenshot '{label}': {bytes.Length} bytes");
-        return bytes;
+        try
+        {
+            var response = await Http.GetAsync("/api/screenshot");
+            if (response.IsSuccessStatusCode)
+            {
+                var bytes = await response.Content.ReadAsByteArrayAsync();
+                Output.WriteLine($"📸 Screenshot '{label}': {bytes.Length} bytes");
+            }
+            else
+            {
+                Output.WriteLine($"📸 Screenshot '{label}': failed ({response.StatusCode})");
+            }
+        }
+        catch (Exception ex)
+        {
+            Output.WriteLine($"📸 Screenshot '{label}': error ({ex.Message})");
+        }
     }
 
     private static string EscapeJs(string value) =>

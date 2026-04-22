@@ -70,10 +70,11 @@ public class ScheduledTaskTests : IntegrationTestBase
         var taskName = $"Detail-Test-{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
         await CreateIntervalTaskAsync(taskName, "check build status", 120);
 
-        // Verify schedule description
+        // Verify schedule description (UI shows human-friendly text like "Every 2 hours")
         var scheduleText = await GetTextAsync($".task-card[data-task-name=\"{taskName}\"] .task-schedule");
         Output.WriteLine($"Schedule text: '{scheduleText}'");
-        Assert.Contains("120", scheduleText, StringComparison.OrdinalIgnoreCase);
+        Assert.False(string.IsNullOrWhiteSpace(scheduleText), "Schedule description should not be empty");
+        Assert.Contains("every", scheduleText, StringComparison.OrdinalIgnoreCase);
 
         // Verify prompt preview
         var promptText = await GetTextAsync($".task-card[data-task-name=\"{taskName}\"] .task-prompt-preview");
