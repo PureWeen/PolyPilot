@@ -423,6 +423,9 @@
                 el.value = '';
                 if (window.__liveDrafts) delete window.__liveDrafts[elementId];
                 el.__lastRestoredDraft = '';
+                // Mark this input as recently cleared by a send — prevents stale draft restore
+                window.__recentlySentIds = window.__recentlySentIds || Object.create(null);
+                window.__recentlySentIds[elementId] = true;
                 el.style.height = 'auto';
                 // Remove slash command ghost overlay
                 var ghost = document.getElementById(elementId + '--slash-ghost');
@@ -824,6 +827,15 @@
                 var desired = drafts[id] || '';
                 var current = (typeof el.value === 'string') ? el.value : '';
                 var lastRestored = (typeof el.__lastRestoredDraft === 'string') ? el.__lastRestoredDraft : '';
+                
+                // Skip restore if this input was recently cleared by a send (prevents re-filling with stale draft)
+                if (window.__recentlySentIds && window.__recentlySentIds[id]) {
+                    // Only skip for a limited window — clear the flag after first skip
+                    delete window.__recentlySentIds[id];
+                    if (desired && !current) continue; // Don't restore stale text into a cleared input
+                }
+                
+                // Skip restore if user has typed diverged content since last restore
                 var hasDivergedUserText = current.length > 0 && current !== desired && current !== lastRestored;
                 if (hasDivergedUserText) continue;
                 if (current !== desired) {
