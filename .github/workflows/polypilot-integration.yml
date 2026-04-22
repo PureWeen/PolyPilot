@@ -310,6 +310,7 @@ jobs:
             --disable-build-servers \
             -p:UseSharedCompilation=false \
             -p:ValidateXcodeVersion=false \
+            -p:MtouchLink=SdkOnly \
             -nodeReuse:false
 
       - name: Find app bundle
