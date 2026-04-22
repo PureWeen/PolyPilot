@@ -562,6 +562,19 @@ public partial class CopilotService
                     });
                 }
             }
+            else
+            {
+                // Session is NOT processing after resume (common case: session completed
+                // before the reconnect). Enable re-arm so background task continuations
+                // (agent/shell completions that trigger a new CLI turn) are properly detected.
+                // Without this, AllowTurnStartRearm defaults to false on new SessionState objects,
+                // causing EVT-REARM-SKIP to silently drop genuine new turns after reconnects.
+                // NOTE: This is in the `else` branch to avoid a race with InvokeOnUI above —
+                // if HasInterruptedToolExecution is true, IsProcessing=true is queued async
+                // and reading it synchronously here would see stale false.
+                state.AllowTurnStartRearm = true;
+                Debug($"[RESUME-REARM] '{sessionName}' not processing after resume — enabling AllowTurnStartRearm for background task continuations");
+            }
 
             Debug($"Lazy-resume complete: '{sessionName}'");
         }

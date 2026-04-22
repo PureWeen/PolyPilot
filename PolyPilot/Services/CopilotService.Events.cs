@@ -787,9 +787,15 @@ public partial class CopilotService
                         isCurrentState,
                         state.IsOrphaned,
                         state.WasUserAborted,
-                        state.AllowTurnStartRearm))
+                        state.AllowTurnStartRearm,
+                        Interlocked.Read(ref state.ProcessingClearedAtTicks)))
                 {
-                    Debug($"[EVT-REARM] '{sessionName}' TurnStartEvent arrived after premature session.idle — re-arming IsProcessing");
+                    // Capture before consuming the one-shot guard to avoid volatile re-read TOCTOU
+                    var wasExplicitRearm = state.AllowTurnStartRearm;
+                    var rearmReason = wasExplicitRearm
+                        ? "premature session.idle"
+                        : "background task continuation (freshness-based)";
+                    Debug($"[EVT-REARM] '{sessionName}' TurnStartEvent arrived after {rearmReason} — re-arming IsProcessing");
                     state.PrematureIdleSignal.Set(); // Signal to ExecuteWorkerAsync that TCS result was truncated
                     state.AllowTurnStartRearm = false; // One-shot guard for this completion cycle
                     Invoke(() =>
@@ -1266,6 +1272,7 @@ public partial class CopilotService
                     // (Matches CompleteResponse ordering per INV-O3)
                     state.Info.IsProcessing = false;
                     state.AllowTurnStartRearm = false; // Errors are terminal for this turn; late TurnStart events are stale
+                    Interlocked.Exchange(ref state.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks); // Stamp freshness so ShouldRearmOnTurnStart doesn't use stale timestamp from prior turn
                     state.Info.IsResumed = false;
                     state.IsReconnectedSend = false; // INV-1: clear all per-turn flags on termination
                     Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock (INV-1)
@@ -1562,18 +1569,39 @@ public partial class CopilotService
         return string.Equals(state.LastFlushedResponseSegment, text, StringComparison.Ordinal);
     }
 
+    /// <summary>Minimum elapsed time (seconds) since processing was cleared before a TurnStart
+    /// is considered a genuinely new turn rather than stale replay. Background task completions
+    /// arrive seconds-to-hours after the prior turn; stale replays arrive within milliseconds.</summary>
+    internal const int TurnStartFreshnessThresholdSeconds = 5;
+
     internal static bool ShouldRearmOnTurnStart(
         bool isProcessing,
         bool isCurrentState,
         bool isOrphaned,
         bool wasUserAborted,
-        bool allowTurnStartRearm)
+        bool allowTurnStartRearm,
+        long processingClearedAtTicks = 0)
     {
-        return !isProcessing
-               && isCurrentState
-               && !isOrphaned
-               && !wasUserAborted
-               && allowTurnStartRearm;
+        if (isProcessing || !isCurrentState || isOrphaned || wasUserAborted)
+            return false;
+
+        // Fast path: explicit permission from CompleteResponse (premature idle recovery)
+        if (allowTurnStartRearm)
+            return true;
+
+        // Freshness-based fallback: if processing was cleared more than N seconds ago,
+        // this TurnStart is from a genuinely new turn (background task completion),
+        // not a stale replay from the just-completed turn. This handles the case where
+        // AllowTurnStartRearm was reset by a reconnect/restart but the CLI agent
+        // continued processing background tasks and eventually started a new turn.
+        if (processingClearedAtTicks > 0)
+        {
+            var elapsed = TimeSpan.FromTicks(DateTime.UtcNow.Ticks - processingClearedAtTicks);
+            if (elapsed.TotalSeconds >= TurnStartFreshnessThresholdSeconds)
+                return true;
+        }
+
+        return false;
     }
 
     /// <summary>Flush accumulated assistant text to history without ending the turn.</summary>
@@ -3249,6 +3277,7 @@ public partial class CopilotService
             Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
             Interlocked.Exchange(ref state.EventCountThisTurn, 0);
             Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
+            Interlocked.Exchange(ref state.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks); // Stamp freshness so ShouldRearmOnTurnStart doesn't use stale timestamp from prior turn
             state.Info.ProcessingStartedAt = null;
             state.Info.ToolCallCount = 0;
             state.Info.ProcessingPhase = 0;
