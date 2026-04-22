@@ -255,8 +255,13 @@ public class WsBridgeServer : IDisposable
                     InputTokens = usage.InputTokens, OutputTokens = usage.OutputTokens
                 }));
         _copilot.OnTurnStart += (session) =>
+        {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.TurnStart,
                 new SessionNamePayload { SessionName = session }));
+            // Push sessions list immediately so mobile gets IsProcessing=true
+            // without waiting up to 500ms for the debounce timer.
+            BroadcastSessionsList();
+        };
         _copilot.OnTurnEnd += (session) =>
         {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.TurnEnd,
@@ -272,6 +277,12 @@ public class WsBridgeServer : IDisposable
         {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.SessionComplete,
                 new SessionCompletePayload { SessionName = session, Summary = summary }));
+            // Push authoritative history on completion — belt-and-suspenders for when
+            // the fire-and-forget TurnEnd history broadcast was lost or slow.
+            _ = BroadcastSessionHistoryAsync(session);
+            // Push sessions list immediately (bypass debounce) so mobile gets
+            // IsProcessing=false without waiting up to 500ms for the debounce timer.
+            BroadcastSessionsList();
             // Only notify when session is truly complete and waiting for user input
             BroadcastAttentionNeeded(session, AttentionReason.ReadyForMore, TruncateSummary(summary));
         };
@@ -279,6 +290,8 @@ public class WsBridgeServer : IDisposable
         {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.ErrorEvent,
                 new ErrorPayload { SessionName = session, Error = error }));
+            // Push sessions list immediately so mobile gets IsProcessing=false on errors
+            BroadcastSessionsList();
             BroadcastAttentionNeeded(session, AttentionReason.Error, TruncateSummary(error));
         };
     }
