@@ -43,12 +43,14 @@ jobs:
 
       - name: Select Xcode
         run: |
-          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -rV | head -1)
+          # Prefer stable Xcode 26.x, exclude beta
+          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -v beta | sort -rV | head -1)
           if [ -z "$XCODE_PATH" ]; then
-            XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -rV | head -1)
+            XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | grep -v beta | sort -rV | head -1)
           fi
           echo "Selected Xcode: $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
 
       - uses: actions/setup-dotnet@v5
         with:
