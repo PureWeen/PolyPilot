@@ -4509,6 +4509,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 // No MaxValue guard needed: STEER-ERROR only reaches non-orphaned sessions
                 Interlocked.Increment(ref state.ProcessingGeneration); // Invalidate stale callbacks
                 state.Info.IsProcessing = false;
+                Interlocked.Exchange(ref state.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks);
                 if (state.Info.ProcessingStartedAt is { } steerStarted)
                     state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - steerStarted).TotalSeconds;
                 state.Info.ProcessingStartedAt = null;
@@ -4790,6 +4791,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // No MaxValue guard needed: MCP-reload only reaches non-orphaned sessions
                     Interlocked.Increment(ref state.ProcessingGeneration); // Invalidate stale callbacks
                     state.Info.IsProcessing = false;
+                    Interlocked.Exchange(ref state.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks);
                     state.Info.IsResumed = false;
                     state.HasUsedToolsThisTurn = false;
                     ClearDeferredIdleTracking(state);

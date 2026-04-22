@@ -1732,6 +1732,47 @@ public class ChatExperienceSafetyTests
     }
 
     /// <summary>
+    /// PR #712 re-review: STEER-ERROR clears IsProcessing without ClearProcessingState.
+    /// It must stamp ProcessingClearedAtTicks to prevent stale freshness-based re-arm.
+    /// </summary>
+    [Fact]
+    public void SteerError_StampsProcessingClearedAtTicks()
+    {
+        var svcPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(svcPath);
+
+        var tagIdx = source.IndexOf("[STEER-ERROR]", StringComparison.Ordinal);
+        Assert.True(tagIdx >= 0, "STEER-ERROR diagnostic tag must exist");
+        var block = source.Substring(tagIdx, Math.Min(1000, source.Length - tagIdx));
+
+        Assert.True(block.Contains("ProcessingClearedAtTicks", StringComparison.Ordinal),
+            "STEER-ERROR must stamp ProcessingClearedAtTicks — prevents stale freshness re-arm after soft steer failure");
+    }
+
+    /// <summary>
+    /// PR #712 re-review: MCP-reload abort block clears IsProcessing without ClearProcessingState.
+    /// It must stamp ProcessingClearedAtTicks to prevent stale freshness-based re-arm.
+    /// </summary>
+    [Fact]
+    public void McpReloadAbort_StampsProcessingClearedAtTicks()
+    {
+        var svcPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(svcPath);
+
+        var tagIdx = source.IndexOf("[MCP-RELOAD]", StringComparison.Ordinal);
+        Assert.True(tagIdx >= 0, "MCP-RELOAD tag must exist");
+        // Find the abort block that clears IsProcessing (the InvokeOnUIAsync block)
+        var abortIdx = source.IndexOf("IsProcessing = false", tagIdx, StringComparison.Ordinal);
+        Assert.True(abortIdx >= 0, "MCP-RELOAD must clear IsProcessing");
+        // Grab ~200 chars around the clearing — should include the stamp
+        var start = Math.Max(0, abortIdx - 100);
+        var block = source.Substring(start, Math.Min(300, source.Length - start));
+
+        Assert.True(block.Contains("ProcessingClearedAtTicks", StringComparison.Ordinal),
+            "MCP-RELOAD abort block must stamp ProcessingClearedAtTicks — prevents stale freshness re-arm during session replacement");
+    }
+
+    /// <summary>
     /// PR #531 review finding: _consecutiveWatchdogTimeouts reset must NOT be in
     /// ClearProcessingState. It is a success-only signal (healthy server) — resetting it
     /// on error/abort paths defeats the server-recovery detection threshold.
