@@ -3820,6 +3820,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                         siblingState.Info.ProcessingStartedAt ??= DateTime.UtcNow;
                                                         siblingState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
                                                     }
+                                                    // If the sibling was NOT processing, enable re-arm for background
+                                                    // task continuations BEFORE handler registration so there's no
+                                                    // window where TurnStart arrives with AllowTurnStartRearm=false.
+                                                    if (!siblingWasProcessing)
+                                                    {
+                                                        siblingState.AllowTurnStartRearm = true;
+                                                        // Seed ProcessingClearedAtTicks so the freshness fallback works
+                                                        // even if AllowTurnStartRearm gets consumed before the next TurnStart.
+                                                        Interlocked.Exchange(ref siblingState.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks);
+                                                    }
                                                     // Register handler BEFORE publishing to dictionary —
                                                     // no window where events arrive with no handler.
                                                     resumed.On(evt => HandleSessionEvent(siblingState, evt));
@@ -3835,13 +3845,6 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     }
                                                     DisposePrematureIdleSignal(capturedOtherState);
                                                     Debug($"[RECONNECT] Re-resumed sibling session '{capturedKey}' after client recreation");
-                                                    // If the sibling was NOT processing, enable re-arm for background
-                                                    // task continuations (same rationale as RESUME-REARM above).
-                                                    if (!siblingWasProcessing)
-                                                    {
-                                                        siblingState.AllowTurnStartRearm = true;
-                                                        Debug($"[RECONNECT-REARM] Sibling '{capturedKey}' not processing — enabling AllowTurnStartRearm");
-                                                    }
                                                     // Start watchdog on UI thread — IsProcessing and companion fields
                                                     // were already set before handler registration (above), so this
                                                     // just needs to start the timer and notify the UI.

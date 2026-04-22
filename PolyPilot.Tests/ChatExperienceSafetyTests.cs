@@ -467,6 +467,47 @@ public class ChatExperienceSafetyTests
     }
 
     /// <summary>
+    /// Boundary test: exactly at the threshold (>= 5s) should re-arm.
+    /// Uses a timestamp slightly beyond 5s to avoid timing-dependent flakes.
+    /// </summary>
+    [Fact]
+    public void TurnStartRearmGuard_ExactBoundary_ReturnsTrue()
+    {
+        // 5.1s to avoid sub-millisecond timing flakes while testing the >= boundary
+        var clearedAt = DateTime.UtcNow.AddSeconds(-5.1).Ticks;
+
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing: false,
+            isCurrentState: true,
+            isOrphaned: false,
+            wasUserAborted: false,
+            allowTurnStartRearm: false,
+            processingClearedAtTicks: clearedAt);
+
+        Assert.True(result, "TurnStart arriving at >= 5s threshold should re-arm");
+    }
+
+    /// <summary>
+    /// Future timestamp safety: if ProcessingClearedAtTicks is in the future
+    /// (clock skew or bug), elapsed is negative, so re-arm should NOT fire.
+    /// </summary>
+    [Fact]
+    public void TurnStartRearmGuard_FutureTimestamp_ReturnsFalse()
+    {
+        var futureTimestamp = DateTime.UtcNow.AddMinutes(5).Ticks;
+
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing: false,
+            isCurrentState: true,
+            isOrphaned: false,
+            wasUserAborted: false,
+            allowTurnStartRearm: false,
+            processingClearedAtTicks: futureTimestamp);
+
+        Assert.False(result, "Future ProcessingClearedAtTicks should not trigger freshness re-arm");
+    }
+
+    /// <summary>
     /// CompleteResponse with null generation always executes (used by error/watchdog paths).
     /// </summary>
     [Fact]
@@ -1634,6 +1675,8 @@ public class ChatExperienceSafetyTests
     /// processing, so background task continuations (agent/shell completions) can trigger
     /// re-arm after reconnects. Without this, 91% of background continuations are silently
     /// dropped (695 EVT-REARM-SKIP vs 68 EVT-REARM in production diagnostics).
+    /// The RESUME-REARM must be in the else branch of HasInterruptedToolExecution to avoid
+    /// racing with the InvokeOnUI that sets IsProcessing=true.
     /// </summary>
     [Fact]
     public void EnsureSessionConnected_SetsAllowTurnStartRearm_AfterResume()
@@ -1645,6 +1688,47 @@ public class ChatExperienceSafetyTests
             "EnsureSessionConnectedAsync must set AllowTurnStartRearm=true after resume when not processing");
         Assert.True(source.Contains("RESUME-REARM", StringComparison.Ordinal),
             "Resume re-arm must have diagnostic log tag [RESUME-REARM]");
+    }
+
+    /// <summary>
+    /// SessionErrorEvent must stamp ProcessingClearedAtTicks when clearing IsProcessing,
+    /// so the freshness-based TurnStart re-arm doesn't use a stale timestamp from a prior
+    /// turn's ClearProcessingState call. Without this, error → stale timestamp → freshness
+    /// check passes → spurious re-arm shows "Thinking..." instead of error message.
+    /// </summary>
+    [Fact]
+    public void SessionErrorEvent_StampsProcessingClearedAtTicks()
+    {
+        var eventsPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs");
+        var source = File.ReadAllText(eventsPath);
+
+        // Find the SessionErrorEvent case block
+        var caseIdx = source.IndexOf("case SessionErrorEvent err:", StringComparison.Ordinal);
+        Assert.True(caseIdx >= 0, "SessionErrorEvent handler must exist");
+        var nextBreak = source.IndexOf("break;", caseIdx, StringComparison.Ordinal);
+        var caseBody = source.Substring(caseIdx, nextBreak - caseIdx);
+
+        Assert.True(caseBody.Contains("ProcessingClearedAtTicks", StringComparison.Ordinal),
+            "SessionErrorEvent must stamp ProcessingClearedAtTicks — required to prevent stale freshness-based re-arm after errors");
+    }
+
+    /// <summary>
+    /// ClearProcessingStateForRecoveryFailure must stamp ProcessingClearedAtTicks when
+    /// clearing IsProcessing, same rationale as SessionErrorEvent above.
+    /// </summary>
+    [Fact]
+    public void ClearProcessingStateForRecoveryFailure_StampsProcessingClearedAtTicks()
+    {
+        var eventsPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs");
+        var source = File.ReadAllText(eventsPath);
+
+        var methodIdx = source.IndexOf("private void ClearProcessingStateForRecoveryFailure(", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "ClearProcessingStateForRecoveryFailure must exist");
+        var methodEnd = source.IndexOf("\n    }", methodIdx + 1, StringComparison.Ordinal);
+        var methodBody = source.Substring(methodIdx, methodEnd - methodIdx);
+
+        Assert.True(methodBody.Contains("ProcessingClearedAtTicks", StringComparison.Ordinal),
+            "ClearProcessingStateForRecoveryFailure must stamp ProcessingClearedAtTicks — prevents stale freshness re-arm after recovery failure");
     }
 
     /// <summary>

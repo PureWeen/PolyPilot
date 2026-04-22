@@ -790,7 +790,9 @@ public partial class CopilotService
                         state.AllowTurnStartRearm,
                         Interlocked.Read(ref state.ProcessingClearedAtTicks)))
                 {
-                    var rearmReason = state.AllowTurnStartRearm
+                    // Capture before consuming the one-shot guard to avoid volatile re-read TOCTOU
+                    var wasExplicitRearm = state.AllowTurnStartRearm;
+                    var rearmReason = wasExplicitRearm
                         ? "premature session.idle"
                         : "background task continuation (freshness-based)";
                     Debug($"[EVT-REARM] '{sessionName}' TurnStartEvent arrived after {rearmReason} — re-arming IsProcessing");
@@ -1270,6 +1272,7 @@ public partial class CopilotService
                     // (Matches CompleteResponse ordering per INV-O3)
                     state.Info.IsProcessing = false;
                     state.AllowTurnStartRearm = false; // Errors are terminal for this turn; late TurnStart events are stale
+                    Interlocked.Exchange(ref state.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks); // Stamp freshness so ShouldRearmOnTurnStart doesn't use stale timestamp from prior turn
                     state.Info.IsResumed = false;
                     state.IsReconnectedSend = false; // INV-1: clear all per-turn flags on termination
                     Interlocked.Exchange(ref state.SendingFlag, 0); // Release atomic send lock (INV-1)
@@ -3274,6 +3277,7 @@ public partial class CopilotService
             Interlocked.Exchange(ref state.ToolHealthStaleChecks, 0);
             Interlocked.Exchange(ref state.EventCountThisTurn, 0);
             Interlocked.Exchange(ref state.TurnEndReceivedAtTicks, 0);
+            Interlocked.Exchange(ref state.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks); // Stamp freshness so ShouldRearmOnTurnStart doesn't use stale timestamp from prior turn
             state.Info.ProcessingStartedAt = null;
             state.Info.ToolCallCount = 0;
             state.Info.ProcessingPhase = 0;
