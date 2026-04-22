@@ -51,7 +51,10 @@ jobs:
         run: |
           dotnet tool install --global Microsoft.Maui.Cli \
             --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json \
-            --prerelease || true
+            --prerelease 2>&1 || {
+            echo "Install returned non-zero, checking if already installed..."
+            maui --version || { echo "❌ MauiDevFlow CLI not available"; exit 1; }
+          }
           echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
 
       - name: Build PolyPilot.Gtk (Debug — includes MauiDevFlow)
@@ -93,9 +96,24 @@ jobs:
           echo "APP_PID=$APP_PID" >> $GITHUB_ENV
           echo "PolyPilot launched with PID $APP_PID"
 
-          # Wait for full startup (GTK + WebView + DevFlow agent init)
-          echo "Waiting 30s for full app initialization..."
-          sleep 30
+          # Wait for app + DevFlow agent readiness (poll instead of fixed sleep)
+          echo "Waiting for PolyPilot to start..."
+          for i in $(seq 1 60); do
+            if ! kill -0 $APP_PID 2>/dev/null; then
+              echo "❌ PolyPilot crashed during startup"
+              echo "=== stdout ===" && cat /tmp/polypilot-stdout.log || true
+              echo "=== stderr ===" && cat /tmp/polypilot-stderr.log || true
+              exit 1
+            fi
+            if curl -s --max-time 2 http://localhost:9223/api/status > /dev/null 2>&1; then
+              echo "✅ PolyPilot ready after ${i}s"
+              break
+            fi
+            if [ "$i" = "60" ]; then
+              echo "⚠️ Timed out waiting for DevFlow agent after 60s — continuing with port scan"
+            fi
+            sleep 1
+          done
           
           # Verify process is still running
           if kill -0 $APP_PID 2>/dev/null; then
@@ -278,7 +296,10 @@ jobs:
         run: |
           dotnet tool install --global Microsoft.Maui.Cli \
             --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json \
-            --prerelease || true
+            --prerelease 2>&1 || {
+            echo "Install returned non-zero, checking if already installed..."
+            maui --version || { echo "❌ MauiDevFlow CLI not available"; exit 1; }
+          }
           echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
 
       - name: Build PolyPilot (Mac Catalyst Debug)
@@ -313,8 +334,24 @@ jobs:
           echo "APP_PID=$APP_PID" >> $GITHUB_ENV
           echo "PolyPilot launched with PID $APP_PID"
 
-          # Wait for full initialization (Persistent mode auto-starts copilot server)
-          sleep 30
+          # Wait for app + DevFlow agent readiness (poll instead of fixed sleep)
+          echo "Waiting for PolyPilot to start..."
+          for i in $(seq 1 60); do
+            if ! kill -0 $APP_PID 2>/dev/null; then
+              echo "❌ PolyPilot crashed during startup"
+              cat /tmp/polypilot-stderr.log || true
+              exit 1
+            fi
+            if curl -s --max-time 2 http://localhost:9223/api/status > /dev/null 2>&1; then
+              echo "✅ PolyPilot ready after ${i}s"
+              break
+            fi
+            if [ "$i" = "60" ]; then
+              echo "⚠️ Timed out waiting for DevFlow agent after 60s"
+              echo "App is still running — continuing with port scan"
+            fi
+            sleep 1
+          done
 
           if kill -0 $APP_PID 2>/dev/null; then
             echo "✅ PolyPilot is running"
@@ -398,8 +435,9 @@ jobs:
           CDP="http://localhost:$PORT/api/cdp"
           
           cdp_eval() {
-            curl -s -X POST "$CDP" -H "Content-Type: application/json" \
-              -d "{\"method\":\"Runtime.evaluate\",\"params\":{\"expression\":\"$1\"}}" 2>/dev/null
+            local payload
+            payload=$(python3 -c "import json,sys; print(json.dumps({'method':'Runtime.evaluate','params':{'expression':sys.argv[1]}}))" "$1")
+            curl -s -X POST "$CDP" -H "Content-Type: application/json" -d "$payload" 2>/dev/null
           }
           
           echo "=== Step 1: Page state ==="
@@ -531,7 +569,12 @@ jobs:
         run: |
           dotnet tool install --global Microsoft.Maui.Cli `
             --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json `
-            --prerelease 2>$null
+            --prerelease 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Install returned non-zero, checking if already installed..."
+            & maui --version
+            if ($LASTEXITCODE -ne 0) { Write-Host "❌ MauiDevFlow CLI not available"; exit 1 }
+          }
           $toolsPath = Join-Path $env:USERPROFILE ".dotnet\tools"
           "$toolsPath" | Out-File -FilePath $env:GITHUB_PATH -Append
 
