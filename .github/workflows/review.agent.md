@@ -15,8 +15,9 @@ on:
   roles: [admin, maintainer, write]
 
 # slash_command compiles to issue_comment; workflow_dispatch is always allowed.
+# github.event.issue.pull_request guards against /review on non-PR issues.
 if: >-
-  github.event_name == 'issue_comment' ||
+  (github.event_name == 'issue_comment' && github.event.issue.pull_request) ||
   github.event_name == 'workflow_dispatch'
 
 permissions:
