@@ -26,7 +26,7 @@
 #   Imports:
 #     - shared/review-shared.md
 #
-# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"085055aa362adb70872e34bac71bb511947a7cdd9a3a2fb866aa0da5daa7230f","compiler_version":"v0.62.2","strict":true}
+# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"83e06cf806d419ebaf54a87343c0c68f47f677a5b5d50927fe656468cf018e8e","compiler_version":"v0.62.2","strict":true}
 
 name: "Expert Code Review"
 "on":
@@ -48,7 +48,8 @@ name: "Expert Code Review"
 permissions: {}
 
 concurrency:
-  group: "gh-aw-${{ github.workflow }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}"
+  cancel-in-progress: false
+  group: review-${{ github.event.issue.number || inputs.pr_number || github.run_id }}
 
 run-name: "Expert Code Review"
 

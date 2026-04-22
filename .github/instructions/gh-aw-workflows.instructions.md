@@ -19,7 +19,7 @@ When working on gh-aw workflow files, use the **`gh-aw-guide`** skill for the co
 7. **Always use `github-token-for-extra-empty-commit:`** (PAT/App token) on `create-pull-request` — `GITHUB_TOKEN` pushes do not trigger CI
 8. **Set `protected-files: fallback-to-issue`** on `create-pull-request` when the agent may touch package manifests or `.github/` — prevents PR creation from failing silently
 9. **Use `Checkout-GhAwPr.ps1`** for `workflow_dispatch` workflows that check out a PR — it verifies write access and restores trusted `.github/` from base branch
-10. **Set `min-integrity: approved`** on `tools.github` for workflows that process external PR content — prevents prompt injection from first-timer/contributor comments
+10. **Do NOT set `min-integrity` explicitly** — compiler v0.62.2 emits an incomplete guard policy that crashes the MCP Gateway. Rely on the automatic `determine-automatic-lockdown` runtime step instead, which applies appropriate integrity levels based on event type and actor trust.
 
 ## Quick Anti-Pattern Check (Critical Subset)
 

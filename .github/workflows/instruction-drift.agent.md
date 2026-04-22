@@ -147,10 +147,14 @@ The PR description should include:
 
 ## Step 5: No Changes Needed
 
-If the staleness check returned FRESH (exit 0), call `noop` with a message:
+**🚨 CRITICAL: You MUST call a safe-output tool before finishing.** If no changes are needed, you MUST call `noop`. Failing to call any safe-output tool causes the workflow to report as failed.
 
+If the staleness check returned FRESH (exit 0), call the `noop` tool immediately:
+
+```json
+{"noop": {"message": "All instruction files are fresh — no drift detected. Last checked: <today's date>"}}
 ```
-noop: "All instruction files are fresh — no drift detected. Last checked: <date>"
-```
+
+Do NOT just explain that things are fresh in your response — you MUST call the `noop` tool.
 
 Do NOT create issues, PRs, or comments when nothing needs updating.

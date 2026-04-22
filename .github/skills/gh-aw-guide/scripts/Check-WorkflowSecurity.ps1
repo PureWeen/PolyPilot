@@ -6,7 +6,7 @@
 .DESCRIPTION
     Checks each workflow source file (.github/workflows/*.md, excluding
     lock files and shared/) for:
-    - pull_request_target without min-integrity or role restrictions
+    - pull_request_target without role restrictions
     - workflow_run without branch restrictions
     - push with overly broad branch patterns
     - roles: all on workflows that process PR content
@@ -56,15 +56,9 @@ function Test-Workflow {
 
     # pull_request_target without safety gates
     if ($frontmatter -match 'pull_request_target') {
-        if ($frontmatter -notmatch 'min-integrity') {
-            $findings += @{
-                file     = $name
-                severity = "HIGH"
-                rule     = "pull_request_target-no-integrity"
-                message  = "pull_request_target trigger without min-integrity filtering. Fork PR content is unfiltered — prompt injection risk."
-                fix      = "Add tools.github.min-integrity: approved"
-            }
-        }
+        # Note: Do NOT check for min-integrity — compiler v0.62.2 emits incomplete
+        # guard policy when min-integrity is hardcoded. The runtime determine-automatic-lockdown
+        # step handles integrity filtering automatically for pull_request_target events.
         if ($frontmatter -match 'roles:\s*all') {
             $findings += @{
                 file     = $name
