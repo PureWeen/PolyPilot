@@ -53,26 +53,27 @@ except: print('')
 # Helper: click element by running JS that finds and clicks it
 cdp_click() {
   local selector="$1"
-  cdp_eval "const el = document.querySelector('$selector'); el?.click(); el ? 'clicked' : 'not found'" | cdp_value
+  cdp_eval "const el = document.querySelector(\"$selector\"); el?.click(); el ? 'clicked' : 'not found'" | cdp_value
 }
 
 # Helper: set input value and dispatch events for Blazor binding
 cdp_set_input() {
   local selector="$1"
   local value="$2"
-  cdp_eval "const el = document.querySelector('$selector'); if (el) { el.value = '$value'; el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); 'set'; } else { 'not found'; }" | cdp_value
+  cdp_eval "const el = document.querySelector(\"$selector\"); if (el) { el.value = '$value'; el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true})); 'set'; } else { 'not found'; }" | cdp_value
 }
 
 # Helper: check if element exists, returns "true" or "false"
 cdp_exists() {
   local selector="$1"
-  cdp_eval "document.querySelector('$selector') !== null ? 'true' : 'false'" | cdp_value
+  # Use escaped double quotes in querySelector to avoid shell/JS quote conflicts
+  cdp_eval "document.querySelector(\"$selector\") !== null ? 'true' : 'false'" | cdp_value
 }
 
 # Helper: get text content of element
 cdp_text() {
   local selector="$1"
-  cdp_eval "document.querySelector('$selector')?.textContent?.trim() || ''" | cdp_value
+  cdp_eval "document.querySelector(\"$selector\")?.textContent?.trim() || ''" | cdp_value
 }
 
 # Helper: wait for element, returns 0 on success
