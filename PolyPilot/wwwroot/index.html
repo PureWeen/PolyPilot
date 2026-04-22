@@ -423,9 +423,9 @@
                 el.value = '';
                 if (window.__liveDrafts) delete window.__liveDrafts[elementId];
                 el.__lastRestoredDraft = '';
-                // Mark this input as recently cleared by a send — prevents stale draft restore
+                // Mark this input as recently cleared — prevents stale draft restore on re-render
                 window.__recentlySentIds = window.__recentlySentIds || Object.create(null);
-                window.__recentlySentIds[elementId] = true;
+                window.__recentlySentIds[elementId] = Date.now();
                 el.style.height = 'auto';
                 // Remove slash command ghost overlay
                 var ghost = document.getElementById(elementId + '--slash-ghost');
@@ -821,6 +821,13 @@
                     }
                 }
             }
+            // Sweep stale __recentlySentIds entries (5s TTL prevents unbounded growth)
+            if (window.__recentlySentIds) {
+                var now = Date.now();
+                for (var k in window.__recentlySentIds) {
+                    if (now - window.__recentlySentIds[k] > 5000) delete window.__recentlySentIds[k];
+                }
+            }
             for (var id in drafts) {
                 var el = document.getElementById(id);
                 if (!el) continue;
@@ -828,14 +835,12 @@
                 var current = (typeof el.value === 'string') ? el.value : '';
                 var lastRestored = (typeof el.__lastRestoredDraft === 'string') ? el.__lastRestoredDraft : '';
                 
-                // Skip restore if this input was recently cleared by a send (prevents re-filling with stale draft)
+                // Skip restore if this input was recently cleared (prevents re-filling with stale draft)
                 if (window.__recentlySentIds && window.__recentlySentIds[id]) {
                     if (desired && !current) {
-                        // Only consume the flag when we actually skip — protects against next re-render too
-                        delete window.__recentlySentIds[id];
-                        continue; // Don't restore stale text into a cleared input
+                        continue; // Don't restore stale text into a cleared input (flag survives for next re-render)
                     }
-                    // If desired is empty or current has content, flag isn't needed — clean up
+                    // Danger window over: desired is empty or user has typed — flag no longer needed
                     delete window.__recentlySentIds[id];
                 }
                 
