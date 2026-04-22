@@ -22,7 +22,7 @@
 #
 # Weekly check for stale gh-aw instructions. If drift is detected, scans upstream commits and creates a PR updating the skills.
 #
-# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"7a27e452df82d72be6792fdf5a727a11c01a24f16ad9d35ee00013105372572f","compiler_version":"v0.62.2","strict":true}
+# gh-aw-metadata: {"schema_version":"v2","frontmatter_hash":"ce8079fe80115665ebda17a7d4cd86c1ab22fa628280f2c98538a17da21db202","compiler_version":"v0.62.2","strict":true}
 
 name: "Instruction Drift Check"
 "on":
@@ -117,9 +117,6 @@ jobs:
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
           GH_AW_GITHUB_RUN_ID: ${{ github.run_id }}
           GH_AW_GITHUB_WORKSPACE: ${{ github.workspace }}
-          GH_AW_STEPS_STALENESS_OUTPUTS_CHANGES_DETECTED: ${{ steps.staleness.outputs.changes_detected }}
-          GH_AW_STEPS_STALENESS_OUTPUTS_REPORT: ${{ steps.staleness.outputs.report }}
-          GH_AW_STEPS_UPSTREAM_OUTPUTS_REPORT: ${{ steps.upstream.outputs.report }}
         run: |
           bash ${RUNNER_TEMP}/gh-aw/actions/create_prompt_first.sh
           {
@@ -178,9 +175,6 @@ jobs:
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           GH_AW_PROMPT: /tmp/gh-aw/aw-prompts/prompt.txt
-          GH_AW_STEPS_STALENESS_OUTPUTS_CHANGES_DETECTED: ${{ steps.staleness.outputs.changes_detected }}
-          GH_AW_STEPS_STALENESS_OUTPUTS_REPORT: ${{ steps.staleness.outputs.report }}
-          GH_AW_STEPS_UPSTREAM_OUTPUTS_REPORT: ${{ steps.upstream.outputs.report }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -199,9 +193,6 @@ jobs:
           GH_AW_GITHUB_REPOSITORY: ${{ github.repository }}
           GH_AW_GITHUB_RUN_ID: ${{ github.run_id }}
           GH_AW_GITHUB_WORKSPACE: ${{ github.workspace }}
-          GH_AW_STEPS_STALENESS_OUTPUTS_CHANGES_DETECTED: ${{ steps.staleness.outputs.changes_detected }}
-          GH_AW_STEPS_STALENESS_OUTPUTS_REPORT: ${{ steps.staleness.outputs.report }}
-          GH_AW_STEPS_UPSTREAM_OUTPUTS_REPORT: ${{ steps.upstream.outputs.report }}
         with:
           script: |
             const { setupGlobals } = require('${{ runner.temp }}/gh-aw/actions/setup_globals.cjs');
@@ -220,10 +211,7 @@ jobs:
                 GH_AW_GITHUB_EVENT_PULL_REQUEST_NUMBER: process.env.GH_AW_GITHUB_EVENT_PULL_REQUEST_NUMBER,
                 GH_AW_GITHUB_REPOSITORY: process.env.GH_AW_GITHUB_REPOSITORY,
                 GH_AW_GITHUB_RUN_ID: process.env.GH_AW_GITHUB_RUN_ID,
-                GH_AW_GITHUB_WORKSPACE: process.env.GH_AW_GITHUB_WORKSPACE,
-                GH_AW_STEPS_STALENESS_OUTPUTS_CHANGES_DETECTED: process.env.GH_AW_STEPS_STALENESS_OUTPUTS_CHANGES_DETECTED,
-                GH_AW_STEPS_STALENESS_OUTPUTS_REPORT: process.env.GH_AW_STEPS_STALENESS_OUTPUTS_REPORT,
-                GH_AW_STEPS_UPSTREAM_OUTPUTS_REPORT: process.env.GH_AW_STEPS_UPSTREAM_OUTPUTS_REPORT
+                GH_AW_GITHUB_WORKSPACE: process.env.GH_AW_GITHUB_WORKSPACE
               }
             });
       - name: Validate prompt placeholders
@@ -282,10 +270,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-      - name: Setup Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-        with:
-          python-version: '3.12'
       - name: Create gh-aw temp directory
         run: bash ${RUNNER_TEMP}/gh-aw/actions/create_gh_aw_tmp_dir.sh
       - name: Configure gh CLI for GitHub Enterprise
@@ -294,15 +278,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
       - env:
           GH_TOKEN: ${{ github.token }}
-        id: staleness
         name: Run staleness check
-        run: "RESULT=$(pwsh .github/skills/instruction-drift/scripts/Check-Staleness.ps1 \\\n  -SyncManifest .github/instructions/gh-aw-workflows.sync.yaml 2>/dev/null \\\n  || echo '{\"changes_detected\":false,\"error\":\"script failed\"}')\nCHANGES=$(echo \"$RESULT\" | python3 -c \"import json,sys; d=json.load(sys.stdin); print(str(d.get('changes_detected',False)).lower())\" 2>/dev/null || echo \"false\")\necho \"changes_detected=$CHANGES\" >> \"$GITHUB_OUTPUT\"\necho \"report<<REPORT_EOF\" >> \"$GITHUB_OUTPUT\"\necho \"$RESULT\" | head -c 60000 >> \"$GITHUB_OUTPUT\"\necho \"\" >> \"$GITHUB_OUTPUT\"\necho \"REPORT_EOF\" >> \"$GITHUB_OUTPUT\"\n"
+        run: "echo \"::group::Check-Staleness.ps1\"\npwsh .github/skills/instruction-drift/scripts/Check-Staleness.ps1 \\\n  -OutputFile staleness-report.json\necho \"::endgroup::\"\n"
       - env:
           GH_TOKEN: ${{ github.token }}
-        id: upstream
-        if: steps.staleness.outputs.changes_detected == 'true'
-        name: Run upstream scan (if stale)
-        run: "RESULT=$(pwsh .github/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1 \\\n  -MaxCommits 50 2>/dev/null \\\n  || echo '{\"changes_detected\":false,\"error\":\"script failed\"}')\necho \"report<<SCAN_EOF\" >> \"$GITHUB_OUTPUT\"\necho \"$RESULT\" | head -c 60000 >> \"$GITHUB_OUTPUT\"\necho \"\" >> \"$GITHUB_OUTPUT\"\necho \"SCAN_EOF\" >> \"$GITHUB_OUTPUT\"\n"
+        name: Scan upstream knowledge (only when drift detected)
+        run: "CHANGES=$(jq -r '.changes_detected // false' staleness-report.json 2>/dev/null || echo \"false\")\nif [ \"$CHANGES\" = \"true\" ]; then\n  echo \"::group::Scan-GhAwUpdates.ps1\"\n  pwsh .github/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1 \\\n    -MaxCommits 50 \\\n    -OutputFile scan-report.json || true\n  echo \"::endgroup::\"\nelse\n  echo '{\"changes_detected\":false,\"new_features\":[],\"feature_summary\":{}}' > scan-report.json\n  echo \"Skipping upstream scan — no drift detected.\"\nfi\n"
 
       - name: Configure Git credentials
         env:
