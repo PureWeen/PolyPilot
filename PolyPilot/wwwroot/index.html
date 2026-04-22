@@ -830,9 +830,13 @@
                 
                 // Skip restore if this input was recently cleared by a send (prevents re-filling with stale draft)
                 if (window.__recentlySentIds && window.__recentlySentIds[id]) {
-                    // Only skip for a limited window — clear the flag after first skip
+                    if (desired && !current) {
+                        // Only consume the flag when we actually skip — protects against next re-render too
+                        delete window.__recentlySentIds[id];
+                        continue; // Don't restore stale text into a cleared input
+                    }
+                    // If desired is empty or current has content, flag isn't needed — clean up
                     delete window.__recentlySentIds[id];
-                    if (desired && !current) continue; // Don't restore stale text into a cleared input
                 }
                 
                 // Skip restore if user has typed diverged content since last restore
