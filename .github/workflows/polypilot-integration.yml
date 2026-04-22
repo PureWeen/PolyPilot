@@ -265,7 +265,9 @@ jobs:
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
           echo "Running scheduled tasks integration tests against port $PORT"
-          bash .github/integration-tests/scheduled-tasks.sh "$PORT"
+          # Fetch test script from main (PR branch may not have it)
+          curl -sf "https://raw.githubusercontent.com/${{ github.repository }}/main/.github/integration-tests/scheduled-tasks.sh" -o /tmp/scheduled-tasks-test.sh && chmod +x /tmp/scheduled-tasks-test.sh
+          bash /tmp/scheduled-tasks-test.sh "$PORT"
 
       - name: Upload screenshot
         if: always()
@@ -548,7 +550,9 @@ jobs:
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
           echo "Running scheduled tasks integration tests against port $PORT"
-          bash .github/integration-tests/scheduled-tasks.sh "$PORT"
+          # Fetch test script from main (PR branch may not have it)
+          curl -sf "https://raw.githubusercontent.com/${{ github.repository }}/main/.github/integration-tests/scheduled-tasks.sh" -o /tmp/scheduled-tasks-test.sh && chmod +x /tmp/scheduled-tasks-test.sh
+          bash /tmp/scheduled-tasks-test.sh "$PORT"
 
       - name: Upload artifacts
         if: always()
@@ -683,7 +687,9 @@ jobs:
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
           echo "Running scheduled tasks integration tests against port $PORT"
-          bash .github/integration-tests/scheduled-tasks.sh "$PORT"
+          # Fetch test script from main (PR branch may not have it)
+          curl -sf "https://raw.githubusercontent.com/${{ github.repository }}/main/.github/integration-tests/scheduled-tasks.sh" -o /tmp/scheduled-tasks-test.sh && chmod +x /tmp/scheduled-tasks-test.sh
+          bash /tmp/scheduled-tasks-test.sh "$PORT"
 
       - name: Upload artifacts
         if: always()
