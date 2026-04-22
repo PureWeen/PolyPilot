@@ -563,8 +563,14 @@ jobs:
             git checkout origin/main -- PolyPilot.IntegrationTests/
           fi
 
+          # Run UI lifecycle tests first (fast)
           POLYPILOT_AGENT_PORT=$PORT dotnet test PolyPilot.IntegrationTests \
             --filter "Category=ScheduledTasks" \
+            --nologo --verbosity normal 2>&1
+
+          # Run execution tests (slow — waits for tasks to fire)
+          POLYPILOT_AGENT_PORT=$PORT dotnet test PolyPilot.IntegrationTests \
+            --filter "Category=ScheduledTaskExecution" \
             --nologo --verbosity normal 2>&1 || true
 
       - name: Upload artifacts

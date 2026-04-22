@@ -189,7 +189,171 @@ public class ScheduledTaskTests : IntegrationTestBase
         Assert.False(string.IsNullOrWhiteSpace(pageText), "Page should have visible content");
     }
 
+    // ─── Execution Tests ───
+
+    [Fact]
+    [Trait("Category", "ScheduledTaskExecution")]
+    public async Task RunNow_CreatesRunHistory()
+    {
+        await WaitForCdpReadyAsync();
+        await NavigateToAsync("Scheduled Tasks", "#scheduled-tasks-page");
+
+        var taskName = $"RunNow-Test-{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+        await CreateIntervalTaskAsync(taskName, "echo run now test", 60);
+
+        var card = $".task-card[data-task-name=\"{taskName}\"]";
+
+        // Click Run Now
+        var runResult = await ClickAsync($"{card} [data-task-action=\"run-now\"]");
+        Output.WriteLine($"Run Now click: {runResult}");
+
+        // Wait for the run to complete — poll for run history to appear
+        // The task creates a new session, sends the prompt, and waits up to 11 minutes.
+        // For a simple "echo" prompt, it should complete in ~30 seconds.
+        var hasHistory = false;
+        for (var i = 0; i < 90; i++) // 90 seconds max
+        {
+            // Check if a run-status indicator appeared
+            var statusExists = await ExistsAsync($"{card} .run-status");
+            var lastRunText = await GetTextAsync($"{card} .last-run");
+            Output.WriteLine($"Poll {i}: statusExists={statusExists}, lastRun='{lastRunText}'");
+
+            if (statusExists && !string.IsNullOrWhiteSpace(lastRunText))
+            {
+                hasHistory = true;
+                break;
+            }
+            await Task.Delay(2000);
+        }
+
+        await ScreenshotAsync("after-run-now");
+
+        Assert.True(hasHistory, "Run Now should produce a run history entry with status indicator");
+
+        // Expand history and verify run entry
+        await ClickAsync($"{card} .history-toggle");
+        await Task.Delay(1000);
+
+        var historyVisible = await ExistsAsync($"{card} .run-history");
+        if (historyVisible)
+        {
+            var runEntryExists = await ExistsAsync($"{card} .run-entry");
+            Assert.True(runEntryExists, "Run history should contain at least one run entry");
+
+            var sessionName = await GetTextAsync($"{card} .run-entry .run-session");
+            Output.WriteLine($"Run session name: '{sessionName}'");
+            Assert.False(string.IsNullOrWhiteSpace(sessionName), "Run entry should show session name");
+        }
+
+        await DeleteTaskAsync(taskName);
+    }
+
+    [Fact]
+    [Trait("Category", "ScheduledTaskExecution")]
+    public async Task ScheduledExecution_TaskFiresAutomatically()
+    {
+        await WaitForCdpReadyAsync();
+        await NavigateToAsync("Scheduled Tasks", "#scheduled-tasks-page");
+
+        // Create a 1-minute interval task
+        var taskName = $"AutoRun-Test-{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+        await CreateIntervalTaskAsync(taskName, "echo scheduled execution test", 1);
+
+        var card = $".task-card[data-task-name=\"{taskName}\"]";
+        Output.WriteLine("Waiting up to 120s for the scheduled task to fire automatically...");
+
+        // Wait for the task to fire — the scheduler evaluates every 30 seconds,
+        // so a 1-minute interval task should fire within ~90 seconds.
+        var hasFired = false;
+        for (var i = 0; i < 60; i++) // 120 seconds max (2s intervals)
+        {
+            var lastRunText = await GetTextAsync($"{card} .last-run");
+            var statusExists = await ExistsAsync($"{card} .run-status");
+
+            if (i % 10 == 0)
+                Output.WriteLine($"Poll {i * 2}s: lastRun='{lastRunText}', status={statusExists}");
+
+            if (statusExists && !string.IsNullOrWhiteSpace(lastRunText) && lastRunText.Contains("Last run"))
+            {
+                hasFired = true;
+                Output.WriteLine($"Task fired! lastRun='{lastRunText}'");
+                break;
+            }
+            await Task.Delay(2000);
+        }
+
+        await ScreenshotAsync("after-scheduled-execution");
+
+        Assert.True(hasFired, "1-minute interval task should fire automatically within 120 seconds");
+
+        // Verify the next-run timer is shown
+        var nextRun = await GetTextAsync($"{card} .next-run");
+        Output.WriteLine($"Next run: '{nextRun}'");
+
+        await DeleteTaskAsync(taskName);
+    }
+
+    [Fact]
+    [Trait("Category", "ScheduledTaskExecution")]
+    public async Task RunNow_TwiceCreatesUniqueSessionNames()
+    {
+        await WaitForCdpReadyAsync();
+        await NavigateToAsync("Scheduled Tasks", "#scheduled-tasks-page");
+
+        var taskName = $"Multi-Run-{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+        await CreateIntervalTaskAsync(taskName, "echo multi run test", 60);
+
+        var card = $".task-card[data-task-name=\"{taskName}\"]";
+
+        // Run Now — first execution
+        await ClickAsync($"{card} [data-task-action=\"run-now\"]");
+        Output.WriteLine("First Run Now triggered, waiting for completion...");
+
+        // Wait for first run
+        for (var i = 0; i < 45; i++)
+        {
+            if (await ExistsAsync($"{card} .run-status"))
+                break;
+            await Task.Delay(2000);
+        }
+        Assert.True(await ExistsAsync($"{card} .run-status"), "First run should complete");
+
+        // Run Now — second execution
+        await ClickAsync($"{card} [data-task-action=\"run-now\"]");
+        Output.WriteLine("Second Run Now triggered, waiting for completion...");
+
+        // Wait for second run to appear in history
+        await Task.Delay(30_000); // Give it 30 seconds
+
+        // Expand history
+        await ClickAsync($"{card} .history-toggle");
+        await Task.Delay(1000);
+
+        // Count run entries
+        var runCount = await CdpEvalAsync(
+            $"document.querySelectorAll(\"{EscapeForJs(card)} .run-entry\").length.toString()");
+        Output.WriteLine($"Run entries: {runCount}");
+
+        var count = int.TryParse(runCount, out var c) ? c : 0;
+        Assert.True(count >= 2, $"Should have at least 2 run entries after running twice, got {count}");
+
+        // Verify session names are different
+        var sessions = await CdpEvalAsync(
+            $"[...document.querySelectorAll(\"{EscapeForJs(card)} .run-entry .run-session\")].map(s => s.textContent.trim()).join('|')");
+        Output.WriteLine($"Session names: {sessions}");
+
+        var names = sessions.Split('|', StringSplitOptions.RemoveEmptyEntries);
+        if (names.Length >= 2)
+            Assert.NotEqual(names[0], names[1]);
+
+        await DeleteTaskAsync(taskName);
+    }
+
     // ─── Helpers ───
+
+    private static string EscapeForJs(string value) =>
+        value.Replace("\\", "\\\\").Replace("\"", "\\\"");
+
 
     private async Task CreateIntervalTaskAsync(string name, string prompt, int intervalMinutes)
     {
