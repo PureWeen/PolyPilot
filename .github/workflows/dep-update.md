@@ -55,17 +55,17 @@ Update ALL of these to the **same** version:
 
 ### Group 2: MauiDevFlow Packages + CLI Tool (Azure DevOps dotnet10 feed)
 
-Query the latest version — the ADO feed does NOT sort versions semantically. Versions have mixed formats (`preview.N.BUILD.SUB` and `preview.BUILD.SUB`). Use `dotnet nuget` to find the latest:
+**Known broken versions:** `preview.5.*` crashes on Android. Only update to `preview.6` or later.
+
+Query versions from the feed:
 ```bash
-DEVFLOW_LATEST=$(dotnet package search Microsoft.Maui.DevFlow.Agent --source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json --prerelease --take 1 --format json 2>/dev/null | jq -r '.searchResult[0].packages[0].latestVersion // empty')
-if [ -z "$DEVFLOW_LATEST" ]; then
-  # Fallback: query flat2 API and pick the version with the highest preview number
-  DEVFLOW_LATEST=$(curl -s 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/flat2/microsoft.maui.devflow.agent/index.json' | jq -r '.versions[]' | grep -E 'preview\.[0-9]+\.[0-9]{5}\.' | sort -t. -k4,4n -k5,5n -k6,6n | tail -1)
-fi
-echo "Latest DevFlow: $DEVFLOW_LATEST"
+DEVFLOW_LATEST=$(curl -s 'https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/flat2/microsoft.maui.devflow.agent/index.json' | jq -r '.versions[]' | grep -E 'preview\.[0-9]+\.[0-9]{5}\.' | grep -v 'preview\.5\.' | sort -t. -k4,4n -k5,5n -k6,6n | tail -1)
+echo "Latest DevFlow (excluding preview.5): $DEVFLOW_LATEST"
 ```
 
-Compare it to the current version in the csproj files. These are prerelease versions like `0.1.0-preview.5.26217.12`. If the version from the feed differs from the version in the csproj files, update ALL of these to the new version:
+The current version in the csproj files is `preview.4.*`. Only update if `$DEVFLOW_LATEST` starts with `preview.6` or higher — do NOT update to any `preview.5.*` version. If no `preview.6+` exists yet, skip this group entirely.
+
+When a valid update is found, update ALL of these to the new version:
 - `Microsoft.Maui.DevFlow.Agent` — in `PolyPilot/PolyPilot.csproj` (inside `<When Condition="'$(Configuration)' == 'Debug'">`)
 - `Microsoft.Maui.DevFlow.Blazor` — in `PolyPilot/PolyPilot.csproj` (inside `<When Condition="'$(Configuration)' == 'Debug'">`)
 - `Microsoft.Maui.DevFlow.Agent.Gtk` — in `PolyPilot.Gtk/PolyPilot.Gtk.csproj` (inside `<When Condition="'$(Configuration)' == 'Debug'">`)
