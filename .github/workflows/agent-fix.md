@@ -36,6 +36,7 @@ safe-outputs:
   create-pull-request:
     auto-merge: false
     draft: true
+    preserve-branch-name: true
     protected-files: fallback-to-issue
   add-comment:
     max: 3
@@ -166,14 +167,16 @@ Repeat Steps 6-7 up to **2 times** (max 2 review rounds).
 
 ## Step 8: Dispatch Integration Tests
 
-After all fixes are committed, dispatch the integration test workflows:
+After all fixes are committed, dispatch the integration test workflows.
+
+**Important:** Use the exact branch name from the PR. If you named your branch `fix/issue-N`, the safe-outputs job will use that name without modification (because `preserve-branch-name: true` is set). If you're unsure, use `get_pull_request` to read the PR and get the `headRefName` field.
 
 ```
 dispatch_workflow({
   "workflow": "verify-build",
   "inputs": {
     "pr_number": "<PR number>",
-    "ref": "fix/issue-${{ github.event.issue.number || inputs.issue_number }}"
+    "ref": "<exact branch name from the PR>"
   }
 })
 
@@ -181,7 +184,7 @@ dispatch_workflow({
   "workflow": "polypilot-integration",
   "inputs": {
     "pr_number": "<PR number>",
-    "ref": "fix/issue-${{ github.event.issue.number || inputs.issue_number }}",
+    "ref": "<exact branch name from the PR>",
     "scenario": "smoke"
   }
 })
