@@ -94,8 +94,6 @@ public class DemoService : IDemoService
         }
 
         session.IsProcessing = false;
-        session.MessageCount = session.History.Count;
-
         Post(syncContext, () => OnTurnEnd?.Invoke(sessionName));
         Post(syncContext, () => OnStateChanged?.Invoke());
     }

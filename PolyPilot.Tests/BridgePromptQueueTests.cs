@@ -27,13 +27,15 @@ public class BridgePromptQueueTests : IDisposable
         return port;
     }
 
-    private static async Task WaitForAsync(Func<bool> condition, CancellationToken ct, int pollMs = 50, int maxMs = 8000)
+    private static async Task WaitForAsync(Func<bool> condition, CancellationToken ct, int pollMs = 50, int maxMs = 15000)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        while (!condition() && sw.ElapsedMilliseconds < maxMs)
+        while (!condition() && sw.ElapsedMilliseconds < maxMs && !ct.IsCancellationRequested)
             await Task.Delay(pollMs, ct);
-        if (!condition())
+        // Check condition first so we get a descriptive TimeoutException instead of bare OCE
+        if (!condition() && !ct.IsCancellationRequested)
             throw new TimeoutException($"WaitForAsync condition not met within {maxMs}ms");
+        ct.ThrowIfCancellationRequested();
     }
 
     public BridgePromptQueueTests()

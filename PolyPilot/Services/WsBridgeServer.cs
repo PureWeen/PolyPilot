@@ -322,17 +322,39 @@ public class WsBridgeServer : IDisposable
     /// Called by CopilotService after IsRestoring transitions to false.
     /// Serialized via _drainLock to prevent concurrent drains from reordering prompts.
     /// </summary>
-    public async Task DrainPendingPromptsAsync()
+    public async Task DrainPendingPromptsAsync(CancellationToken ct = default)
     {
-        await _drainLock.WaitAsync();
+        await _drainLock.WaitAsync(ct);
         try
         {
             while (_pendingBridgePrompts.TryDequeue(out var pending))
             {
+                if (ct.IsCancellationRequested)
+                {
+                    // Re-enqueue before throwing so the prompt survives cancellation
+                    _pendingBridgePrompts.Enqueue(pending);
+                    ct.ThrowIfCancellationRequested();
+                }
+
                 BridgeLog($"[BRIDGE] Replaying queued prompt for '{pending.SessionName}'");
+                var dispatched = false;
                 try
                 {
-                    await DispatchBridgePromptAsync(pending.SessionName, pending.Message, pending.AgentMode);
+                    await DispatchBridgePromptAsync(pending.SessionName, pending.Message, pending.AgentMode, ct: ct);
+                    dispatched = true;
+                    if (!await WaitForBridgeSendToStartAsync(pending.SessionName, ct))
+                    {
+                        BridgeLog($"[BRIDGE] Send confirmation timed out for '{pending.SessionName}' — continuing drain");
+                    }
+                }
+                catch (OperationCanceledException)
+                {
+                    // Only re-enqueue if dispatch didn't complete — otherwise the prompt
+                    // was already accepted by SendPromptAsync and re-enqueueing would
+                    // cause duplicate delivery on the next drain.
+                    if (!dispatched)
+                        _pendingBridgePrompts.Enqueue(pending);
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -344,6 +366,26 @@ public class WsBridgeServer : IDisposable
         {
             _drainLock.Release();
         }
+    }
+
+    /// <summary>
+    /// Best-effort poll for IsProcessing confirmation after dispatch.
+    /// 200ms ceiling (20×10ms) — may time out on slow devices or under memory pressure.
+    /// Timeout is non-fatal: the drain logs a warning and continues. The SessionBusyException
+    /// guard in DispatchBridgePromptAsync is the real safety net for ordering.
+    /// </summary>
+    private async Task<bool> WaitForBridgeSendToStartAsync(string sessionName, CancellationToken ct = default)
+    {
+        for (var attempt = 0; attempt < 20; attempt++)
+        {
+            if (_copilot?.GetSession(sessionName)?.IsProcessing == true)
+                return true;
+
+            await Task.Delay(10, ct).ConfigureAwait(false);
+        }
+
+        BridgeLog($"[BRIDGE] WaitForBridgeSendToStartAsync timed out for '{sessionName}' — IsProcessing not confirmed within 200ms");
+        return false;
     }
 
     /// <summary>
@@ -367,6 +409,10 @@ public class WsBridgeServer : IDisposable
                 }
                 else
                 {
+                    var info = _copilot.GetSession(sessionName);
+                    if (info?.IsProcessing == true)
+                        throw new SessionBusyException(sessionName);
+
                     await _copilot.SendPromptAsync(sessionName, message, imagePaths, cancellationToken: ct, agentMode: agentMode);
                 }
             });

@@ -129,6 +129,74 @@ public class ScheduledTaskTests
         Assert.Equal(new List<int> { 1, 3, 5 }, deserialized[1].DaysOfWeek);
     }
 
+    [Theory]
+    [InlineData("30m Check CI health", ScheduleType.Interval, 30)]
+    [InlineData("2h Summarize new issues", ScheduleType.Interval, 120)]
+    [InlineData("daily Draft my standup", ScheduleType.Daily, 24 * 60)]
+    [InlineData("weekly Review the roadmap", ScheduleType.Weekly, 7 * 24 * 60)]
+    public void TryCreateFromSlashCommand_ValidInput_CreatesTask(string input, ScheduleType expectedSchedule, int expectedMinutes)
+    {
+        var created = ScheduledTask.TryCreateFromSlashCommand(
+            input,
+            "Current Session",
+            "/tmp/repo",
+            DateTime.UtcNow,
+            out var task,
+            out var error);
+
+        Assert.True(created, error);
+        Assert.NotNull(task);
+        Assert.Equal("Current Session", task!.SessionName);
+        Assert.Equal("/tmp/repo", task.WorkingDirectory);
+        Assert.Equal(expectedSchedule, task.Schedule);
+        Assert.Equal(expectedMinutes, task.IntervalMinutes);
+        Assert.True(task.IsEnabled);
+        Assert.NotEmpty(task.Name);
+        Assert.NotEmpty(task.Prompt);
+    }
+
+    [Fact]
+    public void TryCreateFromSlashCommand_EveryPrefix_IsSupported()
+    {
+        var created = ScheduledTask.TryCreateFromSlashCommand(
+            "every 2 hours Send me a recap",
+            "Current Session",
+            null,
+            DateTime.UtcNow,
+            out var task,
+            out var error);
+
+        Assert.True(created, error);
+        Assert.NotNull(task);
+        Assert.Equal(ScheduleType.Interval, task!.Schedule);
+        Assert.Equal(120, task.IntervalMinutes);
+        Assert.Equal("Send me a recap", task.Prompt);
+    }
+
+    [Fact]
+    public void TryCreateFromSlashCommand_InvalidInput_ReturnsUsage()
+    {
+        var created = ScheduledTask.TryCreateFromSlashCommand(
+            "someday maybe remind me",
+            "Current Session",
+            null,
+            DateTime.UtcNow,
+            out var task,
+            out var error);
+
+        Assert.False(created);
+        Assert.Null(task);
+        Assert.Contains("Usage: `/schedule", error);
+    }
+
+    [Fact]
+    public void GetSlashCommandUsage_IncludesDeleteSubcommand()
+    {
+        var usage = ScheduledTask.GetSlashCommandUsage();
+        Assert.Contains("/schedule delete", usage);
+        Assert.Contains("/schedule list", usage);
+    }
+
     // ── Schedule description ────────────────────────────────────
 
     [Fact]
@@ -143,6 +211,27 @@ public class ScheduledTaskTests
     {
         var task = new ScheduledTask { Schedule = ScheduleType.Interval, IntervalMinutes = 1 };
         Assert.Equal("Every 1 minute", task.ScheduleDescription);
+    }
+
+    [Fact]
+    public void ScheduleDescription_Interval_Hours()
+    {
+        var task = new ScheduledTask { Schedule = ScheduleType.Interval, IntervalMinutes = 120 };
+        Assert.Equal("Every 2 hours", task.ScheduleDescription);
+    }
+
+    [Fact]
+    public void ScheduleDescription_Interval_Days()
+    {
+        var task = new ScheduledTask { Schedule = ScheduleType.Interval, IntervalMinutes = 2 * 24 * 60 };
+        Assert.Equal("Every 2 days", task.ScheduleDescription);
+    }
+
+    [Fact]
+    public void ScheduleDescription_Interval_Weeks()
+    {
+        var task = new ScheduledTask { Schedule = ScheduleType.Interval, IntervalMinutes = 7 * 24 * 60 };
+        Assert.Equal("Every week", task.ScheduleDescription);
     }
 
     [Fact]
@@ -726,6 +815,60 @@ public class ScheduledTaskTests
             try { File.Delete(tempFile); } catch { }
             ScheduledTaskService.SetTasksFilePathForTesting(
                 Path.Combine(TestSetup.TestBaseDir, "scheduled-tasks.json"));
+        }
+    }
+
+    [Fact]
+    public async Task Service_ExecuteTask_ExistingSession_UsesThatSessionWithoutCreatingAnotherSession()
+    {
+        var tempFile = Path.Combine(Path.GetTempPath(), $"polypilot-sched-test-{Guid.NewGuid():N}.json");
+        var previousPath = ScheduledTaskService.GetTasksFilePathForTesting();
+        ScheduledTaskService.SetTasksFilePathForTesting(tempFile);
+
+        ScheduledTaskService? svc = null;
+        try
+        {
+            var copilot = CreateCopilotService();
+            svc = new ScheduledTaskService(copilot);
+            await copilot.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+            await copilot.CreateSessionAsync("existing-session");
+
+            var task = new ScheduledTask
+            {
+                Name = "Existing Session Run",
+                Prompt = "Reply in the existing session",
+                SessionName = "existing-session",
+                Schedule = ScheduleType.Interval,
+                IntervalMinutes = 1,
+                IsEnabled = true
+            };
+            svc.AddTask(task);
+
+            await svc.ExecuteTaskAsync(task, DateTime.UtcNow);
+
+            var updated = svc.GetTask(task.Id);
+            Assert.NotNull(updated);
+            var run = Assert.Single(updated!.RecentRuns);
+            Assert.True(run.Success);
+            Assert.Equal("existing-session", run.SessionName);
+
+            var sessions = copilot.GetAllSessions().ToList();
+            Assert.Single(sessions);
+            Assert.Equal("existing-session", sessions[0].Name);
+
+            var session = sessions[0];
+            lock (session.HistoryLock)
+            {
+                Assert.Contains(session.History, m => m.Role == "user" &&
+                    m.Content.Contains("Reply in the existing session", StringComparison.Ordinal));
+                Assert.Contains(session.History, m => m.Role == "assistant");
+            }
+        }
+        finally
+        {
+            svc?.Dispose();
+            try { File.Delete(tempFile); } catch { }
+            ScheduledTaskService.SetTasksFilePathForTesting(previousPath ?? tempFile);
         }
     }
 
