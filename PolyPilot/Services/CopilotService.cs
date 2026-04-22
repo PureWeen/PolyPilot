@@ -722,6 +722,15 @@ public partial class CopilotService : IAsyncDisposable
         /// </summary>
         public volatile bool AllowTurnStartRearm;
         /// <summary>
+        /// UTC ticks when IsProcessing was last cleared (via ClearProcessingState).
+        /// Used by ShouldRearmOnTurnStart as a freshness-based fallback: if enough time
+        /// has elapsed since processing was cleared (&gt;5s), a TurnStartEvent is treated
+        /// as a genuinely new turn (background task completion) rather than stale replay.
+        /// This prevents the "agent says I'll get back to you but never does" bug caused
+        /// by AllowTurnStartRearm being reset to false after reconnects.
+        /// </summary>
+        public long ProcessingClearedAtTicks;
+        /// <summary>
         /// Stable identity of the most recently reported background task set (agent IDs + shell IDs).
         /// Preserved across SendPromptAsync so the same orphaned background shells keep aging instead
         /// of resetting the zombie timeout every time the user sends another prompt.
@@ -813,6 +822,10 @@ public partial class CopilotService : IAsyncDisposable
         state.IsReconnectedSend = false;
         CancelTurnEndFallback(state);
         CancelToolHealthCheck(state);
+        // Record when processing was cleared — used by ShouldRearmOnTurnStart freshness check
+        // to distinguish genuinely new turns (background task completion after seconds/hours)
+        // from stale replays (same turn, < 1 second gap).
+        Interlocked.Exchange(ref state.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks);
         // NOTE: AllowTurnStartRearm, _consecutiveWatchdogTimeouts, and ConsecutiveStuckCount
         // are NOT reset here. All three are cross-turn health accumulators:
         // - AllowTurnStartRearm = true only belongs on the normal-completion path (CompleteResponse)
@@ -3822,6 +3835,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                     }
                                                     DisposePrematureIdleSignal(capturedOtherState);
                                                     Debug($"[RECONNECT] Re-resumed sibling session '{capturedKey}' after client recreation");
+                                                    // If the sibling was NOT processing, enable re-arm for background
+                                                    // task continuations (same rationale as RESUME-REARM above).
+                                                    if (!siblingWasProcessing)
+                                                    {
+                                                        siblingState.AllowTurnStartRearm = true;
+                                                        Debug($"[RECONNECT-REARM] Sibling '{capturedKey}' not processing — enabling AllowTurnStartRearm");
+                                                    }
                                                     // Start watchdog on UI thread — IsProcessing and companion fields
                                                     // were already set before handler registration (above), so this
                                                     // just needs to start the timer and notify the UI.

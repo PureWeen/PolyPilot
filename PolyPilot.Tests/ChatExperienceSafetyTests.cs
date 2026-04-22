@@ -368,17 +368,18 @@ public class ChatExperienceSafetyTests
     /// by stale SDK TurnStart replays.
     /// </summary>
     [Theory]
-    [InlineData(false, true, false, false, true,  true)]
-    [InlineData(false, true, false, false, false, false)]
-    [InlineData(false, true, false, true,  true,  false)]
-    [InlineData(false, true, true,  false, true,  false)]
-    [InlineData(true,  true, false, false, true,  false)]
+    [InlineData(false, true, false, false, true,  0L, true)]   // AllowTurnStartRearm=true → rearm
+    [InlineData(false, true, false, false, false, 0L, false)]  // AllowTurnStartRearm=false, no timestamp → skip
+    [InlineData(false, true, false, true,  true,  0L, false)]  // WasUserAborted → skip
+    [InlineData(false, true, true,  false, true,  0L, false)]  // IsOrphaned → skip
+    [InlineData(true,  true, false, false, true,  0L, false)]  // IsProcessing → skip
     public void TurnStartRearmGuard_OnlyAllowsSpeculativeCompletion(
         bool isProcessing,
         bool isCurrentState,
         bool isOrphaned,
         bool wasUserAborted,
         bool allowTurnStartRearm,
+        long processingClearedAtTicks,
         bool expected)
     {
         var result = CopilotService.ShouldRearmOnTurnStart(
@@ -386,9 +387,83 @@ public class ChatExperienceSafetyTests
             isCurrentState,
             isOrphaned,
             wasUserAborted,
-            allowTurnStartRearm);
+            allowTurnStartRearm,
+            processingClearedAtTicks);
 
         Assert.Equal(expected, result);
+    }
+
+    /// <summary>
+    /// Freshness-based re-arm: if AllowTurnStartRearm is false but processing was cleared
+    /// more than 5 seconds ago, the TurnStart is from a genuine new turn (background task
+    /// completion) and should be re-armed. This prevents the "agent says I'll get back to
+    /// you but never does" bug after reconnects that reset AllowTurnStartRearm to false.
+    /// </summary>
+    [Fact]
+    public void TurnStartRearmGuard_FreshnessBasedFallback_ReturnsTrue()
+    {
+        // Processing was cleared 10 seconds ago — well past the 5s threshold
+        var clearedAt = DateTime.UtcNow.AddSeconds(-10).Ticks;
+
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing: false,
+            isCurrentState: true,
+            isOrphaned: false,
+            wasUserAborted: false,
+            allowTurnStartRearm: false,
+            processingClearedAtTicks: clearedAt);
+
+        Assert.True(result, "TurnStart arriving >5s after processing cleared should be treated as a genuine new turn");
+    }
+
+    /// <summary>
+    /// Freshness-based re-arm: if processing was cleared very recently (&lt;5s), the TurnStart
+    /// is likely stale replay from the just-completed turn and should NOT be re-armed.
+    /// </summary>
+    [Fact]
+    public void TurnStartRearmGuard_RecentClearing_ReturnsFalse()
+    {
+        // Processing was cleared 1 second ago — within the 5s threshold
+        var clearedAt = DateTime.UtcNow.AddSeconds(-1).Ticks;
+
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing: false,
+            isCurrentState: true,
+            isOrphaned: false,
+            wasUserAborted: false,
+            allowTurnStartRearm: false,
+            processingClearedAtTicks: clearedAt);
+
+        Assert.False(result, "TurnStart arriving <5s after processing cleared is likely stale replay");
+    }
+
+    /// <summary>
+    /// Freshness-based re-arm must NOT override WasUserAborted — if the user
+    /// explicitly clicked Stop, background task continuations must be suppressed.
+    /// </summary>
+    [Fact]
+    public void TurnStartRearmGuard_FreshButAborted_ReturnsFalse()
+    {
+        var clearedAt = DateTime.UtcNow.AddSeconds(-30).Ticks;
+
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing: false,
+            isCurrentState: true,
+            isOrphaned: false,
+            wasUserAborted: true,
+            allowTurnStartRearm: false,
+            processingClearedAtTicks: clearedAt);
+
+        Assert.False(result, "User abort must suppress all re-arms regardless of freshness");
+    }
+
+    /// <summary>
+    /// The freshness threshold constant should be accessible for test verification.
+    /// </summary>
+    [Fact]
+    public void TurnStartFreshnessThreshold_IsFiveSeconds()
+    {
+        Assert.Equal(5, CopilotService.TurnStartFreshnessThresholdSeconds);
     }
 
     /// <summary>
@@ -1533,6 +1608,43 @@ public class ChatExperienceSafetyTests
         Assert.False(codeOnly.Contains("AllowTurnStartRearm = true", StringComparison.Ordinal),
             "ClearProcessingState must NOT set AllowTurnStartRearm=true — only CompleteResponse should, " +
             "to avoid a race where error/abort paths get it briefly set before they can override to false.");
+    }
+
+    /// <summary>
+    /// ClearProcessingState must set ProcessingClearedAtTicks so the freshness-based
+    /// TurnStart re-arm can distinguish genuine new turns from stale replays.
+    /// </summary>
+    [Fact]
+    public void ClearProcessingState_SetsProcessingClearedAtTicks()
+    {
+        var svcPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(svcPath);
+
+        var methodIdx = source.IndexOf("private void ClearProcessingState(", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "ClearProcessingState must exist");
+        var methodEnd = source.IndexOf("\n    }", methodIdx + 1, StringComparison.Ordinal);
+        var methodBody = source.Substring(methodIdx, methodEnd - methodIdx);
+
+        Assert.True(methodBody.Contains("ProcessingClearedAtTicks", StringComparison.Ordinal),
+            "ClearProcessingState must set ProcessingClearedAtTicks — required for freshness-based TurnStart re-arm");
+    }
+
+    /// <summary>
+    /// EnsureSessionConnectedAsync must set AllowTurnStartRearm=true after resume when not
+    /// processing, so background task continuations (agent/shell completions) can trigger
+    /// re-arm after reconnects. Without this, 91% of background continuations are silently
+    /// dropped (695 EVT-REARM-SKIP vs 68 EVT-REARM in production diagnostics).
+    /// </summary>
+    [Fact]
+    public void EnsureSessionConnected_SetsAllowTurnStartRearm_AfterResume()
+    {
+        var persistencePath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs");
+        var source = File.ReadAllText(persistencePath);
+
+        Assert.True(source.Contains("AllowTurnStartRearm = true", StringComparison.Ordinal),
+            "EnsureSessionConnectedAsync must set AllowTurnStartRearm=true after resume when not processing");
+        Assert.True(source.Contains("RESUME-REARM", StringComparison.Ordinal),
+            "Resume re-arm must have diagnostic log tag [RESUME-REARM]");
     }
 
     /// <summary>
