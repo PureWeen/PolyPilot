@@ -75,14 +75,22 @@ jobs:
       - name: Find built binary
         id: find-binary
         run: |
-          BINARY=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot.Gtk" -type f -executable | head -1)
+          echo "=== Build output ==="
+          ls -la PolyPilot.Gtk/bin/Debug/net10.0/ 2>/dev/null | head -20 || true
+          BINARY=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot.Gtk" -type f -executable 2>/dev/null | head -1)
           if [ -z "$BINARY" ]; then
-            echo "Binary not found, searching more broadly..."
-            find PolyPilot.Gtk/bin/Debug -type f -executable | head -20
-            BINARY=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot*" -type f -executable | head -1)
+            # On Linux, the native executable may not exist — use dotnet exec with the DLL
+            DLL=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot.Gtk.dll" -type f 2>/dev/null | head -1)
+            if [ -n "$DLL" ]; then
+              echo "No native executable found, using dotnet exec: $DLL"
+              BINARY="dotnet $DLL"
+            fi
           fi
           if [ -z "$BINARY" ]; then
             echo "❌ No executable binary found in build output"
+            find PolyPilot.Gtk/bin/Debug -type f 2>/dev/null | head -20
+            exit 1
+          fi
             exit 1
           fi
           echo "binary=$BINARY" >> $GITHUB_OUTPUT
