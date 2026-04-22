@@ -13,12 +13,13 @@ on:
         type: string
         default: ''
       scenario:
-        description: 'Test scenario to run (smoke, full)'
+        description: 'Test scenario to run (smoke, full, scheduled-tasks)'
         required: false
         type: choice
         options:
           - smoke
           - full
+          - scheduled-tasks
         default: smoke
   push:
     branches:
@@ -258,6 +259,13 @@ jobs:
           ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || true
           echo "=== App stderr (if captured) ==="
           cat /tmp/polypilot-stderr.log 2>/dev/null || echo "No stderr log"
+
+      - name: "Feature Test: Scheduled Tasks"
+        if: steps.devflow.outputs.agent_port != '' && (inputs.scenario == 'scheduled-tasks' || inputs.scenario == 'full')
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          echo "Running scheduled tasks integration tests against port $PORT"
+          bash .github/integration-tests/scheduled-tasks.sh "$PORT"
 
       - name: Upload screenshot
         if: always()
@@ -660,6 +668,14 @@ jobs:
           Invoke-WebRequest "http://localhost:$port/api/screenshot" -OutFile "$env:RUNNER_TEMP\polypilot-ci-screenshot.png"
           $size = (Get-Item "$env:RUNNER_TEMP\polypilot-ci-screenshot.png").Length
           Write-Host "✅ Screenshot saved ($size bytes)"
+
+      - name: "Feature Test: Scheduled Tasks"
+        if: steps.devflow.outputs.agent_port != '' && (inputs.scenario == 'scheduled-tasks' || inputs.scenario == 'full')
+        shell: bash
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          echo "Running scheduled tasks integration tests against port $PORT"
+          bash .github/integration-tests/scheduled-tasks.sh "$PORT"
 
       - name: Upload artifacts
         if: always()
