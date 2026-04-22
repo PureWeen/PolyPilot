@@ -3,10 +3,15 @@ name: "PolyPilot Integration Test"
 on:
   workflow_dispatch:
     inputs:
-      issue_number:
-        description: 'Issue number to analyze (optional)'
+      pr_number:
+        description: 'PR number to test (optional — posts results as comment)'
         required: false
         type: number
+      ref:
+        description: 'Git ref to build (branch or SHA). Defaults to main.'
+        required: false
+        type: string
+        default: ''
       scenario:
         description: 'Test scenario to run (smoke, full)'
         required: false
@@ -32,6 +37,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
@@ -279,6 +286,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
@@ -555,6 +564,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
 
       - name: Setup .NET 10
         uses: actions/setup-dotnet@v5
@@ -661,4 +672,42 @@ jobs:
         run: |
           $appPid = $env:APP_PID
           if ($appPid) { Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue }
-# CI trigger
+
+  # ─── Report Results to PR ────────────────────────────────────
+  report:
+    name: Report Integration Results
+    runs-on: ubuntu-latest
+    needs: [integration-linux, integration-maccatalyst, integration-windows]
+    if: always() && inputs.pr_number
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Post results to PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          LINUX: ${{ needs.integration-linux.result }}
+          CATALYST: ${{ needs.integration-maccatalyst.result }}
+          WINDOWS: ${{ needs.integration-windows.result }}
+          PR: ${{ inputs.pr_number }}
+        run: |
+          if [ "$LINUX" = "success" ] && [ "$CATALYST" = "success" ] && [ "$WINDOWS" = "success" ]; then
+            STATUS="✅ All platforms passed"
+          else
+            STATUS="❌ Integration test failures"
+          fi
+
+          cat > /tmp/report.md << EOF
+          ## 🧪 Integration Test Report — PR #${PR}
+
+          | Platform | Build | Launch | DevFlow | Smoke |
+          |----------|-------|--------|---------|-------|
+          | Linux/GTK (xvfb) | $([ "$LINUX" = "success" ] && echo "✅" || echo "❌") | $([ "$LINUX" = "success" ] && echo "✅" || echo "❌") | $([ "$LINUX" = "success" ] && echo "✅" || echo "⚠️") | $([ "$LINUX" = "success" ] && echo "✅" || echo "❌") |
+          | Mac Catalyst | $([ "$CATALYST" = "success" ] && echo "✅" || echo "❌") | — | — | — |
+          | Windows | $([ "$WINDOWS" = "success" ] && echo "✅" || echo "❌") | $([ "$WINDOWS" = "success" ] && echo "✅" || echo "❌") | $([ "$WINDOWS" = "success" ] && echo "⚠️" || echo "❌") | $([ "$WINDOWS" = "success" ] && echo "⚠️" || echo "❌") |
+
+          **${STATUS}**
+
+          [View full run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          EOF
+
+          gh pr comment "$PR" --body "$(cat /tmp/report.md)"
