@@ -3995,7 +3995,7 @@
 
     private async Task CopyToClipboard(string text)
     {
-        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); } catch { }
+        try { await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(text); } catch { }
     }
 
     private bool _disposed;
