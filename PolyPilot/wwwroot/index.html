@@ -423,6 +423,9 @@
                 el.value = '';
                 if (window.__liveDrafts) delete window.__liveDrafts[elementId];
                 el.__lastRestoredDraft = '';
+                // Mark this input as recently cleared — prevents stale draft restore on re-render
+                window.__recentlySentIds = window.__recentlySentIds || Object.create(null);
+                window.__recentlySentIds[elementId] = Date.now();
                 el.style.height = 'auto';
                 // Remove slash command ghost overlay
                 var ghost = document.getElementById(elementId + '--slash-ghost');
@@ -818,12 +821,30 @@
                     }
                 }
             }
+            // Sweep stale __recentlySentIds entries (5s TTL prevents unbounded growth)
+            if (window.__recentlySentIds) {
+                var now = Date.now();
+                for (var k in window.__recentlySentIds) {
+                    if (now - window.__recentlySentIds[k] > 5000) delete window.__recentlySentIds[k];
+                }
+            }
             for (var id in drafts) {
                 var el = document.getElementById(id);
                 if (!el) continue;
                 var desired = drafts[id] || '';
                 var current = (typeof el.value === 'string') ? el.value : '';
                 var lastRestored = (typeof el.__lastRestoredDraft === 'string') ? el.__lastRestoredDraft : '';
+                
+                // Skip restore if this input was recently cleared (prevents re-filling with stale draft)
+                if (window.__recentlySentIds && window.__recentlySentIds[id]) {
+                    if (desired && !current) {
+                        continue; // Don't restore stale text into a cleared input (flag survives for next re-render)
+                    }
+                    // Danger window over: desired is empty or user has typed — flag no longer needed
+                    delete window.__recentlySentIds[id];
+                }
+                
+                // Skip restore if user has typed diverged content since last restore
                 var hasDivergedUserText = current.length > 0 && current !== desired && current !== lastRestored;
                 if (hasDivergedUserText) continue;
                 if (current !== desired) {
