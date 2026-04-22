@@ -19,7 +19,7 @@ safe-outputs:
     max: 1
     protected-files: fallback-to-issue
   dispatch-workflow:
-    workflows: [verify-build]
+    workflows: [verify-build, polypilot-integration]
     max: 1
   create-pull-request-review-comment:
     max: 30
@@ -219,9 +219,9 @@ If the initial review (Round 1) found **zero findings** and no fix commits were 
 
 **🚨 CRITICAL:** You MUST call at least one safe-output tool before finishing — either `add_comment` (if findings exist), `push-to-pull-request-branch` (if fixes were made), or `noop` (if clean). Failing to call any safe-output tool causes the workflow to report as failed.
 
-## Step 5: Cross-Platform Verification
+## Step 5: Cross-Platform Verification & Integration Tests
 
-After fixes are pushed, dispatch the `verify-build` workflow to build and test on macOS and Windows:
+After fixes are pushed, dispatch **both** verification workflows:
 
 ```
 dispatch_workflow({
@@ -231,7 +231,19 @@ dispatch_workflow({
     "ref": "<PR branch name>"
   }
 })
+
+dispatch_workflow({
+  "workflow": "polypilot-integration.yml",
+  "inputs": {
+    "pr_number": "<PR number>",
+    "ref": "<PR branch name>",
+    "scenario": "smoke"
+  }
+})
 ```
+
+- **verify-build** — compiles Mac Catalyst + Windows + runs unit tests
+- **polypilot-integration** — builds and launches the GTK app under xvfb, connects MauiDevFlow, runs UI smoke tests (visual tree, screenshots), and validates on Windows too. Posts results back to the PR.
 
 **Only dispatch if fixes were pushed.** If the review found zero findings and no changes were made, skip this step.
 
