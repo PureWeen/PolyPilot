@@ -264,10 +264,15 @@ jobs:
         if: steps.devflow.outputs.agent_port != '' && (inputs.scenario == 'scheduled-tasks' || inputs.scenario == 'full')
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
-          echo "Running scheduled tasks integration tests against port $PORT"
-          # Fetch test script from main (PR branch may not have it)
-          curl -sf "https://raw.githubusercontent.com/${{ github.repository }}/main/.github/integration-tests/scheduled-tasks.sh" -o /tmp/scheduled-tasks-test.sh && chmod +x /tmp/scheduled-tasks-test.sh
-          bash /tmp/scheduled-tasks-test.sh "$PORT"
+          echo "Running scheduled tasks integration tests via dotnet test"
+          if [ ! -d "PolyPilot.IntegrationTests" ]; then
+            echo "Fetching integration tests from main..."
+            git fetch origin main --depth=1
+            git checkout origin/main -- PolyPilot.IntegrationTests/
+          fi
+          POLYPILOT_AGENT_PORT=$PORT dotnet test PolyPilot.IntegrationTests \
+            --filter "Category=ScheduledTasks" \
+            --nologo --verbosity normal 2>&1 || true
 
       - name: Upload screenshot
         if: always()
@@ -550,6 +555,14 @@ jobs:
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
           echo "Running scheduled tasks integration tests via dotnet test"
+
+          # The integration test project lives on main — fetch it if not present
+          if [ ! -d "PolyPilot.IntegrationTests" ]; then
+            echo "Fetching integration tests from main..."
+            git fetch origin main --depth=1
+            git checkout origin/main -- PolyPilot.IntegrationTests/
+          fi
+
           POLYPILOT_AGENT_PORT=$PORT dotnet test PolyPilot.IntegrationTests \
             --filter "Category=ScheduledTasks" \
             --nologo --verbosity normal 2>&1 || true
@@ -686,10 +699,15 @@ jobs:
         shell: bash
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
-          echo "Running scheduled tasks integration tests against port $PORT"
-          # Fetch test script from main (PR branch may not have it)
-          curl -sf "https://raw.githubusercontent.com/${{ github.repository }}/main/.github/integration-tests/scheduled-tasks.sh" -o /tmp/scheduled-tasks-test.sh && chmod +x /tmp/scheduled-tasks-test.sh
-          bash /tmp/scheduled-tasks-test.sh "$PORT"
+          echo "Running scheduled tasks integration tests via dotnet test"
+          if [ ! -d "PolyPilot.IntegrationTests" ]; then
+            echo "Fetching integration tests from main..."
+            git fetch origin main --depth=1
+            git checkout origin/main -- PolyPilot.IntegrationTests/
+          fi
+          POLYPILOT_AGENT_PORT=$PORT dotnet test PolyPilot.IntegrationTests \
+            --filter "Category=ScheduledTasks" \
+            --nologo --verbosity normal 2>&1 || true
 
       - name: Upload artifacts
         if: always()
