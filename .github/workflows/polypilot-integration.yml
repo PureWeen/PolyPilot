@@ -71,6 +71,10 @@ jobs:
             find PolyPilot.Gtk/bin/Debug -type f -executable | head -20
             BINARY=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot*" -type f -executable | head -1)
           fi
+          if [ -z "$BINARY" ]; then
+            echo "❌ No executable binary found in build output"
+            exit 1
+          fi
           echo "binary=$BINARY" >> $GITHUB_OUTPUT
           echo "Found binary: $BINARY"
 
@@ -265,7 +269,7 @@ jobs:
           dotnet-quality: 'preview'
 
       - name: Select Xcode
-        run: sudo xcode-select -s /Applications/Xcode_26.2.app/Contents/Developer 2>/dev/null || sudo xcode-select -s /Applications/Xcode_16.3.app/Contents/Developer 2>/dev/null || sudo xcode-select -p
+        run: sudo xcode-select -p
 
       - name: Install MAUI workload
         run: dotnet workload install maui
@@ -388,8 +392,7 @@ jobs:
           " 2>/dev/null | head -30 || echo "Tree parse failed"
 
       - name: "Copilot: Create session via PolyPilot UI"
-        env:
-          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        if: steps.devflow.outputs.agent_port != ''
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
           CDP="http://localhost:$PORT/api/cdp"
@@ -551,7 +554,7 @@ jobs:
           }
           Write-Host "Found: $($exe.FullName)"
           
-          $proc = Start-Process -FilePath $exe.FullName -PassThru -RedirectStandardOutput "$env:TEMP\polypilot-stdout.log" -RedirectStandardError "$env:TEMP\polypilot-stderr.log"
+          $proc = Start-Process -FilePath $exe.FullName -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\polypilot-stdout.log" -RedirectStandardError "$env:RUNNER_TEMP\polypilot-stderr.log"
           "APP_PID=$($proc.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append
           Write-Host "PolyPilot launched with PID $($proc.Id)"
           
@@ -561,7 +564,7 @@ jobs:
             Write-Host "✅ PolyPilot is running"
           } else {
             Write-Host "❌ PolyPilot crashed (exit code: $($proc.ExitCode))"
-            Get-Content "$env:TEMP\polypilot-stderr.log" -ErrorAction SilentlyContinue
+            Get-Content "$env:RUNNER_TEMP\polypilot-stderr.log" -ErrorAction SilentlyContinue
             exit 1
           }
 
@@ -593,8 +596,8 @@ jobs:
           Write-Host "=== Tree ==="
           (Invoke-WebRequest "http://localhost:$port/api/tree").Content | Out-String | Select-Object -First 50
           Write-Host "=== Screenshot ==="
-          Invoke-WebRequest "http://localhost:$port/api/screenshot" -OutFile "$env:TEMP\polypilot-ci-screenshot.png"
-          $size = (Get-Item "$env:TEMP\polypilot-ci-screenshot.png").Length
+          Invoke-WebRequest "http://localhost:$port/api/screenshot" -OutFile "$env:RUNNER_TEMP\polypilot-ci-screenshot.png"
+          $size = (Get-Item "$env:RUNNER_TEMP\polypilot-ci-screenshot.png").Length
           Write-Host "✅ Screenshot saved ($size bytes)"
 
       - name: Upload artifacts
