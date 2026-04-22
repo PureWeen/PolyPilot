@@ -19,7 +19,7 @@ env:
 jobs:
   test:
     name: Tests
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
         with:
@@ -35,7 +35,7 @@ jobs:
 
   build-catalyst:
     name: Build Mac Catalyst
-    runs-on: macos-latest
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v6
         with:
