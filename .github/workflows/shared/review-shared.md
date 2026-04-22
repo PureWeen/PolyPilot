@@ -14,7 +14,9 @@ permissions:
 tools:
   github:
     toolsets: [pull_requests, repos]
-    min-integrity: approved
+    # min-integrity: omitted — compiler v0.62.2 emits incomplete guard policy
+    # (missing repos field) that crashes MCP Gateway. Runtime lockdown applies
+    # appropriate integrity levels automatically.
 
 safe-outputs:
   create-pull-request-review-comment:
