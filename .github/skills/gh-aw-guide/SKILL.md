@@ -200,17 +200,30 @@ For `pull_request` + fork support (not `workflow_dispatch`): add `forks: ["*"]` 
 
 ### Security-Critical Patterns
 
-These four patterns are the most commonly missed when building secure workflows. Use all where applicable:
+These five patterns are the most commonly missed when building secure workflows. Use all where applicable:
 
-**1. Prevent accidental PR approvals** — always restrict review workflows; otherwise the agent can approve PRs and bypass branch protection rules (gh-aw#25439). Use `[COMMENT]` to avoid stale blocking reviews that can't be dismissed:
+**1. Role-based access control** — the `roles:` field controls who can trigger the workflow. Without it, any user (including the PR author) can trigger `/review` on a malicious PR designed to prompt-inject the reviewer:
+
+```yaml
+on:
+  slash_command:
+    name: review
+    events: [pull_request_comment]
+  roles: [admin, maintainer, write]  # Only committers can trigger — NEVER use 'all'
+```
+
+**2. Prevent accidental PR approvals** — always restrict review workflows; otherwise the agent can approve PRs and bypass branch protection rules (gh-aw#25439):
 
 ```yaml
 safe-outputs:
   submit-pull-request-review:
-    allowed-events: [COMMENT]  # Blocks APPROVE; avoids un-dismissable REQUEST_CHANGES
+    # COMMENT-only: no stale blocking reviews, safe for iterative /review re-runs
+    allowed-events: [COMMENT]
+    # Or allow REQUEST_CHANGES for stronger merge-gating (but stale reviews persist until manually dismissed):
+    # allowed-events: [COMMENT, REQUEST_CHANGES]
 ```
 
-**2. CI triggering + protected file safety** for agent-created PRs — `GITHUB_TOKEN` pushes don't trigger CI; a PAT/App token is required. `protected-files` controls what happens when the agent modifies package manifests or `.github/`:
+**3. CI triggering + protected file safety** for agent-created PRs — `GITHUB_TOKEN` pushes don't trigger CI; a PAT/App token is required. `protected-files` controls what happens when the agent modifies package manifests or `.github/`:
 
 ```yaml
 safe-outputs:
@@ -220,7 +233,7 @@ safe-outputs:
     # protected-files: blocked (default) | allowed (disables protection)
 ```
 
-**3. Filter untrusted content before the agent sees it** — the gh-aw runtime automatically applies integrity filtering via the `determine-automatic-lockdown` step, which inspects event type, actor trust level, and repository context. **Do NOT set `min-integrity` explicitly in the workflow source** — compiler v0.62.2 emits an incomplete guard policy (missing `repos` field) that crashes the MCP Gateway at startup. Rely on the automatic lockdown instead:
+**4. Filter untrusted content before the agent sees it** — the gh-aw runtime automatically applies integrity filtering via the `determine-automatic-lockdown` step, which inspects event type, actor trust level, and repository context. **Do NOT set `min-integrity` explicitly in the workflow source** — compiler v0.62.2 emits an incomplete guard policy (missing `repos` field) that crashes the MCP Gateway at startup. Rely on the automatic lockdown instead:
 
 ```yaml
 # ✅ CORRECT — let runtime determine integrity level
@@ -234,7 +247,7 @@ tools:
 #     min-integrity: approved   # Compiler omits required 'repos' field
 ```
 
-**4. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you **must** use `.github/scripts/Checkout-GhAwPr.ps1` to check out the PR branch, verify write access, reject fork PRs, and restore trusted `.github/` from the base branch. Without it, the agent evaluates the workflow branch instead of the PR:
+**5. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you **must** use `.github/scripts/Checkout-GhAwPr.ps1` to check out the PR branch, verify write access, reject fork PRs, and restore trusted `.github/` from the base branch. Without it, the agent evaluates the workflow branch instead of the PR:
 
 ```yaml
 steps:
