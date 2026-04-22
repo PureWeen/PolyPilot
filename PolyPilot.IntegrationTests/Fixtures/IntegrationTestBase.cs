@@ -45,7 +45,23 @@ public abstract class IntegrationTestBase
             ["returnByValue"] = true,
         };
         var result = await Client.SendCdpCommandAsync("Runtime.evaluate", paramsNode);
-        return result.GetProperty("result").GetProperty("value").GetString() ?? "";
+
+        // Response may be nested: {"result":{"type":"string","value":"..."}}
+        // or the Driver may return the inner result directly
+        if (result.TryGetProperty("result", out var inner))
+        {
+            if (inner.TryGetProperty("value", out var val))
+                return val.ToString();
+            // Nested: result.result.value
+            if (inner.TryGetProperty("result", out var innerInner) &&
+                innerInner.TryGetProperty("value", out var val2))
+                return val2.ToString();
+        }
+        if (result.TryGetProperty("value", out var directVal))
+            return directVal.ToString();
+
+        Output.WriteLine($"[CDP] Unexpected response shape: {result}");
+        return "";
     }
 
     /// <summary>Wait for CDP to become ready (WebView may need time to initialize).</summary>
