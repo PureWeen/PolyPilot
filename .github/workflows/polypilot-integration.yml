@@ -614,3 +614,4 @@ jobs:
         run: |
           $appPid = $env:APP_PID
           if ($appPid) { Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue }
+# CI trigger
