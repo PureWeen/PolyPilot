@@ -255,8 +255,13 @@ public class WsBridgeServer : IDisposable
                     InputTokens = usage.InputTokens, OutputTokens = usage.OutputTokens
                 }));
         _copilot.OnTurnStart += (session) =>
+        {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.TurnStart,
                 new SessionNamePayload { SessionName = session }));
+            // Push sessions list immediately so mobile gets IsProcessing=true
+            // without waiting up to 500ms for the debounce timer.
+            BroadcastSessionsList();
+        };
         _copilot.OnTurnEnd += (session) =>
         {
             Broadcast(BridgeMessage.Create(BridgeMessageTypes.TurnEnd,
@@ -977,13 +982,7 @@ public class WsBridgeServer : IDisposable
                         // Dispatch with orchestrator routing on the UI thread (fire-and-forget).
                         _ = Task.Run(async () =>
                         {
-                            try
-                            {
-                                await DispatchBridgePromptAsync(sendSession, sendMessage, sendAgentMode, sendImagePaths, ct);
-                                // Push sessions list immediately after dispatch so mobile gets
-                                // IsProcessing=true without waiting for the debounce timer.
-                                BroadcastSessionsList();
-                            }
+                            try { await DispatchBridgePromptAsync(sendSession, sendMessage, sendAgentMode, sendImagePaths, ct); }
                             catch (Exception ex) { BridgeLog($"[BRIDGE] SendPromptAsync error for '{sendSession}': {ex.Message}"); }
                             finally
                             {
