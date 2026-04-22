@@ -19,9 +19,8 @@ network:
     - defaults
     - dotnet
 
-tools:
-  github:
-    toolsets: [repos, pull_requests]
+# No GitHub MCP tools needed — data comes via $GITHUB_OUTPUT template substitution.
+# Removing tools.github prevents "2 MCP servers blocked by policy" error from Copilot CLI.
 
 # Both Check-Staleness.ps1 and Scan-GhAwUpdates.ps1 call `gh api` and `gh issue view`.
 # Inside the agent container, gh CLI credentials are scrubbed — all those calls return
