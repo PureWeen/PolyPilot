@@ -43,10 +43,17 @@ jobs:
 
       - name: Select Xcode
         run: |
-          # Prefer stable Xcode 26.x, exclude beta
-          XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -v beta | sort -rV | head -1)
-          if [ -z "$XCODE_PATH" ]; then
-            XCODE_PATH=$(ls -d /Applications/Xcode*.app 2>/dev/null | grep -v beta | sort -rV | head -1)
+          # Pin to Xcode 26.2 or 26.3 — newer versions have SDK path issues with .NET MAUI
+          if [ -d "/Applications/Xcode_26.3.app" ]; then
+            XCODE_PATH="/Applications/Xcode_26.3.app"
+          elif [ -d "/Applications/Xcode_26.3.0.app" ]; then
+            XCODE_PATH="/Applications/Xcode_26.3.0.app"
+          elif [ -d "/Applications/Xcode_26.2.app" ]; then
+            XCODE_PATH="/Applications/Xcode_26.2.app"
+          elif [ -d "/Applications/Xcode_26.2.0.app" ]; then
+            XCODE_PATH="/Applications/Xcode_26.2.0.app"
+          else
+            XCODE_PATH=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | grep -v beta | sort -V | head -1)
           fi
           echo "Selected Xcode: $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH"
