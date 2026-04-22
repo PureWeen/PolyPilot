@@ -42,8 +42,8 @@ Update all NuGet package references, dotnet tools, and the MauiDevFlow skill to 
 Package: `GitHub.Copilot.SDK`
 
 ```bash
-SDK_LATEST=$(curl -s 'https://api.nuget.org/v3-flatcontainer/github.copilot.sdk/index.json' | jq -r '.versions[-1]')
-echo "Latest SDK: $SDK_LATEST"
+SDK_LATEST=$(curl -s 'https://api.nuget.org/v3-flatcontainer/github.copilot.sdk/index.json' | jq -r '[.versions[] | select(test("^[0-9]+\\.[0-9]+\\.[0-9]+$"))] | last')
+echo "Latest stable SDK: $SDK_LATEST"
 ```
 
 Update ALL of these to the **same** version:
