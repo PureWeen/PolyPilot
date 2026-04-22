@@ -39,28 +39,41 @@ public abstract class IntegrationTestBase
     /// <summary>Evaluate JavaScript in the Blazor WebView via CDP.</summary>
     protected async Task<string> CdpEvalAsync(string expression)
     {
-        var paramsNode = new JsonObject
+        // Use direct HTTP POST to /api/cdp — the Driver's SendCdpCommandAsync
+        // uses a different route that may not be available on all agent versions.
+        var payload = new JsonObject
         {
-            ["expression"] = expression,
-            ["returnByValue"] = true,
+            ["method"] = "Runtime.evaluate",
+            ["params"] = new JsonObject
+            {
+                ["expression"] = expression,
+                ["returnByValue"] = true,
+            }
         };
-        var result = await Client.SendCdpCommandAsync("Runtime.evaluate", paramsNode);
 
-        // Response may be nested: {"result":{"type":"string","value":"..."}}
-        // or the Driver may return the inner result directly
-        if (result.TryGetProperty("result", out var inner))
+        var response = await Http.PostAsync("/api/cdp",
+            new StringContent(payload.ToJsonString(), System.Text.Encoding.UTF8, "application/json"));
+        var body = await response.Content.ReadAsStringAsync();
+
+        try
         {
-            if (inner.TryGetProperty("value", out var val))
+            var json = JsonSerializer.Deserialize<JsonElement>(body, JsonOptions);
+            // CDP response: {"id":N,"result":{"result":{"type":"string","value":"..."}}}
+            if (json.TryGetProperty("result", out var outer) &&
+                outer.TryGetProperty("result", out var inner) &&
+                inner.TryGetProperty("value", out var val))
                 return val.ToString();
-            // Nested: result.result.value
-            if (inner.TryGetProperty("result", out var innerInner) &&
-                innerInner.TryGetProperty("value", out var val2))
-                return val2.ToString();
-        }
-        if (result.TryGetProperty("value", out var directVal))
-            return directVal.ToString();
+            // Flat: {"result":{"value":"..."}}
+            if (json.TryGetProperty("result", out var flat) &&
+                flat.TryGetProperty("value", out var flatVal))
+                return flatVal.ToString();
 
-        Output.WriteLine($"[CDP] Unexpected response shape: {result}");
+            Output.WriteLine($"[CDP] Unexpected response: {body[..Math.Min(body.Length, 200)]}");
+        }
+        catch (Exception ex)
+        {
+            Output.WriteLine($"[CDP] Parse error: {ex.Message}, body: {body[..Math.Min(body.Length, 200)]}");
+        }
         return "";
     }
 
