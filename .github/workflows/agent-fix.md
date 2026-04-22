@@ -89,16 +89,33 @@ Search for the relevant code:
 Make targeted, surgical changes:
 - Fix only what's needed for the issue
 - Follow existing code patterns and conventions
-- Add or update tests to cover the fix
 - Do NOT refactor unrelated code
+
+### 3a. Unit Tests
+
+Add or update unit tests in `PolyPilot.Tests/` to cover the fix. These should verify the underlying logic works correctly.
+
+### 3b. Integration Tests
+
+Add a C# integration test in `PolyPilot.IntegrationTests/` that verifies the fix works end-to-end through the live UI via DevFlow CDP. This project uses `Microsoft.Maui.DevFlow.Driver` and the app's CDP endpoint to interact with the Blazor WebView.
+
+Study the existing tests in `PolyPilot.IntegrationTests/ScheduledTaskTests.cs` for the pattern:
+- Tests inherit from `IntegrationTestBase` which provides `CdpEvalAsync()`, `ClickAsync()`, `FillInputAsync()`, `ExistsAsync()`, `GetTextAsync()`, `WaitForAsync()`, `NavigateToAsync()`, and `ScreenshotAsync()` helpers
+- Use `[Collection("PolyPilot")]` and inject `AppFixture app, ITestOutputHelper output`
+- Use `[Trait("Category", "YourFeature")]` for filtering
+- Tests connect to a running app via the `POLYPILOT_AGENT_PORT` environment variable
+
+The integration test should prove the fix works from a user's perspective — navigate to the right page, perform the action that was broken, and assert the expected result. For example, if the bug is "copy button doesn't work", the test should click Copy and verify the success indicator appears.
 
 ## Step 4: Run Tests
 
+Run both unit tests and build integration tests:
 ```bash
 dotnet test PolyPilot.Tests --configuration Debug --nologo --verbosity quiet 2>&1 | tail -20
+dotnet build PolyPilot.IntegrationTests --nologo 2>&1 | tail -5
 ```
 
-This takes 5-10 minutes. If tests fail, fix them before proceeding.
+Unit tests take 5-10 minutes. If any tests fail, fix them before proceeding. The integration tests only need to **build** here — they'll be executed against a live app in Step 8.
 
 ## Step 5: Create a PR
 
