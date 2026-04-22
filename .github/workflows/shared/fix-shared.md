@@ -17,10 +17,11 @@ tools:
 safe-outputs:
   push-to-pull-request-branch:
     max: 1
+    target: "*"
     protected-files: fallback-to-issue
   dispatch-workflow:
     workflows: [verify-build, polypilot-integration]
-    max: 1
+    max: 2
   create-pull-request-review-comment:
     max: 30
   submit-pull-request-review:
