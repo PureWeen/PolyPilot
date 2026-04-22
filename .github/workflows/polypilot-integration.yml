@@ -1,0 +1,664 @@
+name: "PolyPilot Integration Test"
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'Issue number to analyze (optional)'
+        required: false
+        type: number
+      scenario:
+        description: 'Test scenario to run (smoke, full)'
+        required: false
+        type: choice
+        options:
+          - smoke
+          - full
+        default: smoke
+  push:
+    branches:
+      - 'feature/polypilot-ci-integration'
+    paths:
+      - '.github/workflows/polypilot-integration.yml'
+      - 'PolyPilot.Gtk/**'
+      - 'PolyPilot/**'
+
+jobs:
+  # ─── Linux/GTK ───────────────────────────────────────────────
+  integration-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install GTK4 dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libadwaita-1-dev libwebkitgtk-6.0-dev xvfb
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui-android
+
+      - name: Install MauiDevFlow CLI
+        run: |
+          dotnet tool install --global Microsoft.Maui.Cli \
+            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json \
+            --prerelease 2>&1 || {
+            echo "Install returned non-zero, checking if already installed..."
+            maui --version || { echo "❌ MauiDevFlow CLI not available"; exit 1; }
+          }
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Build PolyPilot.Gtk (Debug — includes MauiDevFlow)
+        run: |
+          dotnet build PolyPilot.Gtk/PolyPilot.Gtk.csproj \
+            -c Debug \
+            --disable-build-servers \
+            -p:UseSharedCompilation=false \
+            -nodeReuse:false
+
+      - name: Find built binary
+        id: find-binary
+        run: |
+          BINARY=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot.Gtk" -type f -executable | head -1)
+          if [ -z "$BINARY" ]; then
+            echo "Binary not found, searching more broadly..."
+            find PolyPilot.Gtk/bin/Debug -type f -executable | head -20
+            BINARY=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot*" -type f -executable | head -1)
+          fi
+          if [ -z "$BINARY" ]; then
+            echo "❌ No executable binary found in build output"
+            exit 1
+          fi
+          echo "binary=$BINARY" >> $GITHUB_OUTPUT
+          echo "Found binary: $BINARY"
+
+      - name: Launch PolyPilot under xvfb
+        run: |
+          echo "Starting PolyPilot.Gtk under virtual display..."
+          export DISPLAY=:99
+          Xvfb :99 -screen 0 1920x1080x24 &
+          XVFB_PID=$!
+          echo "XVFB_PID=$XVFB_PID" >> $GITHUB_ENV
+          sleep 2
+
+          # Launch PolyPilot in background, capture all output
+          ${{ steps.find-binary.outputs.binary }} > /tmp/polypilot-stdout.log 2>/tmp/polypilot-stderr.log &
+          APP_PID=$!
+          echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+          echo "PolyPilot launched with PID $APP_PID"
+
+          # Wait for app + DevFlow agent readiness (poll instead of fixed sleep)
+          echo "Waiting for PolyPilot to start..."
+          for i in $(seq 1 60); do
+            if ! kill -0 $APP_PID 2>/dev/null; then
+              echo "❌ PolyPilot crashed during startup"
+              echo "=== stdout ===" && cat /tmp/polypilot-stdout.log || true
+              echo "=== stderr ===" && cat /tmp/polypilot-stderr.log || true
+              exit 1
+            fi
+            if curl -s --max-time 2 http://localhost:9223/api/status > /dev/null 2>&1; then
+              echo "✅ PolyPilot ready after ${i}s"
+              break
+            fi
+            if [ "$i" = "60" ]; then
+              echo "⚠️ Timed out waiting for DevFlow agent after 60s — continuing with port scan"
+            fi
+            sleep 1
+          done
+          
+          # Verify process is still running
+          if kill -0 $APP_PID 2>/dev/null; then
+            echo "✅ PolyPilot is running"
+          else
+            echo "❌ PolyPilot crashed on startup"
+            echo "=== stdout ===" && cat /tmp/polypilot-stdout.log || true
+            echo "=== stderr ===" && cat /tmp/polypilot-stderr.log || true
+            exit 1
+          fi
+
+          # Show app output so far
+          echo "=== App stdout (first 50 lines) ==="
+          head -50 /tmp/polypilot-stdout.log || true
+          echo "=== App stderr ==="
+          cat /tmp/polypilot-stderr.log || true
+
+      - name: Discover MauiDevFlow agent port
+        id: devflow
+        run: |
+          export DISPLAY=:99
+          echo "Waiting for MauiDevFlow agent..."
+          
+          # Check for .mauidevflow file (agent writes port here when broker unavailable)
+          echo "=== Checking for .mauidevflow files ==="
+          find / -name '.mauidevflow' -maxdepth 5 2>/dev/null || true
+          find /home -name '.mauidevflow' 2>/dev/null || true
+          find /tmp -name '.mauidevflow' -o -name 'mauidevflow*' 2>/dev/null || true
+          
+          # Try broker-based discovery
+          maui devflow wait --timeout 30 --json > /tmp/devflow-wait.json 2>&1 || true
+          echo "=== devflow wait output ===" && cat /tmp/devflow-wait.json || true
+          
+          # Try list
+          echo "=== devflow list ==="
+          maui devflow list --json 2>&1 || true
+          maui devflow list 2>&1 || true
+          
+          # Port scan
+          echo "=== Scanning all listening ports ==="
+          ss -tlnp 2>/dev/null || true
+          
+          # Try common DevFlow ports
+          AGENT_PORT=""
+          for port in 9223 9224 9225 9226 9227 9228 9229 9230 5000 5001 8080; do
+            if curl -s --max-time 2 http://localhost:$port/api/status > /dev/null 2>&1; then
+              AGENT_PORT=$port
+              echo "✅ Found agent on port $port"
+              curl -s http://localhost:$port/api/status
+              break
+            fi
+          done
+          
+          if [ -z "$AGENT_PORT" ]; then
+            # Try discovering from app stdout (agent may log its port)
+            AGENT_PORT=$(grep -oP 'listening on.*?:(\d+)' /tmp/polypilot-stdout.log 2>/dev/null | grep -oP '\d+$' | head -1 || true)
+            if [ -n "$AGENT_PORT" ]; then
+              echo "✅ Found agent port from stdout: $AGENT_PORT"
+            fi
+          fi
+
+          if [ -z "$AGENT_PORT" ]; then
+            echo "⚠️ Could not discover agent port"
+            echo "App is running: $(kill -0 $APP_PID 2>/dev/null && echo 'yes' || echo 'no')"
+            echo "agent_port=" >> $GITHUB_OUTPUT
+          else
+            echo "✅ MauiDevFlow agent on port $AGENT_PORT"
+            echo "agent_port=$AGENT_PORT" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "Smoke Test: Discover API routes"
+        if: steps.devflow.outputs.agent_port != ''
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          echo "=== Agent Status ==="
+          curl -s http://localhost:$PORT/api/status | python3 -m json.tool
+
+          echo "=== Trying common routes ==="
+          for route in \
+            /api/tree /api/visual-tree /api/visualtree \
+            /api/screenshot /api/capture \
+            /api/cdp /api/cdp/status /api/cdp/list \
+            /api/logs /api/log \
+            /api/maui /api/maui/tree /api/maui/status \
+            /api/elements /api/query \
+            /tree /screenshot /status \
+            /api/info /api/routes /api/help \
+            / /api; do
+            RESULT=$(curl -s --max-time 2 -o /dev/null -w "%{http_code}" http://localhost:$PORT$route 2>/dev/null)
+            if [ "$RESULT" != "000" ] && [ "$RESULT" != "404" ]; then
+              echo "  $route → HTTP $RESULT"
+              if [ "$RESULT" = "200" ]; then
+                echo "    $(curl -s --max-time 2 http://localhost:$PORT$route | head -c 500)"
+              fi
+            fi
+          done
+
+      - name: "Smoke Test: Screenshot via status endpoint"
+        if: steps.devflow.outputs.agent_port != ''
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          # The screenshot endpoint might return binary data
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-ci-screenshot.png 2>&1 || true
+          if [ -f /tmp/polypilot-ci-screenshot.png ] && [ $(wc -c < /tmp/polypilot-ci-screenshot.png) -gt 100 ]; then
+            echo "✅ Screenshot saved ($(wc -c < /tmp/polypilot-ci-screenshot.png) bytes)"
+          else
+            echo "Screenshot too small or not found, trying other paths..."
+            curl -s http://localhost:$PORT/screenshot -o /tmp/polypilot-ci-screenshot.png 2>&1 || true
+            curl -s http://localhost:$PORT/api/capture -o /tmp/polypilot-ci-screenshot2.png 2>&1 || true
+            ls -la /tmp/polypilot-ci-screenshot*.png 2>/dev/null || echo "No screenshots captured"
+          fi
+
+      - name: "Smoke Test: CLI with verbose"
+        if: steps.devflow.outputs.agent_port != ''
+        run: |
+          export DISPLAY=:99
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          echo "=== Trying CLI with verbose ==="
+          maui devflow MAUI status --agent-port $PORT --verbose 2>&1 || echo "CLI status failed"
+          echo "=== Trying CLI tree ==="
+          maui devflow MAUI tree --depth 3 --agent-port $PORT --verbose 2>&1 || echo "CLI tree failed"
+
+      - name: "Diagnostics (if agent not found)"
+        if: steps.devflow.outputs.agent_port == ''
+        run: |
+          echo "=== Process list ==="
+          ps aux | grep -i polypilot || true
+          echo "=== Listening ports ==="
+          ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || true
+          echo "=== App stderr (if captured) ==="
+          cat /tmp/polypilot-stderr.log 2>/dev/null || echo "No stderr log"
+
+      - name: Upload screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: polypilot-screenshot-linux
+          path: /tmp/polypilot-ci-screenshot.png
+          if-no-files-found: ignore
+
+      - name: Upload app logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: polypilot-logs-linux
+          path: |
+            /tmp/polypilot-stdout.log
+            /tmp/polypilot-stderr.log
+            /tmp/devflow-wait.json
+          if-no-files-found: ignore
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kill $APP_PID 2>/dev/null || true
+          kill $XVFB_PID 2>/dev/null || true
+
+  # ─── Mac Catalyst ────────────────────────────────────────────
+  integration-maccatalyst:
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Select Xcode
+        run: sudo xcode-select -p
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Install MauiDevFlow CLI
+        run: |
+          dotnet tool install --global Microsoft.Maui.Cli \
+            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json \
+            --prerelease 2>&1 || {
+            echo "Install returned non-zero, checking if already installed..."
+            maui --version || { echo "❌ MauiDevFlow CLI not available"; exit 1; }
+          }
+          echo "$HOME/.dotnet/tools" >> $GITHUB_PATH
+
+      - name: Build PolyPilot (Mac Catalyst Debug)
+        run: |
+          dotnet build PolyPilot/PolyPilot.csproj \
+            -f net10.0-maccatalyst \
+            -c Debug \
+            --disable-build-servers \
+            -p:UseSharedCompilation=false \
+            -p:ValidateXcodeVersion=false \
+            -p:MtouchLink=SdkOnly \
+            -nodeReuse:false
+
+      - name: Find app bundle
+        id: find-app
+        run: |
+          APP=$(find PolyPilot/bin/Debug/net10.0-maccatalyst -name "*.app" -type d | head -1)
+          echo "app=$APP" >> $GITHUB_OUTPUT
+          echo "Found app: $APP"
+          ls -la "$APP/Contents/MacOS/" || true
+
+      - name: Launch PolyPilot (Mac Catalyst)
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          BINARY="${{ steps.find-app.outputs.app }}/Contents/MacOS/PolyPilot"
+          
+          # Pass token via env — PolyPilot's ServerManager reads COPILOT_GITHUB_TOKEN
+          # and forwards it to the headless copilot process.
+          # The token is masked by GitHub Actions (never appears in logs).
+          "$BINARY" > /tmp/polypilot-stdout.log 2>/tmp/polypilot-stderr.log &
+          APP_PID=$!
+          echo "APP_PID=$APP_PID" >> $GITHUB_ENV
+          echo "PolyPilot launched with PID $APP_PID"
+
+          # Wait for app + DevFlow agent readiness (poll instead of fixed sleep)
+          echo "Waiting for PolyPilot to start..."
+          for i in $(seq 1 60); do
+            if ! kill -0 $APP_PID 2>/dev/null; then
+              echo "❌ PolyPilot crashed during startup"
+              cat /tmp/polypilot-stderr.log || true
+              exit 1
+            fi
+            if curl -s --max-time 2 http://localhost:9223/api/status > /dev/null 2>&1; then
+              echo "✅ PolyPilot ready after ${i}s"
+              break
+            fi
+            if [ "$i" = "60" ]; then
+              echo "⚠️ Timed out waiting for DevFlow agent after 60s"
+              echo "App is still running — continuing with port scan"
+            fi
+            sleep 1
+          done
+
+          if kill -0 $APP_PID 2>/dev/null; then
+            echo "✅ PolyPilot is running"
+          else
+            echo "❌ PolyPilot crashed"
+            cat /tmp/polypilot-stderr.log || true
+            exit 1
+          fi
+
+      - name: Discover DevFlow agent
+        id: devflow
+        run: |
+          AGENT_PORT=""
+          for port in 9223 9224 9225 9226 9227 9228 9229 9230; do
+            if curl -s --max-time 2 http://localhost:$port/api/status > /dev/null 2>&1; then
+              AGENT_PORT=$port
+              echo "✅ Found agent on port $port"
+              curl -s http://localhost:$port/api/status | python3 -m json.tool
+              break
+            fi
+          done
+          echo "agent_port=${AGENT_PORT}" >> $GITHUB_OUTPUT
+
+      - name: "Smoke: Status + Tree + Screenshot"
+        if: steps.devflow.outputs.agent_port != ''
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          echo "=== Status ===" && curl -s http://localhost:$PORT/api/status | python3 -m json.tool
+          echo "=== Tree ===" && curl -s http://localhost:$PORT/api/tree | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d[:3], indent=2))" 2>/dev/null || curl -s http://localhost:$PORT/api/tree | head -50
+          echo "=== Screenshot ===" && curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-ci-screenshot.png && echo "✅ $(wc -c < /tmp/polypilot-ci-screenshot.png) bytes"
+
+      - name: "Copilot: Check headless server"
+        run: |
+          echo "=== Checking for copilot headless server ==="
+          # PolyPilot in Persistent mode auto-starts copilot on port 4321
+          for port in 4321 4322; do
+            if curl -s --max-time 3 http://127.0.0.1:$port/ > /dev/null 2>&1; then
+              echo "✅ Copilot server responding on port $port"
+            else
+              echo "⚠️ Port $port not responding (may use TCP not HTTP)"
+            fi
+          done
+          
+          # Check for copilot process
+          echo "=== Copilot processes ==="
+          ps aux | grep -i copilot | grep -v grep || echo "No copilot processes found"
+          
+          # Check PID file
+          echo "=== PID file ==="
+          cat ~/.polypilot/server.pid 2>/dev/null || echo "No PID file"
+          
+          # Check app logs for server start
+          echo "=== Server startup in logs ==="
+          grep -i 'server\|headless\|persistent\|port\|4321\|copilot' /tmp/polypilot-stdout.log 2>/dev/null | head -20 || true
+
+      - name: "Copilot: Verify session via DevFlow"
+        if: steps.devflow.outputs.agent_port != ''
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          
+          echo "=== Visual tree ==="
+          curl -s http://localhost:$PORT/api/tree | python3 -c "
+          import sys, json
+          tree = json.load(sys.stdin)
+          def walk(nodes, depth=0):
+              for n in nodes:
+                  prefix = '  ' * depth
+                  ntype = n.get('type','?')
+                  aid = n.get('automationId','')
+                  text = n.get('text','')[:50]
+                  nid = n.get('id','')
+                  print(f'{prefix}{ntype} [{nid}]' + (f' aid={aid}' if aid else '') + (f' text={text}' if text else ''))
+                  if 'children' in n: walk(n['children'], depth+1)
+          walk(tree)
+          " 2>/dev/null | head -30 || echo "Tree parse failed"
+
+      - name: "Copilot: Create session via PolyPilot UI"
+        if: steps.devflow.outputs.agent_port != ''
+        run: |
+          PORT=${{ steps.devflow.outputs.agent_port }}
+          CDP="http://localhost:$PORT/api/cdp"
+          
+          cdp_eval() {
+            local payload
+            payload=$(python3 -c "import json,sys; print(json.dumps({'method':'Runtime.evaluate','params':{'expression':sys.argv[1]}}))" "$1")
+            curl -s -X POST "$CDP" -H "Content-Type: application/json" -d "$payload" 2>/dev/null
+          }
+          
+          echo "=== Step 1: Page state ==="
+          cdp_eval "JSON.stringify({title: document.title, buttons: [...document.querySelectorAll('button')].map(b => b.title || b.textContent?.trim()?.substring(0,30)).filter(Boolean)})"
+          
+          echo ""
+          echo "=== Step 2: Click 'Create something new' ==="
+          cdp_eval "const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('+')); btn?.click(); btn ? 'clicked +' : 'no + btn'"
+          sleep 2
+          
+          echo "=== Step 3: Click 'Session' in the popover ==="
+          cdp_eval "const items = [...document.querySelectorAll('.sidebar-new-menu-item')]; const sessionBtn = items.find(b => b.textContent?.includes('Session')); sessionBtn?.click(); sessionBtn ? 'clicked Session' : 'no Session btn. Items: ' + items.map(i => i.textContent?.trim()?.substring(0,20)).join('|')"
+          sleep 3
+          
+          echo ""
+          echo "=== Step 4: Check create form state ==="
+          curl -s $CDP -X POST -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({inputs: [...document.querySelectorAll(\"input,textarea\")].map(i => ({tag: i.tagName, id: i.id, class: i.className, placeholder: i.placeholder})), pageText: document.body?.innerText?.substring(0,500)})"}}' | python3 -c "import sys,json; r=json.load(sys.stdin); v=r.get('result',{}).get('result',{}).get('value',''); print(json.dumps(json.loads(v), indent=2) if v.startswith('{') else v)" 2>/dev/null || echo "parse failed"
+          
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-create-form.png
+          echo "Screenshot: $(wc -c < /tmp/polypilot-after-create-form.png) bytes"
+          
+          echo ""
+          echo "=== Step 5: Fill session name and submit ==="
+          # The CreateSessionForm has input fields. Find and fill them.
+          cdp_eval "const nameInput = document.querySelector('input[placeholder*=\"session\"], input[placeholder*=\"name\"], .session-name-input, input.create-session-input'); nameInput ? 'found name input: ' + nameInput.placeholder : 'no name input. All inputs: ' + [...document.querySelectorAll('input')].map(i => i.placeholder || i.className || i.id).join('|')"
+          
+          # Try filling any visible input
+          cdp_eval "const inp = [...document.querySelectorAll('input:not([type=hidden])')].find(i => i.offsetParent !== null); if (inp) { inp.value = 'CI Test Session'; inp.dispatchEvent(new Event('input', {bubbles:true})); inp.dispatchEvent(new Event('change', {bubbles:true})); 'filled: ' + inp.placeholder; } else { 'no visible input'; }"
+          
+          sleep 1
+          
+          # Click the create/submit button
+          cdp_eval "const btn = document.querySelector('.create-btn, .submit-btn, button[type=submit]') || [...document.querySelectorAll('button')].find(b => b.textContent?.includes('Create') && !b.textContent?.includes('something')); btn?.click(); btn ? 'submitted: ' + btn.textContent?.trim()?.substring(0,30) : 'no create btn'"
+          
+          sleep 5
+          
+          echo ""
+          echo "=== Step 6: Check if session was created ==="
+          cdp_eval "JSON.stringify({sessionItems: document.querySelectorAll('.session-item, .session-list-item, .sidebar-session')?.length || 0, cards: document.querySelectorAll('.session-card, .card')?.length || 0, pageText: document.body?.innerText?.substring(0,300)})"
+          
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-create.png
+          echo "Screenshot: $(wc -c < /tmp/polypilot-after-create.png) bytes"
+          
+          echo ""
+          echo "=== Step 7: Click on the session to expand it ==="
+          # Click the first session item in the sidebar to open it
+          cdp_eval "const item = document.querySelector('.session-item, .session-list-item, .sidebar-session, [data-session]'); if (item) { item.click(); 'clicked session: ' + (item.dataset?.session || item.textContent?.trim()?.substring(0,30)); } else { 'no session item found'; }"
+          sleep 3
+          
+          echo ""
+          echo "=== Step 8: Find and fill the chat input ==="
+          # The session card should now have an input
+          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({inputs: [...document.querySelectorAll(\"input:not([type=hidden]), textarea\")].filter(i => i.offsetParent !== null).map(i => ({tag: i.tagName, id: i.id, class: i.className, placeholder: i.placeholder?.substring(0,50), parent: i.parentElement?.className?.substring(0,30)}))})"}}' | python3 -c "import sys,json; r=json.load(sys.stdin); v=r.get('result',{}).get('result',{}).get('value',''); print(json.dumps(json.loads(v), indent=2) if v.startswith('{') else v)" 2>/dev/null || echo "parse failed"
+          
+          # Fill the card input or textarea
+          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"const sel = \".card-input input, .card-input textarea, .input-row textarea, .expanded-card .input-area textarea, textarea\"; const input = [...document.querySelectorAll(sel)].find(i => i.offsetParent !== null); if (input) { input.value = \"Hello from CI! Testing PolyPilot integration.\"; input.dispatchEvent(new Event(\"input\", {bubbles:true})); input.dispatchEvent(new Event(\"change\", {bubbles:true})); \"filled: \" + input.tagName + \" \" + input.id + \" \" + input.className; } else { \"no visible input\"; }"}}' 2>/dev/null
+          
+          sleep 1
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-fill.png
+          echo "After fill: $(wc -c < /tmp/polypilot-after-fill.png) bytes"
+          
+          echo ""
+          echo "=== Step 9: Send the message ==="
+          # Simulate Enter key to send, or click the send button
+          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"const sel = \".card-input input, .card-input textarea, .input-row textarea, .expanded-card .input-area textarea, textarea\"; const input = [...document.querySelectorAll(sel)].find(i => i.offsetParent !== null); if (input) { const container = input.closest(\".card-input\") || input.closest(\".input-row\"); const sendBtn = container?.querySelector(\".send-btn:not(.stop-btn)\") || container?.querySelectorAll(\"button\")?.[container?.querySelectorAll(\"button\")?.length - 1]; if (sendBtn) { sendBtn.click(); \"clicked send: \" + sendBtn.className; } else { input.dispatchEvent(new KeyboardEvent(\"keydown\", {key: \"Enter\", bubbles: true})); \"dispatched Enter\"; } } else { \"no input to send from\"; }"}}' 2>/dev/null
+          
+          echo ""
+          echo "=== Step 10: Wait for Copilot response ==="
+          sleep 20
+          
+          # Check for messages
+          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
+            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({processingIndicators: document.querySelectorAll(\".thinking, .processing, .spinner, .loading\")?.length || 0, messages: [...document.querySelectorAll(\".message-content, .chat-bubble, .response-text, .markdown-body\")].map(m => m.textContent?.substring(0,100)).filter(Boolean), bodySnippet: document.body?.innerText?.substring(0,500)})"}}' | python3 -c "import sys,json; r=json.load(sys.stdin); v=r.get('result',{}).get('result',{}).get('value',''); print(json.dumps(json.loads(v), indent=2) if v.startswith('{') else v)" 2>/dev/null || echo "parse failed"
+          
+          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-session.png
+          echo "✅ Final screenshot: $(wc -c < /tmp/polypilot-after-session.png) bytes"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: polypilot-maccatalyst
+          path: |
+            /tmp/polypilot-ci-screenshot.png
+            /tmp/polypilot-after-new-session.png
+            /tmp/polypilot-after-create-form.png
+            /tmp/polypilot-after-create.png
+            /tmp/polypilot-after-fill.png
+            /tmp/polypilot-after-session.png
+            /tmp/polypilot-stdout.log
+            /tmp/polypilot-stderr.log
+          if-no-files-found: ignore
+
+      - name: Cleanup
+        if: always()
+        run: |
+          kill $APP_PID 2>/dev/null || true
+          # Also kill any copilot headless server
+          PID_FILE=~/.polypilot/server.pid
+          if [ -f "$PID_FILE" ]; then
+            COPILOT_PID=$(head -1 "$PID_FILE" 2>/dev/null)
+            kill "$COPILOT_PID" 2>/dev/null || true
+          fi
+
+  # ─── Windows ─────────────────────────────────────────────────
+  integration-windows:
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 10
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+          dotnet-quality: 'preview'
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Install MauiDevFlow CLI
+        shell: pwsh
+        run: |
+          dotnet tool install --global Microsoft.Maui.Cli `
+            --add-source https://pkgs.dev.azure.com/dnceng/public/_packaging/dotnet10/nuget/v3/index.json `
+            --prerelease 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) {
+            Write-Host "Install returned non-zero, checking if already installed..."
+            & maui --version
+            if ($LASTEXITCODE -ne 0) { Write-Host "❌ MauiDevFlow CLI not available"; exit 1 }
+          }
+          $toolsPath = Join-Path $env:USERPROFILE ".dotnet\tools"
+          "$toolsPath" | Out-File -FilePath $env:GITHUB_PATH -Append
+
+      - name: Build PolyPilot (Windows Debug)
+        run: |
+          dotnet build PolyPilot/PolyPilot.csproj `
+            -f net10.0-windows10.0.19041.0 `
+            -c Debug `
+            --disable-build-servers `
+            -p:UseSharedCompilation=false `
+            -nodeReuse:false
+        shell: pwsh
+
+      - name: Launch PolyPilot (Windows)
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem -Path "PolyPilot\bin\Debug\net10.0-windows*" -Filter "PolyPilot.exe" -Recurse | Select-Object -First 1
+          if (-not $exe) {
+            $exe = Get-ChildItem -Path "PolyPilot\bin\Debug\net10.0-windows*" -Filter "*.exe" -Recurse | Select-Object -First 1
+          }
+          Write-Host "Found: $($exe.FullName)"
+          
+          $proc = Start-Process -FilePath $exe.FullName -PassThru -RedirectStandardOutput "$env:RUNNER_TEMP\polypilot-stdout.log" -RedirectStandardError "$env:RUNNER_TEMP\polypilot-stderr.log"
+          "APP_PID=$($proc.Id)" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "PolyPilot launched with PID $($proc.Id)"
+          
+          Start-Sleep -Seconds 20
+          
+          if (-not $proc.HasExited) {
+            Write-Host "✅ PolyPilot is running"
+          } else {
+            Write-Host "❌ PolyPilot crashed (exit code: $($proc.ExitCode))"
+            Get-Content "$env:RUNNER_TEMP\polypilot-stderr.log" -ErrorAction SilentlyContinue
+            exit 1
+          }
+
+      - name: Discover DevFlow agent
+        id: devflow
+        shell: pwsh
+        run: |
+          $agentPort = ""
+          foreach ($port in 9223..9230) {
+            try {
+              $r = Invoke-WebRequest -Uri "http://localhost:$port/api/status" -TimeoutSec 2 -ErrorAction Stop
+              if ($r.StatusCode -eq 200) {
+                $agentPort = $port
+                Write-Host "✅ Found agent on port $port"
+                $r.Content | ConvertFrom-Json | ConvertTo-Json -Depth 5
+                break
+              }
+            } catch { }
+          }
+          "agent_port=$agentPort" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: "Smoke: Status + Tree + Screenshot"
+        if: steps.devflow.outputs.agent_port != ''
+        shell: pwsh
+        run: |
+          $port = "${{ steps.devflow.outputs.agent_port }}"
+          Write-Host "=== Status ==="
+          (Invoke-WebRequest "http://localhost:$port/api/status").Content | ConvertFrom-Json | ConvertTo-Json
+          Write-Host "=== Tree ==="
+          (Invoke-WebRequest "http://localhost:$port/api/tree").Content | Out-String | Select-Object -First 50
+          Write-Host "=== Screenshot ==="
+          Invoke-WebRequest "http://localhost:$port/api/screenshot" -OutFile "$env:RUNNER_TEMP\polypilot-ci-screenshot.png"
+          $size = (Get-Item "$env:RUNNER_TEMP\polypilot-ci-screenshot.png").Length
+          Write-Host "✅ Screenshot saved ($size bytes)"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: polypilot-windows
+          path: |
+            ${{ runner.temp }}/polypilot-ci-screenshot.png
+            ${{ runner.temp }}/polypilot-stdout.log
+            ${{ runner.temp }}/polypilot-stderr.log
+          if-no-files-found: ignore
+
+      - name: Cleanup
+        if: always()
+        shell: pwsh
+        run: |
+          $appPid = $env:APP_PID
+          if ($appPid) { Stop-Process -Id $appPid -Force -ErrorAction SilentlyContinue }
+# CI trigger
