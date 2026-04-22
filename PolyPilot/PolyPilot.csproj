@@ -82,7 +82,7 @@
     <ItemGroup>
         <PackageReference Include="CommunityToolkit.Maui" Version="14.1.0" />
         <PackageReference Include="GitHub.Copilot.SDK" Version="0.2.2" />
-        <PackageReference Include="Markdig" Version="1.1.2" />
+        <PackageReference Include="Markdig" Version="1.1.3" />
         <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
         <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.5" />

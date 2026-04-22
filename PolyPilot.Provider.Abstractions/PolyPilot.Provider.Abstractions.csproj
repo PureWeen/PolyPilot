@@ -11,6 +11,6 @@
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="10.0.5" />
-    <PackageReference Include="GitHub.Copilot.SDK" Version="0.2.0" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="0.2.2" />
   </ItemGroup>
 </Project>
