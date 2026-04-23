@@ -126,6 +126,8 @@ concurrency:
   cancel-in-progress: true
 ```
 
+> ⚠️ **Pre-cancellation race**: Cancellation is asynchronous — GitHub sends `SIGTERM`, waits up to 7500ms, then `SIGKILL`. Already-running steps may complete. An agent that already posted a comment cannot un-post it. A `create-pull-request` that already ran cannot un-create the PR. **Concurrency is not a substitute for idempotency.**
+
 ### `slash_command:` Event Subscription
 
 `slash_command:` compiles to broad event subscriptions — by default it listens to **all** comment-related events (issue open/edit, PR open/edit, every comment, every review comment, every discussion comment), then filters post-activation. This means:
@@ -198,19 +200,79 @@ steps:
 
 For `pull_request` + fork support (not `workflow_dispatch`): add `forks: ["*"]` to the trigger frontmatter. The platform automatically preserves `.github/` and `.agents/` as a base-branch artifact in the activation job, then restores them after `checkout_pr_branch.cjs` — fork PRs cannot overwrite agent infrastructure (gh-aw#23769, resolved).
 
+### Operating Within a Fork
+
+When you fork a repository, all workflow files come with it. Events inside your fork fire the workflows inside your fork, with your fork's secrets. This is separate from cross-fork PRs and is frequently a surprise.
+
+**Guard pattern** — prevent workflows from running in forks (with a manual escape hatch):
+
+```yaml
+jobs:
+  guard:
+    if: github.event_name == 'workflow_dispatch' || !github.event.repository.fork
+```
+
+> ⚠️ **YAML gotcha**: Don't start a bare `if:` value with `!` — it's a YAML tag indicator. Either wrap in `${{ }}` or use parentheses: `if: (!github.event.repository.fork)`.
+
 ### Security-Critical Patterns
 
-These four patterns are the most commonly missed when building secure workflows. Use all where applicable:
+These patterns are the most commonly missed when building secure workflows. Use all where applicable.
 
-**1. Prevent accidental PR approvals** — always restrict review workflows; otherwise the agent can approve PRs and bypass branch protection rules (gh-aw#25439). Use `[COMMENT]` to avoid stale blocking reviews that can't be dismissed:
+**1. Role-based access control** — `roles:` controls who can trigger the workflow. Without it, any user (including the PR author) can trigger `/review` on a malicious PR designed to prompt-inject the reviewer. The default `[admin, maintainer, write]` is injected automatically for workflows with "unsafe" events (issues, comments, PRs, discussions):
+
+```yaml
+on:
+  slash_command:
+    name: review
+    events: [pull_request_comment]
+  roles: [admin, maintainer, write]  # Only committers can trigger — NEVER use 'all' unless you've audited every safe-output
+```
+
+> ⚠️ **`triage` role footgun**: `triage` is excluded from the default allowlist. A `label_command:` workflow (which requires triage to apply the label) will _fire_ but the activation job will _deny_ a triage user unless `roles:` is broadened. Add `triage` explicitly when triage users are the primary operators.
+
+**2. Prevent accidental PR approvals** — always restrict review workflows; otherwise the agent can approve PRs and bypass branch protection rules (gh-aw#25439):
 
 ```yaml
 safe-outputs:
   submit-pull-request-review:
-    allowed-events: [COMMENT]  # Blocks APPROVE; avoids un-dismissable REQUEST_CHANGES
+    # COMMENT-only: no stale blocking reviews, safe for iterative /review re-runs
+    allowed-events: [COMMENT]
+    # Or allow REQUEST_CHANGES for stronger merge-gating (but stale reviews persist until manually dismissed):
+    # allowed-events: [COMMENT, REQUEST_CHANGES]
 ```
 
-**2. CI triggering + protected file safety** for agent-created PRs — `GITHUB_TOKEN` pushes don't trigger CI; a PAT/App token is required. `protected-files` controls what happens when the agent modifies package manifests or `.github/`:
+**3. Integrity filtering** — controls what content the agent can **see** (vs. `roles:` which controls who can **trigger**). The MCP gateway filters content by author trust level:
+
+| Level | Who qualifies |
+|-------|--------------|
+| `merged` | Merged PRs; commits on default branch (any author) |
+| `approved` | `OWNER`, `MEMBER`, `COLLABORATOR`; non-fork PRs on public repos; all items in private repos; platform bots; `trusted-users` |
+| `unapproved` | `CONTRIBUTOR`, `FIRST_TIME_CONTRIBUTOR` |
+| `none` | All content including `FIRST_TIMER` and users with no association |
+| `blocked` | Users in `blocked-users` — always denied, cannot be promoted |
+
+```yaml
+tools:
+  github:
+    min-integrity: approved        # Default for public repos — only trusted author content
+    toolsets: [pull_requests, repos]
+    # trusted-users: [contractor-1]   # Elevate specific users to 'approved'
+    # blocked-users: [spam-bot]       # Unconditionally block specific users
+    # approval-labels: [human-reviewed]  # Labels that promote items to 'approved'
+```
+
+**Interaction with `roles:`:**
+
+| `roles:` | `min-integrity` | Effect |
+|----------|----------------|--------|
+| Default `[admin, maintainer, write]` | `approved` | **Most restrictive.** Only trusted actors trigger; agent sees only trusted content |
+| Default | `unapproved`/`none` | Trusted actors only, but agent reads community content. Good for post-merge scans |
+| `all` | `approved` | **Two-layer defense.** Any actor triggers, but agent only sees trusted content |
+| `all` | `none` | **Widest exposure.** Must pair with minimal `safe-outputs` — only remaining constraint |
+
+> ⚠️ **Compiler bug (v0.62.2)**: Hardcoded `min-integrity` in source emits an incomplete guard policy (missing `repos` field) that crashes the MCP Gateway. Rely on the automatic `determine-automatic-lockdown` step instead, which applies `approved` for public repos by default. This may be fixed in newer compiler versions — test before hardcoding.
+
+**4. CI triggering + protected file safety** for agent-created PRs — `GITHUB_TOKEN` pushes don't trigger CI; a PAT/App token is required. `protected-files` controls what happens when the agent modifies package manifests or `.github/`:
 
 ```yaml
 safe-outputs:
@@ -220,21 +282,7 @@ safe-outputs:
     # protected-files: blocked (default) | allowed (disables protection)
 ```
 
-**3. Filter untrusted content before the agent sees it** — the gh-aw runtime automatically applies integrity filtering via the `determine-automatic-lockdown` step, which inspects event type, actor trust level, and repository context. **Do NOT set `min-integrity` explicitly in the workflow source** — compiler v0.62.2 emits an incomplete guard policy (missing `repos` field) that crashes the MCP Gateway at startup. Rely on the automatic lockdown instead:
-
-```yaml
-# ✅ CORRECT — let runtime determine integrity level
-tools:
-  github:
-    toolsets: [pull_requests, repos]
-
-# ❌ BROKEN (compiler v0.62.2 + MCP Gateway v0.1.19) — crashes gateway
-# tools:
-#   github:
-#     min-integrity: approved   # Compiler omits required 'repos' field
-```
-
-**4. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you **must** use `.github/scripts/Checkout-GhAwPr.ps1` to check out the PR branch, verify write access, reject fork PRs, and restore trusted `.github/` from the base branch. Without it, the agent evaluates the workflow branch instead of the PR:
+**5. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you **must** use `.github/scripts/Checkout-GhAwPr.ps1` to check out the PR branch, verify write access, reject fork PRs, and restore trusted `.github/` from the base branch. Without it, the agent evaluates the workflow branch instead of the PR:
 
 ```yaml
 steps:
@@ -244,6 +292,76 @@ steps:
       PR_NUMBER: ${{ inputs.pr_number }}
     run: pwsh .github/scripts/Checkout-GhAwPr.ps1
 ```
+
+### Idempotency and the Edited-Comment Time-Bomb
+
+**Slash command workflows MUST be idempotent.** Treat every activation as if the same command might already be running for the same target. Check before acting, claim a lock, no-op if already in progress or done.
+
+gh-aw provides `lock-for-agent: true` to automatically lock/unlock the issue during execution, but use with caution — it prevents genuine users from interacting on the issue/PR while the workflow runs.
+
+> 🛑 **The edited-comment time-bomb**: An attacker can edit a 6-month-old comment on a closed issue or PR, injecting `/command` or any payload — `issue_comment.edited` fires TODAY against today's secrets, today's `permissions:`, today's `safe-outputs:`. The workflow has no concept of "this comment was created when our security model was different." For raw `issue_comment`, use `types: [created]` — add `edited` only if you've designed for this attack vector.
+
+### Read-Only Contributor Write Surface
+
+> **What the agent can do is determined by `permissions:` and `safe-outputs:` — NOT by the actor who fired it.** When a workflow accepts a read-only contributor as the trigger (`roles: all`), that contributor effectively gets bot-level write access to anything the workflow grants the agent.
+
+**What a read-only user can fire:**
+
+| Action | Can fire? |
+|--------|----------|
+| Open an issue, comment, react with emoji | ✅ |
+| `/slash-command` in any comment/body they author | ✅ |
+| Open a PR (from fork) | ✅ |
+| Apply a label | ❌ (requires triage) |
+| Invoke `workflow_dispatch` | ❌ (requires write) |
+| Click "Approve and run workflows" | ❌ (requires write) |
+
+**Defenses, in priority order:**
+1. Leave `roles:` at its default `[admin, maintainer, write]`
+2. Minimize `permissions:` to the smallest set the agent needs
+3. Minimize `safe-outputs:` to only the mutations the workflow needs
+4. For PR-touching workflows: never check out the PR head SHA in a job that has secrets
+5. Add an explicit fork guard: `if: github.event.pull_request.head.repo.fork == false`
+6. Configure `min-integrity` to control what content the agent can see
+
+## Trigger Selection Guide
+
+Choose the right trigger for your workflow. Triggers are grouped by recommended usage level.
+
+### ✅ Recommended
+
+| Trigger | Best for | Key advantage |
+|---------|----------|---------------|
+| `workflow_dispatch` | Manual escape hatch, debugging, ad-hoc runs | Write+ required; auto-paired with most triggers |
+| `schedule` | Periodic housekeeping, polling-based PR operations | Best concurrency story; no event spamming; no approval gate |
+| `labeled` / `label_command:` | Human-in-the-loop gate via label application | Triage+ required to apply label; one-shot with auto-remove |
+| `issues` | Community-facing issue workflows | Immediate; `roles: all` acceptable with tight safe-outputs |
+| `release` / `milestone` | Post-release/milestone automation | Trusted trigger (write+) |
+
+### ⚠️ Use with Caution
+
+| Trigger | Headline risk |
+|---------|--------------|
+| `push` | Always use explicit `branches:` — bare `on: push` fires on every branch (cost blowout) |
+| `issue_comment` / `slash_command:` | Broad underlying subscription; concurrency catastrophe; edited-comment time-bomb |
+| `pull_request_review` | Fires for ALL review types including COMMENT from any user, not just approvals |
+| `discussion` / `discussion_comment` | Most-open untrusted-input surface; no approval gate; lower visibility than issues |
+
+### ⛔ Avoid
+
+| Trigger | Why |
+|---------|-----|
+| `pull_request` | Causes "Approve and run" gate for ALL workflows; clicking approves everything including `pull_request_target` with full secrets. Prefer `slash_command:`, `schedule`, or `label_command:` |
+| `pull_request_target` | Runs on base ref with full secrets and write token — most exploited vulnerability class. Never check out PR head SHA |
+| `workflow_run` | `pull_request_target`'s quieter sibling — launders untrusted fork artifacts into privileged context with no approval gate |
+
+### Design Principles
+
+1. **Deterministic by default.** Use deterministic Actions and reusable workflows; agentic workflows only when the input is unstructured or AI unlocks a capability deterministic code cannot provide.
+2. **Limitations ARE the security model.** Don't engineer bypasses (`pull_request_target` for write access, PAT pools to evade bot attribution, `workflow_run` to escape approval gates, `roles: all` to widen the actor pool). When a boundary blocks a legitimate goal, escalate to platform owners.
+3. **Limit the agent job to agent-suitable work.** Keep filtering/skipping in pre-agent steps. Execute deterministic scripts before and after the agent job.
+4. **Apply least privilege on every dimension.** Minimum `permissions:`, `safe-outputs:`, `network.allowed:`, secrets, `tools:`. The agent sandbox makes untrusted input safe to process _inside_ the agent; the same operation in pre/post-agent steps runs on the runner host with full secret access.
+5. **Mind the signal-to-noise ratio.** Convenience triggers compile to broad subscriptions. Every event spawns a workflow run consuming a runner slot. The activation step must be cheap, and the worst-case invocation rate must be estimated and acceptable.
 
 ### Frontmatter Features
 
