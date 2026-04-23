@@ -108,6 +108,12 @@ Study the existing tests in `PolyPilot.IntegrationTests/ScheduledTaskTests.cs` f
 
 The integration test should prove the fix works from a user's perspective — navigate to the right page, perform the action that was broken, and assert the expected result. For example, if the bug is "copy button doesn't work", the test should click Copy and verify the success indicator appears.
 
+### 3c. Screenshots (for visual changes)
+
+If your fix adds or modifies any UI element (new component, changed layout, new indicator, etc.), capture before/after screenshots using the DevFlow agent's screenshot API. Save them in the integration test via `ScreenshotAsync("description")`. These will be uploaded as CI artifacts.
+
+In the PR description, mention that screenshots are available in the integration test CI artifacts. This helps reviewers see the visual change without running the app locally.
+
 ## Step 4: Run Tests
 
 Run both unit tests and build integration tests:
@@ -198,12 +204,13 @@ Post an `add_comment` on issue #${{ github.event.issue.number || inputs.issue_nu
 - Test results (unit tests passed/failed count)
 - Review summary (findings found and fixed)
 - Integration test dispatch status
+- **For visual changes:** note that screenshots are available in the integration test CI artifacts (link to the workflow run)
 
 ## Rules
 
 1. **Fix only the reported issue.** Don't fix unrelated problems.
 2. **Always run tests** before creating the PR.
 3. **Never modify `.github/` files** — protected-files will reject it.
-4. **Max 2 review rounds.** After 2 rounds, post remaining findings as PR comments.
+4. **Max 3 review rounds.** After 3 rounds, post remaining findings as PR comments.
 5. **Never force-push.** Only add commits on top.
 6. **One commit per logical change.** Keep git history clean.
