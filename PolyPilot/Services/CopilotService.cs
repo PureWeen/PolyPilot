@@ -2811,7 +2811,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             Name = name,
             Model = sessionModel,
             ReasoningEffort = GetDefaultReasoningEffort(sessionModel),
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow,
             WorkingDirectory = sessionDir,
             GitBranch = GetGitBranch(sessionDir),
             IsCreating = true
@@ -4247,7 +4247,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         return InvokeOnUIAsync(() =>
         {
             var info = state.Info;
-            info.CreatedAt = DateTime.UtcNow;
+            info.CreatedAt = DateTimeOffset.UtcNow;
             info.SessionId = sessionId;
             info.IsResumed = isStillProcessing;
             info.WorkingDirectory = workingDirectory;

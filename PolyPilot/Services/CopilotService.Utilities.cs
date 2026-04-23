@@ -815,11 +815,11 @@ public partial class CopilotService
         // Whichever has the most recent user interaction is the better source.
         var eventsLatestUser = eventsHistory
             .Where(m => m.MessageType == ChatMessageType.User)
-            .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTime.MinValue;
+            .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTimeOffset.MinValue;
 
         var dbLatestUser = dbHistory
             .Where(m => m.MessageType == ChatMessageType.User)
-            .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTime.MinValue;
+            .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTimeOffset.MinValue;
 
         if (dbLatestUser > eventsLatestUser && (dbLatestUser - eventsLatestUser).TotalSeconds > 5)
         {
