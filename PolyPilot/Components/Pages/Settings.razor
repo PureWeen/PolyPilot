@@ -1737,7 +1737,7 @@
     {
         var host = TailscaleService.MagicDnsName ?? TailscaleService.TailscaleIp ?? localIps.FirstOrDefault() ?? "localhost";
         var url = $"http://{host}:{DevTunnelService.BridgePort}";
-        await JS.InvokeVoidAsync("navigator.clipboard.writeText", url);
+        await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(url);
         ShowStatus("URL copied!", "success", 2000);
     }
 
