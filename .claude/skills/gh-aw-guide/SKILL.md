@@ -283,7 +283,7 @@ Supported runtimes: `node`, `python`, `go`, `uv`, `bun`, `deno`, `ruby`, `java`,
 
 ## When to Read the Full Reference
 
-Read `.github/skills/gh-aw-guide/references/architecture.md` when you need:
+Read `.claude/skills/gh-aw-guide/references/architecture.md` when you need:
 - **Execution model** details (step ordering, credential availability, pre-agent-steps/post-steps)
 - **Security boundaries** (defense layers, integrity filtering, protected files, rules for authors)
 - **Fork PR handling** (platform restore, threat model, trigger-by-trigger behavior)
