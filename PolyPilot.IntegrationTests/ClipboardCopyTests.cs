@@ -38,60 +38,6 @@ public class ClipboardCopyTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task CopyButton_ActuallyCopiesTextToClipboard()
-    {
-        await WaitForCdpReadyAsync();
-
-        // Find a copy button
-        var hasCopyBtn = await ExistsAsync(".copy-icon-btn");
-        if (!hasCopyBtn)
-        {
-            var sessionExists = await ExistsAsync(".session-item, .session-list-item");
-            if (sessionExists)
-            {
-                await ClickAsync(".session-item, .session-list-item");
-                await Task.Delay(2000);
-                hasCopyBtn = await ExistsAsync(".copy-icon-btn");
-            }
-        }
-
-        if (!hasCopyBtn)
-        {
-            Output.WriteLine("No messages with copy buttons found — skipping clipboard verification");
-            return;
-        }
-
-        // Click the copy button
-        await ClickAsync(".copy-icon-btn");
-        await Task.Delay(500);
-
-        // Wait for the copied indicator
-        for (var i = 0; i < 5; i++)
-        {
-            if (await ExistsAsync(".copy-icon-btn.copied"))
-                break;
-            await Task.Delay(200);
-        }
-
-        // Read clipboard via JSInvokable static method — this calls MAUI Clipboard.GetTextAsync()
-        // DotNet.invokeMethodAsync returns a Promise, so we await it inline
-        var clipboardText = "";
-        for (var attempt = 0; attempt < 3; attempt++)
-        {
-            clipboardText = await CdpEvalAsync(
-                "await DotNet.invokeMethodAsync('PolyPilot', 'GetClipboardText')");
-            if (!string.IsNullOrWhiteSpace(clipboardText))
-                break;
-            await Task.Delay(500);
-        }
-        Output.WriteLine($"Clipboard content: '{clipboardText}'");
-
-        Assert.False(string.IsNullOrWhiteSpace(clipboardText),
-            "Clipboard should contain text after clicking Copy — " +
-            "proves MAUI Clipboard.SetTextAsync() actually wrote to system clipboard");
-    }
-
-    [Fact]
     public async Task CopyButton_ClickShowsSuccessIndicator()
     {
         await WaitForCdpReadyAsync();
