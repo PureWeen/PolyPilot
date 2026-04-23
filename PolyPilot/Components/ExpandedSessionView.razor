@@ -116,7 +116,19 @@
                     @if (UsageInfo?.PremiumQuota != null)
                     {
                         var q = UsageInfo.PremiumQuota;
-                        <div class="info-row"><span class="info-label">Premium</span><span class="info-value">@(q.IsUnlimited ? "Unlimited" : $"{q.EntitlementRequests - q.UsedRequests}/{q.EntitlementRequests} remaining")</span></div>
+                        var qLevel = QuotaDisplayHelper.GetQuotaLevel(q.RemainingPercentage);
+                        var qCss = QuotaDisplayHelper.GetCssClass(qLevel);
+                        var qReset = QuotaDisplayHelper.FormatResetCountdown(q.ResetDate);
+                        <div class="info-row">
+                            <span class="info-label">Premium</span>
+                            <span class="info-value quota-info-@qCss">
+                                @(q.IsUnlimited ? "Unlimited" : $"{q.EntitlementRequests - q.UsedRequests}/{q.EntitlementRequests} remaining ({q.RemainingPercentage}%)")
+                                @if (qReset != null)
+                                {
+                                    <span class="quota-reset-hint"> · @qReset</span>
+                                }
+                            </span>
+                        </div>
                     }
                     @if (Session.SessionId != null && PlatformHelper.IsDesktop)
                     {
