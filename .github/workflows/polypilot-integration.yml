@@ -1,4 +1,5 @@
 name: "PolyPilot Integration Test"
+run-name: "PolyPilot Integration Test${{ inputs.pr_number && format(' — PR #{0}', inputs.pr_number) || '' }}"
 
 on:
   workflow_dispatch:

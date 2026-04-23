@@ -30,14 +30,15 @@ jobs:
           BRANCH="${{ github.event.workflow_run.head_branch }}"
           FAILED_WORKFLOW="${{ github.event.workflow_run.name }}"
           FAILED_RUN="${{ github.event.workflow_run.id }}"
+          DISPLAY_TITLE="${{ github.event.workflow_run.display_title }}"
           echo "Branch: $BRANCH"
           echo "Failed workflow: $FAILED_WORKFLOW"
           echo "Failed run: $FAILED_RUN"
+          echo "Display title: $DISPLAY_TITLE"
 
-          # workflow_dispatch runs execute on main but carry the PR number
-          # in their inputs. Try reading it from the API first.
-          PR_NUMBER=$(gh api "repos/${{ github.repository }}/actions/runs/$FAILED_RUN" \
-            --jq '.inputs.pr_number // empty' 2>/dev/null || true)
+          # The dispatching workflow embeds "PR #NNN" in run-name.
+          # Parse it from the display title first.
+          PR_NUMBER=$(echo "$DISPLAY_TITLE" | grep -oP 'PR #\K[0-9]+' || true)
 
           # Fall back to branch-based lookup for push/PR-triggered runs
           if [ -z "$PR_NUMBER" ]; then

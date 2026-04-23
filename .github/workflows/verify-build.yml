@@ -1,4 +1,5 @@
 name: Verify Build (Cross-Platform)
+run-name: "Verify Build${{ inputs.pr_number && format(' — PR #{0}', inputs.pr_number) || '' }}"
 
 on:
   workflow_dispatch:
