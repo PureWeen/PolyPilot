@@ -1340,11 +1340,11 @@ public partial class CopilotService
     {
         return Organization.SortMode switch
         {
-            SessionSortMode.LastActive => DateTime.MaxValue - session.LastUpdatedAt,
-            SessionSortMode.CreatedAt => DateTime.MaxValue - session.CreatedAt,
+            SessionSortMode.LastActive => DateTimeOffset.MaxValue - session.LastUpdatedAt,
+            SessionSortMode.CreatedAt => DateTimeOffset.MaxValue - session.CreatedAt,
             SessionSortMode.Alphabetical => session.Name,
             SessionSortMode.Manual => (object)(metas.TryGetValue(session.Name, out var m) ? m.ManualOrder : int.MaxValue),
-            _ => DateTime.MaxValue - session.LastUpdatedAt
+            _ => DateTimeOffset.MaxValue - session.LastUpdatedAt
         };
     }
 
