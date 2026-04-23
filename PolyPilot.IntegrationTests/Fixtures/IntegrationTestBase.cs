@@ -37,18 +37,22 @@ public abstract class IntegrationTestBase
     }
 
     /// <summary>Evaluate JavaScript in the Blazor WebView via CDP.</summary>
-    protected async Task<string> CdpEvalAsync(string expression)
+    protected async Task<string> CdpEvalAsync(string expression, bool awaitPromise = false)
     {
         // Use direct HTTP POST to /api/cdp — the Driver's SendCdpCommandAsync
         // uses a different route that may not be available on all agent versions.
+        var paramsObj = new JsonObject
+        {
+            ["expression"] = expression,
+            ["returnByValue"] = true,
+        };
+        if (awaitPromise)
+            paramsObj["awaitPromise"] = true;
+
         var payload = new JsonObject
         {
             ["method"] = "Runtime.evaluate",
-            ["params"] = new JsonObject
-            {
-                ["expression"] = expression,
-                ["returnByValue"] = true,
-            }
+            ["params"] = paramsObj,
         };
 
         var response = await Http.PostAsync("/api/cdp",

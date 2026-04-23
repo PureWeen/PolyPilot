@@ -74,17 +74,29 @@ public class ClipboardCopyTests : IntegrationTestBase
         }
 
         // Read clipboard via JSInvokable static method — this calls MAUI Clipboard.GetTextAsync()
-        // DotNet.invokeMethodAsync returns a Promise, so we await it inline
+        // DotNet.invokeMethodAsync returns a Promise — must use awaitPromise in CDP
         var clipboardText = "";
         for (var attempt = 0; attempt < 3; attempt++)
         {
             clipboardText = await CdpEvalAsync(
-                "await DotNet.invokeMethodAsync('PolyPilot', 'GetClipboardText')");
+                "DotNet.invokeMethodAsync('PolyPilot', 'GetClipboardText')",
+                awaitPromise: true);
+            Output.WriteLine($"Clipboard read attempt {attempt}: '{clipboardText}'");
             if (!string.IsNullOrWhiteSpace(clipboardText))
                 break;
             await Task.Delay(500);
         }
-        Output.WriteLine($"Clipboard content: '{clipboardText}'");
+
+        // If JSInvokable didn't work, try the Clipboard API check as fallback
+        if (string.IsNullOrWhiteSpace(clipboardText))
+        {
+            var hasText = await CdpEvalAsync(
+                "DotNet.invokeMethodAsync('PolyPilot', 'GetClipboardText').then(t => 'GOT:' + t).catch(e => 'ERR:' + e)",
+                awaitPromise: true);
+            Output.WriteLine($"Clipboard fallback: '{hasText}'");
+        }
+
+        Output.WriteLine($"Final clipboard content: '{clipboardText}'");
 
         Assert.False(string.IsNullOrWhiteSpace(clipboardText),
             "Clipboard should contain text after clicking Copy — " +
