@@ -49,7 +49,12 @@ public class ChatMessageEntity
         var type = Enum.TryParse<ChatMessageType>(MessageType, out var mt) ? mt : ChatMessageType.User;
         var role = type == ChatMessageType.User ? "user" : "assistant";
 
-        var msg = new ChatMessage(role, Content, new DateTimeOffset(Timestamp, TimeSpan.Zero), type)
+        // Old data may have been stored with DateTime.Now (local time) — use local offset for
+        // Unspecified/Local kinds so timestamps don't shift by the user's UTC offset on read.
+        var offset = Timestamp.Kind == DateTimeKind.Utc
+            ? TimeSpan.Zero
+            : TimeZoneInfo.Local.GetUtcOffset(Timestamp);
+        var msg = new ChatMessage(role, Content, new DateTimeOffset(Timestamp, offset), type)
         {
             ToolName = ToolName,
             ToolCallId = ToolCallId,

@@ -387,8 +387,9 @@ public class ExternalSessionScanner : IDisposable
                     if (!root.TryGetProperty("data", out var data)) continue;
 
                     var timestamp = DateTimeOffset.UtcNow;
-                    if (root.TryGetProperty("timestamp", out var tsEl))
-                        DateTimeOffset.TryParse(tsEl.GetString(), out timestamp);
+                    if (root.TryGetProperty("timestamp", out var tsEl)
+                        && DateTimeOffset.TryParse(tsEl.GetString(), out var parsed))
+                        timestamp = parsed;
 
                     switch (type)
                     {

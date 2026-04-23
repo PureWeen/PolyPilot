@@ -2038,7 +2038,7 @@ public partial class CopilotService
             OrchestratorName = orchestratorName,
             WorkerNames = assignments.Select(a => a.WorkerName).ToList(),
             OriginalPrompt = prompt,
-            StartedAt = DateTime.UtcNow
+            StartedAt = DateTimeOffset.UtcNow
         });
 
         try
@@ -3229,7 +3229,7 @@ public partial class CopilotService
             if (lastAssistant != null && !string.IsNullOrWhiteSpace(lastAssistant.Content))
             {
                 results.Add(new WorkerResult(workerName, lastAssistant.Content, true, null,
-                    TimeSpan.FromSeconds((DateTime.UtcNow - pending.StartedAt).TotalSeconds)));
+                    TimeSpan.FromSeconds((DateTimeOffset.UtcNow - pending.StartedAt).TotalSeconds)));
             }
             else
             {
@@ -3260,7 +3260,7 @@ public partial class CopilotService
                 if (!string.IsNullOrWhiteSpace(diskResponse))
                 {
                     results.Add(new WorkerResult(workerName, diskResponse, true, null,
-                        TimeSpan.FromSeconds((DateTime.UtcNow - pending.StartedAt).TotalSeconds)));
+                        TimeSpan.FromSeconds((DateTimeOffset.UtcNow - pending.StartedAt).TotalSeconds)));
                 }
                 else if (session.IsProcessing)
                 {
@@ -4116,7 +4116,7 @@ public partial class CopilotService
                 OrchestratorName = orchestratorName,
                 WorkerNames = assignments.Select(a => a.WorkerName).ToList(),
                 OriginalPrompt = prompt,
-                StartedAt = DateTime.UtcNow,
+                StartedAt = DateTimeOffset.UtcNow,
                 IsReflect = true,
                 ReflectIteration = reflectState.CurrentIteration
             });
