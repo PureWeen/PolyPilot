@@ -38,6 +38,72 @@ public class ClipboardCopyTests : IntegrationTestBase
     }
 
     [Fact]
+    public async Task CopyButton_ActuallyCopiesTextToClipboard()
+    {
+        await WaitForCdpReadyAsync();
+
+        // Find a copy button
+        var hasCopyBtn = await ExistsAsync(".copy-icon-btn");
+        if (!hasCopyBtn)
+        {
+            var sessionExists = await ExistsAsync(".session-item, .session-list-item");
+            if (sessionExists)
+            {
+                await ClickAsync(".session-item, .session-list-item");
+                await Task.Delay(2000);
+                hasCopyBtn = await ExistsAsync(".copy-icon-btn");
+            }
+        }
+
+        if (!hasCopyBtn)
+        {
+            Output.WriteLine("No messages with copy buttons found — skipping clipboard verification");
+            return;
+        }
+
+        // Click the copy button
+        await ClickAsync(".copy-icon-btn");
+        await Task.Delay(500);
+
+        // Wait for the copied indicator
+        for (var i = 0; i < 5; i++)
+        {
+            if (await ExistsAsync(".copy-icon-btn.copied"))
+                break;
+            await Task.Delay(200);
+        }
+
+        // Read clipboard via JSInvokable static method — this calls MAUI Clipboard.GetTextAsync()
+        // DotNet.invokeMethodAsync returns a Promise — must use awaitPromise in CDP
+        var clipboardText = "";
+        for (var attempt = 0; attempt < 3; attempt++)
+        {
+            clipboardText = await CdpEvalAsync(
+                "DotNet.invokeMethodAsync('PolyPilot', 'GetClipboardText')",
+                awaitPromise: true);
+            Output.WriteLine($"Clipboard read attempt {attempt}: '{clipboardText}'");
+            if (!string.IsNullOrWhiteSpace(clipboardText))
+                break;
+            await Task.Delay(500);
+        }
+
+        // If JSInvokable didn't work, try the Clipboard API check as fallback
+        if (string.IsNullOrWhiteSpace(clipboardText))
+        {
+            var hasText = await CdpEvalAsync(
+                "DotNet.invokeMethodAsync('PolyPilot', 'GetClipboardText').then(t => 'GOT:' + t).catch(e => 'ERR:' + e)",
+                awaitPromise: true);
+            Output.WriteLine($"Clipboard fallback: '{hasText}'");
+        }
+
+        Output.WriteLine($"Final clipboard content: '{clipboardText}'");
+
+        Assert.False(string.IsNullOrWhiteSpace(clipboardText),
+            "Clipboard should contain text after clicking Copy — " +
+            "proves MAUI Clipboard.SetTextAsync() actually wrote to system clipboard");
+    }
+
+    [Fact]
     public async Task CopyButton_ClickShowsSuccessIndicator()
     {
         await WaitForCdpReadyAsync();
