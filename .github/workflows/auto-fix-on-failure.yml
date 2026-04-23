@@ -1,0 +1,112 @@
+name: "Auto-Fix on Test Failure"
+
+# Triggers when verify-build or polypilot-integration completes.
+# If any job failed AND the run was for a PR, dispatches /fix to
+# read the failure logs and fix the code — creating a feedback loop.
+
+on:
+  workflow_run:
+    workflows:
+      - "Verify Build (Cross-Platform)"
+      - "PolyPilot Integration Test"
+    types: [completed]
+    branches-ignore:
+      - main
+
+env:
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  check-and-fix:
+    name: Check results and trigger fix if needed
+    runs-on: ubuntu-latest
+    if: github.event.workflow_run.conclusion == 'failure'
+    permissions:
+      actions: write
+      pull-requests: read
+
+    steps:
+      - name: Find associated PR
+        id: find-pr
+        run: |
+          BRANCH="${{ github.event.workflow_run.head_branch }}"
+          FAILED_WORKFLOW="${{ github.event.workflow_run.name }}"
+          FAILED_RUN="${{ github.event.workflow_run.id }}"
+          echo "Branch: $BRANCH"
+          echo "Failed workflow: $FAILED_WORKFLOW"
+          echo "Failed run: $FAILED_RUN"
+
+          # Find open PR for this branch
+          PR_NUMBER=$(gh pr list --repo ${{ github.repository }} \
+            --head "$BRANCH" --state open \
+            --json number --jq '.[0].number // empty')
+
+          if [ -z "$PR_NUMBER" ]; then
+            echo "No open PR found for branch $BRANCH — skipping"
+            echo "has_pr=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Found PR #$PR_NUMBER"
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "has_pr=true" >> $GITHUB_OUTPUT
+          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "failed_workflow=$FAILED_WORKFLOW" >> $GITHUB_OUTPUT
+          echo "failed_run=$FAILED_RUN" >> $GITHUB_OUTPUT
+
+      - name: Check fix attempt count
+        id: check-count
+        if: steps.find-pr.outputs.has_pr == 'true'
+        run: |
+          PR=${{ steps.find-pr.outputs.pr_number }}
+          # Count how many auto-fix comments already exist on this PR
+          # to prevent infinite loops
+          FIX_COUNT=$(gh pr view "$PR" --repo ${{ github.repository }} \
+            --json comments --jq '[.comments[].body | select(contains("Auto-fix triggered"))] | length')
+          echo "Previous auto-fix attempts: $FIX_COUNT"
+          echo "fix_count=$FIX_COUNT" >> $GITHUB_OUTPUT
+
+          if [ "$FIX_COUNT" -ge 3 ]; then
+            echo "Max auto-fix attempts (3) reached — stopping loop"
+            echo "should_fix=false" >> $GITHUB_OUTPUT
+          else
+            echo "should_fix=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Dispatch /fix on the PR
+        if: steps.find-pr.outputs.has_pr == 'true' && steps.check-count.outputs.should_fix == 'true'
+        run: |
+          PR=${{ steps.find-pr.outputs.pr_number }}
+          BRANCH="${{ steps.find-pr.outputs.branch }}"
+          FAILED="${{ steps.find-pr.outputs.failed_workflow }}"
+          FAILED_RUN="${{ steps.find-pr.outputs.failed_run }}"
+          ATTEMPT=$(( ${{ steps.check-count.outputs.fix_count }} + 1 ))
+
+          echo "Dispatching /fix on PR #$PR (attempt $ATTEMPT)"
+
+          # Post a comment so the fix agent has context about what failed
+          gh pr comment "$PR" --repo ${{ github.repository }} --body \
+            "## 🔄 Auto-fix triggered (attempt $ATTEMPT/3)
+
+          **$FAILED** [failed](https://github.com/${{ github.repository }}/actions/runs/$FAILED_RUN) on branch \`$BRANCH\`.
+
+          Dispatching \`/fix\` to review the failure and apply corrections.
+          [Failed run logs](https://github.com/${{ github.repository }}/actions/runs/$FAILED_RUN)"
+
+          # Dispatch the fix.agent workflow against this PR
+          gh workflow run fix.agent.lock.yml \
+            --repo ${{ github.repository }} \
+            --ref main \
+            -f pr_number="$PR"
+
+      - name: Post max-attempts notice
+        if: steps.find-pr.outputs.has_pr == 'true' && steps.check-count.outputs.should_fix == 'false'
+        run: |
+          PR=${{ steps.find-pr.outputs.pr_number }}
+          gh pr comment "$PR" --repo ${{ github.repository }} --body \
+            "## ⚠️ Auto-fix loop stopped (3/3 attempts)
+
+          The automated fix loop has reached the maximum of 3 attempts.
+          The test failures require manual investigation.
+
+          [Latest failed run](https://github.com/${{ github.repository }}/actions/runs/${{ steps.find-pr.outputs.failed_run }})"
