@@ -35,7 +35,7 @@ Detect when instruction files or skills have drifted from their upstream documen
 ### Step 1: Run the staleness check script
 
 ```bash
-pwsh .github/skills/instruction-drift/scripts/Check-Staleness.ps1
+pwsh .claude/skills/instruction-drift/scripts/Check-Staleness.ps1
 ```
 
 The script outputs a JSON report to stdout with:
@@ -133,8 +133,8 @@ style: |
 For the `gh-aw-guide` skill specifically, a second script mines the `github/gh-aw` repo directly:
 
 ```powershell
-pwsh .github/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1
-pwsh .github/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1 -MaxCommits 100 -DryRun
+pwsh .claude/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1
+pwsh .claude/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1 -MaxCommits 100 -DryRun
 ```
 
 This script:

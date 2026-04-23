@@ -368,17 +368,18 @@ public class ChatExperienceSafetyTests
     /// by stale SDK TurnStart replays.
     /// </summary>
     [Theory]
-    [InlineData(false, true, false, false, true,  true)]
-    [InlineData(false, true, false, false, false, false)]
-    [InlineData(false, true, false, true,  true,  false)]
-    [InlineData(false, true, true,  false, true,  false)]
-    [InlineData(true,  true, false, false, true,  false)]
+    [InlineData(false, true, false, false, true,  0L, true)]   // AllowTurnStartRearm=true → rearm
+    [InlineData(false, true, false, false, false, 0L, false)]  // AllowTurnStartRearm=false, no timestamp → skip
+    [InlineData(false, true, false, true,  true,  0L, false)]  // WasUserAborted → skip
+    [InlineData(false, true, true,  false, true,  0L, false)]  // IsOrphaned → skip
+    [InlineData(true,  true, false, false, true,  0L, false)]  // IsProcessing → skip
     public void TurnStartRearmGuard_OnlyAllowsSpeculativeCompletion(
         bool isProcessing,
         bool isCurrentState,
         bool isOrphaned,
         bool wasUserAborted,
         bool allowTurnStartRearm,
+        long processingClearedAtTicks,
         bool expected)
     {
         var result = CopilotService.ShouldRearmOnTurnStart(
@@ -386,9 +387,124 @@ public class ChatExperienceSafetyTests
             isCurrentState,
             isOrphaned,
             wasUserAborted,
-            allowTurnStartRearm);
+            allowTurnStartRearm,
+            processingClearedAtTicks);
 
         Assert.Equal(expected, result);
+    }
+
+    /// <summary>
+    /// Freshness-based re-arm: if AllowTurnStartRearm is false but processing was cleared
+    /// more than 5 seconds ago, the TurnStart is from a genuine new turn (background task
+    /// completion) and should be re-armed. This prevents the "agent says I'll get back to
+    /// you but never does" bug after reconnects that reset AllowTurnStartRearm to false.
+    /// </summary>
+    [Fact]
+    public void TurnStartRearmGuard_FreshnessBasedFallback_ReturnsTrue()
+    {
+        // Processing was cleared 10 seconds ago — well past the 5s threshold
+        var clearedAt = DateTime.UtcNow.AddSeconds(-10).Ticks;
+
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing: false,
+            isCurrentState: true,
+            isOrphaned: false,
+            wasUserAborted: false,
+            allowTurnStartRearm: false,
+            processingClearedAtTicks: clearedAt);
+
+        Assert.True(result, "TurnStart arriving >5s after processing cleared should be treated as a genuine new turn");
+    }
+
+    /// <summary>
+    /// Freshness-based re-arm: if processing was cleared very recently (&lt;5s), the TurnStart
+    /// is likely stale replay from the just-completed turn and should NOT be re-armed.
+    /// </summary>
+    [Fact]
+    public void TurnStartRearmGuard_RecentClearing_ReturnsFalse()
+    {
+        // Processing was cleared 1 second ago — within the 5s threshold
+        var clearedAt = DateTime.UtcNow.AddSeconds(-1).Ticks;
+
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing: false,
+            isCurrentState: true,
+            isOrphaned: false,
+            wasUserAborted: false,
+            allowTurnStartRearm: false,
+            processingClearedAtTicks: clearedAt);
+
+        Assert.False(result, "TurnStart arriving <5s after processing cleared is likely stale replay");
+    }
+
+    /// <summary>
+    /// Freshness-based re-arm must NOT override WasUserAborted — if the user
+    /// explicitly clicked Stop, background task continuations must be suppressed.
+    /// </summary>
+    [Fact]
+    public void TurnStartRearmGuard_FreshButAborted_ReturnsFalse()
+    {
+        var clearedAt = DateTime.UtcNow.AddSeconds(-30).Ticks;
+
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing: false,
+            isCurrentState: true,
+            isOrphaned: false,
+            wasUserAborted: true,
+            allowTurnStartRearm: false,
+            processingClearedAtTicks: clearedAt);
+
+        Assert.False(result, "User abort must suppress all re-arms regardless of freshness");
+    }
+
+    /// <summary>
+    /// The freshness threshold constant should be accessible for test verification.
+    /// </summary>
+    [Fact]
+    public void TurnStartFreshnessThreshold_IsFiveSeconds()
+    {
+        Assert.Equal(5, CopilotService.TurnStartFreshnessThresholdSeconds);
+    }
+
+    /// <summary>
+    /// Boundary test: exactly at the threshold (>= 5s) should re-arm.
+    /// Uses a timestamp slightly beyond 5s to avoid timing-dependent flakes.
+    /// </summary>
+    [Fact]
+    public void TurnStartRearmGuard_ExactBoundary_ReturnsTrue()
+    {
+        // 5.1s to avoid sub-millisecond timing flakes while testing the >= boundary
+        var clearedAt = DateTime.UtcNow.AddSeconds(-5.1).Ticks;
+
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing: false,
+            isCurrentState: true,
+            isOrphaned: false,
+            wasUserAborted: false,
+            allowTurnStartRearm: false,
+            processingClearedAtTicks: clearedAt);
+
+        Assert.True(result, "TurnStart arriving at >= 5s threshold should re-arm");
+    }
+
+    /// <summary>
+    /// Future timestamp safety: if ProcessingClearedAtTicks is in the future
+    /// (clock skew or bug), elapsed is negative, so re-arm should NOT fire.
+    /// </summary>
+    [Fact]
+    public void TurnStartRearmGuard_FutureTimestamp_ReturnsFalse()
+    {
+        var futureTimestamp = DateTime.UtcNow.AddMinutes(5).Ticks;
+
+        var result = CopilotService.ShouldRearmOnTurnStart(
+            isProcessing: false,
+            isCurrentState: true,
+            isOrphaned: false,
+            wasUserAborted: false,
+            allowTurnStartRearm: false,
+            processingClearedAtTicks: futureTimestamp);
+
+        Assert.False(result, "Future ProcessingClearedAtTicks should not trigger freshness re-arm");
     }
 
     /// <summary>
@@ -1533,6 +1649,127 @@ public class ChatExperienceSafetyTests
         Assert.False(codeOnly.Contains("AllowTurnStartRearm = true", StringComparison.Ordinal),
             "ClearProcessingState must NOT set AllowTurnStartRearm=true — only CompleteResponse should, " +
             "to avoid a race where error/abort paths get it briefly set before they can override to false.");
+    }
+
+    /// <summary>
+    /// ClearProcessingState must set ProcessingClearedAtTicks so the freshness-based
+    /// TurnStart re-arm can distinguish genuine new turns from stale replays.
+    /// </summary>
+    [Fact]
+    public void ClearProcessingState_SetsProcessingClearedAtTicks()
+    {
+        var svcPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(svcPath);
+
+        var methodIdx = source.IndexOf("private void ClearProcessingState(", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "ClearProcessingState must exist");
+        var methodEnd = source.IndexOf("\n    }", methodIdx + 1, StringComparison.Ordinal);
+        var methodBody = source.Substring(methodIdx, methodEnd - methodIdx);
+
+        Assert.True(methodBody.Contains("ProcessingClearedAtTicks", StringComparison.Ordinal),
+            "ClearProcessingState must set ProcessingClearedAtTicks — required for freshness-based TurnStart re-arm");
+    }
+
+    /// <summary>
+    /// EnsureSessionConnectedAsync must set AllowTurnStartRearm=true after resume when not
+    /// processing, so background task continuations (agent/shell completions) can trigger
+    /// re-arm after reconnects. Without this, 91% of background continuations are silently
+    /// dropped (695 EVT-REARM-SKIP vs 68 EVT-REARM in production diagnostics).
+    /// The RESUME-REARM must be in the else branch of HasInterruptedToolExecution to avoid
+    /// racing with the InvokeOnUI that sets IsProcessing=true.
+    /// </summary>
+    [Fact]
+    public void EnsureSessionConnected_SetsAllowTurnStartRearm_AfterResume()
+    {
+        var persistencePath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Persistence.cs");
+        var source = File.ReadAllText(persistencePath);
+
+        Assert.True(source.Contains("AllowTurnStartRearm = true", StringComparison.Ordinal),
+            "EnsureSessionConnectedAsync must set AllowTurnStartRearm=true after resume when not processing");
+        Assert.True(source.Contains("RESUME-REARM", StringComparison.Ordinal),
+            "Resume re-arm must have diagnostic log tag [RESUME-REARM]");
+    }
+
+    /// <summary>
+    /// SessionErrorEvent must stamp ProcessingClearedAtTicks when clearing IsProcessing,
+    /// so the freshness-based TurnStart re-arm doesn't use a stale timestamp from a prior
+    /// turn's ClearProcessingState call. Without this, error → stale timestamp → freshness
+    /// check passes → spurious re-arm shows "Thinking..." instead of error message.
+    /// </summary>
+    [Fact]
+    public void SessionErrorEvent_StampsProcessingClearedAtTicks()
+    {
+        var eventsPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs");
+        var source = File.ReadAllText(eventsPath);
+
+        // Find the SessionErrorEvent case block
+        var caseIdx = source.IndexOf("case SessionErrorEvent err:", StringComparison.Ordinal);
+        Assert.True(caseIdx >= 0, "SessionErrorEvent handler must exist");
+        var nextBreak = source.IndexOf("break;", caseIdx, StringComparison.Ordinal);
+        var caseBody = source.Substring(caseIdx, nextBreak - caseIdx);
+
+        Assert.True(caseBody.Contains("ProcessingClearedAtTicks", StringComparison.Ordinal),
+            "SessionErrorEvent must stamp ProcessingClearedAtTicks — required to prevent stale freshness-based re-arm after errors");
+    }
+
+    /// <summary>
+    /// ClearProcessingStateForRecoveryFailure must stamp ProcessingClearedAtTicks when
+    /// clearing IsProcessing, same rationale as SessionErrorEvent above.
+    /// </summary>
+    [Fact]
+    public void ClearProcessingStateForRecoveryFailure_StampsProcessingClearedAtTicks()
+    {
+        var eventsPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs");
+        var source = File.ReadAllText(eventsPath);
+
+        var methodIdx = source.IndexOf("private void ClearProcessingStateForRecoveryFailure(", StringComparison.Ordinal);
+        Assert.True(methodIdx >= 0, "ClearProcessingStateForRecoveryFailure must exist");
+        var methodEnd = source.IndexOf("\n    }", methodIdx + 1, StringComparison.Ordinal);
+        var methodBody = source.Substring(methodIdx, methodEnd - methodIdx);
+
+        Assert.True(methodBody.Contains("ProcessingClearedAtTicks", StringComparison.Ordinal),
+            "ClearProcessingStateForRecoveryFailure must stamp ProcessingClearedAtTicks — prevents stale freshness re-arm after recovery failure");
+    }
+
+    /// <summary>
+    /// PR #712 re-review: STEER-ERROR clears IsProcessing without ClearProcessingState.
+    /// It must stamp ProcessingClearedAtTicks to prevent stale freshness-based re-arm.
+    /// </summary>
+    [Fact]
+    public void SteerError_StampsProcessingClearedAtTicks()
+    {
+        var svcPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(svcPath);
+
+        var tagIdx = source.IndexOf("[STEER-ERROR]", StringComparison.Ordinal);
+        Assert.True(tagIdx >= 0, "STEER-ERROR diagnostic tag must exist");
+        var block = source.Substring(tagIdx, Math.Min(1000, source.Length - tagIdx));
+
+        Assert.True(block.Contains("ProcessingClearedAtTicks", StringComparison.Ordinal),
+            "STEER-ERROR must stamp ProcessingClearedAtTicks — prevents stale freshness re-arm after soft steer failure");
+    }
+
+    /// <summary>
+    /// PR #712 re-review: MCP-reload abort block clears IsProcessing without ClearProcessingState.
+    /// It must stamp ProcessingClearedAtTicks to prevent stale freshness-based re-arm.
+    /// </summary>
+    [Fact]
+    public void McpReloadAbort_StampsProcessingClearedAtTicks()
+    {
+        var svcPath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(svcPath);
+
+        var tagIdx = source.IndexOf("[MCP-RELOAD]", StringComparison.Ordinal);
+        Assert.True(tagIdx >= 0, "MCP-RELOAD tag must exist");
+        // Find the abort block that clears IsProcessing (the InvokeOnUIAsync block)
+        var abortIdx = source.IndexOf("IsProcessing = false", tagIdx, StringComparison.Ordinal);
+        Assert.True(abortIdx >= 0, "MCP-RELOAD must clear IsProcessing");
+        // Grab ~200 chars around the clearing — should include the stamp
+        var start = Math.Max(0, abortIdx - 100);
+        var block = source.Substring(start, Math.Min(300, source.Length - start));
+
+        Assert.True(block.Contains("ProcessingClearedAtTicks", StringComparison.Ordinal),
+            "MCP-RELOAD abort block must stamp ProcessingClearedAtTicks — prevents stale freshness re-arm during session replacement");
     }
 
     /// <summary>

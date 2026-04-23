@@ -726,6 +726,15 @@ public partial class CopilotService : IAsyncDisposable
         /// </summary>
         public volatile bool AllowTurnStartRearm;
         /// <summary>
+        /// UTC ticks when IsProcessing was last cleared (via ClearProcessingState).
+        /// Used by ShouldRearmOnTurnStart as a freshness-based fallback: if enough time
+        /// has elapsed since processing was cleared (&gt;5s), a TurnStartEvent is treated
+        /// as a genuinely new turn (background task completion) rather than stale replay.
+        /// This prevents the "agent says I'll get back to you but never does" bug caused
+        /// by AllowTurnStartRearm being reset to false after reconnects.
+        /// </summary>
+        public long ProcessingClearedAtTicks;
+        /// <summary>
         /// Stable identity of the most recently reported background task set (agent IDs + shell IDs).
         /// Preserved across SendPromptAsync so the same orphaned background shells keep aging instead
         /// of resetting the zombie timeout every time the user sends another prompt.
@@ -817,6 +826,10 @@ public partial class CopilotService : IAsyncDisposable
         state.IsReconnectedSend = false;
         CancelTurnEndFallback(state);
         CancelToolHealthCheck(state);
+        // Record when processing was cleared — used by ShouldRearmOnTurnStart freshness check
+        // to distinguish genuinely new turns (background task completion after seconds/hours)
+        // from stale replays (same turn, < 1 second gap).
+        Interlocked.Exchange(ref state.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks);
         // NOTE: AllowTurnStartRearm, _consecutiveWatchdogTimeouts, and ConsecutiveStuckCount
         // are NOT reset here. All three are cross-turn health accumulators:
         // - AllowTurnStartRearm = true only belongs on the normal-completion path (CompleteResponse)
@@ -3811,6 +3824,16 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                                                         siblingState.Info.ProcessingStartedAt ??= DateTime.UtcNow;
                                                         siblingState.ResponseCompletion = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
                                                     }
+                                                    // If the sibling was NOT processing, enable re-arm for background
+                                                    // task continuations BEFORE handler registration so there's no
+                                                    // window where TurnStart arrives with AllowTurnStartRearm=false.
+                                                    if (!siblingWasProcessing)
+                                                    {
+                                                        siblingState.AllowTurnStartRearm = true;
+                                                        // Seed ProcessingClearedAtTicks so the freshness fallback works
+                                                        // even if AllowTurnStartRearm gets consumed before the next TurnStart.
+                                                        Interlocked.Exchange(ref siblingState.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks);
+                                                    }
                                                     // Register handler BEFORE publishing to dictionary —
                                                     // no window where events arrive with no handler.
                                                     resumed.On(evt => HandleSessionEvent(siblingState, evt));
@@ -4490,6 +4513,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 // No MaxValue guard needed: STEER-ERROR only reaches non-orphaned sessions
                 Interlocked.Increment(ref state.ProcessingGeneration); // Invalidate stale callbacks
                 state.Info.IsProcessing = false;
+                Interlocked.Exchange(ref state.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks);
                 if (state.Info.ProcessingStartedAt is { } steerStarted)
                     state.Info.TotalApiTimeSeconds += (DateTime.UtcNow - steerStarted).TotalSeconds;
                 state.Info.ProcessingStartedAt = null;
@@ -4771,6 +4795,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                     // No MaxValue guard needed: MCP-reload only reaches non-orphaned sessions
                     Interlocked.Increment(ref state.ProcessingGeneration); // Invalidate stale callbacks
                     state.Info.IsProcessing = false;
+                    Interlocked.Exchange(ref state.ProcessingClearedAtTicks, DateTime.UtcNow.Ticks);
                     state.Info.IsResumed = false;
                     state.HasUsedToolsThisTurn = false;
                     ClearDeferredIdleTracking(state);

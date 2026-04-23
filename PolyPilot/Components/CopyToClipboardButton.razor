@@ -1,6 +1,4 @@
-@using Microsoft.JSInterop
 @implements IDisposable
-@inject IJSRuntime JS
 
 @if (!string.IsNullOrWhiteSpace(Text))
 {
@@ -48,7 +46,7 @@
 
         try
         {
-            await JS.InvokeVoidAsync("navigator.clipboard.writeText", Text);
+            await Microsoft.Maui.ApplicationModel.DataTransfer.Clipboard.SetTextAsync(Text);
             _copied = true;
             await InvokeAsync(StateHasChanged);
             QueueReset();

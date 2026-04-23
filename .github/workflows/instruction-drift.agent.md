@@ -18,7 +18,7 @@ steps:
     env:
       GH_TOKEN: ${{ github.token }}
     run: |
-      RESULT=$(pwsh .github/skills/instruction-drift/scripts/Check-Staleness.ps1 \
+      RESULT=$(pwsh .claude/skills/instruction-drift/scripts/Check-Staleness.ps1 \
         -SyncManifest .github/instructions/gh-aw-workflows.sync.yaml 2>/dev/null \
         || echo '{"changes_detected":false,"error":"script failed"}')
       CHANGES=$(echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(str(d.get('changes_detected',False)).lower())" 2>/dev/null || echo "false")
@@ -34,7 +34,7 @@ steps:
     env:
       GH_TOKEN: ${{ github.token }}
     run: |
-      RESULT=$(pwsh .github/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1 \
+      RESULT=$(pwsh .claude/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1 \
         -MaxCommits 50 2>/dev/null \
         || echo '{"changes_detected":false,"error":"script failed"}')
       echo "report<<SCAN_EOF" >> "$GITHUB_OUTPUT"
@@ -111,8 +111,8 @@ Do not create issues, PRs, or comments. Stop after calling noop.
 ## Analyze and Update
 
 Read the staleness report above. For each signal, read the affected skill files and make updates:
-- `.github/skills/gh-aw-guide/SKILL.md`
-- `.github/skills/gh-aw-guide/references/architecture.md`
+- `.claude/skills/gh-aw-guide/SKILL.md`
+- `.claude/skills/gh-aw-guide/references/architecture.md`
 - `.github/instructions/gh-aw-workflows.instructions.md`
 - `.github/instructions/gh-aw-workflows.sync.yaml`
 
