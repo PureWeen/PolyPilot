@@ -319,7 +319,10 @@ public class UsageCommandTests
                     usageLines.AppendLine($"- **Remaining:** {quota.RemainingPercentage}%");
                 }
                 if (!string.IsNullOrEmpty(quota.ResetDate))
-                    usageLines.AppendLine($"- **Resets:** {quota.ResetDate}");
+                {
+                    var countdown = QuotaDisplayHelper.FormatResetCountdown(quota.ResetDate);
+                    usageLines.AppendLine($"- **Resets:** {quota.ResetDate}{(countdown != null ? $" ({countdown})" : "")}");
+                }
             }
         }
         return usageLines.ToString().TrimEnd();

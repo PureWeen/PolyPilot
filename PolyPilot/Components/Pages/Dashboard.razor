@@ -240,6 +240,25 @@
                             <span class="bridge-status-text">@(CopilotService.IsBridgeConnected ? "Bridge online" : "Reconnecting")</span>
                         </span>
                     }
+                    @if (CopilotService.LatestQuotaInfo is { } headerQuota && !headerQuota.IsUnlimited)
+                    {
+                        var hqLevel = QuotaDisplayHelper.GetQuotaLevel(headerQuota.RemainingPercentage);
+                        var hqCss = QuotaDisplayHelper.GetCssClass(hqLevel);
+                        var hqResetText = QuotaDisplayHelper.FormatResetCountdown(headerQuota.ResetDate);
+                        var hqTooltip = QuotaDisplayHelper.FormatCompactSummary(headerQuota)
+                            + (hqResetText != null ? $" · {hqResetText}" : "");
+                        <span class="quota-indicator quota-@hqCss" title="@hqTooltip" id="quota-indicator">
+                            <span class="quota-dot" aria-hidden="true"></span>
+                            <span class="quota-label">@headerQuota.RemainingPercentage% quota</span>
+                        </span>
+                    }
+                    else if (CopilotService.LatestQuotaInfo is { IsUnlimited: true })
+                    {
+                        <span class="quota-indicator quota-normal" title="Unlimited premium quota" id="quota-indicator">
+                            <span class="quota-dot" aria-hidden="true"></span>
+                            <span class="quota-label">Unlimited</span>
+                        </span>
+                    }
                 </div>
             </div>
             <div class="toolbar-actions">
@@ -301,6 +320,24 @@
                 </div>
             </div>
         </div>
+
+        @if (!_quotaWarningDismissed && CopilotService.LatestQuotaInfo is { IsUnlimited: false } warnQuota
+             && warnQuota.RemainingPercentage <= QuotaDisplayHelper.CriticalThresholdPercent)
+        {
+            var resetText = QuotaDisplayHelper.FormatResetCountdown(warnQuota.ResetDate);
+            <div class="quota-warning-banner" id="quota-warning-banner">
+                <span class="quota-warning-icon" aria-hidden="true">⚠️</span>
+                <span class="quota-warning-text">
+                    Premium quota is low — <strong>@warnQuota.RemainingPercentage%</strong> remaining
+                    (@(warnQuota.EntitlementRequests - warnQuota.UsedRequests) of @warnQuota.EntitlementRequests requests).
+                    @if (resetText != null)
+                    {
+                        @resetText
+                    }
+                </span>
+                <button class="dismiss-btn" @onclick="() => _quotaWarningDismissed = true">Dismiss</button>
+            </div>
+        }
 
         @if (expandedSession == null)
         {
@@ -602,6 +639,7 @@
     private bool _hasSeenTutorialPrompt = false;
     private readonly Dictionary<string, ChatMessage> _fiestaStreamingMessages = new(StringComparer.Ordinal);
     private Dictionary<string, (OrchestratorPhase Phase, string? Detail)> _groupPhases = new();
+    private bool _quotaWarningDismissed;
 
     protected override async Task OnInitializedAsync()
     {
@@ -629,6 +667,7 @@
         CopilotService.OnReasoningComplete += HandleReasoningComplete;
         CopilotService.OnIntentChanged += HandleIntentChanged;
         CopilotService.OnUsageInfoChanged += HandleUsageInfoChanged;
+        CopilotService.OnQuotaChanged += HandleQuotaChanged;
         CopilotService.OnError += HandleError;
         CopilotService.OnTurnStart += HandleTurnStart;
         CopilotService.OnTurnEnd += HandleTurnEnd;
@@ -1693,6 +1732,13 @@
             ScheduleRender();
     }
 
+    private void HandleQuotaChanged(QuotaInfo quota)
+    {
+        if (!quota.IsUnlimited && quota.RemainingPercentage > QuotaDisplayHelper.CriticalThresholdPercent)
+            _quotaWarningDismissed = false;
+        ScheduleRender();
+    }
+
     private void HandleError(string sessionName, string error)
     {
         if (error.Contains("cancell", StringComparison.OrdinalIgnoreCase)) return;
@@ -2297,7 +2343,10 @@
                             usageLines.AppendLine($"- **Remaining:** {quota.RemainingPercentage}%");
                         }
                         if (!string.IsNullOrEmpty(quota.ResetDate))
-                            usageLines.AppendLine($"- **Resets:** {quota.ResetDate}");
+                        {
+                            var countdown = QuotaDisplayHelper.FormatResetCountdown(quota.ResetDate);
+                            usageLines.AppendLine($"- **Resets:** {quota.ResetDate}{(countdown != null ? $" ({countdown})" : "")}");
+                        }
                     }
                 }
                 session.History.Add(ChatMessage.SystemMessage(usageLines.ToString().TrimEnd()));
@@ -4019,6 +4068,7 @@
         CopilotService.OnReasoningComplete -= HandleReasoningComplete;
         CopilotService.OnIntentChanged -= HandleIntentChanged;
         CopilotService.OnUsageInfoChanged -= HandleUsageInfoChanged;
+        CopilotService.OnQuotaChanged -= HandleQuotaChanged;
         CopilotService.OnError -= HandleError;
         CopilotService.OnTurnStart -= HandleTurnStart;
         CopilotService.OnTurnEnd -= HandleTurnEnd;

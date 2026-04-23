@@ -358,6 +358,9 @@ public partial class CopilotService : IAsyncDisposable
         });
     }
 
+    // Account-level quota info — updated from any session's AssistantUsageEvent
+    public QuotaInfo? LatestQuotaInfo { get; private set; }
+
     /// <summary>Returns the full `copilot login` command using the resolved CLI path.</summary>
     public string GetLoginCommand()
     {
@@ -563,6 +566,7 @@ public partial class CopilotService : IAsyncDisposable
     public event Action<string, string>? OnReasoningComplete; // sessionName, reasoningId
     public event Action<string, string>? OnIntentChanged; // sessionName, intent
     public event Action<string, SessionUsageInfo>? OnUsageInfoChanged; // sessionName, usageInfo
+    public event Action<QuotaInfo>? OnQuotaChanged; // account-level quota update
     public event Action<string>? OnTurnStart; // sessionName
     public event Action<string>? OnTurnEnd; // sessionName
 

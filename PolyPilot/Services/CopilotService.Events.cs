@@ -1237,6 +1237,11 @@ public partial class CopilotService
                 {
                     Invoke(() => OnUsageInfoChanged?.Invoke(sessionName, new SessionUsageInfo(aModel, null, null, aInput, aOutput, aPremiumQuota)));
                 }
+                if (aPremiumQuota != null)
+                {
+                    LatestQuotaInfo = aPremiumQuota;
+                    Invoke(() => OnQuotaChanged?.Invoke(aPremiumQuota));
+                }
                 break;
 
             case SessionErrorEvent err:

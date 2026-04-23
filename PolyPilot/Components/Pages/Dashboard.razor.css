@@ -217,6 +217,89 @@
     box-shadow: 0 0 0 0.18rem rgba(245, 158, 11, 0.16);
 }
 
+/* Quota indicator (header pill) */
+.quota-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.32rem 0.58rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--control-border) 78%, transparent);
+    background: color-mix(in srgb, var(--control-bg) 88%, transparent);
+    font-size: var(--type-caption1);
+    color: var(--text-muted);
+    white-space: nowrap;
+    cursor: default;
+}
+
+.quota-dot {
+    width: 0.48rem;
+    height: 0.48rem;
+    border-radius: 999px;
+    flex: 0 0 auto;
+}
+
+.quota-normal {
+    color: color-mix(in srgb, #34d399 68%, var(--text-primary));
+    border-color: rgba(52, 211, 153, 0.24);
+    background: rgba(52, 211, 153, 0.08);
+}
+.quota-normal .quota-dot {
+    background: #34d399;
+    box-shadow: 0 0 0 0.18rem rgba(52, 211, 153, 0.16);
+}
+
+.quota-warning {
+    color: color-mix(in srgb, #f59e0b 72%, var(--text-primary));
+    border-color: rgba(245, 158, 11, 0.24);
+    background: rgba(245, 158, 11, 0.08);
+}
+.quota-warning .quota-dot {
+    background: #f59e0b;
+    box-shadow: 0 0 0 0.18rem rgba(245, 158, 11, 0.16);
+}
+
+.quota-critical {
+    color: color-mix(in srgb, #f87171 72%, var(--text-primary));
+    border-color: rgba(248, 113, 113, 0.24);
+    background: rgba(248, 113, 113, 0.08);
+}
+.quota-critical .quota-dot {
+    background: #f87171;
+    box-shadow: 0 0 0 0.18rem rgba(248, 113, 113, 0.16);
+    animation: quota-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes quota-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Quota warning banner */
+.quota-warning-banner {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    margin: 0.5rem 0;
+    padding: 0.65rem 1rem;
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.25);
+    border-radius: 10px;
+    font-size: var(--type-callout);
+    color: var(--text-secondary);
+}
+.quota-warning-icon {
+    font-size: var(--type-body);
+    flex-shrink: 0;
+}
+.quota-warning-text {
+    flex: 1;
+    line-height: 1.4;
+}
+.quota-warning-text strong {
+    color: rgba(248, 113, 113, 0.9);
+}
+
 .no-sessions-dash {
     display: flex;
     flex-direction: column;
