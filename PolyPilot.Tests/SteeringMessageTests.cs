@@ -38,7 +38,7 @@ public class SteeringMessageTests
     [Fact]
     public void ChatMessage_IsInterrupted_CanBeSetTrue()
     {
-        var msg = new ChatMessage("assistant", "partial", DateTime.Now) { IsInterrupted = true };
+        var msg = new ChatMessage("assistant", "partial", DateTimeOffset.UtcNow) { IsInterrupted = true };
         Assert.True(msg.IsInterrupted);
         Assert.Equal("assistant", msg.Role);
         Assert.Equal(ChatMessageType.Assistant, msg.MessageType);
@@ -54,7 +54,7 @@ public class SteeringMessageTests
     [Fact]
     public void ChatMessage_IsInterrupted_DoesNotAffectIsComplete()
     {
-        var msg = new ChatMessage("assistant", "partial", DateTime.Now) { IsInterrupted = true, IsComplete = true };
+        var msg = new ChatMessage("assistant", "partial", DateTimeOffset.UtcNow) { IsInterrupted = true, IsComplete = true };
         Assert.True(msg.IsInterrupted);
         Assert.True(msg.IsComplete);
     }
@@ -62,7 +62,7 @@ public class SteeringMessageTests
     [Fact]
     public void ChatMessage_IsInterrupted_IndependentOfIsSuccess()
     {
-        var msg = new ChatMessage("assistant", "partial", DateTime.Now) { IsInterrupted = true };
+        var msg = new ChatMessage("assistant", "partial", DateTimeOffset.UtcNow) { IsInterrupted = true };
         Assert.True(msg.IsInterrupted);
         Assert.False(msg.IsSuccess); // unrelated field should be unaffected
     }

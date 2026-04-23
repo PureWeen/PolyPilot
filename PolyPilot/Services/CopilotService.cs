@@ -2815,7 +2815,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             Name = name,
             Model = sessionModel,
             ReasoningEffort = GetDefaultReasoningEffort(sessionModel),
-            CreatedAt = DateTime.UtcNow,
+            CreatedAt = DateTimeOffset.UtcNow,
             WorkingDirectory = sessionDir,
             GitBranch = GetGitBranch(sessionDir),
             IsCreating = true
@@ -3529,7 +3529,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var displayPrompt = prompt;
             if (imagePaths != null && imagePaths.Count > 0)
                 displayPrompt += "\n" + string.Join("\n", imagePaths);
-            var userMsg = new ChatMessage("user", displayPrompt, DateTime.Now);
+            var userMsg = new ChatMessage("user", displayPrompt, DateTimeOffset.UtcNow);
             if (originalPrompt != null) userMsg.OriginalContent = originalPrompt;
             state.Info.History.Add(userMsg);
 
@@ -4251,7 +4251,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         return InvokeOnUIAsync(() =>
         {
             var info = state.Info;
-            info.CreatedAt = DateTime.UtcNow;
+            info.CreatedAt = DateTimeOffset.UtcNow;
             info.SessionId = sessionId;
             info.IsResumed = isStillProcessing;
             info.WorkingDirectory = workingDirectory;
@@ -4375,7 +4375,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         var partialResponse = state.CurrentResponse.ToString();
         if (!string.IsNullOrEmpty(partialResponse))
         {
-            var msg = new ChatMessage("assistant", partialResponse, DateTime.Now) { Model = state.Info.Model, IsInterrupted = markAsInterrupted };
+            var msg = new ChatMessage("assistant", partialResponse, DateTimeOffset.UtcNow) { Model = state.Info.Model, IsInterrupted = markAsInterrupted };
             state.Info.History.Add(msg);
             state.Info.MessageCount = state.Info.History.Count;
             if (!string.IsNullOrEmpty(state.Info.SessionId))
@@ -4451,7 +4451,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var displayPrompt = steeringMessage;
             if (imagePaths != null && imagePaths.Count > 0)
                 displayPrompt += "\n" + string.Join("\n", imagePaths);
-            var userMsg = new ChatMessage("user", displayPrompt, DateTime.Now);
+            var userMsg = new ChatMessage("user", displayPrompt, DateTimeOffset.UtcNow);
             state.Info.History.Add(userMsg);
             state.Info.MessageCount = state.Info.History.Count;
             state.Info.LastReadMessageCount = state.Info.History.Count;
@@ -4734,7 +4734,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             var evaluatorName = state.Info.ReflectionCycle.EvaluatorSessionName;
             state.Info.ReflectionCycle.IsActive = false;
             state.Info.ReflectionCycle.IsCancelled = true;
-            state.Info.ReflectionCycle.CompletedAt = DateTime.Now;
+            state.Info.ReflectionCycle.CompletedAt = DateTimeOffset.UtcNow;
             // Purge any queued reflection follow-up prompts to prevent zombie iterations
             state.Info.MessageQueue.RemoveAll(p => ReflectionCycle.IsReflectionFollowUpPrompt(p));
             Debug($"Reflection cycle stopped for '{sessionName}'");
@@ -5383,7 +5383,7 @@ public class ActiveSessionEntry
     public int? ContextTokenLimit { get; set; }
     public int PremiumRequestsUsed { get; set; }
     public double TotalApiTimeSeconds { get; set; }
-    public DateTime? CreatedAt { get; set; }
+    public DateTimeOffset? CreatedAt { get; set; }
     public DateTime? LastUpdatedAt { get; set; }
 }
 

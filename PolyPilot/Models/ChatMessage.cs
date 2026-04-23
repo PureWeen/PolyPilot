@@ -17,9 +17,9 @@ public enum ChatMessageType
 public class ChatMessage
 {
     // Parameterless constructor for JSON deserialization
-    public ChatMessage() : this("assistant", "", DateTime.Now) { }
+    public ChatMessage() : this("assistant", "", DateTimeOffset.UtcNow) { }
 
-    public ChatMessage(string role, string content, DateTime timestamp, ChatMessageType messageType = ChatMessageType.User)
+    public ChatMessage(string role, string content, DateTimeOffset timestamp, ChatMessageType messageType = ChatMessageType.User)
     {
         Role = role;
         Content = content;
@@ -32,7 +32,7 @@ public class ChatMessage
 
     public string Role { get; set; }
     public string Content { get; set; }
-    public DateTime Timestamp { get; set; }
+    public DateTimeOffset Timestamp { get; set; }
     public ChatMessageType MessageType { get; set; }
 
     // Tool call fields
@@ -65,34 +65,34 @@ public class ChatMessage
 
     // Factory methods
     public static ChatMessage UserMessage(string content) =>
-        new("user", content, DateTime.Now, ChatMessageType.User) { IsComplete = true };
+        new("user", content, DateTimeOffset.UtcNow, ChatMessageType.User) { IsComplete = true };
 
     public static ChatMessage AssistantMessage(string content) =>
-        new("assistant", content, DateTime.Now, ChatMessageType.Assistant) { IsComplete = true };
+        new("assistant", content, DateTimeOffset.UtcNow, ChatMessageType.Assistant) { IsComplete = true };
 
     public static ChatMessage ReasoningMessage(string reasoningId) =>
-        new("assistant", "", DateTime.Now, ChatMessageType.Reasoning) { ReasoningId = reasoningId, IsComplete = false, IsCollapsed = false };
+        new("assistant", "", DateTimeOffset.UtcNow, ChatMessageType.Reasoning) { ReasoningId = reasoningId, IsComplete = false, IsCollapsed = false };
 
     public static ChatMessage ToolCallMessage(string toolName, string? toolCallId = null, string? toolInput = null) =>
-        new("assistant", "", DateTime.Now, ChatMessageType.ToolCall) { ToolName = toolName, ToolCallId = toolCallId, ToolInput = toolInput, IsComplete = false };
+        new("assistant", "", DateTimeOffset.UtcNow, ChatMessageType.ToolCall) { ToolName = toolName, ToolCallId = toolCallId, ToolInput = toolInput, IsComplete = false };
 
     public static ChatMessage ErrorMessage(string content, string? toolName = null) =>
-        new("assistant", content, DateTime.Now, ChatMessageType.Error) { ToolName = toolName, IsComplete = true };
+        new("assistant", content, DateTimeOffset.UtcNow, ChatMessageType.Error) { ToolName = toolName, IsComplete = true };
 
     public static ChatMessage SystemMessage(string content) =>
-        new("system", content, DateTime.Now, ChatMessageType.System) { IsComplete = true };
+        new("system", content, DateTimeOffset.UtcNow, ChatMessageType.System) { IsComplete = true };
 
     public static ChatMessage ShellOutputMessage(string content, int exitCode = 0) =>
-        new("system", content, DateTime.Now, ChatMessageType.ShellOutput) { IsComplete = true, IsSuccess = exitCode == 0 };
+        new("system", content, DateTimeOffset.UtcNow, ChatMessageType.ShellOutput) { IsComplete = true, IsSuccess = exitCode == 0 };
 
     public static ChatMessage DiffMessage(string rawDiff) =>
-        new("system", rawDiff, DateTime.Now, ChatMessageType.Diff) { IsComplete = true };
+        new("system", rawDiff, DateTimeOffset.UtcNow, ChatMessageType.Diff) { IsComplete = true };
 
     public static ChatMessage ReflectionMessage(string content) =>
-        new("system", content, DateTime.Now, ChatMessageType.Reflection) { IsComplete = true };
+        new("system", content, DateTimeOffset.UtcNow, ChatMessageType.Reflection) { IsComplete = true };
 
     public static ChatMessage ImageMessage(string? imagePath, string? imageDataUri, string? caption = null, string? toolCallId = null) =>
-        new("assistant", "", DateTime.Now, ChatMessageType.Image) { ImagePath = imagePath, ImageDataUri = imageDataUri, Caption = caption, ToolCallId = toolCallId, ToolName = "show_image", IsComplete = true, IsSuccess = true };
+        new("assistant", "", DateTimeOffset.UtcNow, ChatMessageType.Image) { ImagePath = imagePath, ImageDataUri = imageDataUri, Caption = caption, ToolCallId = toolCallId, ToolName = "show_image", IsComplete = true, IsSuccess = true };
 }
 
 public class ToolActivity
@@ -100,17 +100,17 @@ public class ToolActivity
     public string Name { get; set; } = "";
     public string CallId { get; set; } = "";
     public string? Input { get; set; }
-    public DateTime StartedAt { get; set; }
+    public DateTimeOffset StartedAt { get; set; }
     public bool IsComplete { get; set; }
     public bool IsSuccess { get; set; }
     public string? Result { get; set; }
-    public DateTime? CompletedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
 
     public string ElapsedDisplay
     {
         get
         {
-            var end = CompletedAt ?? DateTime.Now;
+            var end = CompletedAt ?? DateTimeOffset.UtcNow;
             var elapsed = end - StartedAt;
             return elapsed.TotalSeconds < 1 ? "<1s" : $"{elapsed.TotalSeconds:F0}s";
         }

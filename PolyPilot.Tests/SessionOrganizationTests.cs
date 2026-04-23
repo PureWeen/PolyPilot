@@ -3011,7 +3011,7 @@ public class MultiAgentScenarioTests
         // Score >= 0.9 would trigger goal completion
         state.GoalMet = true;
         state.IsActive = false;
-        state.CompletedAt = DateTime.Now;
+        state.CompletedAt = DateTimeOffset.UtcNow;
 
         // Step 9: Final summary
         var summary = state.BuildCompletionSummary();

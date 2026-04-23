@@ -20,7 +20,7 @@ internal class PendingOrchestration
     public string OrchestratorName { get; set; } = "";
     public List<string> WorkerNames { get; set; } = new();
     public string OriginalPrompt { get; set; } = "";
-    public DateTime StartedAt { get; set; }
+    public DateTimeOffset StartedAt { get; set; }
     /// <summary>True if this is an OrchestratorReflect dispatch (has reflection loop).</summary>
     public bool IsReflect { get; set; }
     /// <summary>Current reflection iteration (only meaningful for reflect mode).</summary>
@@ -1340,11 +1340,11 @@ public partial class CopilotService
     {
         return Organization.SortMode switch
         {
-            SessionSortMode.LastActive => DateTime.MaxValue - session.LastUpdatedAt,
-            SessionSortMode.CreatedAt => DateTime.MaxValue - session.CreatedAt,
+            SessionSortMode.LastActive => DateTimeOffset.MaxValue - session.LastUpdatedAt,
+            SessionSortMode.CreatedAt => DateTimeOffset.MaxValue - session.CreatedAt,
             SessionSortMode.Alphabetical => session.Name,
             SessionSortMode.Manual => (object)(metas.TryGetValue(session.Name, out var m) ? m.ManualOrder : int.MaxValue),
-            _ => DateTime.MaxValue - session.LastUpdatedAt
+            _ => DateTimeOffset.MaxValue - session.LastUpdatedAt
         };
     }
 
@@ -2038,7 +2038,7 @@ public partial class CopilotService
             OrchestratorName = orchestratorName,
             WorkerNames = assignments.Select(a => a.WorkerName).ToList(),
             OriginalPrompt = prompt,
-            StartedAt = DateTime.UtcNow
+            StartedAt = DateTimeOffset.UtcNow
         });
 
         try
@@ -2473,7 +2473,7 @@ public partial class CopilotService
         var workerPrompt = BuildWorkerPrompt(identity, worktreeNote, sharedPrefix, originalPrompt, task);
 
         const int maxRetries = 2;
-        var dispatchTime = DateTime.Now;
+        var dispatchTime = DateTimeOffset.UtcNow;
 
         // Pre-dispatch: if worker is still processing from a previous run (e.g., restored
         // mid-processing after app relaunch), wait for it to become idle. The watchdog will
@@ -2771,7 +2771,7 @@ public partial class CopilotService
     /// </summary>
     private async Task<string?> RecoverFromPrematureIdleIfNeededAsync(
         string workerName, SessionState state, string? initialResponse,
-        DateTime dispatchTime, CancellationToken cancellationToken)
+        DateTimeOffset dispatchTime, CancellationToken cancellationToken)
     {
         // Two detection signals (either triggers recovery):
         // 1. PrematureIdleSignal (ManualResetEventSlim) — set by EVT-REARM, event-based (efficient)
@@ -3105,9 +3105,7 @@ public partial class CopilotService
     {
         ClearPendingOrchestration();
         var pendingGroupId = pending.GroupId;
-        var staleStartedAt = pending.StartedAt.Kind == DateTimeKind.Utc
-            ? pending.StartedAt.ToLocalTime()
-            : pending.StartedAt;
+        var staleStartedAt = pending.StartedAt;
         InvokeOnUI(() =>
         {
             var resumeGroup = Organization.Groups.FirstOrDefault(g => g.Id == pendingGroupId);
@@ -3115,7 +3113,7 @@ public partial class CopilotService
                 && (staleStartedAt == default || rs.StartedAt == null || rs.StartedAt <= staleStartedAt))
             {
                 rs.IsActive = false;
-                rs.CompletedAt = DateTime.Now;
+                rs.CompletedAt = DateTimeOffset.UtcNow;
                 Debug($"[DISPATCH] Resume cleared stale ReflectionState for group '{resumeGroup.Name}' (was iteration {rs.CurrentIteration})");
                 SaveOrganization();
             }
@@ -3213,9 +3211,7 @@ public partial class CopilotService
         }
 
         // Collect worker results from their chat history (last assistant message AFTER the dispatch)
-        var dispatchTimeLocal = pending.StartedAt.Kind == DateTimeKind.Utc
-            ? pending.StartedAt.ToLocalTime()
-            : pending.StartedAt;
+        var dispatchTime = pending.StartedAt;
         var results = new List<WorkerResult>();
         var unstartedWorkers = new List<string>();
         foreach (var workerName in pending.WorkerNames)
@@ -3229,11 +3225,11 @@ public partial class CopilotService
 
             // Find the last assistant message AFTER the dispatch started — avoids picking up
             // stale pre-dispatch history from prior conversations or reflection iterations
-            var lastAssistant = session.History.ToArray().LastOrDefault(m => m.Role == "assistant" && m.Timestamp >= dispatchTimeLocal);
+            var lastAssistant = session.History.ToArray().LastOrDefault(m => m.Role == "assistant" && m.Timestamp >= dispatchTime);
             if (lastAssistant != null && !string.IsNullOrWhiteSpace(lastAssistant.Content))
             {
                 results.Add(new WorkerResult(workerName, lastAssistant.Content, true, null,
-                    TimeSpan.FromSeconds((DateTime.UtcNow - pending.StartedAt).TotalSeconds)));
+                    TimeSpan.FromSeconds((DateTimeOffset.UtcNow - pending.StartedAt).TotalSeconds)));
             }
             else
             {
@@ -3248,7 +3244,7 @@ public partial class CopilotService
                         var lastDiskAssistant = diskHistory
                             .LastOrDefault(m => m.Role == "assistant" && !string.IsNullOrWhiteSpace(m.Content)
                                 && m.MessageType == ChatMessageType.Assistant
-                                && m.Timestamp >= dispatchTimeLocal);
+                                && m.Timestamp >= dispatchTime);
                         if (lastDiskAssistant != null)
                         {
                             diskResponse = lastDiskAssistant.Content;
@@ -3264,7 +3260,7 @@ public partial class CopilotService
                 if (!string.IsNullOrWhiteSpace(diskResponse))
                 {
                     results.Add(new WorkerResult(workerName, diskResponse, true, null,
-                        TimeSpan.FromSeconds((DateTime.UtcNow - pending.StartedAt).TotalSeconds)));
+                        TimeSpan.FromSeconds((DateTimeOffset.UtcNow - pending.StartedAt).TotalSeconds)));
                 }
                 else if (session.IsProcessing)
                 {
@@ -3912,7 +3908,7 @@ public partial class CopilotService
 
         group.ReflectionState.IsActive = false;
         group.ReflectionState.IsCancelled = true;
-        group.ReflectionState.CompletedAt = DateTime.Now;
+        group.ReflectionState.CompletedAt = DateTimeOffset.UtcNow;
         SaveOrganization();
         OnStateChanged?.Invoke();
     }
@@ -4120,7 +4116,7 @@ public partial class CopilotService
                 OrchestratorName = orchestratorName,
                 WorkerNames = assignments.Select(a => a.WorkerName).ToList(),
                 OriginalPrompt = prompt,
-                StartedAt = DateTime.UtcNow,
+                StartedAt = DateTimeOffset.UtcNow,
                 IsReflect = true,
                 ReflectIteration = reflectState.CurrentIteration
             });
@@ -4357,7 +4353,7 @@ public partial class CopilotService
             // Always clear IsActive — even on OperationCanceledException.
             // Without this, a cancelled reflection permanently blocks future reflections.
             reflectState.IsActive = false;
-            reflectState.CompletedAt = DateTime.Now;
+            reflectState.CompletedAt = DateTimeOffset.UtcNow;
             ClearPendingOrchestration();
             // Collect leftover queued prompts synchronously for best-effort delivery
             // AFTER releasing the semaphore. This prevents holding the semaphore forever

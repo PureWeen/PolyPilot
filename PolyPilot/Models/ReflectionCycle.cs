@@ -96,12 +96,12 @@ public partial class ReflectionCycle
     /// <summary>
     /// When the cycle was started.
     /// </summary>
-    public DateTime? StartedAt { get; set; }
+    public DateTimeOffset? StartedAt { get; set; }
 
     /// <summary>
     /// When the cycle completed (goal met, stalled, or max iterations).
     /// </summary>
-    public DateTime? CompletedAt { get; set; }
+    public DateTimeOffset? CompletedAt { get; set; }
 
     /// <summary>
     /// Whether the cycle is paused (user can inspect without cancelling).
@@ -334,7 +334,7 @@ public partial class ReflectionCycle
         {
             GoalMet = true;
             IsActive = false;
-            CompletedAt = DateTime.Now;
+            CompletedAt = DateTimeOffset.UtcNow;
             return false;
         }
 
@@ -347,7 +347,7 @@ public partial class ReflectionCycle
             {
                 IsStalled = true;
                 IsActive = false;
-                CompletedAt = DateTime.Now;
+                CompletedAt = DateTimeOffset.UtcNow;
                 return false;
             }
         }
@@ -359,7 +359,7 @@ public partial class ReflectionCycle
         if (CurrentIteration >= MaxIterations)
         {
             IsActive = false;
-            CompletedAt = DateTime.Now;
+            CompletedAt = DateTimeOffset.UtcNow;
             return false;
         }
 
@@ -383,7 +383,7 @@ public partial class ReflectionCycle
         {
             GoalMet = true;
             IsActive = false;
-            CompletedAt = DateTime.Now;
+            CompletedAt = DateTimeOffset.UtcNow;
             return false;
         }
 
@@ -397,7 +397,7 @@ public partial class ReflectionCycle
             {
                 IsStalled = true;
                 IsActive = false;
-                CompletedAt = DateTime.Now;
+                CompletedAt = DateTimeOffset.UtcNow;
                 return false;
             }
         }
@@ -409,7 +409,7 @@ public partial class ReflectionCycle
         if (CurrentIteration >= MaxIterations)
         {
             IsActive = false;
-            CompletedAt = DateTime.Now;
+            CompletedAt = DateTimeOffset.UtcNow;
             return false;
         }
 
@@ -449,7 +449,7 @@ public partial class ReflectionCycle
             IsActive = true,
             CurrentIteration = 0,
             GoalMet = false,
-            StartedAt = DateTime.Now,
+            StartedAt = DateTimeOffset.UtcNow,
             EvaluatorSessionName = evaluatorSession
         };
     }
@@ -465,7 +465,7 @@ public partial class ReflectionCycle
             Score = score,
             Rationale = rationale,
             EvaluatorModel = evaluatorModel,
-            Timestamp = DateTime.Now
+            Timestamp = DateTimeOffset.UtcNow
         });
 
         if (EvaluationHistory.Count < 2) return QualityTrend.Stable;
@@ -488,5 +488,5 @@ public class EvaluationResult
     public double Score { get; set; }
     public string Rationale { get; set; } = "";
     public string EvaluatorModel { get; set; } = "";
-    public DateTime Timestamp { get; set; }
+    public DateTimeOffset Timestamp { get; set; }
 }

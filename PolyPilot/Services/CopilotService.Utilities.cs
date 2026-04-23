@@ -656,9 +656,10 @@ public partial class CopilotService
                 var type = typeEl.GetString();
                 
                 if (!root.TryGetProperty("data", out var data)) continue;
-                var timestamp = DateTime.Now;
-                if (root.TryGetProperty("timestamp", out var tsEl))
-                    DateTime.TryParse(tsEl.GetString(), out timestamp);
+                var timestamp = DateTimeOffset.UtcNow;
+                if (root.TryGetProperty("timestamp", out var tsEl)
+                    && DateTimeOffset.TryParse(tsEl.GetString(), out var parsed))
+                    timestamp = parsed;
 
                 switch (type)
                 {
@@ -814,11 +815,11 @@ public partial class CopilotService
         // Whichever has the most recent user interaction is the better source.
         var eventsLatestUser = eventsHistory
             .Where(m => m.MessageType == ChatMessageType.User)
-            .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTime.MinValue;
+            .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTimeOffset.MinValue;
 
         var dbLatestUser = dbHistory
             .Where(m => m.MessageType == ChatMessageType.User)
-            .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTime.MinValue;
+            .MaxBy(m => m.Timestamp)?.Timestamp ?? DateTimeOffset.MinValue;
 
         if (dbLatestUser > eventsLatestUser && (dbLatestUser - eventsLatestUser).TotalSeconds > 5)
         {

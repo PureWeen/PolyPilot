@@ -65,11 +65,11 @@ public class OrphanedWorkerScanTests
         // Add sessions with history
         var orchInfo = AddDummySession(svc, "orch-1");
         orchInfo.History.Add(ChatMessage.UserMessage("Deploy the fix"));
-        orchInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-10);
+        orchInfo.History.Last().Timestamp = DateTimeOffset.UtcNow.AddMinutes(-10);
 
         var workerInfo = AddDummySession(svc, "worker-1");
         workerInfo.History.Add(ChatMessage.AssistantMessage("I've completed the deployment."));
-        workerInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-5);
+        workerInfo.History.Last().Timestamp = DateTimeOffset.UtcNow.AddMinutes(-5);
 
         // Run scan
         await svc.ScanForOrphanedWorkersAsync();
@@ -154,11 +154,11 @@ public class OrphanedWorkerScanTests
         // Orchestrator has a NEWER response than the worker (already synthesized)
         var orchInfo = AddDummySession(svc, "orch-3");
         orchInfo.History.Add(ChatMessage.AssistantMessage("Here's the synthesized result."));
-        orchInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-1);
+        orchInfo.History.Last().Timestamp = DateTimeOffset.UtcNow.AddMinutes(-1);
 
         var workerInfo = AddDummySession(svc, "worker-3");
         workerInfo.History.Add(ChatMessage.AssistantMessage("Worker done."));
-        workerInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-5);
+        workerInfo.History.Last().Timestamp = DateTimeOffset.UtcNow.AddMinutes(-5);
 
         await svc.ScanForOrphanedWorkersAsync();
 
@@ -189,13 +189,13 @@ public class OrphanedWorkerScanTests
         // but a newer system message was added during reconnect/recovery.
         var orchInfo = AddDummySession(svc, "orch-3b");
         orchInfo.History.Add(ChatMessage.AssistantMessage("Earlier synthesis."));
-        orchInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-15);
+        orchInfo.History.Last().Timestamp = DateTimeOffset.UtcNow.AddMinutes(-15);
         orchInfo.History.Add(ChatMessage.SystemMessage("Session recreated after reconnect."));
-        orchInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-1);
+        orchInfo.History.Last().Timestamp = DateTimeOffset.UtcNow.AddMinutes(-1);
 
         var workerInfo = AddDummySession(svc, "worker-3b");
         workerInfo.History.Add(ChatMessage.AssistantMessage("Worker finished after the earlier synthesis."));
-        workerInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-5);
+        workerInfo.History.Last().Timestamp = DateTimeOffset.UtcNow.AddMinutes(-5);
 
         await svc.ScanForOrphanedWorkersAsync();
 
@@ -253,11 +253,11 @@ public class OrphanedWorkerScanTests
 
         var orchInfo = AddDummySession(svc, "orch-5");
         orchInfo.History.Add(ChatMessage.UserMessage("Do something"));
-        orchInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-10);
+        orchInfo.History.Last().Timestamp = DateTimeOffset.UtcNow.AddMinutes(-10);
 
         var workerInfo = AddDummySession(svc, "worker-5");
         workerInfo.History.Add(ChatMessage.AssistantMessage("Done."));
-        workerInfo.History.Last().Timestamp = DateTime.Now.AddMinutes(-5);
+        workerInfo.History.Last().Timestamp = DateTimeOffset.UtcNow.AddMinutes(-5);
 
         svc.SavePendingOrchestration(new PendingOrchestration
         {

@@ -57,7 +57,7 @@
                 }
                 @if (!Compact)
                 {
-                    <div class="chat-msg-time">@Message.Timestamp.ToShortTimeString()</div>
+                    <div class="chat-msg-time">@Message.Timestamp.LocalDateTime.ToShortTimeString()</div>
                 }
             </div>
         </div>
@@ -85,7 +85,7 @@
                 <div class="chat-msg-text markdown-body">@((MarkupString)ChatMessageList.RenderMarkdown(Message.Content, RepoUrl))</div>
                 @if (!Compact && !IsStreaming)
                 {
-                    <div class="chat-msg-time">@Message.Timestamp.ToShortTimeString()@(!string.IsNullOrEmpty(Message.Model) ? $" · {Message.Model}" : "")</div>
+                    <div class="chat-msg-time">@Message.Timestamp.LocalDateTime.ToShortTimeString()@(!string.IsNullOrEmpty(Message.Model) ? $" · {Message.Model}" : "")</div>
                 }
             </div>
         </div>

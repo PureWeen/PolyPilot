@@ -245,7 +245,7 @@ public class ConsecutiveStuckSessionTests
         for (int i = 0; i < 200; i++)
         {
             session.History.Add(new ChatMessage(i % 2 == 0 ? "user" : "assistant",
-                $"Message {i}", DateTime.Now));
+                $"Message {i}", DateTimeOffset.UtcNow));
         }
         var initialCount = session.History.Count;
 
@@ -320,7 +320,7 @@ public class ConsecutiveStuckSessionTests
         // The error message for repeated stucks should suggest creating a new session
         var info = new AgentSessionInfo { Name = "test", Model = "test-model" };
         for (int i = 0; i < 200; i++)
-            info.History.Add(new ChatMessage("user", $"msg {i}", DateTime.Now));
+            info.History.Add(new ChatMessage("user", $"msg {i}", DateTimeOffset.UtcNow));
         info.ConsecutiveStuckCount = 3;
 
         // Simulate the message format from the watchdog

@@ -3,13 +3,13 @@ using GitHub.Copilot.SDK;
 
 namespace PolyPilot.Models;
 
-public record ChatMessage(string Role, string Content, DateTime Timestamp);
+public record ChatMessage(string Role, string Content, DateTimeOffset Timestamp);
 
 public class AgentSession : IAsyncDisposable
 {
     public string Name { get; }
     public string Model { get; }
-    public DateTime CreatedAt { get; }
+    public DateTimeOffset CreatedAt { get; }
     public List<ChatMessage> History { get; } = new();
     public bool IsProcessing { get; private set; }
     public string? SessionId { get; }
@@ -26,7 +26,7 @@ public class AgentSession : IAsyncDisposable
     {
         Name = name;
         Model = model;
-        CreatedAt = DateTime.Now;
+        CreatedAt = DateTimeOffset.UtcNow;
         SessionId = sessionId;
         IsResumed = isResumed;
         _session = session;
@@ -78,7 +78,7 @@ public class AgentSession : IAsyncDisposable
         var response = _currentResponse.ToString();
         if (!string.IsNullOrEmpty(response))
         {
-            History.Add(new ChatMessage("assistant", response, DateTime.Now));
+            History.Add(new ChatMessage("assistant", response, DateTimeOffset.UtcNow));
         }
         _responseCompletion?.TrySetResult(response);
         _currentResponse.Clear();
@@ -98,7 +98,7 @@ public class AgentSession : IAsyncDisposable
         _currentResponse.Clear();
         _hasReceivedDeltasThisTurn = false;
 
-        History.Add(new ChatMessage("user", prompt, DateTime.Now));
+        History.Add(new ChatMessage("user", prompt, DateTimeOffset.UtcNow));
 
         try
         {

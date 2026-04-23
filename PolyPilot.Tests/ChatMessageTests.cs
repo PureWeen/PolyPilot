@@ -111,7 +111,7 @@ public class ChatMessageTests
     public void Constructor_UserRole_OverridesMessageType()
     {
         // When role is "user", MessageType should always be User regardless of what's passed
-        var msg = new ChatMessage("user", "test", DateTime.Now, ChatMessageType.Assistant);
+        var msg = new ChatMessage("user", "test", DateTimeOffset.UtcNow, ChatMessageType.Assistant);
         Assert.Equal(ChatMessageType.User, msg.MessageType);
     }
 
@@ -119,7 +119,7 @@ public class ChatMessageTests
     public void Constructor_AssistantRole_WithUserType_CorrectToAssistant()
     {
         // When role is not "user" but messageType is User, it should correct to Assistant
-        var msg = new ChatMessage("assistant", "test", DateTime.Now, ChatMessageType.User);
+        var msg = new ChatMessage("assistant", "test", DateTimeOffset.UtcNow, ChatMessageType.User);
         Assert.Equal(ChatMessageType.Assistant, msg.MessageType);
     }
 
@@ -151,14 +151,14 @@ public class ChatMessageTests
     [Fact]
     public void Model_CanBeSetViaInitializer()
     {
-        var msg = new ChatMessage("assistant", "test", DateTime.Now) { Model = "gpt-4.1" };
+        var msg = new ChatMessage("assistant", "test", DateTimeOffset.UtcNow) { Model = "gpt-4.1" };
         Assert.Equal("gpt-4.1", msg.Model);
     }
 
     [Fact]
     public void Model_PreservedOnAssistantMessages()
     {
-        var msg = new ChatMessage("assistant", "response", DateTime.Now) { Model = "claude-sonnet-4.5" };
+        var msg = new ChatMessage("assistant", "response", DateTimeOffset.UtcNow) { Model = "claude-sonnet-4.5" };
         Assert.True(msg.IsAssistant);
         Assert.Equal("claude-sonnet-4.5", msg.Model);
     }
@@ -190,7 +190,7 @@ public class ChatMessageTests
     [Fact]
     public void OriginalContent_PreservedOnDeserialization()
     {
-        var msg = new ChatMessage("user", "full orchestration prompt", DateTime.Now)
+        var msg = new ChatMessage("user", "full orchestration prompt", DateTimeOffset.UtcNow)
         {
             OriginalContent = "user typed this"
         };
@@ -282,8 +282,8 @@ public class ToolActivityTests
     {
         var activity = new ToolActivity
         {
-            StartedAt = DateTime.Now,
-            CompletedAt = DateTime.Now.AddMilliseconds(500)
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow.AddMilliseconds(500)
         };
         Assert.Equal("<1s", activity.ElapsedDisplay);
     }
@@ -293,8 +293,8 @@ public class ToolActivityTests
     {
         var activity = new ToolActivity
         {
-            StartedAt = DateTime.Now.AddSeconds(-5),
-            CompletedAt = DateTime.Now
+            StartedAt = DateTimeOffset.UtcNow.AddSeconds(-5),
+            CompletedAt = DateTimeOffset.UtcNow
         };
         Assert.Equal("5s", activity.ElapsedDisplay);
     }
@@ -304,11 +304,75 @@ public class ToolActivityTests
     {
         var activity = new ToolActivity
         {
-            StartedAt = DateTime.Now.AddSeconds(-2),
+            StartedAt = DateTimeOffset.UtcNow.AddSeconds(-2),
             CompletedAt = null
         };
-        // Should be ~2s since it measures against DateTime.Now
+        // Should be ~2s since it measures against DateTimeOffset.UtcNow
         var display = activity.ElapsedDisplay;
         Assert.Matches(@"^\d+s$", display);
+    }
+
+    [Fact]
+    public void FactoryMethods_UseUtcTimestamps()
+    {
+        // All factory methods should produce UTC timestamps (issue #386)
+        var before = DateTimeOffset.UtcNow;
+        var user = ChatMessage.UserMessage("test");
+        var assistant = ChatMessage.AssistantMessage("test");
+        var system = ChatMessage.SystemMessage("test");
+        var error = ChatMessage.ErrorMessage("test");
+        var after = DateTimeOffset.UtcNow;
+
+        Assert.Equal(TimeSpan.Zero, user.Timestamp.Offset);
+        Assert.Equal(TimeSpan.Zero, assistant.Timestamp.Offset);
+        Assert.Equal(TimeSpan.Zero, system.Timestamp.Offset);
+        Assert.Equal(TimeSpan.Zero, error.Timestamp.Offset);
+
+        Assert.InRange(user.Timestamp, before, after);
+        Assert.InRange(assistant.Timestamp, before, after);
+    }
+
+    [Fact]
+    public void Timestamp_IsDateTimeOffset()
+    {
+        // ChatMessage.Timestamp should be DateTimeOffset, not DateTime (issue #386)
+        var msg = ChatMessage.UserMessage("test");
+        Assert.IsType<DateTimeOffset>(msg.Timestamp);
+    }
+
+    [Fact]
+    public void Timestamp_CrossTimezoneComparison_Works()
+    {
+        // The core bug: comparing UTC dispatch time with local message timestamps.
+        // With DateTimeOffset, this comparison is timezone-aware.
+        var utcTime = new DateTimeOffset(2026, 4, 23, 15, 0, 0, TimeSpan.Zero);
+        var localTime = new DateTimeOffset(2026, 4, 23, 11, 0, 0, TimeSpan.FromHours(-4)); // Same instant, different offset
+
+        var msg = new ChatMessage("user", "test", localTime);
+        // These represent the same instant — comparison should be equal
+        Assert.True(msg.Timestamp >= utcTime);
+        Assert.True(msg.Timestamp <= utcTime);
+    }
+
+    [Fact]
+    public void ToolActivity_UsesDateTimeOffset()
+    {
+        var activity = new ToolActivity
+        {
+            Name = "test",
+            StartedAt = DateTimeOffset.UtcNow,
+            CompletedAt = DateTimeOffset.UtcNow.AddSeconds(5)
+        };
+        Assert.Equal(TimeSpan.Zero, activity.StartedAt.Offset);
+        Assert.Equal(TimeSpan.Zero, activity.CompletedAt!.Value.Offset);
+        Assert.Equal("5s", activity.ElapsedDisplay);
+    }
+
+    [Fact]
+    public void DefaultConstructor_ProducesUtcTimestamp()
+    {
+        // Parameterless constructor (used by JSON deserialization) should produce UTC
+        var msg = new ChatMessage();
+        Assert.Equal(TimeSpan.Zero, msg.Timestamp.Offset);
     }
 }

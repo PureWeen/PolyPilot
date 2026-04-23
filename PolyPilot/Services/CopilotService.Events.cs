@@ -359,7 +359,7 @@ public partial class CopilotService
         reasoningMsg.ReasoningId = normalizedReasoningId;
         reasoningMsg.IsComplete = false;
         reasoningMsg.IsCollapsed = false;
-        reasoningMsg.Timestamp = DateTime.Now;
+        reasoningMsg.Timestamp = DateTimeOffset.UtcNow;
         MergeReasoningContent(reasoningMsg, content, isDelta);
         state.Info.LastUpdatedAt = DateTime.Now;
 
@@ -405,7 +405,7 @@ public partial class CopilotService
         {
             msg.IsComplete = true;
             msg.IsCollapsed = true;
-            msg.Timestamp = DateTime.Now;
+            msg.Timestamp = DateTimeOffset.UtcNow;
             if (!string.IsNullOrEmpty(msg.ReasoningId))
             {
                 completedIds.Add(msg.ReasoningId);
@@ -1625,7 +1625,7 @@ public partial class CopilotService
             return;
         }
 
-        var msg = new ChatMessage("assistant", text, DateTime.Now) { Model = state.Info.Model };
+        var msg = new ChatMessage("assistant", text, DateTimeOffset.UtcNow) { Model = state.Info.Model };
         state.Info.History.Add(msg);
         state.Info.MessageCount = state.Info.History.Count;
 
@@ -1737,7 +1737,7 @@ public partial class CopilotService
             // identical assistant replies on different turns are legitimate and must persist.
             if (!responseAlreadyFlushedThisTurn)
             {
-                var msg = new ChatMessage("assistant", response, DateTime.Now) { Model = state.Info.Model };
+                var msg = new ChatMessage("assistant", response, DateTimeOffset.UtcNow) { Model = state.Info.Model };
                 state.Info.History.Add(msg);
                 state.Info.MessageCount = state.Info.History.Count;
                 // If user is viewing this session, keep it read

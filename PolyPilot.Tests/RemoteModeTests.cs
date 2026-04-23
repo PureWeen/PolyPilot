@@ -749,7 +749,7 @@ public class ChatMessageSerializationTests
         var history = new List<ChatMessage>
         {
             ChatMessage.UserMessage("Hello"),
-            new ChatMessage("assistant", "Hi there! How can I", DateTime.Now, ChatMessageType.Assistant) { IsComplete = false }
+            new ChatMessage("assistant", "Hi there! How can I", DateTimeOffset.UtcNow, ChatMessageType.Assistant) { IsComplete = false }
         };
 
         var cachedHistory = new List<ChatMessage>
@@ -777,7 +777,7 @@ public class ChatMessageSerializationTests
         var cachedHistory = new List<ChatMessage>
         {
             ChatMessage.UserMessage("Hello"),
-            new ChatMessage("assistant", "Full response", DateTime.Now, ChatMessageType.Assistant) { IsComplete = true }
+            new ChatMessage("assistant", "Full response", DateTimeOffset.UtcNow, ChatMessageType.Assistant) { IsComplete = true }
         };
 
         bool isProcessing = false;
@@ -793,7 +793,7 @@ public class ChatMessageSerializationTests
         var history = new List<ChatMessage>
         {
             ChatMessage.UserMessage("Hello"),
-            new ChatMessage("assistant", "Full response", DateTime.Now, ChatMessageType.Assistant) { IsComplete = true },
+            new ChatMessage("assistant", "Full response", DateTimeOffset.UtcNow, ChatMessageType.Assistant) { IsComplete = true },
             ChatMessage.UserMessage("Follow up"),
         };
 

@@ -78,7 +78,7 @@ public class AgentSessionInfoTests
     [Fact]
     public void Properties_CanBeSet()
     {
-        var now = DateTime.Now;
+        var now = DateTimeOffset.UtcNow;
         var session = new AgentSessionInfo
         {
             Name = "my-session",

@@ -148,7 +148,7 @@ public class SessionSummary
     public string Name { get; set; } = "";
     public string Model { get; set; } = "";
     public string? ReasoningEffort { get; set; }
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
     public int MessageCount { get; set; }
     public bool IsProcessing { get; set; }
     public string? SessionId { get; set; }
