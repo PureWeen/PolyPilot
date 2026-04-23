@@ -163,7 +163,7 @@ For each finding from the self-review:
 2. Run tests again
 3. Commit with descriptive message
 
-Repeat Steps 6-7 up to **2 times** (max 2 review rounds).
+Repeat Steps 6-7 up to **3 times** (max 3 review rounds).
 
 ## Step 8: Dispatch Integration Tests
 
