@@ -1,4 +1,5 @@
 name: "PolyPilot Integration Test"
+run-name: "PolyPilot Integration Test${{ inputs.pr_number && format(' — PR #{0}', inputs.pr_number) || '' }}"
 
 on:
   workflow_dispatch:
@@ -78,10 +79,11 @@ jobs:
         run: |
           echo "=== Build output ==="
           ls -la PolyPilot.Gtk/bin/Debug/net10.0/ 2>/dev/null | head -20 || true
-          BINARY=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot.Gtk" -type f -executable 2>/dev/null | head -1)
+          # AssemblyName in PolyPilot.Gtk.csproj is "PolyPilot" (not "PolyPilot.Gtk")
+          BINARY=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot" -type f -executable 2>/dev/null | head -1)
           if [ -z "$BINARY" ]; then
             # On Linux, the native executable may not exist — use dotnet exec with the DLL
-            DLL=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot.Gtk.dll" -type f 2>/dev/null | head -1)
+            DLL=$(find PolyPilot.Gtk/bin/Debug -name "PolyPilot.dll" -type f 2>/dev/null | head -1)
             if [ -n "$DLL" ]; then
               echo "No native executable found, using dotnet exec: $DLL"
               BINARY="dotnet $DLL"
@@ -764,4 +766,4 @@ jobs:
           [View full run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
           EOF
 
-          gh pr comment "$PR" --body "$(cat /tmp/report.md)"
+          gh pr comment "$PR" --repo "${{ github.repository }}" --body "$(cat /tmp/report.md)"

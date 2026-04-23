@@ -10,8 +10,6 @@ on:
       - "Verify Build (Cross-Platform)"
       - "PolyPilot Integration Test"
     types: [completed]
-    branches-ignore:
-      - main
 
 env:
   GH_TOKEN: ${{ github.token }}
@@ -23,7 +21,7 @@ jobs:
     if: github.event.workflow_run.conclusion == 'failure'
     permissions:
       actions: write
-      pull-requests: read
+      pull-requests: write
 
     steps:
       - name: Find associated PR
@@ -32,25 +30,37 @@ jobs:
           BRANCH="${{ github.event.workflow_run.head_branch }}"
           FAILED_WORKFLOW="${{ github.event.workflow_run.name }}"
           FAILED_RUN="${{ github.event.workflow_run.id }}"
+          DISPLAY_TITLE="${{ github.event.workflow_run.display_title }}"
           echo "Branch: $BRANCH"
           echo "Failed workflow: $FAILED_WORKFLOW"
           echo "Failed run: $FAILED_RUN"
+          echo "Display title: $DISPLAY_TITLE"
 
-          # Find open PR for this branch
-          PR_NUMBER=$(gh pr list --repo ${{ github.repository }} \
-            --head "$BRANCH" --state open \
-            --json number --jq '.[0].number // empty')
+          # The dispatching workflow embeds "PR #NNN" in run-name.
+          # Parse it from the display title first.
+          PR_NUMBER=$(echo "$DISPLAY_TITLE" | grep -oP 'PR #\K[0-9]+' || true)
+
+          # Fall back to branch-based lookup for push/PR-triggered runs
+          if [ -z "$PR_NUMBER" ]; then
+            PR_NUMBER=$(gh pr list --repo ${{ github.repository }} \
+              --head "$BRANCH" --state open \
+              --json number --jq '.[0].number // empty')
+          fi
 
           if [ -z "$PR_NUMBER" ]; then
-            echo "No open PR found for branch $BRANCH — skipping"
+            echo "No associated PR found — skipping"
             echo "has_pr=false" >> $GITHUB_OUTPUT
             exit 0
           fi
 
-          echo "Found PR #$PR_NUMBER"
+          # Resolve the PR's head branch for the comment
+          PR_BRANCH=$(gh pr view "$PR_NUMBER" --repo ${{ github.repository }} \
+            --json headRefName --jq '.headRefName' 2>/dev/null || echo "$BRANCH")
+
+          echo "Found PR #$PR_NUMBER (branch: $PR_BRANCH)"
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "has_pr=true" >> $GITHUB_OUTPUT
-          echo "branch=$BRANCH" >> $GITHUB_OUTPUT
+          echo "branch=$PR_BRANCH" >> $GITHUB_OUTPUT
           echo "failed_workflow=$FAILED_WORKFLOW" >> $GITHUB_OUTPUT
           echo "failed_run=$FAILED_RUN" >> $GITHUB_OUTPUT
 
