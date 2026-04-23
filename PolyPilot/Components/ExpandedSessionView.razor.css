@@ -115,6 +115,10 @@
 }
 .info-label { color: var(--text-muted); white-space: nowrap; }
 .info-value { color: var(--text-primary); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.quota-info-normal { color: #34d399; }
+.quota-info-warning { color: #f59e0b; }
+.quota-info-critical { color: #f87171; }
+.quota-reset-hint { color: var(--text-dim); font-size: var(--type-caption2); }
 .info-action {
     display: block;
     width: calc(100% - 1rem);
