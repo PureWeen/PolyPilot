@@ -105,7 +105,7 @@ public partial class CopilotService
                     else
                     {
                         // No incomplete message — this is the start of a new text response
-                        session.History.Add(new ChatMessage("assistant", c, DateTime.Now, ChatMessageType.Assistant) { IsComplete = false });
+                        session.History.Add(new ChatMessage("assistant", c, DateTimeOffset.UtcNow, ChatMessageType.Assistant) { IsComplete = false });
                     }
                 }
             }
@@ -179,7 +179,7 @@ public partial class CopilotService
                     reasoningMsg.ReasoningId = normalizedReasoningId;
                     reasoningMsg.IsComplete = false;
                     reasoningMsg.IsCollapsed = false;
-                    reasoningMsg.Timestamp = DateTime.Now;
+                    reasoningMsg.Timestamp = DateTimeOffset.UtcNow;
                     MergeReasoningContent(reasoningMsg, c, isDelta: true);
                     session.LastUpdatedAt = DateTime.Now;
                 }
@@ -202,7 +202,7 @@ public partial class CopilotService
                     {
                         msg.IsComplete = true;
                         msg.IsCollapsed = true;
-                        msg.Timestamp = DateTime.Now;
+                        msg.Timestamp = DateTimeOffset.UtcNow;
                     }
                     if (targets.Count > 0)
                         session.LastUpdatedAt = DateTime.Now;

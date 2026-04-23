@@ -38,13 +38,13 @@ public class ResponseFlushTests
         var info = new AgentSessionInfo { Name = "test-flush", Model = "test-model" };
 
         // Simulate: user sent a message
-        info.History.Add(new ChatMessage("user", "What files are on the network?", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "What files are on the network?", DateTimeOffset.UtcNow));
         info.IsProcessing = true;
         info.MessageCount = info.History.Count;
 
         // Simulate: partial response accumulated (normally in CurrentResponse,
         // but at model level we test the flush writes to history)
-        var partialResponse = new ChatMessage("assistant", "I found 3 files on the network drive.", DateTime.Now);
+        var partialResponse = new ChatMessage("assistant", "I found 3 files on the network drive.", DateTimeOffset.UtcNow);
         info.History.Add(partialResponse);
         info.MessageCount = info.History.Count;
 
@@ -70,11 +70,11 @@ public class ResponseFlushTests
         var info = new AgentSessionInfo { Name = "test-error-flush", Model = "test-model" };
 
         // User message
-        info.History.Add(new ChatMessage("user", "List network shares", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "List network shares", DateTimeOffset.UtcNow));
         info.IsProcessing = true;
 
         // Partial assistant response (flushed by the fix before error clears state)
-        var partial = new ChatMessage("assistant", "Accessing network...", DateTime.Now);
+        var partial = new ChatMessage("assistant", "Accessing network...", DateTimeOffset.UtcNow);
         info.History.Add(partial);
 
         // Error occurs, clears processing
@@ -150,7 +150,7 @@ public class ResponseFlushTests
         var info = new AgentSessionInfo { Name = "late-flush", Model = "test-model" };
 
         // Start a turn
-        info.History.Add(new ChatMessage("user", "Do work", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "Do work", DateTimeOffset.UtcNow));
         info.IsProcessing = true;
 
         // Watchdog fires prematurely, clears IsProcessing
@@ -160,7 +160,7 @@ public class ResponseFlushTests
         // Late SessionIdleEvent arrives — CompleteResponse called
         // (In actual code, the fix flushes CurrentResponse even when IsProcessing=false)
         // Verify the model supports this: we can add assistant messages after IsProcessing=false
-        var lateContent = new ChatMessage("assistant", "Work completed successfully.", DateTime.Now);
+        var lateContent = new ChatMessage("assistant", "Work completed successfully.", DateTimeOffset.UtcNow);
         info.History.Add(lateContent);
         info.MessageCount = info.History.Count;
 
@@ -221,29 +221,29 @@ public class ResponseFlushTests
         var info = new AgentSessionInfo { Name = "multi-cycle", Model = "test-model" };
 
         // Cycle 1: Normal completion
-        info.History.Add(new ChatMessage("user", "Message 1", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "Message 1", DateTimeOffset.UtcNow));
         info.IsProcessing = true;
-        info.History.Add(new ChatMessage("assistant", "Response 1", DateTime.Now));
+        info.History.Add(new ChatMessage("assistant", "Response 1", DateTimeOffset.UtcNow));
         info.IsProcessing = false;
 
         // Cycle 2: Watchdog interruption (partial response preserved by fix)
-        info.History.Add(new ChatMessage("user", "Message 2", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "Message 2", DateTimeOffset.UtcNow));
         info.IsProcessing = true;
-        info.History.Add(new ChatMessage("assistant", "Partial response 2", DateTime.Now));
+        info.History.Add(new ChatMessage("assistant", "Partial response 2", DateTimeOffset.UtcNow));
         info.IsProcessing = false; // Watchdog
         info.History.Add(ChatMessage.SystemMessage("⚠️ Session appears stuck"));
 
         // Cycle 3: Error interruption (partial response preserved by fix)
-        info.History.Add(new ChatMessage("user", "Message 3", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "Message 3", DateTimeOffset.UtcNow));
         info.IsProcessing = true;
-        info.History.Add(new ChatMessage("assistant", "Partial 3", DateTime.Now));
+        info.History.Add(new ChatMessage("assistant", "Partial 3", DateTimeOffset.UtcNow));
         info.History.Add(ChatMessage.ErrorMessage("Connection error"));
         info.IsProcessing = false;
 
         // Cycle 4: Normal completion after errors
-        info.History.Add(new ChatMessage("user", "Message 4", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "Message 4", DateTimeOffset.UtcNow));
         info.IsProcessing = true;
-        info.History.Add(new ChatMessage("assistant", "Response 4", DateTime.Now));
+        info.History.Add(new ChatMessage("assistant", "Response 4", DateTimeOffset.UtcNow));
         info.IsProcessing = false;
 
         // All messages should be preserved
@@ -363,7 +363,7 @@ public class ResponseFlushTests
     public void ChatMessage_AssistantMessage_ModelPreserved()
     {
         // The fix creates assistant messages with model info during flush.
-        var msg = new ChatMessage("assistant", "Response text", DateTime.Now) { Model = "gpt-5.3-codex" };
+        var msg = new ChatMessage("assistant", "Response text", DateTimeOffset.UtcNow) { Model = "gpt-5.3-codex" };
         Assert.Equal("assistant", msg.Role);
         Assert.Equal("gpt-5.3-codex", msg.Model);
         Assert.Equal("Response text", msg.Content);
@@ -379,13 +379,13 @@ public class ResponseFlushTests
         // session.idle. The fix calls FlushCurrentResponse on AssistantTurnEndEvent.
         var info = new AgentSessionInfo { Name = "review-session", Model = "claude-opus-4.6" };
 
-        info.History.Add(new ChatMessage("user", "do a deep review of PR #34217", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "do a deep review of PR #34217", DateTimeOffset.UtcNow));
         info.IsProcessing = true;
 
         // Simulate: assistant.message with review content arrives → appended to CurrentResponse
         // Then turn_end fires → FlushCurrentResponse persists it to history
         var reviewContent = "## Deep Review: PR #34217\n\nThis PR updates the CLI design doc...";
-        var flushedMsg = new ChatMessage("assistant", reviewContent, DateTime.Now) { Model = info.Model };
+        var flushedMsg = new ChatMessage("assistant", reviewContent, DateTimeOffset.UtcNow) { Model = info.Model };
         info.History.Add(flushedMsg);
         info.MessageCount = info.History.Count;
 
@@ -403,7 +403,7 @@ public class ResponseFlushTests
         // FlushCurrentResponse is a no-op when CurrentResponse is empty (tool-only sub-turns).
         // This verifies the behavior at the model level.
         var info = new AgentSessionInfo { Name = "tool-session", Model = "test" };
-        info.History.Add(new ChatMessage("user", "list files", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "list files", DateTimeOffset.UtcNow));
         info.IsProcessing = true;
         var initialCount = info.History.Count;
 
@@ -418,17 +418,17 @@ public class ResponseFlushTests
         // When assistant text is flushed at turn_end and then more tool calls follow,
         // the flushed content should not be duplicated when CompleteResponse runs later.
         var info = new AgentSessionInfo { Name = "multi-turn", Model = "test" };
-        info.History.Add(new ChatMessage("user", "analyze this", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "analyze this", DateTimeOffset.UtcNow));
 
         // Turn 1: assistant text flushed at turn_end
-        var firstText = new ChatMessage("assistant", "Let me check...", DateTime.Now) { Model = info.Model };
+        var firstText = new ChatMessage("assistant", "Let me check...", DateTimeOffset.UtcNow) { Model = info.Model };
         info.History.Add(firstText);
 
         // Turn 2: tool call (no assistant text)
         info.History.Add(ChatMessage.ToolCallMessage("bash", "call-1", "ls -la"));
 
         // Turn 3: final response via CompleteResponse
-        var finalText = new ChatMessage("assistant", "Here are the results.", DateTime.Now) { Model = info.Model };
+        var finalText = new ChatMessage("assistant", "Here are the results.", DateTimeOffset.UtcNow) { Model = info.Model };
         info.History.Add(finalText);
 
         // Both text segments should be in history, not duplicated
@@ -445,10 +445,10 @@ public class ResponseFlushTests
         // (e.g., SDK replays events after resume), the second call should
         // be a no-op because CurrentResponse was cleared on first flush.
         var info = new AgentSessionInfo { Name = "flush-test", Model = "test" };
-        info.History.Add(new ChatMessage("user", "test", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "test", DateTimeOffset.UtcNow));
 
         // First flush: content added to history
-        var response = new ChatMessage("assistant", "Here's the answer.", DateTime.Now) { Model = info.Model };
+        var response = new ChatMessage("assistant", "Here's the answer.", DateTimeOffset.UtcNow) { Model = info.Model };
         info.History.Add(response);
 
         // Second flush attempt: CurrentResponse is empty after first flush,
@@ -463,11 +463,11 @@ public class ResponseFlushTests
         // Regression guard: if somehow the same content ends up in CurrentResponse
         // after it was already flushed to History, the dedup guard prevents duplicates.
         var info = new AgentSessionInfo { Name = "dedup-test", Model = "test" };
-        info.History.Add(new ChatMessage("user", "analyze", DateTime.Now));
+        info.History.Add(new ChatMessage("user", "analyze", DateTimeOffset.UtcNow));
 
         // Simulate: first flush added content to history
         var content = "The analysis shows three issues.";
-        info.History.Add(new ChatMessage("assistant", content, DateTime.Now) { Model = info.Model });
+        info.History.Add(new ChatMessage("assistant", content, DateTimeOffset.UtcNow) { Model = info.Model });
 
         // The last assistant message in history now matches what would be flushed.
         // The dedup guard in FlushCurrentResponse should prevent a second add.

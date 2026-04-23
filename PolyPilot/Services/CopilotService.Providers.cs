@@ -110,7 +110,7 @@ public partial class CopilotService
                 Name = leaderName,
                 Model = "provider",
                 SessionId = $"provider:{provider.ProviderId}:leader",
-                CreatedAt = DateTime.Now
+                CreatedAt = DateTimeOffset.UtcNow
             };
             var leaderMeta = Organization.Sessions.FirstOrDefault(m => m.SessionName == leaderName);
             if (leaderMeta == null)
@@ -362,7 +362,7 @@ public partial class CopilotService
                     Name = name,
                     Model = "provider-member",
                     SessionId = $"provider:{provider.ProviderId}:member:{member.Id}",
-                    CreatedAt = DateTime.Now
+                    CreatedAt = DateTimeOffset.UtcNow
                 };
 
                 var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
@@ -395,7 +395,7 @@ public partial class CopilotService
         if (string.IsNullOrWhiteSpace(responseText))
             return;
 
-        var message = new ChatMessage("assistant", responseText, DateTime.Now) { Model = state.Info.Model };
+        var message = new ChatMessage("assistant", responseText, DateTimeOffset.UtcNow) { Model = state.Info.Model };
         state.Info.History.Add(message);
         state.Info.MessageCount = state.Info.History.Count;
         state.Info.LastUpdatedAt = DateTime.Now;

@@ -1478,17 +1478,19 @@ public class MultiAgentRegressionTests
     {
         // MonitorAndSynthesizeAsync must filter worker results by dispatch timestamp
         // to avoid picking up stale pre-dispatch assistant messages from prior conversations.
-        // This was a 3/3 consensus finding from multi-model review.
+        // With DateTimeOffset standardization (#386), no local time conversion is needed —
+        // PendingOrchestration.StartedAt and ChatMessage.Timestamp are both DateTimeOffset,
+        // making comparisons timezone-aware automatically.
         var source = File.ReadAllText(Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Organization.cs"));
 
         // Find the result collection section in MonitorAndSynthesizeAsync
         var monitorSection = source.Substring(source.IndexOf("Collect worker results from their chat history"));
         var sectionEnd = Math.Min(monitorSection.Length, 1500);
         var block = monitorSection.Substring(0, sectionEnd);
-        // Must convert StartedAt to local time for comparison with ChatMessage.Timestamp
-        Assert.Contains("dispatchTimeLocal", block);
+        // Must use dispatch time for comparison (DateTimeOffset — no ToLocalTime() needed)
+        Assert.Contains("dispatchTime", block);
         // Must filter by timestamp
-        Assert.Contains("Timestamp >= dispatchTimeLocal", block);
+        Assert.Contains("Timestamp >= dispatchTime", block);
     }
 
     [Fact]
@@ -2979,7 +2981,7 @@ public class MultiAgentRegressionTests
             && (staleStartedAt == default || rs.StartedAt <= staleStartedAt))
         {
             rs.IsActive = false;
-            rs.CompletedAt = DateTime.Now;
+            rs.CompletedAt = DateTimeOffset.UtcNow;
         }
 
         Assert.False(group.ReflectionState.IsActive);
@@ -3004,7 +3006,7 @@ public class MultiAgentRegressionTests
 
         group.ReflectionState.IsActive = false;
         group.ReflectionState.GoalMet = true;
-        var originalCompleted = DateTime.Now.AddMinutes(-10);
+        var originalCompleted = DateTimeOffset.UtcNow.AddMinutes(-10);
         group.ReflectionState.CompletedAt = originalCompleted;
         var staleStartedAt = group.ReflectionState.StartedAt;
 
@@ -3013,7 +3015,7 @@ public class MultiAgentRegressionTests
             && (staleStartedAt == default || rs.StartedAt <= staleStartedAt))
         {
             rs.IsActive = false;
-            rs.CompletedAt = DateTime.Now;
+            rs.CompletedAt = DateTimeOffset.UtcNow;
         }
 
         // CompletedAt should remain the original value
@@ -3039,21 +3041,20 @@ public class MultiAgentRegressionTests
         };
 
         // Capture stale StartedAt as UTC (simulates PendingOrchestration.StartedAt)
-        // then normalize to local time (as the production code does)
-        var pendingStartedAtUtc = DateTime.UtcNow.AddMinutes(-5);
-        var staleStartedAt = pendingStartedAtUtc.ToLocalTime();
+        // With DateTimeOffset, no local time conversion needed — comparisons are timezone-aware
+        var pendingStartedAt = DateTimeOffset.UtcNow.AddMinutes(-5);
 
         // Simulate user sending a new prompt → StartGroupReflection creates fresh state
         group.ReflectionState = ReflectionCycle.Create("New goal", maxIterations: 3);
         Assert.True(group.ReflectionState.IsActive);
-        Assert.True(group.ReflectionState.StartedAt > staleStartedAt);
+        Assert.True(group.ReflectionState.StartedAt > pendingStartedAt);
 
         // Simulate the queued InvokeOnUI callback firing AFTER the fresh cycle was created
         if (group.ReflectionState is { IsActive: true } rs
-            && (staleStartedAt == default || rs.StartedAt <= staleStartedAt))
+            && (pendingStartedAt == default || rs.StartedAt <= pendingStartedAt))
         {
             rs.IsActive = false;
-            rs.CompletedAt = DateTime.Now;
+            rs.CompletedAt = DateTimeOffset.UtcNow;
         }
 
         // Fresh cycle should NOT have been reset

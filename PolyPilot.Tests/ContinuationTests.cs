@@ -56,8 +56,8 @@ public class ContinuationTests
     {
         var history = new List<ChatMessage>
         {
-            new("user", "Hello world", DateTime.Now, ChatMessageType.User),
-            new("assistant", "Hi there!", DateTime.Now, ChatMessageType.Assistant),
+            new("user", "Hello world", DateTimeOffset.UtcNow, ChatMessageType.User),
+            new("assistant", "Hi there!", DateTimeOffset.UtcNow, ChatMessageType.Assistant),
         };
 
         var result = CopilotService.BuildContinuationTranscript(history, "test-session", "abc-123");
@@ -73,7 +73,7 @@ public class ContinuationTests
         var longContent = new string('x', 500);
         var history = new List<ChatMessage>
         {
-            new("assistant", longContent, DateTime.Now, ChatMessageType.Assistant),
+            new("assistant", longContent, DateTimeOffset.UtcNow, ChatMessageType.Assistant),
         };
 
         var result = CopilotService.BuildContinuationTranscript(history, "test", "abc");
@@ -104,7 +104,7 @@ public class ContinuationTests
     {
         var history = new List<ChatMessage>
         {
-            new("user", "test", DateTime.Now, ChatMessageType.User),
+            new("user", "test", DateTimeOffset.UtcNow, ChatMessageType.User),
         };
 
         var result = CopilotService.BuildContinuationTranscript(history, "test", "abc-123");
@@ -117,7 +117,7 @@ public class ContinuationTests
     {
         var history = new List<ChatMessage>
         {
-            new("user", "test", DateTime.Now, ChatMessageType.User),
+            new("user", "test", DateTimeOffset.UtcNow, ChatMessageType.User),
         };
 
         var result = CopilotService.BuildContinuationTranscript(history, "test", null);
@@ -130,8 +130,8 @@ public class ContinuationTests
     {
         var history = new List<ChatMessage>
         {
-            new("system", "System init", DateTime.Now, ChatMessageType.System),
-            new("user", "Hello", DateTime.Now, ChatMessageType.User),
+            new("system", "System init", DateTimeOffset.UtcNow, ChatMessageType.System),
+            new("user", "Hello", DateTimeOffset.UtcNow, ChatMessageType.User),
         };
 
         var result = CopilotService.BuildContinuationTranscript(history, "test", "abc");
@@ -147,8 +147,8 @@ public class ContinuationTests
         // Add many turns to exceed 6000 char budget
         for (int i = 0; i < 50; i++)
         {
-            history.Add(new("user", $"Question {i}: {new string('q', 100)}", DateTime.Now, ChatMessageType.User));
-            history.Add(new("assistant", $"Answer {i}: {new string('a', 300)}", DateTime.Now, ChatMessageType.Assistant));
+            history.Add(new("user", $"Question {i}: {new string('q', 100)}", DateTimeOffset.UtcNow, ChatMessageType.User));
+            history.Add(new("assistant", $"Answer {i}: {new string('a', 300)}", DateTimeOffset.UtcNow, ChatMessageType.Assistant));
         }
 
         var result = CopilotService.BuildContinuationTranscript(history, "test", "abc");

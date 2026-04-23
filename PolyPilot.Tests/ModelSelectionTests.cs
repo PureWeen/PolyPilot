@@ -486,7 +486,7 @@ public class ModelSelectionTests
             WorkingDirectory = "/my/worktree"
         };
         info.History.Add(ChatMessage.UserMessage("hello"));
-        info.History.Add(new ChatMessage("assistant", "hi there", DateTime.Now));
+        info.History.Add(new ChatMessage("assistant", "hi there", DateTimeOffset.UtcNow));
 
         var originalSessionId = info.SessionId;
         var originalHistory = info.History.Count;

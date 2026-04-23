@@ -831,7 +831,7 @@ public partial class CopilotService
                                 {
                                     Name = entry.DisplayName,
                                     Model = resumeModel ?? DefaultModel,
-                                    CreatedAt = DateTime.Now,
+                                    CreatedAt = DateTimeOffset.UtcNow,
                                     SessionId = entry.SessionId,
                                     WorkingDirectory = csWorkDir
                                 };
@@ -857,7 +857,7 @@ public partial class CopilotService
                                 Name = entry.DisplayName,
                                 Model = lazyModel,
                                 ReasoningEffort = entry.ReasoningEffort,
-                                CreatedAt = DateTime.Now,
+                                CreatedAt = DateTimeOffset.UtcNow,
                                 SessionId = entry.SessionId,
                                 WorkingDirectory = lazyWorkDir
                             };

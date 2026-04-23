@@ -6,7 +6,7 @@ public class AgentSessionInfo
     public required string Model { get; set; }
     /// <summary>Reasoning effort level: "low", "medium", "high", "xhigh", or null for model default.</summary>
     public string? ReasoningEffort { get; set; }
-    public DateTime CreatedAt { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
     public int MessageCount { get; set; }
     public bool IsProcessing { get; set; }
     public List<ChatMessage> History { get; } = new();

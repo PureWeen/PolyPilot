@@ -475,7 +475,7 @@ public class ReflectionCycleTests
     public void BuildCompletionSummary_IncludesDuration()
     {
         var cycle = ReflectionCycle.Create("Goal");
-        cycle.StartedAt = DateTime.Now.AddSeconds(-30);
+        cycle.StartedAt = DateTimeOffset.UtcNow.AddSeconds(-30);
         cycle.Advance("Done!\n[[REFLECTION_COMPLETE]]");
 
         var summary = cycle.BuildCompletionSummary();
@@ -1058,7 +1058,7 @@ public class AgentSessionInfoReflectionCycleTests
 
         // Simulate finally block cleanup
         cycle.IsActive = false;
-        cycle.CompletedAt = DateTime.Now;
+        cycle.CompletedAt = DateTimeOffset.UtcNow;
 
         Assert.False(cycle.IsActive);
         Assert.True(cycle.IsCancelled);
@@ -1071,7 +1071,7 @@ public class AgentSessionInfoReflectionCycleTests
         var cycle = ReflectionCycle.Create("Fix bug");
         cycle.IsCancelled = true;
         cycle.IsActive = false;
-        cycle.CompletedAt = DateTime.Now;
+        cycle.CompletedAt = DateTimeOffset.UtcNow;
 
         var summary = cycle.BuildCompletionSummary();
         Assert.Contains("cancelled", summary, StringComparison.OrdinalIgnoreCase);

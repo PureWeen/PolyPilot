@@ -96,7 +96,7 @@ public class OrchestrationPromptDisplayTests
     [Fact]
     public void ChatMessage_OriginalContent_RoundTripsViaJson()
     {
-        var msg = new ChatMessage("user", "[Multi-agent context: ...]\n\nfix this", DateTime.Now)
+        var msg = new ChatMessage("user", "[Multi-agent context: ...]\n\nfix this", DateTimeOffset.UtcNow)
         {
             OriginalContent = "fix this"
         };

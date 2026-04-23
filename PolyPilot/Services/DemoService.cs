@@ -30,7 +30,7 @@ public class DemoService : IDemoService
         {
             Name = name,
             Model = model ?? "demo-model",
-            CreatedAt = DateTime.Now,
+            CreatedAt = DateTimeOffset.UtcNow,
             SessionId = $"demo-{Interlocked.Increment(ref _sessionCounter)}"
         };
         _sessions[name] = info;

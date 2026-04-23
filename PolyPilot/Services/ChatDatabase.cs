@@ -49,7 +49,7 @@ public class ChatMessageEntity
         var type = Enum.TryParse<ChatMessageType>(MessageType, out var mt) ? mt : ChatMessageType.User;
         var role = type == ChatMessageType.User ? "user" : "assistant";
 
-        var msg = new ChatMessage(role, Content, Timestamp, type)
+        var msg = new ChatMessage(role, Content, new DateTimeOffset(Timestamp, TimeSpan.Zero), type)
         {
             ToolName = ToolName,
             ToolCallId = ToolCallId,
@@ -81,7 +81,7 @@ public class ChatMessageEntity
             IsComplete = msg.IsComplete,
             IsSuccess = msg.IsSuccess,
             ReasoningId = msg.ReasoningId,
-            Timestamp = msg.Timestamp,
+            Timestamp = msg.Timestamp.UtcDateTime,
             Model = msg.Model,
             OriginalContent = msg.OriginalContent,
             ImagePath = msg.ImagePath,
