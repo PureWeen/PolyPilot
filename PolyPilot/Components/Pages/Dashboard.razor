@@ -1665,7 +1665,7 @@
             Name = toolName,
             CallId = callId,
             Input = inputSummary,
-            StartedAt = DateTime.Now
+            StartedAt = DateTimeOffset.Now
         });
         if (sessionName == expandedSession || expandedSession == null)
             ScheduleRender();
@@ -1681,7 +1681,7 @@
                 activity.IsComplete = true;
                 activity.IsSuccess = success;
                 activity.Result = result;
-                activity.CompletedAt = DateTime.Now;
+                activity.CompletedAt = DateTimeOffset.Now;
             }
         }
         currentToolBySession.Remove(sessionName);
