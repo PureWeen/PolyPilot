@@ -129,6 +129,8 @@ When `create-pull-request` or `push-to-pull-request-branch` is configured, prote
 - Package manifests (`package.json`, `*.csproj` dependencies, etc.)
 - `.github/` directory contents
 - Agent instruction files
+- `.githooks/`, `.husky/` (added v0.70.0)
+- `DESIGN.md` (added v0.70.0)
 
 Configure behavior with `protected-files:` on the safe output:
 - `blocked` (default) — PR creation fails if protected files are modified

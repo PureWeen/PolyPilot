@@ -74,6 +74,7 @@ gh aw upgrade                 # Upgrade gh-aw CLI extension
 | Manually hiding agent comments | `hide-comment:` safe output | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
 | Custom post-processing jobs for agent output | `safe-outputs.jobs:` custom jobs with MCP tool access | [Custom Safe Outputs](https://github.github.com/gh-aw/reference/custom-safe-outputs/) |
 | Wrapping GitHub Actions as agent-callable tools | `safe-outputs.actions:` action wrappers | [Custom Safe Outputs](https://github.github.com/gh-aw/reference/custom-safe-outputs/) |
+| Merging a PR from workflow code | `merge-pull-request` safe output | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
 | Triggering CI on agent-created PRs | `github-token-for-extra-empty-commit:` on `create-pull-request` | [Triggering CI](https://github.github.com/gh-aw/reference/triggering-ci/) |
 | No guard against agent approving PRs | `allowed-events: [COMMENT]` on `submit-pull-request-review` (prefer over `[COMMENT, REQUEST_CHANGES]` to avoid stale blocking reviews) | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
 | `slash_command:` without `events:` filter (subscribes to ALL comment events) | `events: [pull_request_comment]` or `events: [issue_comment]` | [Command Triggers](https://github.github.com/gh-aw/reference/command-triggers/) |
@@ -114,7 +115,12 @@ safe-outputs:
     max: 1
     hide-older-comments: true
     target: "*"    # Required for workflow_dispatch (no triggering PR context)
+    # upsert: true  # Sticky comment: update in place across runs instead of posting a new comment
 ```
+
+> **Sticky comments (v0.70.0):** `add-comment` supports `upsert: true` to update a previous comment in-place across runs rather than posting a new one each time. Useful for recurring status updates (e.g., CI summaries, code quality reports) where you want a single evolving comment instead of a thread of duplicates.
+
+> **PR review thread routing (v0.70.0):** On `pull_request_review_comment` triggers, `add-comment` now replies directly in the review thread instead of posting at the PR level.
 
 ### Concurrency
 
@@ -414,6 +420,15 @@ imports:                     # APM package dependencies
 **`rate-limit:`** — Throttle slash command invocations to prevent abuse or accidental spam. The `max` field limits invocations per `window` seconds. Useful for commands that call external APIs or create issues.
 
 **Available tools:** `web-fetch` (fetch URLs), `bash` (shell commands), GitHub MCP toolsets (`pull_requests`, `repos`, `issues`, etc.). Use `tools: [web-fetch]` for workflows that call external APIs.
+
+**GitHub CLI proxy mode (v0.70.0):** Configure the GitHub CLI proxy via `tools.github.mode: gh-proxy` for a cleaner, more discoverable API:
+
+```yaml
+tools:
+  github:
+    mode: gh-proxy
+    toolsets: [pull_requests, repos]
+```
 
 Supported runtimes: `node`, `python`, `go`, `uv`, `bun`, `deno`, `ruby`, `java`, `dotnet`, `elixir`.
 
