@@ -121,8 +121,9 @@ Read the staleness report above. For each signal, read the affected skill files 
 ### Rules
 1. **Respect `divergence` sections** — NEVER remove: "Security Boundaries", "Safe Pattern: Checkout + Restore", "Common Patterns"
 2. **Classify P0-P3:** P0=factually wrong, P1=security, P2=new features, P3=nice-to-have
-3. **Only auto-fix P0 and P1.** Note P2 in PR description. Skip P3.
-4. **Update sync manifest** — `resolution_expected`, `last_reviewed`, new issues
+3. **Auto-fix P0, P1, AND P2.** Only skip P3 (cosmetic/nice-to-have).
+4. **For new releases:** Read ALL release notes in the report. For each new feature, check if our skill covers it. Add new features to the anti-patterns table, trigger guide, or security patterns as appropriate. Update the `last_reviewed_release` field in `gh-aw-workflows.sync.yaml` to the latest tag after processing.
+5. **Update sync manifest** — `resolution_expected`, `last_reviewed_release`, new issues
 
 Commit each change:
 ```bash

@@ -127,8 +127,8 @@ function Get-GitHubLatestRelease {
             }
         }
         $release = $json | ConvertFrom-Json
-        # Truncate release notes to first 2000 chars to keep report manageable
-        $body = if ($release.body.Length -gt 2000) { $release.body.Substring(0, 2000) + '...' } else { $release.body }
+        # Truncate release notes to first 5000 chars
+        $body = if ($release.body.Length -gt 5000) { $release.body.Substring(0, 5000) + '...' } else { $release.body }
         return @{
             status = 'ok'
             repo   = $Repo
@@ -138,6 +138,50 @@ function Get-GitHubLatestRelease {
                 published_at = $release.published_at
                 release_notes = $body
             }
+        }
+    }
+    catch {
+        return @{
+            status = 'error'
+            repo   = $Repo
+            error  = $_.Exception.Message
+        }
+    }
+}
+
+function Get-GitHubReleasesSince {
+    param([string]$Repo, [string]$SinceTag)
+
+    try {
+        # Fetch recent releases (up to 10)
+        $json = gh api "repos/$Repo/releases?per_page=10" --jq '[.[] | {tag_name: .tag_name, name: .name, published_at: .published_at, body: .body}]' 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            return @{
+                status = 'error'
+                repo   = $Repo
+                error  = "Failed to fetch releases: $json"
+            }
+        }
+        if (-not $json -or $json -eq 'null' -or $json -eq '[]') {
+            return @{ status = 'ok'; repo = $Repo; releases = @() }
+        }
+        $allReleases = $json | ConvertFrom-Json
+        # Collect releases newer than $SinceTag
+        $newReleases = @()
+        foreach ($r in $allReleases) {
+            if ($r.tag_name -eq $SinceTag) { break }
+            $body = if ($r.body.Length -gt 5000) { $r.body.Substring(0, 5000) + '...' } else { $r.body }
+            $newReleases += @{
+                tag          = $r.tag_name
+                name         = $r.name
+                published_at = $r.published_at
+                release_notes = $body
+            }
+        }
+        return @{
+            status   = 'ok'
+            repo     = $Repo
+            releases = $newReleases
         }
     }
     catch {
@@ -372,6 +416,11 @@ function ConvertFrom-SyncManifest {
                     $currentItem.resolution_expected = $Matches[1].Trim() -eq 'true'
                 }
             }
+            elseif ($trimmed -match '^last_reviewed_release:\s*(.+)$') {
+                if ($currentItem) {
+                    $currentItem.last_reviewed_release = $Matches[1].Trim()
+                }
+            }
             elseif ($trimmed -match '^coverage_gaps:') {
                 if ($currentItem) {
                     $currentItem.coverage_gaps = @()
@@ -533,21 +582,45 @@ foreach ($manifestPath in $manifests) {
             }
             'releases' {
                 Write-Host "   📦 Checking releases for $($source.repo)..." -NoNewline
-                $result = Get-GitHubLatestRelease -Repo $source.repo
-                if ($result.status -eq 'ok' -and $result.latest) {
-                    Write-Host " ✅ latest=$($result.latest.tag)" -ForegroundColor Green
-                }
-                elseif ($result.status -eq 'ok') {
-                    Write-Host " ℹ️ No releases found" -ForegroundColor Yellow
+                $sinceTag = if ($source.ContainsKey('last_reviewed_release')) { $source.last_reviewed_release } else { $null }
+                if ($sinceTag) {
+                    $result = Get-GitHubReleasesSince -Repo $source.repo -SinceTag $sinceTag
+                    if ($result.status -eq 'ok' -and $result.releases.Count -gt 0) {
+                        Write-Host " 🆕 $($result.releases.Count) new release(s) since $sinceTag" -ForegroundColor Yellow
+                    }
+                    elseif ($result.status -eq 'ok') {
+                        Write-Host " ✅ up to date (last reviewed: $sinceTag)" -ForegroundColor Green
+                    }
+                    else {
+                        Write-Host " ❌ Error: $($result.error)" -ForegroundColor Red
+                    }
                 }
                 else {
-                    Write-Host " ❌ Error: $($result.error)" -ForegroundColor Red
+                    # No last_reviewed_release — fall back to latest-only
+                    $singleResult = Get-GitHubLatestRelease -Repo $source.repo
+                    $result = @{
+                        status   = $singleResult.status
+                        repo     = $source.repo
+                        releases = if ($singleResult.status -eq 'ok' -and $singleResult.latest) { @($singleResult.latest) } else { @() }
+                        error    = $singleResult.error
+                    }
+                    if ($result.status -eq 'ok' -and $result.releases.Count -gt 0) {
+                        Write-Host " ✅ latest=$($result.releases[0].tag) (no last_reviewed_release set — add to manifest)" -ForegroundColor Yellow
+                    }
+                    elseif ($result.status -eq 'ok') {
+                        Write-Host " ℹ️ No releases found" -ForegroundColor Yellow
+                    }
+                    else {
+                        Write-Host " ❌ Error: $($result.error)" -ForegroundColor Red
+                    }
                 }
-                $sourceResults += @{
-                    type   = 'releases'
-                    repo   = $source.repo
-                    result = $result
+                $entry = @{
+                    type                  = 'releases'
+                    repo                  = $source.repo
+                    last_reviewed_release = $sinceTag
+                    result                = $result
                 }
+                $sourceResults += $entry
             }
         }
     }
@@ -632,16 +705,20 @@ foreach ($manifestPath in $manifests) {
 #   - closed issues where resolution_expected is true (instruction may reference outdated workarounds)
 #   - untracked pages discovered via index crawling
 #   - untracked recently closed issues
+#   - new releases since last_reviewed_release
 $actionableChanges = $results | ForEach-Object { $_.sources } | Where-Object {
     $_.result.status -eq 'error' -or
     ($_.type -eq 'issue' -and $_.resolution_expected -and $_.result.status -eq 'ok' -and $_.result.state -eq 'closed')
 }
+$hasNewReleases = ($results | ForEach-Object { $_.sources } | Where-Object {
+    $_.type -eq 'releases' -and $_.result.status -eq 'ok' -and $_.result.releases.Count -gt 0 -and $_.last_reviewed_release
+} | Measure-Object).Count -gt 0
 $hasUntrackedPages = ($results | Where-Object { $_.untracked_pages.Count -gt 0 } | Measure-Object).Count -gt 0
 $hasUntrackedIssues = ($results | Where-Object { $_.untracked_closed_issues.Count -gt 0 } | Measure-Object).Count -gt 0
 $report = @{
     checked_at       = (Get-Date -Format 'o')
     manifests        = $results
-    changes_detected = (($actionableChanges | Measure-Object).Count -gt 0) -or $hasUntrackedPages -or $hasUntrackedIssues
+    changes_detected = (($actionableChanges | Measure-Object).Count -gt 0) -or $hasUntrackedPages -or $hasUntrackedIssues -or $hasNewReleases
 }
 
 Write-Host "`n📊 Report:" -ForegroundColor Cyan
