@@ -322,7 +322,7 @@ Safe outputs enforce security through separation: agents run read-only and reque
 | Category | Types |
 |----------|-------|
 | **Issues & Discussions** | `create-issue`, `update-issue`, `close-issue`, `link-sub-issue`, `create-discussion`, `update-discussion`, `close-discussion` |
-| **Pull Requests** | `create-pull-request`, `update-pull-request`, `close-pull-request`, `merge-pull-request`, `create-pull-request-review-comment`, `reply-to-pull-request-review-comment`, `resolve-pull-request-review-thread`, `push-to-pull-request-branch`, `add-reviewer` |
+| **Pull Requests** | `create-pull-request`, `update-pull-request`, `close-pull-request`, `create-pull-request-review-comment`, `reply-to-pull-request-review-comment`, `resolve-pull-request-review-thread`, `push-to-pull-request-branch`, `add-reviewer` |
 | **Labels & Assignments** | `add-comment`, `hide-comment`, `add-labels`, `remove-labels`, `assign-milestone`, `assign-to-agent`, `assign-to-user`, `unassign-from-user` |
 | **Projects & Releases** | `create-project`, `update-project`, `create-project-status-update`, `update-release`, `upload-asset` |
 | **Workflow & Security** | `dispatch-workflow`, `call-workflow`, `dispatch_repository`, `create-code-scanning-alert`, `autofix-code-scanning-alert`, `create-agent-session` |
@@ -342,13 +342,10 @@ Safe outputs enforce security through separation: agents run read-only and reque
 - `allowed-events: [COMMENT]` — On `submit-pull-request-review`, blocks agent from approving PRs (bypasses branch protection). **Always use this** for review workflows.
 - **Stale review limitation**: Prefer `allowed-events: [COMMENT]` unless you need the "Changes requested" badge. `REQUEST_CHANGES` reviews from `github-actions[bot]` cannot be dismissed by the agent (no `dismiss-pull-request-review` safe output, `pull-requests: write` rejected by compiler). A stale blocking review persists until a human dismisses it manually.
 
-**`merge-pull-request` (v0.70.0+)** — Merge a PR directly as a safe output operation. Runs in the safe-outputs job with proper write permissions, not inside the agent container.
-
 **`add-comment` notable options:**
 - `hide-older-comments: true` — Collapse previous comments from same workflow
 - `max: N` — Limit comments per run (default: 1)
 - `target: "*"` — Required for `workflow_dispatch` (no triggering PR context)
-- `sticky: true` (v0.70.0+) — Upsert: update the existing comment in place across runs rather than posting a new one. Replaces the "delete old + post new" pattern.
 - **PR review thread routing** (v0.70.0+): On `pull_request_review_comment` triggers, `add_comment` now replies directly in the review thread instead of posting at the PR level.
 
 ---
