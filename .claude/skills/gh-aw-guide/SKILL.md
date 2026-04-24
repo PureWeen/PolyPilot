@@ -276,7 +276,7 @@ tools:
 | `all` | `approved` | **Two-layer defense.** Any actor triggers, but agent only sees trusted content |
 | `all` | `none` | **Widest exposure.** Must pair with minimal `safe-outputs` — only remaining constraint |
 
-> ⚠️ **Compiler bug (v0.62.2)**: Hardcoded `min-integrity` in source emits an incomplete guard policy (missing `repos` field) that crashes the MCP Gateway. Rely on the automatic `determine-automatic-lockdown` step instead, which applies `approved` for public repos by default. This may be fixed in newer compiler versions — test before hardcoding.
+> ⚠️ **Compiler bug**: Hardcoded `min-integrity` in source emits an incomplete guard policy (missing `repos` field) that crashes the MCP Gateway (first observed in v0.62.2; unconfirmed whether fixed in later versions — test before hardcoding). Rely on the automatic `determine-automatic-lockdown` step instead, which applies `approved` for public repos by default.
 
 **4. CI triggering + protected file safety** for agent-created PRs — `GITHUB_TOKEN` pushes don't trigger CI; a PAT/App token is required. `protected-files` controls what happens when the agent modifies package manifests or `.github/`:
 
