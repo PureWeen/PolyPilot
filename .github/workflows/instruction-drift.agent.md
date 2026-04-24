@@ -10,23 +10,23 @@ permissions:
   contents: read
   pull-requests: read
 
-# Scripts need gh CLI auth (scrubbed inside agent container).
-# Run in steps:, pass results via $GITHUB_OUTPUT → template substitution into prompt.
+# Scripts need gh CLI auth. They run as steps: in the agent job (same runner),
+# writing results to files that the agent reads at runtime.
 steps:
   - name: Run staleness check
     id: staleness
     env:
       GH_TOKEN: ${{ github.token }}
     run: |
-      RESULT=$(pwsh .claude/skills/instruction-drift/scripts/Check-Staleness.ps1 \
-        -SyncManifest .github/instructions/gh-aw-workflows.sync.yaml 2>/dev/null \
-        || echo '{"changes_detected":false,"error":"script failed"}')
-      CHANGES=$(echo "$RESULT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(str(d.get('changes_detected',False)).lower())" 2>/dev/null || echo "false")
+      mkdir -p /tmp/drift-results
+      pwsh .claude/skills/instruction-drift/scripts/Check-Staleness.ps1 \
+        -SyncManifest .github/instructions/gh-aw-workflows.sync.yaml \
+        > /tmp/drift-results/staleness.json 2>/tmp/drift-results/staleness-errors.log \
+        || echo '{"changes_detected":false,"error":"script failed"}' > /tmp/drift-results/staleness.json
+      CHANGES=$(cat /tmp/drift-results/staleness.json | python3 -c "import json,sys; d=json.load(sys.stdin); print(str(d.get('changes_detected',False)).lower())" 2>/dev/null || echo "false")
       echo "changes_detected=$CHANGES" >> "$GITHUB_OUTPUT"
-      echo "report<<REPORT_EOF" >> "$GITHUB_OUTPUT"
-      echo "$RESULT" | head -c 60000 >> "$GITHUB_OUTPUT"
-      echo "" >> "$GITHUB_OUTPUT"
-      echo "REPORT_EOF" >> "$GITHUB_OUTPUT"
+      echo "Staleness check complete. changes_detected=$CHANGES"
+      cat /tmp/drift-results/staleness.json | head -c 2000
 
   - name: Run upstream scan (if stale)
     id: upstream
@@ -34,13 +34,12 @@ steps:
     env:
       GH_TOKEN: ${{ github.token }}
     run: |
-      RESULT=$(pwsh .claude/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1 \
-        -MaxCommits 50 2>/dev/null \
-        || echo '{"changes_detected":false,"error":"script failed"}')
-      echo "report<<SCAN_EOF" >> "$GITHUB_OUTPUT"
-      echo "$RESULT" | head -c 60000 >> "$GITHUB_OUTPUT"
-      echo "" >> "$GITHUB_OUTPUT"
-      echo "SCAN_EOF" >> "$GITHUB_OUTPUT"
+      pwsh .claude/skills/instruction-drift/scripts/Scan-GhAwUpdates.ps1 \
+        -MaxCommits 50 \
+        > /tmp/drift-results/upstream.json 2>/tmp/drift-results/upstream-errors.log \
+        || echo '{"changes_detected":false,"error":"script failed"}' > /tmp/drift-results/upstream.json
+      echo "Upstream scan complete."
+      cat /tmp/drift-results/upstream.json | head -c 2000
 
 engine:
   id: copilot
@@ -77,26 +76,29 @@ timeout-minutes: 30
 
 > **🚨 No test messages.** Never call any safe-output tool with placeholder or test content.
 
-## Pre-computed Staleness Data
+## Step 1: Read Pre-computed Results
 
 The staleness check ran in `steps:` (before you started) with authenticated `gh` CLI.
-**Do NOT run Check-Staleness.ps1 yourself** — `gh` CLI is not authenticated in this container.
+**Do NOT run Check-Staleness.ps1 yourself** — `gh` CLI is not authenticated inside this container.
 
-**Changes detected: `${{ steps.staleness.outputs.changes_detected }}`**
-
-### Staleness Report
-```json
-${{ steps.staleness.outputs.report }}
+Read the results files:
+```bash
+cat /tmp/drift-results/staleness.json
 ```
 
-### Upstream Scan (only present if changes detected)
-```json
-${{ steps.upstream.outputs.report }}
+If the file contains `"changes_detected": true`, also read:
+```bash
+cat /tmp/drift-results/upstream.json
+```
+
+If there were errors, check:
+```bash
+cat /tmp/drift-results/staleness-errors.log
 ```
 
 ## 🚨 CRITICAL — What To Do
 
-### If changes_detected is `false` → call `noop` NOW
+### If `changes_detected` is `false` → call `noop` NOW
 
 Call the `noop` tool immediately:
 ```
@@ -104,7 +106,7 @@ noop(message="All instruction files are fresh — no drift detected.")
 ```
 Do not create issues, PRs, or comments. Stop after calling noop.
 
-### If changes_detected is `true` → continue below
+### If `changes_detected` is `true` → continue below
 
 ---
 
