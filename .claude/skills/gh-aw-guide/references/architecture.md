@@ -84,9 +84,10 @@ To **allow fork PRs**, add `forks: ["*"]` to the `pull_request` trigger in the `
 | **Threat detection agent** | Reviews agent outputs before safe-outputs publishes them | Can miss novel exfiltration techniques |
 | **Safe-outputs permission separation** | Write operations happen in separate job, not the agent | Agent can still request writes via safe-output tools |
 | **Integrity filtering** | Filters untrusted GitHub content before agent sees it (DIFC proxy) | Runtime auto-lockdown varies by event type — verify for sensitive workflows |
-| **Protected files** | Blocks agent from modifying package manifests, `.github/`, etc. | Only applies to `create-pull-request` and `push-to-pull-request-branch` |
+| **Protected files** | Blocks agent from modifying package manifests, `.github/`, `.githooks/`, `.husky/`, `DESIGN.md`, etc. | Only applies to `create-pull-request` and `push-to-pull-request-branch` |
+| **Container image digest pinning** (v0.70.0+) | Lock files pin built-in container images by digest for reproducible, tamper-resistant execution | Only covers images managed by `gh aw compile` — custom containers are not auto-pinned |
 | **`max: N` on safe outputs** | Limits number of operations per type | That output could still contain sensitive data (mitigated by redaction) |
-| **XPIA prompt** | Instructs LLM to resist prompt injection from untrusted content | LLM compliance is probabilistic, not guaranteed |
+| **XPIA prompt** | Instructs LLM to resist prompt injection from untrusted content (hardened v0.70.0) | LLM compliance is probabilistic, not guaranteed; `disable-xpia-prompt` rejected at compile in strict mode |
 | **`pre_activation` role check** | Gates on write-access collaborators | Does not apply if `roles: all` is set |
 
 ### Integrity Filtering
@@ -129,10 +130,13 @@ When `create-pull-request` or `push-to-pull-request-branch` is configured, prote
 - Package manifests (`package.json`, `*.csproj` dependencies, etc.)
 - `.github/` directory contents
 - Agent instruction files
+- `.githooks/`, `.husky/` (hook directories) — added in v0.70.0
+- `DESIGN.md` — added in v0.70.0
 
 Configure behavior with `protected-files:` on the safe output:
 - `blocked` (default) — PR creation fails if protected files are modified
 - `fallback-to-issue` — PR branch is pushed but an issue is created instead for review
+  - `fallback-labels: ["needs-review"]` — Optional custom labels on the fallback issue (v0.70.0+)
 - `allowed` — Disables protection (use with caution)
 
 ### Rules for gh-aw Workflow Authors
@@ -201,6 +205,7 @@ The platform now **automatically preserves `.github/` and `.agents/` from the ba
 - `steps:` and `pre-agent-steps:` that execute workspace code after checkout still run with `GITHUB_TOKEN` — if they run fork PR scripts, it's a pwn-request
 - The agent container has `COPILOT_TOKEN` in the environment — build commands (`dotnet build`, `npm install`) executed by the agent on fork PR code can read it via build hooks
 - `workflow_dispatch` skips `checkout_pr_branch.cjs` entirely — use `Checkout-GhAwPr.ps1` for defense-in-depth
+- **Multi-repo `push_to_pull_request_branch`** (fixed v0.70.0): Previously, git operations were scoped to the wrong working directory in multi-repo checkout patterns. This is now fixed — side-repo push targets the correct directory automatically. Recompile affected workflows.
 
 ### Dangerous Triggers Checklist
 
@@ -317,7 +322,7 @@ Safe outputs enforce security through separation: agents run read-only and reque
 | Category | Types |
 |----------|-------|
 | **Issues & Discussions** | `create-issue`, `update-issue`, `close-issue`, `link-sub-issue`, `create-discussion`, `update-discussion`, `close-discussion` |
-| **Pull Requests** | `create-pull-request`, `update-pull-request`, `close-pull-request`, `create-pull-request-review-comment`, `reply-to-pull-request-review-comment`, `resolve-pull-request-review-thread`, `push-to-pull-request-branch`, `add-reviewer` |
+| **Pull Requests** | `create-pull-request`, `update-pull-request`, `close-pull-request`, `merge-pull-request`, `create-pull-request-review-comment`, `reply-to-pull-request-review-comment`, `resolve-pull-request-review-thread`, `push-to-pull-request-branch`, `add-reviewer` |
 | **Labels & Assignments** | `add-comment`, `hide-comment`, `add-labels`, `remove-labels`, `assign-milestone`, `assign-to-agent`, `assign-to-user`, `unassign-from-user` |
 | **Projects & Releases** | `create-project`, `update-project`, `create-project-status-update`, `update-release`, `upload-asset` |
 | **Workflow & Security** | `dispatch-workflow`, `call-workflow`, `dispatch_repository`, `create-code-scanning-alert`, `autofix-code-scanning-alert`, `create-agent-session` |
@@ -331,16 +336,20 @@ Safe outputs enforce security through separation: agents run read-only and reque
 - `expires: 14` — Auto-close after 14 days (same-repo only)
 - `excluded-files: ["**/*.lock"]` — Strip files from the patch entirely
 - `github-token-for-extra-empty-commit:` — Push empty commit with separate token to trigger CI
-- `protected-files: fallback-to-issue` — Create issue instead of failing when protected files modified
+- `protected-files: fallback-to-issue` — Create issue instead of failing when protected files modified; optionally add `fallback-labels:` to tag that issue
 - `base-branch: "vnext"` — Target non-default branch
 - `auto-close-issue: false` — Don't add `Fixes #N` to PR description
 - `allowed-events: [COMMENT]` — On `submit-pull-request-review`, blocks agent from approving PRs (bypasses branch protection). **Always use this** for review workflows.
 - **Stale review limitation**: Prefer `allowed-events: [COMMENT]` unless you need the "Changes requested" badge. `REQUEST_CHANGES` reviews from `github-actions[bot]` cannot be dismissed by the agent (no `dismiss-pull-request-review` safe output, `pull-requests: write` rejected by compiler). A stale blocking review persists until a human dismisses it manually.
 
+**`merge-pull-request` (v0.70.0+)** — Merge a PR directly as a safe output operation. Runs in the safe-outputs job with proper write permissions, not inside the agent container.
+
 **`add-comment` notable options:**
 - `hide-older-comments: true` — Collapse previous comments from same workflow
 - `max: N` — Limit comments per run (default: 1)
 - `target: "*"` — Required for `workflow_dispatch` (no triggering PR context)
+- `sticky: true` (v0.70.0+) — Upsert: update the existing comment in place across runs rather than posting a new one. Replaces the "delete old + post new" pattern.
+- **PR review thread routing** (v0.70.0+): On `pull_request_review_comment` triggers, `add_comment` now replies directly in the review thread instead of posting at the PR level.
 
 ---
 
@@ -357,6 +366,10 @@ Safe outputs enforce security through separation: agents run read-only and reque
 | `gh` CLI inside agent | Credentials scrubbed | Use `steps:` for API calls, or MCP tools |
 | `issue_comment` trigger | Requires workflow on default branch | Must merge to `main` before `/slash-commands` work |
 | Duplicate runs | gh-aw sometimes creates 2 runs per dispatch | Harmless, use concurrency groups |
+| Actions not pinned to SHA (regression v0.68.3–v0.69.x) | `gh aw compile` stopped pinning actions to commit SHA hashes | Fixed in v0.70.0 — recompile any workflows compiled with v0.68.3–v0.69.x |
+| `list_commits` on feature branch filters own commits | Own commits incorrectly excluded when listing commits on a feature branch | Fixed in v0.70.0 |
+| `allowed-base-branches` compile validation | `gh aw compile` incorrectly reported `safe-outputs.create-pull-request.allowed-base-branches` as unknown field | Fixed in v0.70.0 |
+| `update-project` missing permissions | The safe output lacked `issues: read` when using a GitHub App token | Fixed in v0.70.0 — recompile affected workflows |
 
 ---
 
