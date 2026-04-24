@@ -340,9 +340,9 @@ Choose the right trigger for your workflow. Triggers are grouped by recommended 
 
 | Trigger | Best for | Key advantage |
 |---------|----------|---------------|
-| `workflow_dispatch` | Manual escape hatch, debugging, ad-hoc runs | Write+ required; auto-paired with most triggers |
+| `workflow_dispatch` | Manual escape hatch, debugging, ad-hoc runs | Write+ required; auto-paired with most triggers. ⚠️ Branch selection is user-controlled — a write user can dispatch against a stale branch with weaker `permissions:`, different `safe-outputs:`, or a friendlier prompt |
 | `schedule` | Periodic housekeeping, polling-based PR operations | Best concurrency story; no event spamming; no approval gate |
-| `labeled` / `label_command:` | Human-in-the-loop gate via label application | Triage+ required to apply label; one-shot with auto-remove |
+| `labeled` / `label_command:` | Human-in-the-loop gate via label application | Triage+ required to apply label; one-shot with auto-remove. Set `min-integrity: none` — the label application IS the human gate, replacing integrity filtering |
 | `issues` | Community-facing issue workflows | Immediate; `roles: all` acceptable with tight safe-outputs |
 | `release` / `milestone` | Post-release/milestone automation | Trusted trigger (write+) |
 
@@ -370,7 +370,7 @@ Choose the right trigger for your workflow. Triggers are grouped by recommended 
 |---------|-----|
 | `pull_request` | Causes "Approve and run" gate for ALL workflows; clicking approves everything including `pull_request_target` with full secrets. Prefer `slash_command:`, `schedule`, or `label_command:` |
 | `pull_request_target` | Runs on base ref with full secrets and write token — most exploited vulnerability class. Never check out PR head SHA |
-| `workflow_run` | `pull_request_target`'s quieter sibling — launders untrusted fork artifacts into privileged context with no approval gate |
+| `workflow_run` | `pull_request_target`'s quieter sibling — launders untrusted fork artifacts into privileged context with no approval gate. Classic pwn: sandboxed `pull_request` workflow uploads artifacts (e.g., `coverage.json`), then `workflow_run` downloads and acts on them with full secrets. Artifact may contain shell-injection or prompt-injection payloads. No UI signal connects the upstream PR to the downstream run. **Treat all downloaded artifacts as untrusted** |
 
 ### Design Principles
 
