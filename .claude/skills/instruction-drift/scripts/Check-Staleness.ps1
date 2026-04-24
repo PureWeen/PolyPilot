@@ -683,11 +683,16 @@ foreach ($manifestPath in $manifests) {
             $untrackedCount = ($closedResult.untracked | Measure-Object).Count
             if ($untrackedCount -gt 0) {
                 Write-Host "   ⚠️ Found $untrackedCount recently closed issue(s) not in manifest:" -ForegroundColor Yellow
-                foreach ($issue in $closedResult.untracked) {
+                foreach ($issue in ($closedResult.untracked | Select-Object -First 10)) {
                     $labels = if ($issue.labels) { " [$($issue.labels -join ', ')]" } else { '' }
                     Write-Host "      #$($issue.number): $($issue.title)$labels" -ForegroundColor Yellow
                 }
-                $results[-1].untracked_closed_issues = @($closedResult.untracked)
+                if ($untrackedCount -gt 10) {
+                    Write-Host "      ... and $($untrackedCount - 10) more" -ForegroundColor Yellow
+                }
+                # Cap at 20 in JSON to avoid bloating the report
+                $results[-1].untracked_closed_issues = @($closedResult.untracked | Select-Object -First 20)
+                $results[-1].untracked_closed_issues_total = $untrackedCount
             }
             else {
                 Write-Host "   ✅ No new closed issues (checked $($closedResult.total_checked) in last 90 days)" -ForegroundColor Green
