@@ -76,9 +76,9 @@ gh aw upgrade                 # Upgrade gh-aw CLI extension
 | Wrapping GitHub Actions as agent-callable tools | `safe-outputs.actions:` action wrappers | [Custom Safe Outputs](https://github.github.com/gh-aw/reference/custom-safe-outputs/) |
 | Triggering CI on agent-created PRs | `github-token-for-extra-empty-commit:` on `create-pull-request` | [Triggering CI](https://github.github.com/gh-aw/reference/triggering-ci/) |
 | No guard against agent approving PRs | `allowed-events: [COMMENT]` on `submit-pull-request-review` (prefer over `[COMMENT, REQUEST_CHANGES]` to avoid stale blocking reviews) | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
-| Merging PRs via shell `gh pr merge` in post-steps | `merge-pull-request` safe output — executes in the safe-outputs job with proper permissions | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
-| Manually updating existing bot comments (delete + repost) | `sticky: true` on `add-comment` — upsert in place across runs | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
-| Configuring the GitHub CLI proxy mode | `tools.github.mode: gh-proxy` — official config; old `byok-copilot` flag is deprecated | [Engines](https://github.github.com/gh-aw/reference/engines/) |
+| Merging PRs via shell `gh pr merge` in post-steps | Use `push-to-pull-request-branch` + branch protection auto-merge, or `dispatch-workflow` to trigger a merge workflow | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
+| Manually updating existing bot comments (delete + repost) | `hide-older-comments: true` on `add-comment` — collapses previous comments before posting new | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
+| Configuring the GitHub CLI proxy mode | `tools.github.mode: gh-proxy` — official config; old `cli-proxy` feature flag is deprecated | [Engines](https://github.github.com/gh-aw/reference/engines/) |
 | `slash_command:` without `events:` filter (subscribes to ALL comment events) | `events: [pull_request_comment]` or `events: [issue_comment]` | [Command Triggers](https://github.github.com/gh-aw/reference/command-triggers/) |
 | `cancel-in-progress: true` on `slash_command:` workflows | `cancel-in-progress: false` — non-matching events cancel in-progress agent runs | [Concurrency](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/using-concurrency) |
 | Using `pull_request` trigger for agentic workflows | `slash_command:` or `schedule` — `pull_request` causes the "Approve and run" gate for ALL workflows | [Triggers](https://github.github.com/gh-aw/reference/triggers/) |
@@ -416,7 +416,7 @@ on:
 
 **`on.needs:` (v0.70.0+)** — Express dependencies on custom `pre_activation`/`activation` jobs, enabling GitHub App credentials to be sourced from upstream job outputs. Required for advanced credential-supply patterns.
 
-**`tools.github.mode: gh-proxy` (v0.70.0+)** — Configure the GitHub CLI proxy feature. The deprecated `byok-copilot` flag is scheduled for removal; migrate to this form:
+**`tools.github.mode: gh-proxy` (v0.70.0+)** — Configure the GitHub CLI proxy feature. The deprecated `cli-proxy` feature flag is scheduled for removal; migrate to this form:
 
 ```yaml
 tools:
@@ -424,7 +424,7 @@ tools:
     mode: gh-proxy
 ```
 
-**Claude engine (v0.71.0+)** — The deprecated `bypassPermissions` flag is replaced by `acceptEdits`. If you maintain Claude-engine workflows, ensure you're on a compiler version that emits `acceptEdits` in the lock file (v0.71.0+). Older compiler versions generate non-functional Claude workflows.
+**Claude engine (v0.71.0+)** — The Claude engine has two permission modes: `acceptEdits` (default — agent proposes edits that the safe-outputs layer validates) and `bypassPermissions` (activated when unrestricted bash `bash: "*"` is granted — agent executes directly). v0.71.0 updated the internal wiring; recompile Claude-engine workflows compiled with older versions.
 
 **`checkout: false`** — Skip the default repository checkout when the workflow doesn't need source code (e.g., ChatOps commands that only call APIs via `web-fetch`). Saves ~10-30s of runner time.
 
