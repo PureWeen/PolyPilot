@@ -100,6 +100,12 @@ steps:
       gh pr diff "$PR_NUMBER" --name-only > changed-files.txt
 ```
 
+### Payload Sanitization
+
+Comment bodies, issue titles, and PR descriptions are **user-controlled untrusted input**. In pre-agent `steps:`, always use `steps.<id>.outputs.text` (sanitized) instead of raw `${{ github.event.comment.body }}`. Within the agent job itself, unsanitized input is acceptable because the agent runs in a sandboxed container — but pair with tight `safe-outputs:`.
+
+> 🛑 **Recursive workflow triggering**: Actions performed via `GITHUB_TOKEN` do **NOT** fire new workflow events (prevents infinite loops). Actions via GitHub App installation tokens or PATs **DO** fire events. This is why `github-token-for-extra-empty-commit:` requires a PAT — `GITHUB_TOKEN` pushes won't trigger CI on agent-created PRs.
+
 ### Safe Outputs (Posting Comments)
 
 ```yaml
@@ -299,6 +305,8 @@ steps:
 
 gh-aw provides `lock-for-agent: true` to automatically lock/unlock the issue during execution, but use with caution — it prevents genuine users from interacting on the issue/PR while the workflow runs.
 
+**State tracking for scheduled pollers:** Use comment-based state to track what's been processed. Edit a comment's visible markdown to reflect status (⏳ in progress / ✅ done), and append invisible `<!-- state-machine -->` HTML comments as an append-only audit trail. This gives human-readable status and machine-parseable history in one artifact.
+
 > 🛑 **The edited-comment time-bomb**: An attacker can edit a 6-month-old comment on a closed issue or PR, injecting `/command` or any payload — `issue_comment.edited` fires TODAY against today's secrets, today's `permissions:`, today's `safe-outputs:`. The workflow has no concept of "this comment was created when our security model was different." For raw `issue_comment`, use `types: [created]` — add `edited` only if you've designed for this attack vector.
 
 ### Read-Only Contributor Write Surface
@@ -342,10 +350,19 @@ Choose the right trigger for your workflow. Triggers are grouped by recommended 
 
 | Trigger | Headline risk |
 |---------|--------------|
-| `push` | Always use explicit `branches:` — bare `on: push` fires on every branch (cost blowout) |
+| `push` | **Always** use explicit `branches:` — bare `on: push` fires on every branch including bot/dependency/codeflow branches. The trigger most likely to turn a PoC into a billing surprise. Rapid pushes (rebasing, force-pushing) stack runs unless `cancel-in-progress: true` |
 | `issue_comment` / `slash_command:` | Broad underlying subscription; concurrency catastrophe; edited-comment time-bomb |
 | `pull_request_review` | Fires for ALL review types including COMMENT from any user, not just approvals |
 | `discussion` / `discussion_comment` | Most-open untrusted-input surface; no approval gate; lower visibility than issues |
+
+### `pull_request.synchronize` Gotchas
+
+`synchronize` fires once per push to a PR branch (not per commit). Things that do **NOT** fire `synchronize`:
+
+- **Draft → ready-for-review**: Fires `ready_for_review`, not `synchronize`. Workflows using default `types: [opened, synchronize, reopened]` won't re-run CI when a draft is marked ready
+- **Base-ref edits**: Changing the PR's base branch fires `edited` (with `changes.base`), not `synchronize`
+- **Pushes to the base branch**: Someone merging to `main` while your PR targets `main` does NOT fire `synchronize` on your PR — it fires `push` on `main`. Your CI won't re-run against the new base unless you push to your branch
+- **Approval dismissal**: Branch protection's "Dismiss stale approvals on new commits" fires on the same head-SHA-changed event. A force-push that doesn't change file contents (rebase onto current `main`) still invalidates all prior approvals
 
 ### ⛔ Avoid
 
@@ -362,6 +379,7 @@ Choose the right trigger for your workflow. Triggers are grouped by recommended 
 3. **Limit the agent job to agent-suitable work.** Keep filtering/skipping in pre-agent steps. Execute deterministic scripts before and after the agent job.
 4. **Apply least privilege on every dimension.** Minimum `permissions:`, `safe-outputs:`, `network.allowed:`, secrets, `tools:`. The agent sandbox makes untrusted input safe to process _inside_ the agent; the same operation in pre/post-agent steps runs on the runner host with full secret access.
 5. **Mind the signal-to-noise ratio.** Convenience triggers compile to broad subscriptions. Every event spawns a workflow run consuming a runner slot. The activation step must be cheap, and the worst-case invocation rate must be estimated and acceptable.
+6. **Understand the `GITHUB_TOKEN` recursion boundary.** Actions via `GITHUB_TOKEN` do NOT fire new workflow events (prevents infinite loops). GitHub App tokens and PATs DO fire events. This is by design — it's why `github-token-for-extra-empty-commit:` needs a PAT, and why bot comments via `GITHUB_TOKEN` don't trigger `issue_comment` workflows.
 
 ### Frontmatter Features
 
