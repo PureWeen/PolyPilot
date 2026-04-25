@@ -12,7 +12,7 @@ description: >-
 
 # gh-aw (GitHub Agentic Workflows) Guide
 
-This skill provides the complete reference for building, securing, and maintaining GitHub Agentic Workflows in this repository. It covers the gh-aw platform's architecture, security model, and all available features.
+This skill provides a complete reference for building, securing, and maintaining GitHub Agentic Workflows. It covers the gh-aw platform's architecture, security model, and all available features.
 
 ## Quick Start
 
@@ -85,7 +85,7 @@ gh aw upgrade                 # Upgrade gh-aw CLI extension
 
 **Note:** gh-aw is actively developed. If a capability feels like something a framework would provide natively, check the reference docs — it probably exists even if it's not in this table yet.
 
-For full architecture, security, fork handling, safe outputs, and troubleshooting details, read `references/architecture.md` in this skill directory.
+For full architecture, security, fork handling, safe outputs, and troubleshooting details, see the [official gh-aw docs](https://gh.io/gh-aw).
 
 ## Common Patterns
 
@@ -196,7 +196,7 @@ Manual triggers (`workflow_dispatch`, `issue_comment`) should bypass the gate. N
 
 ### Fork PR Checkout (workflow_dispatch)
 
-For `workflow_dispatch` workflows that need to evaluate a PR branch: use the shared `Checkout-GhAwPr.ps1` script. It (1) verifies the PR author has write access and rejects fork PRs, (2) checks out the PR branch, and (3) restores `.github/skills/`, `.github/instructions/`, and `.github/copilot-instructions.md` from the base branch SHA — defense-in-depth even though the platform also does this restore automatically.
+For `workflow_dispatch` workflows that need to evaluate a PR branch, implement a checkout step that: (1) verifies the PR author has write access and rejects fork PRs, (2) checks out the PR branch, and (3) restores `.github/` and agent infrastructure from the base branch SHA — defense-in-depth even though the platform also does this restore automatically.
 
 ```yaml
 steps:
@@ -204,7 +204,18 @@ steps:
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ inputs.pr_number }}
-    run: pwsh .github/scripts/Checkout-GhAwPr.ps1
+    run: |
+      # Verify PR author has write access, reject forks
+      AUTHOR=$(gh pr view "$PR_NUMBER" --json author --jq '.author.login')
+      PERM=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$AUTHOR/permission" --jq '.permission')
+      if [[ "$PERM" != "admin" && "$PERM" != "write" && "$PERM" != "maintain" ]]; then
+        echo "::error::PR author $AUTHOR has $PERM access — requires write+"
+        exit 1
+      fi
+      gh pr checkout "$PR_NUMBER"
+      # Restore trusted .github/ from base branch
+      BASE_SHA=$(gh pr view "$PR_NUMBER" --json baseRefOid --jq '.baseRefOid')
+      git checkout "$BASE_SHA" -- .github/ .agents/ 2>/dev/null || true
 ```
 
 For `pull_request` + fork support (not `workflow_dispatch`): add `forks: ["*"]` to the trigger frontmatter. The platform automatically preserves `.github/` and `.agents/` as a base-branch artifact in the activation job, then restores them after `checkout_pr_branch.cjs` — fork PRs cannot overwrite agent infrastructure (gh-aw#23769, resolved).
@@ -291,16 +302,7 @@ safe-outputs:
     # protected-files: blocked (default) | allowed (disables protection)
 ```
 
-**5. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you **must** use `.github/scripts/Checkout-GhAwPr.ps1` to check out the PR branch, verify write access, reject fork PRs, and restore trusted `.github/` from the base branch. Without it, the agent evaluates the workflow branch instead of the PR:
-
-```yaml
-steps:
-  - name: Checkout PR and restore agent infrastructure
-    env:
-      GH_TOKEN: ${{ github.token }}
-      PR_NUMBER: ${{ inputs.pr_number }}
-    run: pwsh .github/scripts/Checkout-GhAwPr.ps1
-```
+**5. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you must implement a checkout step that verifies write access, rejects fork PRs, and restores trusted `.github/` from the base branch. See the [Fork PR Checkout](#fork-pr-checkout-workflow_dispatch) pattern above for a complete example.
 
 **6. XPIA hardening (v0.70.0+)** — Cross-prompt injection (XPIA) sanitization paths have been hardened. `disable-xpia-prompt` is now **rejected at compile time in strict mode** — do not use it. If a workflow previously relied on it, remove the flag; the runtime handles XPIA protection by default.
 
@@ -434,10 +436,11 @@ Supported runtimes: `node`, `python`, `go`, `uv`, `bun`, `deno`, `ruby`, `java`,
 
 ## When to Read the Full Reference
 
-Read `.claude/skills/gh-aw-guide/references/architecture.md` when you need:
+## Further Reading
+
+See the [official gh-aw documentation](https://gh.io/gh-aw) for:
 - **Execution model** details (step ordering, credential availability, pre-agent-steps/post-steps)
-- **Security boundaries** (defense layers, integrity filtering, protected files, rules for authors)
+- **Security boundaries** (defense layers, integrity filtering, protected files)
 - **Fork PR handling** (platform restore, threat model, trigger-by-trigger behavior)
 - **Safe outputs** (complete list of 30+ types, key options for each)
 - **Troubleshooting** specific errors
-- **Upstream issue history** (all 5 tracked issues and their resolutions)
