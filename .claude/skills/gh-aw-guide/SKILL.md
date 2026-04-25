@@ -436,7 +436,7 @@ Supported runtimes: `node`, `python`, `go`, `uv`, `bun`, `deno`, `ruby`, `java`,
 
 ## Further Reading
 
-For deep-dive details on execution model, security boundaries, fork handling, safe output types, and known issues, see [`references/architecture.md`](references/architecture.md) in this skill directory.
+For deep-dive details on execution model, security boundaries, fork handling, safe output types, and known issues, see [`references/architecture.md`](references/architecture.md).
 
 See also the [official gh-aw documentation](https://gh.io/gh-aw) for:
 - **Triggers** — complete trigger reference with activity types

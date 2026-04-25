@@ -1,6 +1,6 @@
 # gh-aw Architecture & Security Reference
 
-Deep reference for gh-aw execution model, security boundaries, fork handling, safe outputs, and troubleshooting. Read this file when the SKILL.md quick-start and common patterns aren't sufficient.
+Deep reference for gh-aw execution model, security boundaries, fork handling, safe outputs, and troubleshooting. Read this file when the quick-start guide's common patterns aren't sufficient.
 
 ## Execution Model
 
@@ -67,7 +67,7 @@ To **allow fork PRs**, add `forks: ["*"]` to the `pull_request` trigger in the `
 
 1. **Never execute untrusted PR code with elevated credentials.** The classic "pwn-request" attack is `pull_request_target` + checkout PR + run build scripts with `GITHUB_TOKEN`. The attack surface includes build scripts (`make`, `build.ps1`), package manager hooks (`npm postinstall`, MSBuild targets), and test runners.
 
-2. **Treating PR contents as passive data is safe.** Reading, analyzing, or diffing PR code is fine — the danger is *executing* it. Our gh-aw workflows read code for evaluation; they never build or run it.
+2. **Treating PR contents as passive data is safe.** Reading, analyzing, or diffing PR code is fine — the danger is *executing* it. gh-aw workflows should read code for evaluation but never build or run it.
 
 3. **`pull_request_target` grants write permissions and secrets access.** This is by design — the workflow YAML comes from the base branch (trusted). But any step that checks out and runs fork code in this context creates a vulnerability.
 
