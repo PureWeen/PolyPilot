@@ -434,13 +434,12 @@ tools:
 
 Supported runtimes: `node`, `python`, `go`, `uv`, `bun`, `deno`, `ruby`, `java`, `dotnet`, `elixir`.
 
-## When to Read the Full Reference
-
 ## Further Reading
 
-See the [official gh-aw documentation](https://gh.io/gh-aw) for:
-- **Execution model** details (step ordering, credential availability, pre-agent-steps/post-steps)
-- **Security boundaries** (defense layers, integrity filtering, protected files)
-- **Fork PR handling** (platform restore, threat model, trigger-by-trigger behavior)
-- **Safe outputs** (complete list of 30+ types, key options for each)
-- **Troubleshooting** specific errors
+For deep-dive details on execution model, security boundaries, fork handling, safe output types, and known issues, see [`references/architecture.md`](references/architecture.md) in this skill directory.
+
+See also the [official gh-aw documentation](https://gh.io/gh-aw) for:
+- **Triggers** — complete trigger reference with activity types
+- **Frontmatter** — all configuration options
+- **Safe outputs** — complete list of 30+ types, key options for each
+- **Integrity filtering** — content trust hierarchy and configuration

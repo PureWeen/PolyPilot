@@ -57,7 +57,7 @@ The prompt is built in the **activation job** via `{{#runtime-import .github/wor
 
 By default, `gh aw compile` automatically injects a fork guard into the activation job's `if:` condition: `head.repo.id == repository_id`. This blocks fork PRs on `pull_request` events.
 
-To **allow fork PRs**, add `forks: ["*"]` to the `pull_request` trigger in the `.md` frontmatter. The compiler removes the auto-injected guard from the compiled `if:` conditions. This is safe when the workflow uses the `Checkout-GhAwPr.ps1` pattern (checkout + trusted-infra restore) and the agent is sandboxed.
+To **allow fork PRs**, add `forks: ["*"]` to the `pull_request` trigger in the `.md` frontmatter. The compiler removes the auto-injected guard from the compiled `if:` conditions. This is safe when the workflow uses a checkout-then-restore pattern (checkout + trusted-infra restore) and the agent is sandboxed.
 
 ---
 
@@ -122,7 +122,7 @@ tools:
 | `none` | All content including `FIRST_TIMER` and no-association users |
 | `blocked` | Users in `blocked-users` — always denied, cannot be promoted |
 
-**Recommendation for our workflows:** Omit `min-integrity` and rely on the automatic runtime lockdown (see Known Issue above). The `determine-automatic-lockdown` step applies appropriate integrity levels based on event type and actor trust.
+**Recommendation:** Omit `min-integrity` and rely on the automatic runtime lockdown (see Known Issue above). The `determine-automatic-lockdown` step applies appropriate integrity levels based on event type and actor trust.
 
 ### Protected Files (Auto-Enabled)
 
@@ -143,7 +143,7 @@ Configure behavior with `protected-files:` on the safe output:
 
 - ✅ **DO** treat PR contents as passive data (read, analyze, diff)
 - ✅ **DO** run data-gathering scripts in `steps:` (pre-agent, trusted context) not inside the agent
-- ✅ **DO** use `Checkout-GhAwPr.ps1` for `workflow_dispatch` to restore trusted `.github/` from base
+- ✅ **DO** implement a checkout-then-restore step for `workflow_dispatch` to restore trusted `.github/` from base
 - ✅ **DO** narrow `slash_command: events:` to the minimum needed (e.g., `[pull_request_comment]`)
 - ✅ **DO** use `cancel-in-progress: false` for `slash_command:` workflows to prevent non-matching events from killing in-progress agent runs
 - ✅ **DO** prefer `slash_command:` or `schedule` over `pull_request` trigger — `pull_request` causes the "Approve and run" gate that approves ALL workflows with a single click
@@ -204,7 +204,7 @@ The platform now **automatically preserves `.github/` and `.agents/` from the ba
 **Remaining risks (not fixed by #23769):**
 - `steps:` and `pre-agent-steps:` that execute workspace code after checkout still run with `GITHUB_TOKEN` — if they run fork PR scripts, it's a pwn-request
 - The agent container has `COPILOT_TOKEN` in the environment — build commands (`dotnet build`, `npm install`) executed by the agent on fork PR code can read it via build hooks
-- `workflow_dispatch` skips `checkout_pr_branch.cjs` entirely — use `Checkout-GhAwPr.ps1` for defense-in-depth
+- `workflow_dispatch` skips `checkout_pr_branch.cjs` entirely — implement a checkout-then-restore step for defense-in-depth
 - **Multi-repo `push_to_pull_request_branch`** (fixed v0.70.0): Previously, git operations were scoped to the wrong working directory in multi-repo checkout patterns. This is now fixed — side-repo push targets the correct directory automatically. Recompile affected workflows.
 
 ### Dangerous Triggers Checklist
@@ -259,7 +259,7 @@ Use this checklist when reviewing any workflow that uses high-risk triggers. The
 
 ### Safe Pattern: Checkout + Restore
 
-Use the shared `.github/scripts/Checkout-GhAwPr.ps1` script, which implements checkout + restore in a single reusable step:
+Implement a checkout-then-restore step for `workflow_dispatch` workflows that evaluate PR branches. This pattern verifies write access, checks out the PR, and restores trusted agent infrastructure from the base branch:
 
 ```yaml
 steps:
@@ -267,21 +267,28 @@ steps:
     env:
       GH_TOKEN: ${{ github.token }}
       PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr_number }}
-    run: pwsh .github/scripts/Checkout-GhAwPr.ps1
+    run: |
+      # 1. Verify PR author has write access, reject forks
+      AUTHOR=$(gh pr view "$PR_NUMBER" --json author --jq '.author.login')
+      PERM=$(gh api "repos/$GITHUB_REPOSITORY/collaborators/$AUTHOR/permission" --jq '.permission')
+      if [[ "$PERM" != "admin" && "$PERM" != "write" && "$PERM" != "maintain" ]]; then
+        echo "::error::PR author $AUTHOR has $PERM access — requires write+"
+        exit 1
+      fi
+      # 2. Capture base branch SHA before checkout
+      BASE_SHA=$(gh pr view "$PR_NUMBER" --json baseRefOid --jq '.baseRefOid')
+      # 3. Check out the PR branch
+      gh pr checkout "$PR_NUMBER"
+      # 4. Restore trusted agent infrastructure from base branch
+      git checkout "$BASE_SHA" -- .github/ .agents/ 2>/dev/null || true
 ```
 
-The script:
-1. Verifies the PR author has write access and rejects fork PRs
-2. Captures the base branch SHA before checkout
-3. Checks out the PR branch via `gh pr checkout`
-4. Restores `.github/skills/`, `.github/instructions/`, and `.github/copilot-instructions.md` from the base branch SHA (fatal on failure)
-
 **Behavior by trigger:**
-- **`workflow_dispatch`**: Platform checkout is skipped, so the script's restore IS the final workspace state (trusted files from base branch)
-- **`slash_command`** (same-repo): Platform's `checkout_pr_branch.cjs` handles checkout. Skill files typically match main unless the PR modified them.
-- **`slash_command`** (fork): Platform restores `.github/` from base branch artifact after checkout — fork cannot inject modified skills/instructions
+- **`workflow_dispatch`**: Platform checkout is skipped, so the restore step IS the final workspace state (trusted files from base branch)
+- **`slash_command`** (same-repo): Platform's `checkout_pr_branch.cjs` handles checkout. Agent infrastructure typically matches main unless the PR modified it.
+- **`slash_command`** (fork): Platform restores `.github/` from base branch artifact after checkout — fork cannot inject modified agent infrastructure
 
-**Note:** While the platform now handles `.github/` restore automatically for fork PRs, our `Checkout-GhAwPr.ps1` script still provides defense-in-depth for `workflow_dispatch` triggers (where platform checkout is skipped) and adds the write-access check that the platform doesn't enforce.
+**Note:** While the platform now handles `.github/` restore automatically for fork PRs, a checkout-then-restore step still provides defense-in-depth for `workflow_dispatch` triggers (where platform checkout is skipped) and adds the write-access check that the platform doesn't enforce.
 
 ### Anti-Patterns
 
@@ -304,7 +311,7 @@ Skipping checkout means the agent evaluates the wrong files. The correct approac
 - name: Checkout PR
   run: gh pr checkout "$PR_NUMBER" ...
 - name: Run analysis
-  run: pwsh .github/skills/some-script.ps1
+  run: pwsh .github/scripts/some-script.ps1
 ```
 
 If you need to run scripts, either:
