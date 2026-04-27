@@ -2398,6 +2398,199 @@ public class ModelCapabilitiesTests
         Assert.NotEqual("Unknown model", strengths);
         Assert.Contains("reasoning", strengths, StringComparison.OrdinalIgnoreCase);
     }
+
+    // --- InferFromName: family branches ---
+
+    [Theory]
+    [InlineData("claude-opus-99", ModelCapability.ReasoningExpert | ModelCapability.CodeExpert | ModelCapability.ToolUse)]
+    [InlineData("my-opus-model", ModelCapability.ReasoningExpert | ModelCapability.CodeExpert | ModelCapability.ToolUse)]
+    public void InferFromName_OpusFamily_ReturnsReasoningExpertCodeExpertToolUse(string slug, ModelCapability expected)
+    {
+        var caps = ModelCapabilities.InferFromName(slug);
+        Assert.Equal(expected, caps);
+    }
+
+    [Theory]
+    [InlineData("claude-sonnet-5", ModelCapability.CodeExpert | ModelCapability.ToolUse | ModelCapability.Fast)]
+    [InlineData("sonnet-next", ModelCapability.CodeExpert | ModelCapability.ToolUse | ModelCapability.Fast)]
+    public void InferFromName_SonnetFamily_ReturnsCodeExpertToolUseFast(string slug, ModelCapability expected)
+    {
+        var caps = ModelCapabilities.InferFromName(slug);
+        Assert.Equal(expected, caps);
+    }
+
+    [Theory]
+    [InlineData("claude-haiku-5", ModelCapability.Fast | ModelCapability.CostEfficient)]
+    [InlineData("haiku-lite", ModelCapability.Fast | ModelCapability.CostEfficient)]
+    public void InferFromName_HaikuFamily_ReturnsFastCostEfficient(string slug, ModelCapability expected)
+    {
+        var caps = ModelCapabilities.InferFromName(slug);
+        Assert.Equal(expected, caps);
+    }
+
+    [Theory]
+    [InlineData("gemini-4-pro")]
+    [InlineData("gemini-flash")]
+    public void InferFromName_GeminiFamily_ReturnsReasoningExpertLargeContextVision(string slug)
+    {
+        var caps = ModelCapabilities.InferFromName(slug);
+        // Core gemini-family flags must be present
+        Assert.True(caps.HasFlag(ModelCapability.ReasoningExpert));
+        Assert.True(caps.HasFlag(ModelCapability.LargeContext));
+        Assert.True(caps.HasFlag(ModelCapability.Vision));
+        // Note: "gemini" contains "mini" as a substring, so the mini-variant logic also fires,
+        // adding Fast|CostEfficient. This is expected production code behaviour.
+        Assert.True(caps.HasFlag(ModelCapability.Fast));
+        Assert.True(caps.HasFlag(ModelCapability.CostEfficient));
+    }
+
+    [Fact]
+    public void InferFromName_CodexVariant_AddsCodeExpert()
+    {
+        var caps = ModelCapabilities.InferFromName("new-model-codex");
+        Assert.True(caps.HasFlag(ModelCapability.CodeExpert));
+    }
+
+    [Fact]
+    public void InferFromName_MiniVariant_AddsFastCostEfficient()
+    {
+        var caps = ModelCapabilities.InferFromName("new-model-mini");
+        Assert.True(caps.HasFlag(ModelCapability.Fast));
+        Assert.True(caps.HasFlag(ModelCapability.CostEfficient));
+    }
+
+    [Fact]
+    public void InferFromName_MaxVariant_AddsReasoningExpert()
+    {
+        var caps = ModelCapabilities.InferFromName("new-model-max");
+        Assert.True(caps.HasFlag(ModelCapability.ReasoningExpert));
+    }
+
+    [Fact]
+    public void InferFromName_SonnetCodexCombined_HasBothFamilyAndVariantFlags()
+    {
+        // sonnet family gives CodeExpert|ToolUse|Fast; codex adds CodeExpert (idempotent via flags)
+        var caps = ModelCapabilities.InferFromName("sonnet-codex-experimental");
+        Assert.True(caps.HasFlag(ModelCapability.CodeExpert));
+        Assert.True(caps.HasFlag(ModelCapability.ToolUse));
+        Assert.True(caps.HasFlag(ModelCapability.Fast));
+    }
+
+    [Fact]
+    public void InferFromName_CompletelyUnknown_ReturnsNone()
+    {
+        var caps = ModelCapabilities.InferFromName("totally-unknown-xyz");
+        Assert.Equal(ModelCapability.None, caps);
+    }
+
+    // --- GetCapabilities: fuzzy prefix matching ---
+
+    [Theory]
+    [InlineData("claude-opus-4.6-1m")]
+    [InlineData("claude-opus-4.6-preview")]
+    [InlineData("claude-opus-4.6-extended")]
+    public void GetCapabilities_FuzzyPrefix_OpusVariant_ReturnsOpusFlags(string slug)
+    {
+        var caps = ModelCapabilities.GetCapabilities(slug);
+        // claude-opus-4.6 registry entry: ReasoningExpert|CodeExpert|ToolUse|LargeContext
+        Assert.True(caps.HasFlag(ModelCapability.ReasoningExpert));
+        Assert.True(caps.HasFlag(ModelCapability.CodeExpert));
+        Assert.True(caps.HasFlag(ModelCapability.ToolUse));
+        Assert.True(caps.HasFlag(ModelCapability.LargeContext));
+    }
+
+    [Theory]
+    [InlineData("claude-sonnet-4.5-20250514")]
+    [InlineData("claude-sonnet-4.5-preview")]
+    public void GetCapabilities_FuzzyPrefix_SonnetVariant_ReturnsSonnetFlags(string slug)
+    {
+        var caps = ModelCapabilities.GetCapabilities(slug);
+        // claude-sonnet-4.5 registry entry: CodeExpert|ToolUse|Fast
+        Assert.True(caps.HasFlag(ModelCapability.CodeExpert));
+        Assert.True(caps.HasFlag(ModelCapability.ToolUse));
+        Assert.True(caps.HasFlag(ModelCapability.Fast));
+    }
+
+    [Fact]
+    public void GetCapabilities_FuzzyPrefix_GptMiniVariant_ReturnsGpt4Flags()
+    {
+        // "gpt-4.1" has Fast|CostEfficient|ToolUse; "gpt-4.1-preview" unambiguously fuzzy-matches it
+        // (no shorter registry key matches "gpt-4.1-preview")
+        var caps = ModelCapabilities.GetCapabilities("gpt-4.1-preview");
+        Assert.True(caps.HasFlag(ModelCapability.Fast));
+        Assert.True(caps.HasFlag(ModelCapability.CostEfficient));
+        Assert.True(caps.HasFlag(ModelCapability.ToolUse));
+    }
+
+    [Fact]
+    public void GetCapabilities_FuzzyPrefix_MatchesSameAsExact()
+    {
+        // Fuzzy-matched variant should return identical flags to the exact registry entry
+        var exact = ModelCapabilities.GetCapabilities("claude-opus-4.6");
+        var fuzzy = ModelCapabilities.GetCapabilities("claude-opus-4.6-1m");
+        Assert.Equal(exact, fuzzy);
+    }
+
+    // --- GetStrengths: all paths ---
+
+    [Theory]
+    [InlineData("gpt-5")]
+    [InlineData("claude-opus-4.5")]
+    [InlineData("claude-haiku-4.5")]
+    [InlineData("gemini-3-pro")]
+    public void GetStrengths_KnownModels_ReturnNonEmptyRegistryString(string slug)
+    {
+        var strengths = ModelCapabilities.GetStrengths(slug);
+        Assert.NotEmpty(strengths);
+        Assert.DoesNotContain("Unknown", strengths, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Inferred", strengths, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("claude-opus-4.6-1m")]
+    [InlineData("claude-sonnet-4.5-preview")]
+    public void GetStrengths_FuzzyMatchedModels_ReturnRegistryStrengths(string slug)
+    {
+        var strengths = ModelCapabilities.GetStrengths(slug);
+        Assert.NotEmpty(strengths);
+        Assert.DoesNotContain("Unknown", strengths, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Inferred", strengths, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("claude-opus-99")]
+    [InlineData("claude-sonnet-10")]
+    [InlineData("gemini-5-pro")]
+    public void GetStrengths_InferredModels_ReturnInferredPrefix(string slug)
+    {
+        var strengths = ModelCapabilities.GetStrengths(slug);
+        Assert.StartsWith("Inferred:", strengths, StringComparison.OrdinalIgnoreCase);
+        Assert.True(strengths.Length > "Inferred:".Length, "Inferred strengths must contain content after the prefix");
+    }
+
+    [Fact]
+    public void GetStrengths_InferredOpus_ContainsReasoningAndCode()
+    {
+        var strengths = ModelCapabilities.GetStrengths("claude-opus-99");
+        Assert.Contains("reasoning", strengths, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("code", strengths, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GetStrengths_InferredMini_ContainsFastAndCostEfficient()
+    {
+        var strengths = ModelCapabilities.GetStrengths("new-model-mini");
+        Assert.StartsWith("Inferred:", strengths, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("fast", strengths, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("cost-efficient", strengths, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void GetStrengths_CompletelyUnknown_ReturnsUnknownModel()
+    {
+        var strengths = ModelCapabilities.GetStrengths("totally-unknown-xyz-abc");
+        Assert.Equal("Unknown model", strengths);
+    }
 }
 
 public class GroupPresetTests
