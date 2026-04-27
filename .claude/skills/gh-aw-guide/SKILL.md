@@ -300,11 +300,19 @@ safe-outputs:
     github-token-for-extra-empty-commit: ${{ secrets.PAT_OR_APP_TOKEN }}  # Required to trigger CI
     protected-files: fallback-to-issue   # Create issue instead of failing if agent touches .github/ or package manifests
     # protected-files: blocked (default) | allowed (disables protection)
+    # Object form also supported (v0.71.1+ — previously rejected at compile time):
+    # protected-files:
+    #   policy: fallback-to-issue
+    #   exclude: ["docs/**"]   # Exclude these paths from protected-files enforcement
 ```
 
 **5. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you must implement a checkout step that verifies write access, rejects fork PRs, and restores trusted `.github/` from the base branch. See the [Fork PR Checkout](#fork-pr-checkout-workflow_dispatch) pattern above for a complete example.
 
 **6. XPIA hardening (v0.70.0+)** — Cross-prompt injection (XPIA) sanitization paths have been hardened. `disable-xpia-prompt` is now **rejected at compile time in strict mode** — do not use it. If a workflow previously relied on it, remove the flag; the runtime handles XPIA protection by default.
+
+**7. `pre-agent-steps:` skills not clobbered in `pull_request` runs (v0.71.1)** — Prior to v0.71.1, skills installed by `pre-agent-steps:` (e.g. from `.github/skills/`) were silently overwritten for `pull_request` triggers because the "Restore agent config folders" platform step ran _after_ `pre-agent-steps:`. The step ordering is now correct. If you were working around this bug, you can remove any workarounds.
+
+**8. `push-to-pull-request-branch` `max_patch_size` uses incremental diff (v0.71.1)** — Prior to v0.71.1, `max_patch_size` was measured against the **full cumulative diff** from the default branch, not the incremental change since the last push. On long-running branches this caused spurious size-limit rejections. As of v0.71.1, the check measures only the **incremental `git diff`** against the PR branch head.
 
 ### Idempotency and the Edited-Comment Time-Bomb
 
@@ -427,6 +435,8 @@ tools:
 ```
 
 **Claude engine (v0.71.0+)** — The Claude engine has two permission modes: `acceptEdits` (default — agent proposes edits that the safe-outputs layer validates) and `bypassPermissions` (activated when unrestricted bash `bash: "*"` is granted — agent executes directly). v0.71.0 updated the internal wiring; recompile Claude-engine workflows compiled with older versions.
+
+> 🛑 **`bypassPermissions` security invariant (v0.71.1+)**: When Claude Code runs in `bypassPermissions` mode, the `--allowed-tools` CLI flag is **silently ignored** — it has no effect. The MCP gateway `allowed:` filter is the **sole effective tool boundary** in this mode. If you are restricting tool access for Claude-engine workflows with unrestricted bash, you MUST configure `allowed:` in the MCP gateway config — `--allowed-tools` alone will NOT protect you.
 
 **`checkout: false`** — Skip the default repository checkout when the workflow doesn't need source code (e.g., ChatOps commands that only call APIs via `web-fetch`). Saves ~10-30s of runner time.
 

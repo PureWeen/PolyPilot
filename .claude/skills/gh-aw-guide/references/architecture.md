@@ -206,6 +206,7 @@ The platform now **automatically preserves `.github/` and `.agents/` from the ba
 - The agent container has `COPILOT_TOKEN` in the environment — build commands (`dotnet build`, `npm install`) executed by the agent on fork PR code can read it via build hooks
 - `workflow_dispatch` skips `checkout_pr_branch.cjs` entirely — use `Checkout-GhAwPr.ps1` for defense-in-depth
 - **Multi-repo `push_to_pull_request_branch`** (fixed v0.70.0): Previously, git operations were scoped to the wrong working directory in multi-repo checkout patterns. This is now fixed — side-repo push targets the correct directory automatically. Recompile affected workflows.
+- **`push_to_pull_request_branch` `max_patch_size` cumulative diff** (fixed v0.71.1): Previously, `max_patch_size` was measured against the full cumulative diff from the default branch rather than the incremental change since the last push. On long-running branches this caused spurious size-limit rejections. As of v0.71.1, the check measures only the incremental `git diff` against the PR branch head.
 
 ### Dangerous Triggers Checklist
 
