@@ -1,6 +1,6 @@
 ---
 name: "Expert Code Review"
-description: "Runs the expert-reviewer agent on pull requests — automatically for trusted contributors, or on-demand via /review."
+description: "Runs expert code review on pull requests on-demand via /review."
 
 on:
   slash_command:
@@ -12,10 +12,16 @@ on:
         description: 'PR number to review'
         required: true
         type: number
+  status-comment: true
   roles: [admin, maintainer, write]
+  bots:
+    - "copilot-swe-agent[bot]"
+
+concurrency:
+  group: "expert-review-${{ github.event.issue.number || inputs.pr_number || github.run_id }}"
+  cancel-in-progress: false
 
 # slash_command compiles to issue_comment; workflow_dispatch is always allowed.
-# github.event.issue.pull_request guards against /review on non-PR issues.
 if: >-
   (github.event_name == 'issue_comment' && github.event.issue.pull_request) ||
   github.event_name == 'workflow_dispatch'
@@ -24,13 +30,6 @@ permissions:
   contents: read
   pull-requests: read
 
-# Shared group with review-on-open — a /review serializes with any in-progress auto-review.
-# cancel-in-progress: false because slash_command compiles to broad issue_comment events
-# and cancel-in-progress: true would let non-matching comments kill agent runs.
-concurrency:
-  group: "review-${{ github.event.issue.number || inputs.pr_number || github.run_id }}"
-  cancel-in-progress: false
-
 engine:
   id: copilot
   model: claude-opus-4.6
@@ -38,7 +37,6 @@ engine:
 network:
   allowed:
     - defaults
-    - dotnet
 
 imports:
   - shared/review-shared.md
