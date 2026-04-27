@@ -143,6 +143,8 @@ If there ARE 🔴 CRITICAL findings:
 3. If path or line is invalid, skip the inline comment — it still appears in the summary
 4. After posting, call `submit_pull_request_review` with `event: "COMMENT"` and body: `🔴 {N} critical finding(s) posted inline. See full review summary in the comment below.`
 
+> **🚫 NEVER use `REQUEST_CHANGES` or `APPROVE` events.** The safe-output config only allows `COMMENT`. Using any other event will fail and block the entire review from posting.
+
 **Cap inline comments at 8** (the safe-output limit).
 
 #### Part B: Summary Comment (all findings)
