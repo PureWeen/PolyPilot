@@ -133,7 +133,9 @@ Post results in **two parts**: inline review comments for critical findings, and
 
 > **🚨 STRICT RULE: Do NOT post inline review comments for 🟡 MODERATE or 🟢 MINOR findings.** These go ONLY in the summary comment (Part B). Inline comments are reserved exclusively for 🔴 CRITICAL findings. Violating this creates excessive noise on the PR.
 
-**Gating check:** Count the number of 🔴 CRITICAL findings from Step 3. If the count is **zero**, skip Part A entirely — do NOT call `create_pull_request_review_comment` or `submit_pull_request_review`. Jump directly to Part B.
+**Gating check:** Before posting anything, list each finding from Step 3 with its consensus severity. Count ONLY findings whose consensus severity is 🔴 CRITICAL. If the count is **zero**, skip Part A entirely — do NOT call `create_pull_request_review_comment` or `submit_pull_request_review`. Jump directly to Part B.
+
+> **Anti-pattern:** Do NOT re-evaluate or upgrade severity during posting. A finding that was 🟡 MODERATE or 🟢 MINOR in Step 3 stays that severity — it does NOT become inline-worthy. Only the Step 3 consensus severity matters.
 
 If there ARE 🔴 CRITICAL findings:
 1. Post each CRITICAL finding as an inline comment using `create_pull_request_review_comment`
