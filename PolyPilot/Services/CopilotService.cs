@@ -1963,7 +1963,7 @@ public partial class CopilotService : IAsyncDisposable
             // Write merged config back to mcp-config.json so the CLI auto-reads it.
             // This is more reliable than --additional-mcp-config for persistent servers.
             var merged = new Dictionary<string, object> { ["mcpServers"] = allServers };
-            var json = JsonSerializer.Serialize(merged, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(merged, JsonDefaults.Indented);
             File.WriteAllText(configPath, json);
         }
         catch (Exception ex)

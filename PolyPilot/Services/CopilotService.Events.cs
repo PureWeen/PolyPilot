@@ -1493,7 +1493,7 @@ public partial class CopilotService
                     if (!string.IsNullOrEmpty(val)) return val;
                 }
             }
-            var json = JsonSerializer.Serialize(result, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(result, JsonDefaults.Indented);
             if (json != "{}" && json != "null") return json;
         }
         catch { }

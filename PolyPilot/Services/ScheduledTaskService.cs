@@ -490,7 +490,7 @@ public class ScheduledTaskService : IDisposable
             {
                 var dir = Path.GetDirectoryName(TasksFilePath)!;
                 Directory.CreateDirectory(dir);
-                var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+                var json = JsonSerializer.Serialize(snapshot, JsonDefaults.Indented);
                 var tempPath = TasksFilePath + "." + Guid.NewGuid().ToString("N") + ".tmp";
                 File.WriteAllText(tempPath, json);
                 File.Move(tempPath, TasksFilePath, overwrite: true);

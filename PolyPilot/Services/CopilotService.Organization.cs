@@ -455,7 +455,7 @@ public partial class CopilotService
                     DeletedRepoGroupRepoIds = new HashSet<string>(Organization.DeletedRepoGroupRepoIds)
                 };
             }
-            var json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(snapshot, JsonDefaults.Indented);
             WriteOrgFile(json);
         }
         catch (Exception ex)
@@ -3056,7 +3056,7 @@ public partial class CopilotService
         try
         {
             Directory.CreateDirectory(PolyPilotBaseDir);
-            var json = JsonSerializer.Serialize(pending, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(pending, JsonDefaults.Indented);
             var tmp = PendingOrchestrationFile + ".tmp";
             File.WriteAllText(tmp, json);
             File.Move(tmp, PendingOrchestrationFile, overwrite: true);

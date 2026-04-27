@@ -331,9 +331,9 @@ public class ConnectionSettings
             Directory.CreateDirectory(dir);
 #if IOS || ANDROID
             SaveMobileSecretsIfDirty();
-            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(this, JsonDefaults.Indented);
 #else
-            var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(this, JsonDefaults.Indented);
 #endif
             File.WriteAllText(SettingsPath, json);
         }
