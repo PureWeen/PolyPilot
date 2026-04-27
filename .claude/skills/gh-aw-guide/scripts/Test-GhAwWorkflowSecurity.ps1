@@ -21,8 +21,8 @@
     Directory containing workflow .md files. Default: .github/workflows
 
 .EXAMPLE
-    pwsh Check-WorkflowSecurity.ps1
-    pwsh Check-WorkflowSecurity.ps1 -WorkflowDir .github/workflows
+    pwsh Test-GhAwWorkflowSecurity.ps1
+    pwsh Test-GhAwWorkflowSecurity.ps1 -WorkflowDir .github/workflows
 #>
 
 [CmdletBinding()]
@@ -165,7 +165,7 @@ function Test-Workflow {
                 severity = "HIGH"
                 rule     = "steps-execute-workspace-scripts"
                 message  = "steps: or pre-agent-steps: execute workspace scripts (.ps1/.sh/.py/.js) after PR checkout. Fork PRs can inject malicious scripts that run with GITHUB_TOKEN."
-                fix      = "Move script execution to before checkout, or only run scripts from the base branch (use Checkout-GhAwPr.ps1 pattern)"
+                fix      = "Move script execution to before checkout, or implement a checkout-then-restore step that verifies write access and restores trusted agent infrastructure from the base branch"
             }
         }
     }
