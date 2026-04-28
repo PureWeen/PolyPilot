@@ -168,36 +168,22 @@ Then create the PR via `create_pull_request` with:
 - Title: `fix: <description> (fixes #${{ github.event.issue.number || inputs.issue_number }})`
 - Body: description of what was changed and why, linking to the issue
 
-## Step 6: Dispatch Expert Review and Integration Tests
+## Step 6: Dispatch Expert Review and Integration Tests (MANDATORY)
 
-After all fixes are committed, dispatch the expert code review and integration test workflows.
+> **🚨 You MUST call all 3 dispatch_workflow tools below.** This is not optional. The expert review and CI runs are required before the PR can be considered complete. Do not skip this step.
+
+After all fixes are committed, dispatch the expert code review and integration test workflows by calling the `expert_review`, `verify_build`, and `polypilot_integration` safe-output tools.
 
 **Important:** Use the exact branch name from the PR. If you named your branch `fix/issue-N`, the safe-outputs job will use that name without modification (because `preserve-branch-name: true` is set). If you're unsure, use `get_pull_request` to read the PR and get the `headRefName` field.
 
+Call these 3 tools:
+
 ```
-dispatch_workflow({
-  "workflow": "expert-review",
-  "inputs": {
-    "pr_number": "<PR number>"
-  }
-})
+expert_review({ "pr_number": "<PR number>" })
 
-dispatch_workflow({
-  "workflow": "verify-build",
-  "inputs": {
-    "pr_number": "<PR number>",
-    "ref": "<exact branch name from the PR>"
-  }
-})
+verify_build({ "pr_number": "<PR number>", "ref": "<exact branch name>" })
 
-dispatch_workflow({
-  "workflow": "polypilot-integration",
-  "inputs": {
-    "pr_number": "<PR number>",
-    "ref": "<exact branch name from the PR>",
-    "scenario": "smoke"
-  }
-})
+polypilot_integration({ "pr_number": "<PR number>", "ref": "<exact branch name>", "scenario": "smoke" })
 ```
 
 The expert review runs a 3-model adversarial code review (Opus + Sonnet + GPT) on the PR and posts findings as review comments. If it finds issues, the **fix-review-findings** workflow will automatically pick them up, push fixes, and re-dispatch the expert review — looping until zero issues are found.
