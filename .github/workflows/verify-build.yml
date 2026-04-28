@@ -94,7 +94,7 @@ jobs:
     name: Report Results
     runs-on: ubuntu-latest
     needs: [test, build-catalyst, build-windows]
-    if: always()
+    if: always() && inputs.pr_number > 0
     permissions:
       pull-requests: write
     steps:
