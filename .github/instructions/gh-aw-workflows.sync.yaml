@@ -29,16 +29,6 @@ sources:
     sections: ["Safe Outputs Quick Reference"]
   - url: https://github.github.com/gh-aw/reference/integrity/
     sections: ["Security Boundaries"]
-    coverage_gaps:
-      - "endorsement-reactions / disapproval-reactions (v0.68.2+)"
-      - "approval-labels for promoting items"
-      - "allowed-repos scoping"
-      - "integrity-proxy: false opt-out"
-      - "centralized management via GH_AW_GITHUB_* variables"
-      - "effective integrity computation order"
-      - "DIFC_FILTERED logging and gh aw logs --filtered-integrity"
-      - "public repos auto-apply min-integrity: approved when unconfigured"
-      - "GitHub Actions expressions for blocked-users/trusted-users/approval-labels"
   - url: https://github.github.com/gh-aw/reference/custom-safe-outputs/
     sections: ["Anti-Patterns", "Safe Outputs Quick Reference"]
   - url: https://github.github.com/gh-aw/reference/triggering-ci/

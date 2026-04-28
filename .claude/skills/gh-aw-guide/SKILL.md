@@ -290,7 +290,7 @@ safe-outputs:
 
 > **`supersede-older-reviews: true`** — When using `REQUEST_CHANGES`, set this to automatically dismiss older blocking reviews from the same workflow after posting a replacement. This solves the stale-review problem: without it, a `REQUEST_CHANGES` review persists even after the author fixes everything and re-runs `/review`, because gh-aw has no `dismiss-pull-request-review` safe output and the compiler rejects `pull-requests: write`. With `supersede-older-reviews`, the new review replaces the old one (best-effort). This makes `[COMMENT, REQUEST_CHANGES]` a viable option alongside `[COMMENT]`-only.
 
-**3. Integrity filtering** — controls what content the agent can **see** (vs. `roles:` which controls who can **trigger**). The MCP gateway filters content by author trust level:
+**3. Integrity filtering** — controls what content the agent can **see** (vs. `roles:` which controls who can **trigger**). The MCP gateway intercepts GitHub tool calls and filters content by author trust level before the AI engine sees it. Filtered items are logged as `DIFC_FILTERED` events — inspect them with `gh aw logs --filtered-integrity`.
 
 | Level | Who qualifies |
 |-------|--------------|
@@ -300,14 +300,44 @@ safe-outputs:
 | `none` | All content including `FIRST_TIMER` and users with no association |
 | `blocked` | Users in `blocked-users` — always denied, cannot be promoted |
 
+**Defaults:** Public repos default to `min-integrity: approved` when unconfigured. Private repos default to `min-integrity: none`.
+
 ```yaml
 tools:
   github:
     min-integrity: approved        # Default for public repos — only trusted author content
+    allowed-repos: "myorg/*"       # Scope to specific repos (optional; default "all")
     toolsets: [pull_requests, repos]
-    # trusted-users: [contractor-1]   # Elevate specific users to 'approved'
-    # blocked-users: [spam-bot]       # Unconditionally block specific users
-    # approval-labels: [human-reviewed]  # Labels that promote items to 'approved'
+    trusted-users: [contractor-1]  # Elevate specific users to 'approved'
+    blocked-users: [spam-bot]      # Unconditionally block specific users (always denied)
+    approval-labels: [human-reviewed]  # Labels on issues/PRs that promote items to 'approved'
+    integrity-proxy: true          # Set false to disable DIFC proxy for pre-agent gh CLI calls (default true)
+```
+
+**`allowed-repos` scoping:** Restricts which repositories' content the agent can see. Accepts `"all"` (default), `"public"`, or an array of patterns: `["myorg/*", "partner/repo"]`. When specified alongside `min-integrity`, both fields must be present.
+
+**`approval-labels`:** Label names that promote an issue or PR to `approved` integrity regardless of author association. Useful as a human-review gate: a maintainer applies the label, and the agent can then see and act on it. Accepts a static list or a GitHub Actions expression.
+
+**`trusted-users` / `blocked-users` / `approval-labels` — GitHub Actions expressions:** All three fields accept GitHub Actions expressions (e.g., `${{ vars.TRUSTED_CONTRACTORS }}`) in addition to static arrays. This enables centralized management via repository variables or environment variables (`GH_AW_GITHUB_*`).
+
+**Centralized management via `GH_AW_GITHUB_*` environment variables:** Organization-wide integrity settings can be distributed via Actions environment variables prefixed with `GH_AW_GITHUB_` (e.g., `GH_AW_GITHUB_TRUSTED_USERS`). These are merged with per-workflow frontmatter.
+
+**`integrity-proxy: false`:** Disables the DIFC proxy for pre-agent `gh` CLI calls in workflow steps. Only use when you deliberately want to bypass integrity checks for a non-agentic step. Does not affect the MCP gateway filtering.
+
+**Effective integrity computation order:** An item's final integrity level is determined by (highest wins): `blocked-users` (forced deny) → `trusted-users` (forced `approved`) → `approval-labels` (promote to `approved`) → endorsement/disapproval reactions (see below) → author association default.
+
+**Reaction-based integrity (v0.68.2+, `features.integrity-reactions: true`):** Reactions on issues/PRs/comments can dynamically promote or demote integrity:
+
+```yaml
+features:
+  integrity-reactions: true
+tools:
+  github:
+    min-integrity: approved
+    endorsement-reactions: [THUMBS_UP, HEART]   # Promote item to 'approved' (default when feature enabled)
+    disapproval-reactions: [THUMBS_DOWN, CONFUSED]  # Demote item integrity (default when feature enabled)
+    endorser-min-integrity: approved            # Reactor's own integrity required for reaction to count (default: approved)
+    disapproval-integrity: none                 # Integrity level assigned on qualifying disapproval (default: none)
 ```
 
 **Interaction with `roles:`:**
