@@ -85,16 +85,36 @@ public class OrchestrationRecoveryBehavioralTests
     /// <summary>Create a SessionState with the given AgentSessionInfo via reflection.
     /// GetUninitializedObject bypasses constructors, so readonly field initializers
     /// (like PrematureIdleSignal = new ManualResetEventSlim()) don't run.
-    /// We manually initialize them after creation.</summary>
+    /// We manually initialize them after creation.
+    ///
+    /// Fields initialized here (required by tests or called by production methods):
+    ///   - PrematureIdleSignal: used directly by §3 lifecycle tests
+    ///   - CurrentResponse: StringBuilder, used by FlushCurrentResponse/CompleteResponse
+    ///   - FlushedResponse: StringBuilder, used by CompleteResponse
+    ///   - PendingReasoningMessages: ConcurrentDictionary, used by reasoning event handler
+    /// If future tests call production methods on this state and hit NRE,
+    /// check whether additional fields need initialization here.</summary>
     private static object CreateSessionState(AgentSessionInfo info)
     {
         var stateType = GetSessionStateType();
         var state = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(stateType);
         stateType.GetProperty("Info")!.SetValue(state, info);
 
-        // Initialize readonly field that would normally be set by the field initializer
+        // Initialize readonly fields that would normally be set by field initializers.
         var signalField = stateType.GetField("PrematureIdleSignal", AnyInstance)!;
         signalField.SetValue(state, new ManualResetEventSlim(initialState: false));
+
+        // Initialize other readonly fields to prevent NullReferenceException if
+        // production methods are called on this state in future tests.
+        // These are get-only auto-properties, so we set their backing fields directly.
+        var currentResponseField = stateType.GetField("<CurrentResponse>k__BackingField", NonPublic);
+        currentResponseField?.SetValue(state, new StringBuilder());
+
+        var flushedResponseField = stateType.GetField("<FlushedResponse>k__BackingField", NonPublic);
+        flushedResponseField?.SetValue(state, new StringBuilder());
+
+        var pendingReasoningField = stateType.GetField("<PendingReasoningMessages>k__BackingField", NonPublic);
+        pendingReasoningField?.SetValue(state, new ConcurrentDictionary<string, ChatMessage>());
 
         return state;
     }
@@ -344,6 +364,13 @@ public class OrchestrationRecoveryBehavioralTests
     #endregion
 
     #region 2. bestResponse multi-round accumulation logic
+    // NOTE: These tests verify the bestResponse accumulation *pattern* (longest-content-wins)
+    // in isolation. They duplicate the LINQ filter from RecoverFromPrematureIdleIfNeededAsync
+    // rather than calling the production method directly. If the production filter changes
+    // (e.g., > becomes >=), these tests won't detect the divergence.
+    // The §1, §7, and §8 tests call real production code. A future improvement would be to
+    // extract the accumulation/filtering logic into a testable internal static helper and
+    // test that instead.
 
     [Fact]
     public void BestResponseAccumulation_LongestContentWins()
@@ -491,6 +518,8 @@ public class OrchestrationRecoveryBehavioralTests
     #endregion
 
     #region 3. PrematureIdleSignal lifecycle
+    // NOTE: These tests exercise ManualResetEventSlim directly via the SessionState field.
+    // They verify the signaling primitive's behavior, not the production code that uses it.
 
     [Fact]
     public void PrematureIdleSignal_StartsUnset()
@@ -621,7 +650,7 @@ public class OrchestrationRecoveryBehavioralTests
     #region 4. OnSessionComplete event handler lifecycle
 
     [Fact]
-    public async Task OnSessionComplete_HandlerFiresForMatchingSessionName()
+    public async Task OnSessionComplete_SubscriptionDoesNotThrow()
     {
         var svc = CreateService();
         await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
@@ -638,9 +667,11 @@ public class OrchestrationRecoveryBehavioralTests
         await svc.CreateSessionAsync("worker-1");
         await svc.SendPromptAsync("worker-1", "hello");
 
-        // DemoService fires OnTurnEnd which may trigger OnSessionComplete
-        // But for the event pattern test, we directly verify subscription works
-        Assert.NotNull(svc); // Subscription didn't throw
+        // Demo mode doesn't reliably fire OnSessionComplete, so we verify
+        // that subscribing and sending a prompt doesn't throw.
+        // The TCS-based handler tests below (OnSessionComplete_TCSCompletesOnNameMatch etc.)
+        // verify the actual event dispatch pattern behaviorally.
+        Assert.NotNull(svc);
     }
 
     [Fact]
@@ -742,6 +773,8 @@ public class OrchestrationRecoveryBehavioralTests
     #endregion
 
     #region 5. OCE handling — bestResponse preservation
+    // NOTE: These tests re-implement the OCE catch-block pattern from
+    // RecoverFromPrematureIdleIfNeededAsync in isolation. See §2 note.
 
     [Fact]
     public void OCE_PreservesBestResponseOnCancellation()
@@ -829,6 +862,9 @@ public class OrchestrationRecoveryBehavioralTests
     #endregion
 
     #region 6. dispatchTime filtering correctness
+    // NOTE: These tests duplicate the dispatchTime LINQ filter from production code.
+    // See §2 note about the trade-off. §6.10 (DispatchTimeFilter_EndToEnd_DiskFallback)
+    // calls real production code (LoadHistoryFromDiskAsync) for end-to-end coverage.
 
     [Fact]
     public void DispatchTimeFilter_ExcludesMessagesBeforeDispatch()
@@ -1150,6 +1186,8 @@ public class OrchestrationRecoveryBehavioralTests
     #endregion
 
     #region 9. Recovery loop TCS pattern — end-to-end simulation
+    // NOTE: These tests simulate the TCS/CTS coordination pattern from
+    // RecoverFromPrematureIdleIfNeededAsync but don't invoke it directly. See §2 note.
 
     [Fact]
     public async Task RecoveryLoop_TCSCompletesOnSessionCompleteEvent()
