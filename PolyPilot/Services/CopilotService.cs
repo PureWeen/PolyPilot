@@ -208,6 +208,13 @@ public partial class CopilotService : IAsyncDisposable
     private static string? _organizationFile;
     private static string OrganizationFile { get { lock (_pathLock) return _organizationFile ??= Path.Combine(PolyPilotBaseDir, "organization.json"); } }
 
+    private static string? _tempSessionsBase;
+    /// <summary>
+    /// Root directory for auto-created temp session working directories.
+    /// Defaults to <c>$TMPDIR/polypilot-sessions</c>. Redirectable for test isolation.
+    /// </summary>
+    internal static string TempSessionsBase { get { lock (_pathLock) return _tempSessionsBase ??= Path.Combine(Path.GetTempPath(), "polypilot-sessions"); } }
+
     /// <summary>
     /// Override base directories for tests to prevent writing to real ~/.polypilot/ or ~/.copilot/.
     /// Clears all derived path caches so they re-resolve from the new base.
@@ -225,6 +232,7 @@ public partial class CopilotService : IAsyncDisposable
             _sessionStatePath = null;
             _pendingOrchestrationFile = null;
             _zeroIdleCaptureDir = null;
+            _tempSessionsBase = Path.Combine(path, "polypilot-sessions");
         }
     }
 
@@ -2738,7 +2746,7 @@ The user can also check configured servers with the /mcp command.
         string? sessionDir;
         if (workingDirectory == null)
         {
-            sessionDir = Path.Combine(Path.GetTempPath(), "polypilot-sessions", Guid.NewGuid().ToString()[..8]);
+            sessionDir = Path.Combine(TempSessionsBase, Guid.NewGuid().ToString()[..8]);
             Directory.CreateDirectory(sessionDir);
         }
         else
@@ -5102,7 +5110,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Clean up auto-created temp directory for empty sessions
         if (state.Info.WorkingDirectory != null)
         {
-            var tempRoot = Path.Combine(Path.GetTempPath(), "polypilot-sessions");
+            var tempRoot = TempSessionsBase;
             try
             {
                 var fullDir = Path.GetFullPath(state.Info.WorkingDirectory);

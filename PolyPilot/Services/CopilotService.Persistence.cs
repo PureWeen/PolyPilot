@@ -746,14 +746,28 @@ public partial class CopilotService
     /// </summary>
     public async Task RestorePreviousSessionsAsync(CancellationToken cancellationToken = default)
     {
+        List<ActiveSessionEntry>? entries = null;
         if (File.Exists(ActiveSessionsFile))
         {
             try
             {
                 var json = await File.ReadAllTextAsync(ActiveSessionsFile, cancellationToken).ConfigureAwait(false);
-                var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
-                if (entries != null && entries.Count > 0)
-                {
+                entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
+            }
+            catch (Exception ex)
+            {
+                Debug($"Failed to load active sessions file: {ex.Message}");
+            }
+        }
+
+        // Sweep orphaned temp directories before restoring sessions.
+        // Any dir under TempSessionsBase not referenced by a persisted entry is orphaned.
+        SweepOrphanedTempSessionDirs(TempSessionsBase, entries?.Select(e => e.WorkingDirectory) ?? []);
+
+        if (entries != null && entries.Count > 0)
+        {
+            try
+            {
                     Debug($"Restoring {entries.Count} previous sessions...");
                     var restoreSw = System.Diagnostics.Stopwatch.StartNew();
                     IsRestoring = true;
@@ -1074,14 +1088,38 @@ public partial class CopilotService
                     
                     Debug($"[STARTUP-TIMING] Session loop complete: {restoreSw.ElapsedMilliseconds}ms ({entries.Count} sessions)");
                     IsRestoring = false;
-                }
             }
             catch (Exception ex)
             {
-                Debug($"Failed to load active sessions file: {ex.Message}");
+                Debug($"Failed to restore sessions: {ex.Message}");
             }
         }
 
+    }
+
+    /// <summary>
+    /// Deletes directories under <paramref name="tempBase"/> that are not referenced
+    /// by any persisted session's <c>WorkingDirectory</c>. Called on startup to clean up
+    /// orphaned temp dirs left behind after crashes or force-kills.
+    /// </summary>
+    internal static void SweepOrphanedTempSessionDirs(string tempBase, IEnumerable<string?> persistedWorkingDirs)
+    {
+        if (!Directory.Exists(tempBase)) return;
+
+        var keepDirs = new HashSet<string>(
+            persistedWorkingDirs
+                .Where(d => !string.IsNullOrEmpty(d))
+                .Select(d => Path.GetFullPath(d!)),
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dir in Directory.GetDirectories(tempBase))
+        {
+            if (!keepDirs.Contains(Path.GetFullPath(dir)))
+            {
+                try { Directory.Delete(dir, recursive: true); }
+                catch { /* best-effort cleanup */ }
+            }
+        }
     }
 
     /// <summary>
