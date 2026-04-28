@@ -113,6 +113,15 @@ public class OrchestrationRecoveryBehavioralTests
         return (ManualResetEventSlim)field.GetValue(sessionState)!;
     }
 
+    /// <summary>Invoke the OnSessionComplete event on CopilotService via reflection.</summary>
+    private static void InvokeOnSessionComplete(CopilotService svc, string sessionName, string summary)
+    {
+        var field = typeof(CopilotService).GetField("OnSessionComplete", NonPublic)
+            ?? throw new MissingMemberException(nameof(CopilotService), "OnSessionComplete");
+        var handler = (Action<string, string>?)field.GetValue(svc);
+        handler?.Invoke(sessionName, summary);
+    }
+
     /// <summary>Build a JSONL event line with the given type, data, and timestamp.</summary>
     private static string BuildEventLine(string type, object data, DateTimeOffset? timestamp = null)
     {
@@ -580,18 +589,10 @@ public class OrchestrationRecoveryBehavioralTests
 
         signal.Dispose();
 
-        // The IsPrematureIdleSignalSet() local function in RecoverFromPrematureIdleIfNeededAsync
-        // catches ObjectDisposedException and returns false
-        bool result;
-        try
-        {
-            result = signal.IsSet;
-        }
-        catch (ObjectDisposedException)
-        {
-            result = false;
-        }
-        Assert.False(result);
+        // On .NET 8+, ManualResetEventSlim.IsSet reads m_combinedState directly
+        // and does NOT throw ObjectDisposedException after Dispose().
+        // The signal was never Set() before Dispose(), so IsSet returns false.
+        Assert.False(signal.IsSet);
     }
 
     [Fact]
@@ -689,20 +690,23 @@ public class OrchestrationRecoveryBehavioralTests
         int fireCount = 0;
         void Handler(string name, string summary) => fireCount++;
 
+        // Subscribe, then fire the event via reflection to verify it increments
         svc.OnSessionComplete += Handler;
+        InvokeOnSessionComplete(svc, "test-session", "done");
+        Assert.Equal(1, fireCount);
+
+        // Unsubscribe, then fire again — should NOT increment
         svc.OnSessionComplete -= Handler;
-
-        // Fire a session complete via the demo service
-        await svc.CreateSessionAsync("test-session");
-        await svc.SendPromptAsync("test-session", "hello");
-
-        // Handler was unsubscribed, so it shouldn't have incremented
-        Assert.Equal(0, fireCount);
+        InvokeOnSessionComplete(svc, "test-session", "done again");
+        Assert.Equal(1, fireCount);
     }
 
     [Fact]
     public async Task OnSessionComplete_MultipleHandlersReceiveEvent()
     {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
         var completionTcs1 = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var completionTcs2 = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -715,12 +719,14 @@ public class OrchestrationRecoveryBehavioralTests
             if (name == "worker") completionTcs2.TrySetResult(true);
         }
 
-        // Both handlers should fire
-        Handler1("worker", "done");
-        Handler2("worker", "done");
+        // Subscribe both handlers to the actual event, then fire via reflection
+        svc.OnSessionComplete += Handler1;
+        svc.OnSessionComplete += Handler2;
 
-        Assert.True(completionTcs1.Task.IsCompleted);
-        Assert.True(completionTcs2.Task.IsCompleted);
+        InvokeOnSessionComplete(svc, "worker", "done");
+
+        Assert.True(completionTcs1.Task.IsCompleted, "Handler1 should have been called via event multicast");
+        Assert.True(completionTcs2.Task.IsCompleted, "Handler2 should have been called via event multicast");
     }
 
     [Fact]
@@ -1194,15 +1200,23 @@ public class OrchestrationRecoveryBehavioralTests
     [Fact]
     public async Task RecoveryLoop_AlreadyDoneSessionCompletesImmediately()
     {
-        // Simulate the pattern: if worker already finished (IsProcessing=false),
-        // TCS is set immediately without waiting for the event
-        var completionTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-        bool isProcessing = false; // Worker already finished
+        // Use a real CopilotService in Demo mode: after send completes,
+        // IsProcessing should be false — simulating "worker already finished".
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+        await svc.CreateSessionAsync("worker-1");
+        await svc.SendPromptAsync("worker-1", "hello");
 
-        if (!isProcessing)
+        var info = svc.GetSession("worker-1");
+        Assert.NotNull(info);
+
+        // The recovery loop pattern: if worker already finished (IsProcessing=false),
+        // TCS is set immediately without waiting for the OnSessionComplete event.
+        var completionTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        if (!info!.IsProcessing)
             completionTcs.TrySetResult(true);
 
-        Assert.True(completionTcs.Task.IsCompleted);
+        Assert.True(completionTcs.Task.IsCompleted, "TCS should complete immediately when session is not processing");
         Assert.True(await completionTcs.Task);
     }
 
