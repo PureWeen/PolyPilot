@@ -1782,4 +1782,85 @@ public class RepoManagerTests
     }
 
     #endregion
+
+    #region FindOrphanedWorktrees
+
+    [Fact]
+    public void FindOrphanedWorktrees_ReturnsWorktreesNotInActiveSet()
+    {
+        var wt1 = new WorktreeInfo { Id = "aaa", Branch = "feature-a", Path = "/tmp/a" };
+        var wt2 = new WorktreeInfo { Id = "bbb", Branch = "feature-b", Path = "/tmp/b" };
+        var wt3 = new WorktreeInfo { Id = "ccc", Branch = "feature-c", Path = "/tmp/c" };
+        var worktrees = new[] { wt1, wt2, wt3 };
+        var activeIds = new[] { "aaa", "ccc" };
+
+        var orphans = RepoManager.FindOrphanedWorktrees(worktrees, activeIds);
+
+        Assert.Single(orphans);
+        Assert.Equal("bbb", orphans[0].Id);
+    }
+
+    [Fact]
+    public void FindOrphanedWorktrees_AllActive_ReturnsEmpty()
+    {
+        var wt1 = new WorktreeInfo { Id = "aaa", Branch = "main", Path = "/tmp/a" };
+        var wt2 = new WorktreeInfo { Id = "bbb", Branch = "dev", Path = "/tmp/b" };
+        var worktrees = new[] { wt1, wt2 };
+        var activeIds = new[] { "aaa", "bbb" };
+
+        var orphans = RepoManager.FindOrphanedWorktrees(worktrees, activeIds);
+
+        Assert.Empty(orphans);
+    }
+
+    [Fact]
+    public void FindOrphanedWorktrees_NullIdsInActiveSet_TreatedAsInactive()
+    {
+        var wt1 = new WorktreeInfo { Id = "aaa", Branch = "main", Path = "/tmp/a" };
+        var worktrees = new[] { wt1 };
+        var activeIds = new string?[] { null, null };
+
+        var orphans = RepoManager.FindOrphanedWorktrees(worktrees, activeIds);
+
+        Assert.Single(orphans);
+        Assert.Equal("aaa", orphans[0].Id);
+    }
+
+    [Fact]
+    public void FindOrphanedWorktrees_EmptyWorktreeList_ReturnsEmpty()
+    {
+        var orphans = RepoManager.FindOrphanedWorktrees(
+            Array.Empty<WorktreeInfo>(), new[] { "aaa" });
+
+        Assert.Empty(orphans);
+    }
+
+    [Fact]
+    public void FindOrphanedWorktrees_EmptyActiveSet_ReturnsAllWorktrees()
+    {
+        var wt1 = new WorktreeInfo { Id = "aaa", Branch = "main", Path = "/tmp/a" };
+        var wt2 = new WorktreeInfo { Id = "bbb", Branch = "dev", Path = "/tmp/b" };
+        var worktrees = new[] { wt1, wt2 };
+
+        var orphans = RepoManager.FindOrphanedWorktrees(
+            worktrees, Array.Empty<string?>());
+
+        Assert.Equal(2, orphans.Count);
+    }
+
+    [Fact]
+    public void FindOrphanedWorktrees_DuplicateActiveIds_HandledCorrectly()
+    {
+        var wt1 = new WorktreeInfo { Id = "aaa", Branch = "main", Path = "/tmp/a" };
+        var wt2 = new WorktreeInfo { Id = "bbb", Branch = "dev", Path = "/tmp/b" };
+        var worktrees = new[] { wt1, wt2 };
+        var activeIds = new[] { "aaa", "aaa", "aaa" };
+
+        var orphans = RepoManager.FindOrphanedWorktrees(worktrees, activeIds);
+
+        Assert.Single(orphans);
+        Assert.Equal("bbb", orphans[0].Id);
+    }
+
+    #endregion
 }

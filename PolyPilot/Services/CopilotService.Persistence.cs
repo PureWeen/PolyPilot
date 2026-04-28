@@ -629,6 +629,10 @@ public partial class CopilotService
             // (synthesis completed) but the app crashed before workers finished.
             _ = ScanForOrphanedWorkersAsync(cancellationToken);
 
+            // Prune orphaned worktrees — fire-and-forget so startup isn't blocked.
+            // Runs after reconciliation to ensure Organization.Sessions is up to date.
+            _ = PruneOrphanedWorktreesAsync(cancellationToken);
+
             // Replay any bridge prompts that arrived during restore
             var bridgeServer = _serviceProvider?.GetService<WsBridgeServer>();
             if (bridgeServer != null)
@@ -646,6 +650,47 @@ public partial class CopilotService
                     catch (Exception ex) { Console.WriteLine($"[BRIDGE] Error draining pending prompts: {ex.Message}"); }
                 });
             }
+        }
+    }
+
+    /// <summary>
+    /// Collects active worktree IDs from Organization state and delegates to
+    /// RepoManager for safe orphan removal. Runs as fire-and-forget on startup.
+    /// </summary>
+    private async Task PruneOrphanedWorktreesAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            // Brief delay so restore + reconciliation fully settles
+            await Task.Delay(5000, ct).ConfigureAwait(false);
+
+            // Collect all worktree IDs referenced by sessions and groups
+            var activeWorktreeIds = new List<string?>();
+
+            var metas = SnapshotSessionMetas();
+            foreach (var m in metas)
+                activeWorktreeIds.Add(m.WorktreeId);
+
+            var groups = SnapshotGroups();
+            foreach (var g in groups)
+            {
+                activeWorktreeIds.Add(g.WorktreeId);
+                if (g.CreatedWorktreeIds != null)
+                    activeWorktreeIds.AddRange(g.CreatedWorktreeIds);
+            }
+
+            // Also include worktree IDs from in-memory sessions (may not be in Organization yet)
+            foreach (var kvp in _sessions)
+                activeWorktreeIds.Add(kvp.Value.Info.WorktreeId);
+
+            var removed = await _repoManager.PruneOrphanedWorktreesAsync(activeWorktreeIds, ct);
+            if (removed > 0)
+                Debug($"Pruned {removed} orphaned worktree(s) on startup");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Debug($"Worktree pruning failed: {ex.Message}");
         }
     }
 
