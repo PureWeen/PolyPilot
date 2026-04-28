@@ -59,6 +59,7 @@ Fix issue #${{ github.event.issue.number || inputs.issue_number }}.
 
 You are an autonomous agent that takes a GitHub issue and delivers a fully tested PR. Your workflow:
 
+0. **Triage the issue** — deep analysis to verify the issue is still valid and worth fixing
 1. **Understand the issue** — read the issue description and comments
 2. **Explore the codebase** — find the relevant code
 3. **Implement the fix** — make targeted changes
@@ -67,6 +68,32 @@ You are an autonomous agent that takes a GitHub issue and delivers a fully teste
 6. **Self-review** — do a multi-model adversarial review of your own changes
 7. **Fix review findings** — iterate until clean
 8. **Run integration tests** — dispatch end-to-end verification
+
+## Step 0: Triage the Issue (Go/No-Go Gate)
+
+Before doing any implementation work, perform a deep analysis to determine whether this issue is still valid, relevant, and worth the effort.
+
+### 0a. Read the issue
+
+Use `get_issue` to read issue #${{ github.event.issue.number || inputs.issue_number }} and all its comments.
+
+### 0b. Verify the issue is still valid
+
+Check each of the following:
+
+1. **Does the referenced code still exist?** Search the codebase for the files and patterns mentioned in the issue. If the code was refactored, deleted, or significantly changed, the issue may be moot.
+2. **Has another PR already fixed it?** Search closed PRs and recent commits for keywords from the issue title. Check if a fix was merged but the issue wasn't closed.
+3. **Is the problem still reproducible?** If the issue describes a specific behavior, check whether the current code still exhibits it. Look at the logic paths described — do they still apply?
+4. **Is the effort proportional to the impact?** Consider: how many users does this affect? Is it a crash, data loss, or cosmetic? Is there a simpler workaround already in place?
+
+### 0c. Make the Go/No-Go decision
+
+- **GO** — the issue is valid, the referenced code/pattern still exists, and no existing fix covers it. Proceed to Step 1.
+- **NO-GO** — the issue is stale, already fixed, or no longer relevant. Post an `add_comment` on the issue explaining:
+  - What you checked
+  - Why the issue is no longer valid (e.g., "the code in `CopilotService.InitAsync` was refactored in PR #NNN and temp directories are now cleaned up by `X`")
+  - Recommend closing the issue
+  - Then **stop** — do not create a PR or do any further work.
 
 ## Step 1: Understand the Issue
 
