@@ -329,6 +329,10 @@ safe-outputs:
     github-token-for-extra-empty-commit: ${{ secrets.PAT_OR_APP_TOKEN }}  # Required to trigger CI
     protected-files: fallback-to-issue   # Create issue instead of failing if agent touches .github/ or package manifests
     # protected-files: blocked (default) | allowed (disables protection)
+    # Object form (v0.68.4+): exclude specific paths from the default protected set:
+    # protected-files:
+    #   policy: fallback-to-issue
+    #   exclude: [AGENTS.md, CLAUDE.md]  # These are protected by default but your workflow needs to modify them
 ```
 
 **5. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you must implement a checkout step that verifies write access, rejects fork PRs, and restores trusted `.github/` from the base branch. See the [Fork PR Checkout](#fork-pr-checkout-workflow_dispatch) pattern above for a complete example.
@@ -421,12 +425,26 @@ Choose the right trigger for your workflow. Triggers are grouped by recommended 
 
 ```yaml
 source: "githubnext/agentics/workflows/ci-doctor.md@v1.0.0"  # Track workflow origin
+redirect: "owner/repo/new-name.md@main"                       # Redirect when workflow moved (v0.69.2+)
 private: true                                                    # Prevent installation via gh aw add
 resources:                                                       # Companion files fetched with gh aw add
   - triage-issue.md
   - shared/helper-action.yml
 labels: ["automation", "ci"]                                     # For gh aw status --label filtering
 checkout: false                                                  # Skip repo checkout (for workflows that only use MCP/API, no source needed)
+
+engine:
+  id: copilot
+  model: claude-sonnet-4.6
+  bare: true                   # Skip loading AGENTS.md context (v0.68.6+) — for non-code workflows
+
+pre-agent-steps:               # (v0.68.5+) Run after checkout but BEFORE agent starts
+  - name: Install dependencies
+    run: npm install
+
+sandbox:
+  agent:
+    version: "0.25.28"         # (v0.69.1+) Pin AWF sandbox version for reproducibility
 
 runtimes:                    # Override default runtime versions
   dotnet:
@@ -441,11 +459,20 @@ imports:                     # APM package dependencies
         - microsoft/apm-sample-package
 
 on:
-  needs: pre_activation       # Declare dependency on a custom pre_activation job for credential supply
-                              # Enables sourcing GitHub App credentials from upstream job outputs (v0.70.0+)
+  needs: pre_activation       # (v0.70.0+) Custom job dependency for credential supply
 ```
 
-**`on.needs:` (v0.70.0+)** — Express dependencies on custom `pre_activation`/`activation` jobs, enabling GitHub App credentials to be sourced from upstream job outputs. Required for advanced credential-supply patterns.
+**`pre-agent-steps:` (v0.68.5+)** — Inject custom steps immediately before the agent engine runs. Runs after checkout and `.github/` restore, but before the agent starts. Use for data preparation, dependency installation, or environment setup that needs the checked-out code. Supports imports and merge semantics.
+
+**`engine.bare: true` (v0.68.6+)** — Skip loading `AGENTS.md` context. Ideal for non-code workflows (triage, reporting, ops) where repository code context is irrelevant.
+
+**`sandbox.agent.version` (v0.69.1+)** — Pin the AWF sandbox version for reproducibility. Useful for staged rollouts.
+
+**`redirect:` (v0.69.2+)** — Specifies the new canonical location when a workflow is moved or renamed. `gh aw update` follows redirect chains automatically.
+
+**`comment_memory` safe output (v0.69.2+)** — Agents can persist structured memory in a managed issue/PR comment. Memory files are materialized under `/tmp/gh-aw/comment-memory/` before the agent runs and synced back after. Enables stateful agents across runs without external storage.
+
+**`on.needs:` (v0.70.0+)** — Express dependencies on custom `pre_activation`/`activation` jobs, enabling GitHub App credentials to be sourced from upstream job outputs.
 
 **`tools.github.mode: gh-proxy` (v0.70.0+)** — Configure the GitHub CLI proxy feature. The deprecated `cli-proxy` feature flag is scheduled for removal; migrate to this form:
 
