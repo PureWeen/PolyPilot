@@ -393,6 +393,11 @@ public class ConnectionSettings
                     if (recoveredPass)
                         try { SecureStorage.Default.Remove("polypilot.connection.serverPassword"); } catch { }
                 }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine(
+                        "[PolyPilot] RecoverSecretsFromSecureStorage: Save() failed — will retry next launch");
+                }
             }
         }
         catch (Exception ex)

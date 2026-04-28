@@ -644,26 +644,26 @@ public class ConnectionSettingsTests
         var settingsPath = Path.Combine(settingsDir, "settings.json");
         File.WriteAllText(settingsPath, "{}");
 
-        // Make the directory read-only on Linux to prevent writes
-        // (File.SetAttributes ReadOnly doesn't prevent overwrite on Linux; use dir permissions)
+        // Make the directory read-only to prevent writes
         if (!OperatingSystem.IsWindows())
         {
+            // .NET's FileAttributes.ReadOnly doesn't issue chmod on Linux;
+            // use Process.Start("chmod") for real POSIX permission enforcement
+            using var chmod = System.Diagnostics.Process.Start("chmod", $"555 {settingsDir}");
+            chmod?.WaitForExit();
+        }
+        else
+        {
             File.SetAttributes(settingsPath, FileAttributes.ReadOnly);
-            // On Linux, ReadOnly on file doesn't block overwrite; block the dir instead
-            var dirInfo = new DirectoryInfo(settingsDir);
-            dirInfo.Attributes |= FileAttributes.ReadOnly;
         }
 
         ConnectionSettings.SetSettingsFilePathForTesting(settingsPath);
         try
         {
             var settings = new ConnectionSettings { Host = "readonly-test" };
-            // Whether this fails depends on OS permissions model;
-            // the important thing is Save() never throws — it returns bool
-            bool result = settings.Save();
-            // We accept either true or false here depending on OS — the key invariant
-            // is that Save() does not throw.
-            Assert.True(result || !result, "Save() must never throw, only return bool");
+            // Save() must never throw — it returns bool
+            var ex = Record.Exception(() => settings.Save());
+            Assert.Null(ex); // Save() must never throw, only return bool
         }
         finally
         {
@@ -673,8 +673,11 @@ public class ConnectionSettingsTests
                 // Restore permissions for cleanup
                 if (!OperatingSystem.IsWindows())
                 {
-                    var dirInfo = new DirectoryInfo(settingsDir);
-                    dirInfo.Attributes &= ~FileAttributes.ReadOnly;
+                    using var chmod = System.Diagnostics.Process.Start("chmod", $"755 {settingsDir}");
+                    chmod?.WaitForExit();
+                }
+                else
+                {
                     File.SetAttributes(settingsPath, FileAttributes.Normal);
                 }
             }

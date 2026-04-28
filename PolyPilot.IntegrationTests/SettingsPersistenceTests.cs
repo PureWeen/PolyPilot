@@ -24,8 +24,8 @@ public class SettingsPersistenceTests : IntegrationTestBase
         var clicked = await ClickAsync("[href='/settings'], .settings-link, a[title='Settings']");
         Output.WriteLine($"Settings click: {clicked}");
 
-        // Wait for the settings page to render
-        var visible = await WaitForAsync("#settings-page, .settings-container", TimeSpan.FromSeconds(10));
+        // Wait for the settings page to render (Settings.razor uses class="settings-page")
+        var visible = await WaitForAsync(".settings-page", TimeSpan.FromSeconds(10));
         Assert.True(visible, "Settings page should render after clicking the settings link");
     }
 
@@ -36,11 +36,12 @@ public class SettingsPersistenceTests : IntegrationTestBase
 
         // Navigate to settings
         await ClickAsync("[href='/settings'], .settings-link, a[title='Settings']");
-        await WaitForAsync("#settings-page, .settings-container", TimeSpan.FromSeconds(10));
+        await WaitForAsync(".settings-page", TimeSpan.FromSeconds(10));
 
         // The settings page should show connection mode cards or labels
         var hasModeSection = await ExistsAsync(".mode-card, .connection-mode, [data-mode]");
         Output.WriteLine($"Mode section visible: {hasModeSection}");
+        Assert.True(hasModeSection, "Settings page should display connection mode cards");
 
         await ScreenshotAsync("settings-page");
     }
