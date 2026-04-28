@@ -47,8 +47,10 @@ public class OrchestrationRecoveryBehavioralTests
     /// <summary>Get the SessionStatePath used by CopilotService (redirected to test temp dir).</summary>
     private static string GetSessionStatePath()
     {
-        var prop = typeof(CopilotService).GetProperty("SessionStatePath", NonPublicStatic)!;
-        return (string)prop.GetValue(null)!;
+        var prop = typeof(CopilotService).GetProperty("SessionStatePath", NonPublicStatic)
+            ?? throw new MissingMemberException(nameof(CopilotService), "SessionStatePath");
+        return (string)(prop.GetValue(null)
+            ?? throw new InvalidOperationException("SessionStatePath returned null"));
     }
 
     /// <summary>Create an events.jsonl file for a given session ID in the test directory.</summary>
@@ -64,53 +66,81 @@ public class OrchestrationRecoveryBehavioralTests
     /// <summary>Invoke the private LoadHistoryFromDiskAsync method via reflection.</summary>
     private static async Task<List<ChatMessage>> InvokeLoadHistoryFromDiskAsync(CopilotService svc, string sessionId)
     {
-        var method = typeof(CopilotService).GetMethod("LoadHistoryFromDiskAsync", NonPublic)!;
-        var task = (Task<List<ChatMessage>>)method.Invoke(svc, new object[] { sessionId })!;
+        var method = typeof(CopilotService).GetMethod("LoadHistoryFromDiskAsync", NonPublic)
+            ?? throw new MissingMemberException(nameof(CopilotService), "LoadHistoryFromDiskAsync");
+        var task = (Task<List<ChatMessage>>)(method.Invoke(svc, new object[] { sessionId })
+            ?? throw new InvalidOperationException("LoadHistoryFromDiskAsync returned null"));
         return await task;
     }
 
     /// <summary>Get the _sessions ConcurrentDictionary via reflection.</summary>
     private static object GetSessionsDict(CopilotService svc)
     {
-        var field = typeof(CopilotService).GetField("_sessions", NonPublic)!;
-        return field.GetValue(svc)!;
+        var field = typeof(CopilotService).GetField("_sessions", NonPublic)
+            ?? throw new MissingMemberException(nameof(CopilotService), "_sessions");
+        return field.GetValue(svc)
+            ?? throw new InvalidOperationException("_sessions field is null");
     }
 
     /// <summary>Get the SessionState type (private nested class).</summary>
     private static Type GetSessionStateType()
     {
-        return typeof(CopilotService).GetNestedType("SessionState", BindingFlags.NonPublic)!;
+        return typeof(CopilotService).GetNestedType("SessionState", BindingFlags.NonPublic)
+            ?? throw new MissingMemberException(nameof(CopilotService), "SessionState");
     }
 
     /// <summary>Create a SessionState with the given AgentSessionInfo via reflection.
     /// GetUninitializedObject bypasses constructors, so readonly field initializers
     /// (like PrematureIdleSignal = new ManualResetEventSlim()) don't run.
-    /// We manually initialize them after creation.</summary>
+    /// We manually initialize all critical fields after creation.
+    /// Safe to use: Info, PrematureIdleSignal, CurrentResponse, FlushedResponse, PendingReasoningMessages.
+    /// Fields left null (not needed by current tests): Session, History, Queue.</summary>
     private static object CreateSessionState(AgentSessionInfo info)
     {
         var stateType = GetSessionStateType();
         var state = System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(stateType);
-        stateType.GetProperty("Info")!.SetValue(state, info);
 
-        // Initialize readonly field that would normally be set by the field initializer
-        var signalField = stateType.GetField("PrematureIdleSignal", AnyInstance)!;
+        var infoProp = stateType.GetProperty("Info")
+            ?? throw new MissingMemberException("SessionState", "Info");
+        infoProp.SetValue(state, info);
+
+        // Initialize readonly fields that would normally be set by field initializers
+        var signalField = stateType.GetField("PrematureIdleSignal", AnyInstance)
+            ?? throw new MissingMemberException("SessionState", "PrematureIdleSignal");
         signalField.SetValue(state, new ManualResetEventSlim(initialState: false));
 
+        // Initialize auto-property backing fields for readonly properties with initializers.
+        // Auto-property backing fields use the pattern <PropertyName>k__BackingField.
+        SetBackingField(stateType, state, "CurrentResponse", new StringBuilder());
+        SetBackingField(stateType, state, "FlushedResponse", new StringBuilder());
+        SetBackingField(stateType, state, "PendingReasoningMessages", new ConcurrentDictionary<string, ChatMessage>());
+
         return state;
+    }
+
+    /// <summary>Set the compiler-generated backing field for a readonly auto-property.</summary>
+    private static void SetBackingField(Type type, object instance, string propertyName, object value)
+    {
+        var backingField = type.GetField($"<{propertyName}>k__BackingField", AnyInstance);
+        backingField?.SetValue(instance, value);
     }
 
     /// <summary>Add a session to the CopilotService._sessions dictionary.</summary>
     private static void AddSession(CopilotService svc, string name, object sessionState)
     {
         var dict = GetSessionsDict(svc);
-        dict.GetType().GetMethod("TryAdd")!.Invoke(dict, new[] { name, sessionState });
+        var tryAddMethod = dict.GetType().GetMethod("TryAdd")
+            ?? throw new MissingMemberException("ConcurrentDictionary", "TryAdd");
+        tryAddMethod.Invoke(dict, new[] { name, sessionState });
     }
 
     /// <summary>Get PrematureIdleSignal from a SessionState.</summary>
     private static ManualResetEventSlim GetPrematureIdleSignal(object sessionState)
     {
-        var field = sessionState.GetType().GetField("PrematureIdleSignal", AnyInstance)!;
-        return (ManualResetEventSlim)field.GetValue(sessionState)!;
+        var field = sessionState.GetType().GetField("PrematureIdleSignal", AnyInstance)
+            ?? throw new MissingMemberException("SessionState", "PrematureIdleSignal");
+        return (ManualResetEventSlim)(field.GetValue(sessionState)
+            ?? throw new InvalidOperationException("PrematureIdleSignal is null"));
     }
 
     /// <summary>Build a JSONL event line with the given type, data, and timestamp.</summary>
@@ -344,6 +374,13 @@ public class OrchestrationRecoveryBehavioralTests
     #endregion
 
     #region 2. bestResponse multi-round accumulation logic
+    // CONTRACT PATTERN TESTS: These tests verify the bestResponse accumulation algorithm
+    // (longest-content-wins with dispatchTime filtering) in isolation. They exercise a copy
+    // of the LINQ pattern from RecoverFromPrematureIdleIfNeededAsync, not the production method
+    // directly. This provides specification coverage: if the algorithm's expected behavior is
+    // well-defined here, any production divergence can be caught by comparing these contracts
+    // with production behavior. For end-to-end production method tests, see §6
+    // (DispatchTimeFilter_WorksWithEventsFromDisk) and §7 (GetEventsFileMtime).
 
     [Fact]
     public void BestResponseAccumulation_LongestContentWins()
@@ -621,8 +658,13 @@ public class OrchestrationRecoveryBehavioralTests
     #region 4. OnSessionComplete event handler lifecycle
 
     [Fact]
-    public async Task OnSessionComplete_HandlerFiresForMatchingSessionName()
+    public async Task OnSessionComplete_SubscriptionDoesNotThrow()
     {
+        // Verifies that subscribing to OnSessionComplete and sending a prompt
+        // doesn't throw. Demo mode may not reliably fire OnSessionComplete,
+        // so this test verifies the subscription/send lifecycle is safe.
+        // For handler-fires verification, see OnSessionComplete_TCSCompletesOnNameMatch
+        // which tests the handler pattern directly.
         var svc = CreateService();
         await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
 
@@ -638,9 +680,14 @@ public class OrchestrationRecoveryBehavioralTests
         await svc.CreateSessionAsync("worker-1");
         await svc.SendPromptAsync("worker-1", "hello");
 
-        // DemoService fires OnTurnEnd which may trigger OnSessionComplete
-        // But for the event pattern test, we directly verify subscription works
-        Assert.NotNull(svc); // Subscription didn't throw
+        // If the handler fired, verify the captured values are reasonable
+        if (firedName != null)
+        {
+            Assert.Equal("worker-1", firedName);
+            Assert.NotNull(firedSummary);
+        }
+        // If it didn't fire, that's expected — Demo mode doesn't guarantee
+        // OnSessionComplete delivery. The test's value is verifying no exceptions.
     }
 
     [Fact]
@@ -742,6 +789,10 @@ public class OrchestrationRecoveryBehavioralTests
     #endregion
 
     #region 5. OCE handling — bestResponse preservation
+    // CONTRACT PATTERN TESTS: These tests verify the OperationCanceledException handling
+    // pattern (bestResponse ?? initialResponse fallback) in isolation. They exercise the
+    // catch logic from RecoverFromPrematureIdleIfNeededAsync as a standalone contract.
+    // If the production OCE handling diverges, these tests document the expected behavior.
 
     [Fact]
     public void OCE_PreservesBestResponseOnCancellation()
@@ -1040,7 +1091,8 @@ public class OrchestrationRecoveryBehavioralTests
     {
         var svc = CreateService();
         var method = typeof(CopilotService).GetMethod("GetEventsFileMtime",
-            BindingFlags.NonPublic | BindingFlags.Instance)!;
+            BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new MissingMemberException(nameof(CopilotService), "GetEventsFileMtime");
 
         var result = method.Invoke(svc, new object?[] { Guid.NewGuid().ToString() });
         Assert.Null(result);
@@ -1051,7 +1103,8 @@ public class OrchestrationRecoveryBehavioralTests
     {
         var svc = CreateService();
         var method = typeof(CopilotService).GetMethod("GetEventsFileMtime",
-            BindingFlags.NonPublic | BindingFlags.Instance)!;
+            BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new MissingMemberException(nameof(CopilotService), "GetEventsFileMtime");
 
         var result = method.Invoke(svc, new object?[] { null });
         Assert.Null(result);
@@ -1066,7 +1119,8 @@ public class OrchestrationRecoveryBehavioralTests
             BuildEventLine("user.message", new { content = "test" }));
 
         var method = typeof(CopilotService).GetMethod("GetEventsFileMtime",
-            BindingFlags.NonPublic | BindingFlags.Instance)!;
+            BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new MissingMemberException(nameof(CopilotService), "GetEventsFileMtime");
 
         var result = (DateTime?)method.Invoke(svc, new object?[] { sessionId });
         Assert.NotNull(result);
@@ -1085,20 +1139,22 @@ public class OrchestrationRecoveryBehavioralTests
             BuildEventLine("user.message", new { content = "initial" }));
 
         var method = typeof(CopilotService).GetMethod("GetEventsFileMtime",
-            BindingFlags.NonPublic | BindingFlags.Instance)!;
+            BindingFlags.NonPublic | BindingFlags.Instance)
+            ?? throw new MissingMemberException(nameof(CopilotService), "GetEventsFileMtime");
 
         var mtime1 = (DateTime?)method.Invoke(svc, new object?[] { sessionId });
         Assert.NotNull(mtime1);
 
-        // Wait briefly and modify the file
-        Thread.Sleep(50);
+        // Sleep 1100ms to cross a 1-second boundary — necessary for filesystems
+        // with 1-second mtime resolution (e.g., ext3, HFS+)
+        Thread.Sleep(1100);
         var eventsPath = Path.Combine(GetSessionStatePath(), sessionId, "events.jsonl");
         File.AppendAllText(eventsPath, "\n" + BuildEventLine("assistant.message", new { content = "new" }));
 
         var mtime2 = (DateTime?)method.Invoke(svc, new object?[] { sessionId });
         Assert.NotNull(mtime2);
-        Assert.True(mtime2!.Value >= mtime1!.Value,
-            "Modified file should have same or later mtime");
+        Assert.True(mtime2!.Value > mtime1!.Value,
+            "Modified file should have a later mtime after crossing 1-second boundary");
     }
 
     #endregion
@@ -1150,6 +1206,11 @@ public class OrchestrationRecoveryBehavioralTests
     #endregion
 
     #region 9. Recovery loop TCS pattern — end-to-end simulation
+    // CONTRACT PATTERN TESTS: These tests verify the TCS/CTS coordination pattern used in
+    // the recovery loop (OnSessionComplete → TCS completion, CTS timeout → TCS fallback)
+    // in isolation. They exercise the async coordination logic as a standalone contract.
+    // For production method tests, RecoverFromPrematureIdleIfNeededAsync requires a fully
+    // wired CopilotSession with active SDK events, which is not feasible in unit tests.
 
     [Fact]
     public async Task RecoveryLoop_TCSCompletesOnSessionCompleteEvent()
