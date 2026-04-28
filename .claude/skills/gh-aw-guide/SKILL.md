@@ -14,7 +14,7 @@ description: >-
 
 This skill provides a complete reference for building, securing, and maintaining GitHub Agentic Workflows. It covers the gh-aw platform's architecture, security model, and all available features.
 
-> **Version baseline:** This guide targets **v0.68.3** (the default version installed with `gh extension install github/gh-aw`). Features from later versions are marked with their minimum version (e.g., `(v0.70.0+)`). When using a feature marked with a version tag, verify your compiler version with `gh aw --version` and upgrade if needed: `gh extension install github/gh-aw --pin <version>`.
+> **Version baseline:** This guide covers features through **v0.71.1**. A fresh `gh extension install github/gh-aw` gets the latest release. Features introduced after v0.68.3 are marked with their minimum version (e.g., `(v0.70.0+)`). Verify your compiler version with `gh aw --version` and upgrade if needed: `gh extension install github/gh-aw --pin <version>`.
 
 ## Quick Start
 
@@ -79,8 +79,9 @@ gh aw upgrade                 # Upgrade gh-aw CLI extension
 | Triggering CI on agent-created PRs | `github-token-for-extra-empty-commit:` on `create-pull-request` | [Triggering CI](https://github.github.com/gh-aw/reference/triggering-ci/) |
 | No guard against agent approving PRs | `allowed-events: [COMMENT]` on `submit-pull-request-review`; or `[COMMENT, REQUEST_CHANGES]` with `supersede-older-reviews: true` to auto-dismiss stale blocking reviews | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs-pull-requests/) |
 | Stale blocking reviews from previous `/review` runs | `supersede-older-reviews: true` on `submit-pull-request-review` — dismisses older same-workflow `REQUEST_CHANGES` reviews after posting replacement | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs-pull-requests/) |
-| Merging PRs via shell `gh pr merge` in post-steps | Use `push-to-pull-request-branch` + branch protection auto-merge, or `dispatch-workflow` to trigger a merge workflow | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
+| Merging PRs via shell `gh pr merge` in post-steps | `merge-pull-request` safe output (v0.70.0+) — executes in the safe-outputs job with proper permissions | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
 | Manually updating existing bot comments (delete + repost) | `hide-older-comments: true` on `add-comment` — collapses previous comments before posting new | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
+| Keeping PR branch up-to-date with base manually | `update-branch: true` on `update-pull-request` (v0.69.0+) — merges latest base into PR branch | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs-pull-requests/) |
 | Replying to inline review comments manually | `reply-to-pull-request-review-comment` safe output — threads replies under existing review comments | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs-pull-requests/) |
 | Resolving review threads manually | `resolve-pull-request-review-thread` safe output — marks review threads as resolved | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs-pull-requests/) |
 | Configuring the GitHub CLI proxy mode | `tools.github.mode: gh-proxy` (v0.70.0+) — official config; old `cli-proxy` feature flag is deprecated | [Engines](https://github.github.com/gh-aw/reference/engines/) |
@@ -472,7 +473,9 @@ on:
 
 **`comment_memory` safe output (v0.69.2+)** — Agents can persist structured memory in a managed issue/PR comment. Memory files are materialized under `/tmp/gh-aw/comment-memory/` before the agent runs and synced back after. Enables stateful agents across runs without external storage.
 
-**`on.needs:` (v0.70.0+)** — Express dependencies on custom `pre_activation`/`activation` jobs, enabling GitHub App credentials to be sourced from upstream job outputs.
+**`on.needs:` (v0.70.0+)** — Express dependencies on custom `pre_activation`/`activation` jobs, enabling GitHub App credentials to be sourced from upstream job outputs. See also `safe-outputs.needs` (v0.69.1+) for credential-supply dependencies in the safe-outputs job.
+
+**`merge-pull-request` safe output (v0.70.0+)** — Merge a PR directly as a safe output. Executes in the safe-outputs job with proper write permissions, not inside the agent container.
 
 **`tools.github.mode: gh-proxy` (v0.70.0+)** — Configure the GitHub CLI proxy feature. The deprecated `cli-proxy` feature flag is scheduled for removal; migrate to this form:
 
@@ -486,7 +489,19 @@ tools:
 
 **`checkout: false`** — Skip the default repository checkout when the workflow doesn't need source code (e.g., ChatOps commands that only call APIs via `web-fetch`). Saves ~10-30s of runner time.
 
+**`engine.max-turns`** — Limit the number of turns the agent can take. Set in the engine block: `engine: { id: copilot, max-turns: 15 }`. Preserved through shared imports (fixed in v0.68.3).
+
+**Available engines:** `copilot` (default), `claude`, `codex`, `crush` (v0.69.0+, replaces OpenCode), `gemini`. See [Engines reference](https://github.github.com/gh-aw/reference/engines/).
+
 **Available tools:** `web-fetch` (fetch URLs), `bash` (shell commands), GitHub MCP toolsets (`pull_requests`, `repos`, `issues`, etc.). Use `tools: [web-fetch]` for workflows that call external APIs.
+
+**MCP config location:** `.github/mcp.json` (v0.68.5+ — previously `.mcp.json` at repo root). Migrate existing configs manually.
+
+**`vulnerability-alerts` permission (v0.69.3+)** — Available as a `GITHUB_TOKEN` permission scope for workflows that need to read security alerts.
+
+### Breaking Changes
+
+**`network.firewall` removed (v0.69.2)** — This deprecated frontmatter key is now rejected by the compiler. Migrate with: `gh aw fix --write`.
 
 Supported runtimes: `node`, `python`, `go`, `uv`, `bun`, `deno`, `ruby`, `java`, `dotnet`, `elixir`.
 
