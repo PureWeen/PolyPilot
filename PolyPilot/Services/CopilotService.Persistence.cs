@@ -752,6 +752,13 @@ public partial class CopilotService
             {
                 var json = await File.ReadAllTextAsync(ActiveSessionsFile, cancellationToken).ConfigureAwait(false);
                 var entries = JsonSerializer.Deserialize<List<ActiveSessionEntry>>(json);
+
+                // Sweep orphaned temp session directories before restoring sessions.
+                // This deletes dirs under TempSessionsBase not referenced by any persisted entry.
+                // Wrapped in try/catch so a sweep failure never aborts session restoration.
+                try { SweepOrphanedTempSessionDirs(TempSessionsBase, entries?.Select(e => e.WorkingDirectory) ?? []); }
+                catch (Exception sweepEx) { Debug($"Sweep failed: {sweepEx.Message}"); }
+
                 if (entries != null && entries.Count > 0)
                 {
                     Debug($"Restoring {entries.Count} previous sessions...");
@@ -1079,7 +1086,14 @@ public partial class CopilotService
             catch (Exception ex)
             {
                 Debug($"Failed to load active sessions file: {ex.Message}");
+                // Parse failed — don't sweep (could nuke legitimate dirs if file is corrupt)
             }
+        }
+        else
+        {
+            // No active-sessions.json → no persisted sessions; all temp dirs are orphans
+            try { SweepOrphanedTempSessionDirs(TempSessionsBase, []); }
+            catch (Exception sweepEx) { Debug($"Sweep failed (no sessions file): {sweepEx.Message}"); }
         }
 
     }
