@@ -42,7 +42,7 @@ safe-outputs:
     max: 3
     target: "*"
   dispatch-workflow:
-    workflows: [polypilot-integration, verify-build, review.agent]
+    workflows: [polypilot-integration, verify-build]
     max: 3
 
 timeout-minutes: 90
@@ -198,9 +198,9 @@ For each finding from the self-review:
 
 Repeat Steps 6-7 up to **3 times** (max 3 review rounds).
 
-## Step 8: Dispatch Integration Tests and Review
+## Step 8: Dispatch Integration Tests
 
-After all fixes are committed, dispatch the integration test workflows AND the expert code review.
+After all fixes are committed, dispatch the integration test workflows.
 
 **Important:** Use the exact branch name from the PR. If you named your branch `fix/issue-N`, the safe-outputs job will use that name without modification (because `preserve-branch-name: true` is set). If you're unsure, use `get_pull_request` to read the PR and get the `headRefName` field.
 
@@ -221,16 +221,7 @@ dispatch_workflow({
     "scenario": "smoke"
   }
 })
-
-dispatch_workflow({
-  "workflow": "review.agent",
-  "inputs": {
-    "pr_number": "<PR number>"
-  }
-})
 ```
-
-The review workflow runs a multi-model expert code review on the PR. This is dispatched via `workflow_dispatch` to bypass the approval gate that blocks `pull_request`-triggered workflows for bot-created PRs.
 
 ## Step 9: Post Summary
 
@@ -240,7 +231,6 @@ Post an `add_comment` on issue #${{ github.event.issue.number || inputs.issue_nu
 - Test results (unit tests passed/failed count)
 - Review summary (findings found and fixed)
 - Integration test dispatch status
-- Expert review dispatch status
 - **For visual changes:** note that screenshots are available in the integration test CI artifacts (link to the workflow run)
 
 ## Rules
