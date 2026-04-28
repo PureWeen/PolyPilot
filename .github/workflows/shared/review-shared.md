@@ -1,7 +1,7 @@
 ---
 # Shared configuration for expert-review workflows.
 #
-# Imported by review.agent.md (slash command). Keeps permissions, tools,
+# Imported by expert-review.agent.md (slash command). Keeps permissions, tools,
 # and safe-outputs in one place.
 
 description: "Shared configuration for expert-review workflows"
