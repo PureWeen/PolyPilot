@@ -34,7 +34,7 @@ tools:
 
 safe-outputs:
   create-pull-request:
-    auto-merge: false
+    auto-merge: true
     draft: false
     preserve-branch-name: true
     protected-files: fallback-to-issue
