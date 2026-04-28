@@ -84,7 +84,7 @@ sources:
 
   # GitHub releases — check for new versions
   - releases: github/gh-aw
-    last_reviewed_release: v0.71.0
+    last_reviewed_release: v0.71.1
 
 style: |
   Match existing section structure. Use tables for feature comparisons.

@@ -14,6 +14,8 @@ description: >-
 
 This skill provides a complete reference for building, securing, and maintaining GitHub Agentic Workflows. It covers the gh-aw platform's architecture, security model, and all available features.
 
+> **Version baseline:** This guide targets **v0.68.3** (the default version installed with `gh extension install github/gh-aw`). Features from later versions are marked with their minimum version (e.g., `(v0.70.0+)`). When using a feature marked with a version tag, verify your compiler version with `gh aw --version` and upgrade if needed: `gh extension install github/gh-aw --pin <version>`.
+
 ## Quick Start
 
 gh-aw workflows are authored as `.md` files with YAML frontmatter, compiled to `.lock.yml` via `gh aw compile`. The lock file is auto-generated — **never edit it manually**.
@@ -75,10 +77,13 @@ gh aw upgrade                 # Upgrade gh-aw CLI extension
 | Custom post-processing jobs for agent output | `safe-outputs.jobs:` custom jobs with MCP tool access | [Custom Safe Outputs](https://github.github.com/gh-aw/reference/custom-safe-outputs/) |
 | Wrapping GitHub Actions as agent-callable tools | `safe-outputs.actions:` action wrappers | [Custom Safe Outputs](https://github.github.com/gh-aw/reference/custom-safe-outputs/) |
 | Triggering CI on agent-created PRs | `github-token-for-extra-empty-commit:` on `create-pull-request` | [Triggering CI](https://github.github.com/gh-aw/reference/triggering-ci/) |
-| No guard against agent approving PRs | `allowed-events: [COMMENT]` on `submit-pull-request-review` (prefer over `[COMMENT, REQUEST_CHANGES]` to avoid stale blocking reviews) | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
+| No guard against agent approving PRs | `allowed-events: [COMMENT]` on `submit-pull-request-review`; or `[COMMENT, REQUEST_CHANGES]` with `supersede-older-reviews: true` to auto-dismiss stale blocking reviews | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs-pull-requests/) |
+| Stale blocking reviews from previous `/review` runs | `supersede-older-reviews: true` on `submit-pull-request-review` — dismisses older same-workflow `REQUEST_CHANGES` reviews after posting replacement | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs-pull-requests/) |
 | Merging PRs via shell `gh pr merge` in post-steps | Use `push-to-pull-request-branch` + branch protection auto-merge, or `dispatch-workflow` to trigger a merge workflow | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
 | Manually updating existing bot comments (delete + repost) | `hide-older-comments: true` on `add-comment` — collapses previous comments before posting new | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs/) |
-| Configuring the GitHub CLI proxy mode | `tools.github.mode: gh-proxy` — official config; old `cli-proxy` feature flag is deprecated | [Engines](https://github.github.com/gh-aw/reference/engines/) |
+| Replying to inline review comments manually | `reply-to-pull-request-review-comment` safe output — threads replies under existing review comments | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs-pull-requests/) |
+| Resolving review threads manually | `resolve-pull-request-review-thread` safe output — marks review threads as resolved | [Safe Outputs](https://github.github.com/gh-aw/reference/safe-outputs-pull-requests/) |
+| Configuring the GitHub CLI proxy mode | `tools.github.mode: gh-proxy` (v0.70.0+) — official config; old `cli-proxy` feature flag is deprecated | [Engines](https://github.github.com/gh-aw/reference/engines/) |
 | `slash_command:` without `events:` filter (subscribes to ALL comment events) | `events: [pull_request_comment]` or `events: [issue_comment]` | [Command Triggers](https://github.github.com/gh-aw/reference/command-triggers/) |
 | `cancel-in-progress: true` on `slash_command:` workflows | `cancel-in-progress: false` — non-matching events cancel in-progress agent runs | [Concurrency](https://docs.github.com/en/actions/writing-workflows/choosing-what-your-workflow-does/using-concurrency) |
 | Using `pull_request` trigger for agentic workflows | `slash_command:` or `schedule` — `pull_request` causes the "Approve and run" gate for ALL workflows | [Triggers](https://github.github.com/gh-aw/reference/triggers/) |
@@ -117,6 +122,27 @@ safe-outputs:
     max: 1
     hide-older-comments: true
     target: "*"    # Required for workflow_dispatch (no triggering PR context)
+```
+
+> **`reply_to_id`** — `add_comment` supports a `reply_to_id` parameter to thread replies in discussion threads. On `pull_request_review_comment` triggers (v0.70.0+), `add_comment` automatically replies in the review thread instead of posting at the PR level.
+
+### Submit PR Reviews
+
+```yaml
+safe-outputs:
+  submit-pull-request-review:
+    max: 1
+    allowed-events: [COMMENT]                # Blocks APPROVE; non-blocking
+    # allowed-events: [COMMENT, REQUEST_CHANGES]  # Blocking reviews
+    # supersede-older-reviews: true           # Auto-dismiss stale blocking reviews from same workflow
+    footer: "if-body"                         # Omit footer on approval-only reviews
+  create-pull-request-review-comment:
+    max: 30                                   # Inline annotations on diff lines
+    side: "RIGHT"
+  reply-to-pull-request-review-comment:
+    max: 10                                   # Thread replies under existing review comments
+  resolve-pull-request-review-thread:
+    max: 10                                   # Mark review threads as resolved
 ```
 
 ### Concurrency
@@ -257,9 +283,12 @@ safe-outputs:
   submit-pull-request-review:
     # COMMENT-only: no stale blocking reviews, safe for iterative /review re-runs
     allowed-events: [COMMENT]
-    # Or allow REQUEST_CHANGES for stronger merge-gating (but stale reviews persist until manually dismissed):
+    # Or allow REQUEST_CHANGES for stronger merge-gating with auto-dismiss of stale reviews:
     # allowed-events: [COMMENT, REQUEST_CHANGES]
+    # supersede-older-reviews: true  # Dismiss older blocking reviews from same workflow after posting replacement
 ```
+
+> **`supersede-older-reviews: true`** — When using `REQUEST_CHANGES`, set this to automatically dismiss older blocking reviews from the same workflow after posting a replacement. This solves the stale-review problem: without it, a `REQUEST_CHANGES` review persists even after the author fixes everything and re-runs `/review`, because gh-aw has no `dismiss-pull-request-review` safe output and the compiler rejects `pull-requests: write`. With `supersede-older-reviews`, the new review replaces the old one (best-effort). This makes `[COMMENT, REQUEST_CHANGES]` a viable option alongside `[COMMENT]`-only.
 
 **3. Integrity filtering** — controls what content the agent can **see** (vs. `roles:` which controls who can **trigger**). The MCP gateway filters content by author trust level:
 
@@ -300,6 +329,10 @@ safe-outputs:
     github-token-for-extra-empty-commit: ${{ secrets.PAT_OR_APP_TOKEN }}  # Required to trigger CI
     protected-files: fallback-to-issue   # Create issue instead of failing if agent touches .github/ or package manifests
     # protected-files: blocked (default) | allowed (disables protection)
+    # Object form (v0.68.4+): exclude specific paths from the default protected set:
+    # protected-files:
+    #   policy: fallback-to-issue
+    #   exclude: [AGENTS.md, CLAUDE.md]  # These are protected by default but your workflow needs to modify them
 ```
 
 **5. Fork PR checkout for `workflow_dispatch`** — the platform's `checkout_pr_branch.cjs` is skipped for `workflow_dispatch`, so you must implement a checkout step that verifies write access, rejects fork PRs, and restores trusted `.github/` from the base branch. See the [Fork PR Checkout](#fork-pr-checkout-workflow_dispatch) pattern above for a complete example.
@@ -392,12 +425,26 @@ Choose the right trigger for your workflow. Triggers are grouped by recommended 
 
 ```yaml
 source: "githubnext/agentics/workflows/ci-doctor.md@v1.0.0"  # Track workflow origin
+redirect: "owner/repo/new-name.md@main"                       # Redirect when workflow moved (v0.69.2+)
 private: true                                                    # Prevent installation via gh aw add
 resources:                                                       # Companion files fetched with gh aw add
   - triage-issue.md
   - shared/helper-action.yml
 labels: ["automation", "ci"]                                     # For gh aw status --label filtering
 checkout: false                                                  # Skip repo checkout (for workflows that only use MCP/API, no source needed)
+
+engine:
+  id: copilot
+  model: claude-sonnet-4.6
+  bare: true                   # Skip loading AGENTS.md context (v0.68.6+) — for non-code workflows
+
+pre-agent-steps:               # (v0.68.5+) Run after checkout but BEFORE agent starts
+  - name: Install dependencies
+    run: npm install
+
+sandbox:
+  agent:
+    version: "0.25.28"         # (v0.69.1+) Pin AWF sandbox version for reproducibility
 
 runtimes:                    # Override default runtime versions
   dotnet:
@@ -412,11 +459,20 @@ imports:                     # APM package dependencies
         - microsoft/apm-sample-package
 
 on:
-  needs: pre_activation       # Declare dependency on a custom pre_activation job for credential supply
-                              # Enables sourcing GitHub App credentials from upstream job outputs (v0.70.0+)
+  needs: pre_activation       # (v0.70.0+) Custom job dependency for credential supply
 ```
 
-**`on.needs:` (v0.70.0+)** — Express dependencies on custom `pre_activation`/`activation` jobs, enabling GitHub App credentials to be sourced from upstream job outputs. Required for advanced credential-supply patterns.
+**`pre-agent-steps:` (v0.68.5+)** — Inject custom steps immediately before the agent engine runs. Runs after checkout and `.github/` restore, but before the agent starts. Use for data preparation, dependency installation, or environment setup that needs the checked-out code. Supports imports and merge semantics.
+
+**`engine.bare: true` (v0.68.6+)** — Skip loading `AGENTS.md` context. Ideal for non-code workflows (triage, reporting, ops) where repository code context is irrelevant.
+
+**`sandbox.agent.version` (v0.69.1+)** — Pin the AWF sandbox version for reproducibility. Useful for staged rollouts.
+
+**`redirect:` (v0.69.2+)** — Specifies the new canonical location when a workflow is moved or renamed. `gh aw update` follows redirect chains automatically.
+
+**`comment_memory` safe output (v0.69.2+)** — Agents can persist structured memory in a managed issue/PR comment. Memory files are materialized under `/tmp/gh-aw/comment-memory/` before the agent runs and synced back after. Enables stateful agents across runs without external storage.
+
+**`on.needs:` (v0.70.0+)** — Express dependencies on custom `pre_activation`/`activation` jobs, enabling GitHub App credentials to be sourced from upstream job outputs.
 
 **`tools.github.mode: gh-proxy` (v0.70.0+)** — Configure the GitHub CLI proxy feature. The deprecated `cli-proxy` feature flag is scheduled for removal; migrate to this form:
 
