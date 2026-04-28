@@ -343,16 +343,26 @@ Safe outputs enforce security through separation: agents run read-only and reque
 - `expires: 14` — Auto-close after 14 days (same-repo only)
 - `excluded-files: ["**/*.lock"]` — Strip files from the patch entirely
 - `github-token-for-extra-empty-commit:` — Push empty commit with separate token to trigger CI
-- `protected-files: fallback-to-issue` — Create issue instead of failing when protected files modified; optionally add `fallback-labels:` to tag that issue
+- `protected-files: fallback-to-issue` — Create issue instead of failing when protected files modified; optionally add `fallback-labels:` to tag that issue (v0.70.0+)
 - `base-branch: "vnext"` — Target non-default branch
+- `allowed-base-branches: [main, "release/*"]` — Allow agent to override base branch at runtime (glob patterns)
 - `auto-close-issue: false` — Don't add `Fixes #N` to PR description
-- `allowed-events: [COMMENT]` — On `submit-pull-request-review`, blocks agent from approving PRs (bypasses branch protection). **Always use this** for review workflows.
-- **Stale review limitation**: Prefer `allowed-events: [COMMENT]` unless you need the "Changes requested" badge. `REQUEST_CHANGES` reviews from `github-actions[bot]` cannot be dismissed by the agent (no `dismiss-pull-request-review` safe output, `pull-requests: write` rejected by compiler). A stale blocking review persists until a human dismisses it manually.
+- `preserve-branch-name: true` — Omit random hex suffix from branch name (fails if branch exists)
+- `fallback-as-issue: false` — Disable issue fallback when PR creation fails (default: true)
+- `team-reviewers: [platform-reviewers]` — Request team reviews
+- `max: 3` — Multiple PRs per run (each on its own branch)
+
+**`submit-pull-request-review` notable options:**
+- `allowed-events: [COMMENT]` — Blocks APPROVE; non-blocking reviews. **Always use this** unless you need merge-gating.
+- `allowed-events: [COMMENT, REQUEST_CHANGES]` — Blocking reviews. Pair with `supersede-older-reviews: true`.
+- `supersede-older-reviews: true` — Auto-dismiss older blocking reviews from the same workflow after posting replacement. Solves the stale-review problem without needing `dismiss-pull-request-review` (which doesn't exist as a safe output).
+- `footer: "if-body"` — Omit AI footer on approval-only reviews (cleaner)
 
 **`add-comment` notable options:**
 - `hide-older-comments: true` — Collapse previous comments from same workflow
 - `max: N` — Limit comments per run (default: 1)
 - `target: "*"` — Required for `workflow_dispatch` (no triggering PR context)
+- `reply_to_id` — Thread replies in discussion threads
 - **PR review thread routing** (v0.70.0+): On `pull_request_review_comment` triggers, `add_comment` now replies directly in the review thread instead of posting at the PR level.
 
 ---
