@@ -35,6 +35,11 @@ tools:
     toolsets: [repos, issues, pull_requests]
 
 safe-outputs:
+  create-pull-request:
+    auto-merge: false
+    draft: false
+    preserve-branch-name: true
+    protected-files: fallback-to-issue
   add-comment:
     max: 3
     target: "*"
@@ -100,43 +105,42 @@ dotnet test PolyPilot.Tests --configuration Debug --nologo --verbosity quiet 2>&
 
 If any tests fail, fix them before proceeding. All tests must pass.
 
-## Step 5: Commit and Push
+## Step 5: Commit and Push (MANDATORY)
 
-Commit each logical fix separately:
+> **🚨 You MUST use `create_pull_request` to push your fixes.** This is the only way to push commits in a gh-aw workflow. Do NOT try `git push` directly — it will fail.
+
+Commit all fixes locally, then create a patch and push via the `create_pull_request` safe output:
+
 ```bash
 git add -A
-git commit -m "fix: <description of what was fixed>
-
-Addresses review finding: <brief description>
+git commit -m "fix: address review findings round ${{ inputs.round }}
 
 Co-authored-by: copilot-agentic-workflow[bot] <224017+copilot-agentic-workflow[bot]@users.noreply.github.com>"
+
+# Create the patch for safe-outputs
+git format-patch origin/main --stdout > /tmp/gh-aw/aw-review-fixes.patch
 ```
 
-Push all commits to the existing PR branch.
+Then call `create_pull_request` to push the fixes to the existing PR branch. Use the **exact same branch name** as the existing PR (check with `get_pull_request` if needed). The `preserve-branch-name: true` setting ensures the branch name is kept as-is.
 
-## Step 6: Re-dispatch Expert Review (or Stop)
+```
+create_pull_request({
+  "title": "fix: address review findings round ${{ inputs.round }} (PR #${{ inputs.pr_number }})",
+  "body": "Addresses review findings from expert review round ${{ inputs.round }}.",
+  "base": "main",
+  "head": "<exact branch name from the existing PR>"
+})
+```
+
+## Step 6: Re-dispatch Expert Review (MANDATORY if round < 3)
 
 Check the current round number: ${{ inputs.round }}
 
-**If round < 3**, re-dispatch the expert review to validate your fixes:
+**If round < 3**, you MUST call these tools to re-dispatch:
 ```
-dispatch_workflow({
-  "workflow": "expert-review",
-  "inputs": {
-    "pr_number": "${{ inputs.pr_number }}"
-  }
-})
-```
+expert_review({ "pr_number": "${{ inputs.pr_number }}" })
 
-Also re-dispatch verify-build to confirm tests still pass:
-```
-dispatch_workflow({
-  "workflow": "verify-build",
-  "inputs": {
-    "pr_number": "${{ inputs.pr_number }}",
-    "ref": "<branch name from the PR>"
-  }
-})
+verify_build({ "pr_number": "${{ inputs.pr_number }}", "ref": "<branch name>" })
 ```
 
 **If round >= 3**, post an `add_comment` on the PR:
