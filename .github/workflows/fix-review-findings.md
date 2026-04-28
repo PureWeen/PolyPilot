@@ -123,11 +123,12 @@ git format-patch origin/main --stdout > /tmp/gh-aw/aw-review-fixes.patch
 
 Then call `create_pull_request` to push the fixes to the existing PR branch. Use the **exact same branch name** as the existing PR (check with `get_pull_request` if needed). The `preserve-branch-name: true` setting ensures the branch name is kept as-is.
 
+> **🚨 Do NOT pass a `base` field.** The base branch is inherited. Passing `base` causes a "Base branch override is not allowed" error that cancels all safe outputs.
+
 ```
 create_pull_request({
   "title": "fix: address review findings round ${{ inputs.round }} (PR #${{ inputs.pr_number }})",
   "body": "Addresses review findings from expert review round ${{ inputs.round }}.",
-  "base": "main",
   "head": "<exact branch name from the existing PR>"
 })
 ```
