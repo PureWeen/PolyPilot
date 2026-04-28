@@ -248,7 +248,10 @@ public partial class CopilotService : IAsyncDisposable
         foreach (var dir in persistedWorkingDirs)
         {
             if (!string.IsNullOrEmpty(dir))
-                keepPaths.Add(Path.GetFullPath(dir));
+            {
+                try { keepPaths.Add(Path.GetFullPath(dir)); }
+                catch { /* skip malformed paths */ }
+            }
         }
 
         foreach (var dir in Directory.GetDirectories(tempBase))

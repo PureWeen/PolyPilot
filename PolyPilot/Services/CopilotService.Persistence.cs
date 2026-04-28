@@ -755,7 +755,9 @@ public partial class CopilotService
 
                 // Sweep orphaned temp session directories before restoring sessions.
                 // This deletes dirs under TempSessionsBase not referenced by any persisted entry.
-                SweepOrphanedTempSessionDirs(TempSessionsBase, entries?.Select(e => e.WorkingDirectory) ?? []);
+                // Wrapped in try/catch so a sweep failure never aborts session restoration.
+                try { SweepOrphanedTempSessionDirs(TempSessionsBase, entries?.Select(e => e.WorkingDirectory) ?? []); }
+                catch (Exception sweepEx) { Debug($"Sweep failed: {sweepEx.Message}"); }
 
                 if (entries != null && entries.Count > 0)
                 {
@@ -1090,7 +1092,8 @@ public partial class CopilotService
         else
         {
             // No active-sessions.json → no persisted sessions; all temp dirs are orphans
-            SweepOrphanedTempSessionDirs(TempSessionsBase, []);
+            try { SweepOrphanedTempSessionDirs(TempSessionsBase, []); }
+            catch (Exception sweepEx) { Debug($"Sweep failed (no sessions file): {sweepEx.Message}"); }
         }
 
     }
