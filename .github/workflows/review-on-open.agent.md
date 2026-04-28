@@ -14,7 +14,7 @@ permissions:
   contents: read
   pull-requests: read
 
-# Shared group with review.agent.md — serializes with any in-progress /review.
+# Shared group with expert-review.agent.md — serializes with any in-progress /review.
 concurrency:
   group: "review-${{ github.event.pull_request.number || github.run_id }}"
   cancel-in-progress: false

@@ -77,7 +77,7 @@ gh pr diff ${{ github.event.pull_request.number }} --name-only
 Look for comments and reviews from `github-actions[bot]` that contain the `gh-aw-agentic-workflow` HTML comment marker or "Expert Code Review" in the body. These are the automated review runs.
 
 For each run, extract:
-- Which workflow triggered it (review-on-open.agent vs review.agent)
+- Which workflow triggered it (review-on-open.agent vs expert-review.agent)
 - The findings (severity, file, line, description)
 - Whether findings were addressed in subsequent commits
 - The final verdict
