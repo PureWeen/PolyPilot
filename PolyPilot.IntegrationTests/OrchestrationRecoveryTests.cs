@@ -27,10 +27,7 @@ public class OrchestrationRecoveryTests : IntegrationTestBase
     {
         await WaitForCdpReadyAsync();
         var exists = await ExistsAsync(".new-session-btn, #new-session-btn, [data-testid='new-session']");
-        // The new session button may have different selectors depending on state;
-        // verify the dashboard is functional by checking any interactive element
-        var dashboardLoaded = await ExistsAsync("#dashboard");
-        Assert.True(dashboardLoaded, "Dashboard should be loaded and interactive");
+        Assert.True(exists, "New session button should be present on the dashboard");
     }
 
     [Fact]
@@ -38,14 +35,11 @@ public class OrchestrationRecoveryTests : IntegrationTestBase
     {
         await WaitForCdpReadyAsync();
         var navigated = await NavigateToAsync("Settings", "#settings-page");
-        if (navigated)
-        {
-            await ScreenshotAsync("settings-page");
-            // Verify settings page has connection mode options
-            var settingsContent = await GetTextAsync("#settings-page");
-            Assert.False(string.IsNullOrWhiteSpace(settingsContent),
-                "Settings page should have visible content");
-        }
-        // Navigation may not work if the link text differs — that's OK for a UI smoke test
+        Assert.True(navigated, "Expected to navigate to Settings page");
+        await ScreenshotAsync("settings-page");
+        // Verify settings page has connection mode options
+        var settingsContent = await GetTextAsync("#settings-page");
+        Assert.False(string.IsNullOrWhiteSpace(settingsContent),
+            "Settings page should have visible content");
     }
 }
