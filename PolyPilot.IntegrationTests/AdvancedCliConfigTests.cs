@@ -28,6 +28,7 @@ public class AdvancedCliConfigTests : IntegrationTestBase
         // The Advanced section should be present in the page
         var hasAdvanced = await ExistsAsync("#settings-advanced");
         Output.WriteLine($"Advanced section visible: {hasAdvanced}");
+        Assert.True(hasAdvanced, "Expected #settings-advanced section to be present on the Settings page");
 
         await ScreenshotAsync("settings-advanced-section");
     }
@@ -44,10 +45,12 @@ public class AdvancedCliConfigTests : IntegrationTestBase
         // Scroll to and check for the Advanced navigation item
         var navVisible = await ExistsAsync(".settings-nav-item");
         Output.WriteLine($"Nav items visible: {navVisible}");
+        Assert.True(navVisible, "Expected settings nav items to be visible");
 
         // Check the page text contains our setting labels
         var pageText = await GetTextAsync("#settings-advanced") ?? "";
         Output.WriteLine($"Advanced section text length: {pageText.Length}");
+        Assert.True(pageText.Length > 0, "Expected #settings-advanced section to contain text");
 
         await ScreenshotAsync("settings-advanced-toggles");
     }
