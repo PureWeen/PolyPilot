@@ -397,7 +397,7 @@ public class ConnectionSettings
                     foreach (var prop in doc.RootElement.EnumerateObject())
                         existing[prop.Name] = prop.Value.Clone();
                 }
-                catch { /* ignore corrupt file — overwrite */ }
+                catch { return; /* abort sync — don't overwrite a corrupt file and lose unrelated keys */ }
             }
 
             // Merge our values
@@ -422,11 +422,63 @@ public class ConnectionSettings
                 writer.WriteBoolean("disableAllHooks", DisableAllHooks);
                 writer.WriteEndObject();
             }
-            File.WriteAllBytes(configPath, ms.ToArray());
+            // Atomic write: write to temp file then rename
+            var tempPath = configPath + ".tmp";
+            File.WriteAllBytes(tempPath, ms.ToArray());
+            File.Move(tempPath, configPath, overwrite: true);
         }
         catch
         {
             // Best-effort — don't crash the app if the config write fails
+        }
+    }
+
+    /// <summary>
+    /// Reads <c>~/.copilot/config.json</c> and imports the CLI config values
+    /// (compactPaste, respectGitignore, disableAllHooks) into this settings instance.
+    /// Call this at startup / Settings page load so manual edits to config.json are respected
+    /// and the UI stays in sync with the CLI's actual configuration.
+    /// </summary>
+    /// <param name="copilotConfigDir">Override for testing — pass the directory to
+    /// read config.json from. When null, defaults to ~/.copilot/.</param>
+    /// <returns>True if any value was imported (caller should persist the change).</returns>
+    public bool ImportCliConfigValues(string? copilotConfigDir = null)
+    {
+        try
+        {
+            if (copilotConfigDir == null)
+            {
+                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (string.IsNullOrEmpty(home)) return false;
+                copilotConfigDir = Path.Combine(home, ".copilot");
+            }
+            var configPath = Path.Combine(copilotConfigDir, "config.json");
+            if (!File.Exists(configPath)) return false;
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
+            var root = doc.RootElement;
+            bool changed = false;
+
+            if (root.TryGetProperty("compactPaste", out var cp) && (cp.ValueKind == JsonValueKind.True || cp.ValueKind == JsonValueKind.False))
+            {
+                var val = cp.GetBoolean();
+                if (CompactPaste != val) { CompactPaste = val; changed = true; }
+            }
+            if (root.TryGetProperty("respectGitignore", out var rg) && (rg.ValueKind == JsonValueKind.True || rg.ValueKind == JsonValueKind.False))
+            {
+                var val = rg.GetBoolean();
+                if (RespectGitignore != val) { RespectGitignore = val; changed = true; }
+            }
+            if (root.TryGetProperty("disableAllHooks", out var dh) && (dh.ValueKind == JsonValueKind.True || dh.ValueKind == JsonValueKind.False))
+            {
+                var val = dh.GetBoolean();
+                if (DisableAllHooks != val) { DisableAllHooks = val; changed = true; }
+            }
+            return changed;
+        }
+        catch
+        {
+            return false; // Best-effort — don't crash on read failure
         }
     }
 

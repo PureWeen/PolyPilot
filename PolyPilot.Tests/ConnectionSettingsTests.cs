@@ -782,4 +782,135 @@ public class ConnectionSettingsTests
             try { Directory.Delete(tempDir, true); } catch { }
         }
     }
+
+    [Fact]
+    public void SyncCliConfig_CorruptFile_AbortsWithoutOverwriting()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var configPath = Path.Combine(tempDir, "config.json");
+            var corruptContent = "{ not valid json !!!";
+            File.WriteAllText(configPath, corruptContent);
+
+            var settings = new ConnectionSettings { CompactPaste = true };
+            settings.SyncCliConfig(tempDir);
+
+            // The corrupt file should NOT be overwritten
+            var afterContent = File.ReadAllText(configPath);
+            Assert.Equal(corruptContent, afterContent);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SyncCliConfig_AtomicWrite_UsesTempFile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            var settings = new ConnectionSettings { CompactPaste = true };
+            settings.SyncCliConfig(tempDir);
+
+            var configPath = Path.Combine(tempDir, "config.json");
+            Assert.True(File.Exists(configPath), "config.json should exist after sync");
+
+            // Verify the temp file was cleaned up (rename happened)
+            Assert.False(File.Exists(configPath + ".tmp"), "Temp file should not remain after atomic write");
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ImportCliConfigValues_ImportsFromConfigJson()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            File.WriteAllText(
+                Path.Combine(tempDir, "config.json"),
+                """{"compactPaste": true, "respectGitignore": true, "disableAllHooks": false}""");
+
+            var settings = new ConnectionSettings();
+            Assert.False(settings.CompactPaste);
+            Assert.False(settings.RespectGitignore);
+
+            bool changed = settings.ImportCliConfigValues(tempDir);
+
+            Assert.True(changed);
+            Assert.True(settings.CompactPaste);
+            Assert.True(settings.RespectGitignore);
+            Assert.False(settings.DisableAllHooks);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ImportCliConfigValues_NoFile_ReturnsFalse()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var settings = new ConnectionSettings();
+            bool changed = settings.ImportCliConfigValues(tempDir);
+            Assert.False(changed);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ImportCliConfigValues_CorruptFile_ReturnsFalse()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            File.WriteAllText(Path.Combine(tempDir, "config.json"), "not json!");
+
+            var settings = new ConnectionSettings();
+            bool changed = settings.ImportCliConfigValues(tempDir);
+            Assert.False(changed);
+            Assert.False(settings.CompactPaste);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ImportCliConfigValues_NoChange_ReturnsFalse()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            File.WriteAllText(
+                Path.Combine(tempDir, "config.json"),
+                """{"compactPaste": false, "respectGitignore": false, "disableAllHooks": false}""");
+
+            var settings = new ConnectionSettings();
+            bool changed = settings.ImportCliConfigValues(tempDir);
+            Assert.False(changed); // defaults match file
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
 }
