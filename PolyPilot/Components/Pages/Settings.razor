@@ -971,6 +971,12 @@
         if (uiState?.FontSize > 0) fontSize = uiState.FontSize;
 
         RebuildSettingsContext();
+
+        // Sync advanced CLI config to ~/.copilot/config.json on init so that
+        // values are re-applied after external edits or config.json deletion.
+        if (settings.Mode != ConnectionMode.Remote && settings.Mode != ConnectionMode.Demo)
+            settings.SyncCliConfig();
+
         ScanPlugins();
 
         if (DevTunnelService.State == TunnelState.Running && DevTunnelService.TunnelUrl != null)
