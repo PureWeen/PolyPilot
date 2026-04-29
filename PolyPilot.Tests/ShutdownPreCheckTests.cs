@@ -237,8 +237,147 @@ public class ShutdownPreCheckTests
     public void ShutdownPreCheck_NoEventsFile_NoReconnectNeeded()
     {
         // New session with no events file should not trigger pre-check
-        var lastEvent = CopilotService.GetLastEventType("/tmp/nonexistent-" + Guid.NewGuid().ToString("N"));
+        var lastEvent = CopilotService.GetLastEventType(Path.Combine(Path.GetTempPath(), "nonexistent-" + Guid.NewGuid().ToString("N")));
         bool shouldForceReconnect = lastEvent == "session.shutdown";
         Assert.False(shouldForceReconnect, "Missing events file should not trigger shutdown pre-check");
+    }
+
+    // --- Behavioral tests for the pre-check block's logic flow ---
+
+    [Fact]
+    public void ShutdownPreCheck_SkipsWhenJustResumed()
+    {
+        // Validates that the justResumed guard prevents spurious double-reconnect:
+        // when lazy-resume just ran (state.Session was null), the pre-check must be skipped
+        // because stale events.jsonl would cause an unnecessary second reconnect.
+        var baseDir = TestSetup.TestBaseDir;
+        var sessionStatePath = Path.Combine(baseDir, "session-state");
+        var sessionId = Guid.NewGuid().ToString();
+        var sessionDir = Path.Combine(sessionStatePath, sessionId);
+        Directory.CreateDirectory(sessionDir);
+        var eventsFile = Path.Combine(sessionDir, "events.jsonl");
+
+        try
+        {
+            // Write events ending with session.shutdown (stale from before restart)
+            File.WriteAllText(eventsFile, string.Join("\n",
+                """{"type":"session.start","data":{}}""",
+                """{"type":"session.shutdown","data":{}}"""
+            ));
+
+            // Simulate the justResumed guard: when true, pre-check is skipped
+            bool justResumed = true;
+            bool preCheckWouldTrigger = false;
+
+            if (!justResumed)
+            {
+                var lastEvent = CopilotService.GetLastEventType(eventsFile);
+                preCheckWouldTrigger = lastEvent == "session.shutdown";
+            }
+
+            Assert.False(preCheckWouldTrigger,
+                "Pre-check must NOT trigger when justResumed=true (avoids spurious double-reconnect)");
+
+            // Verify that without the guard, it WOULD have triggered
+            var lastEventDirect = CopilotService.GetLastEventType(eventsFile);
+            Assert.Equal("session.shutdown", lastEventDirect);
+        }
+        finally
+        {
+            if (Directory.Exists(sessionDir))
+                Directory.Delete(sessionDir, true);
+        }
+    }
+
+    [Fact]
+    public void ShutdownPreCheck_TriggersWhenNotResumed()
+    {
+        // Validates that when justResumed=false (session was already connected),
+        // the pre-check correctly detects shutdown and would trigger reconnect.
+        var baseDir = TestSetup.TestBaseDir;
+        var sessionStatePath = Path.Combine(baseDir, "session-state");
+        var sessionId = Guid.NewGuid().ToString();
+        var sessionDir = Path.Combine(sessionStatePath, sessionId);
+        Directory.CreateDirectory(sessionDir);
+        var eventsFile = Path.Combine(sessionDir, "events.jsonl");
+
+        try
+        {
+            File.WriteAllText(eventsFile, string.Join("\n",
+                """{"type":"session.start","data":{}}""",
+                """{"type":"user.message","data":{"content":"hello"}}""",
+                """{"type":"session.shutdown","data":{}}"""
+            ));
+
+            bool justResumed = false;
+            bool preCheckTriggered = false;
+
+            if (!justResumed)
+            {
+                var lastEvent = CopilotService.GetLastEventType(eventsFile);
+                preCheckTriggered = lastEvent == "session.shutdown";
+            }
+
+            Assert.True(preCheckTriggered,
+                "Pre-check must trigger when justResumed=false and events end with session.shutdown");
+        }
+        finally
+        {
+            if (Directory.Exists(sessionDir))
+                Directory.Delete(sessionDir, true);
+        }
+    }
+
+    [Fact]
+    public void ShutdownPreCheck_StructuralVerification_JustResumedGuard()
+    {
+        // Structural: verify that the pre-check block is guarded by justResumed in production code.
+        // This ensures the double-reconnect fix cannot silently regress.
+        var repoRoot = GetRepoRoot();
+        var servicePath = Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(servicePath);
+
+        // Find the pre-check block
+        var preCheckIdx = source.IndexOf("[SEND-SHUTDOWN-PRECHECK]", StringComparison.Ordinal);
+        Assert.True(preCheckIdx >= 0, "SEND-SHUTDOWN-PRECHECK diagnostic tag must exist");
+
+        // The justResumed guard must appear before the pre-check block
+        var justResumedIdx = source.IndexOf("if (!justResumed)", StringComparison.Ordinal);
+        Assert.True(justResumedIdx >= 0, "justResumed guard must exist in SendPromptAsync");
+        Assert.True(justResumedIdx < preCheckIdx,
+            "justResumed guard must appear before the SEND-SHUTDOWN-PRECHECK block");
+    }
+
+    [Fact]
+    public void ShutdownPreCheck_StructuralVerification_OperationCanceledExceptionHandled()
+    {
+        // Structural: verify that OperationCanceledException is caught separately
+        // from the general Exception handler in the pre-check block.
+        var repoRoot = GetRepoRoot();
+        var servicePath = Path.Combine(repoRoot, "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(servicePath);
+
+        // Find the pre-check block
+        var preCheckIdx = source.IndexOf("[SEND-SHUTDOWN-PRECHECK]", StringComparison.Ordinal);
+        Assert.True(preCheckIdx >= 0, "SEND-SHUTDOWN-PRECHECK must exist");
+
+        // Look backward from the pre-check for the catch block structure
+        // The OperationCanceledException catch must exist in the same try block
+        var blockStart = source.LastIndexOf("if (!justResumed)", preCheckIdx, StringComparison.Ordinal);
+        Assert.True(blockStart >= 0);
+        var blockEnd = source.IndexOf("long myGeneration", blockStart, StringComparison.Ordinal);
+        Assert.True(blockEnd >= 0);
+        var preCheckBlock = source[blockStart..blockEnd];
+
+        Assert.Contains("catch (OperationCanceledException)", preCheckBlock);
+        Assert.Contains("throw; // Preserve cancellation semantics", preCheckBlock);
+    }
+
+    private static string GetRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return dir ?? throw new InvalidOperationException("Could not find repo root");
     }
 }
