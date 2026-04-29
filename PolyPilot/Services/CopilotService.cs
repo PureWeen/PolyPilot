@@ -3495,11 +3495,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Lazy resume INSIDE the SendingFlag guard to prevent double-resume race:
         // without this, two rapid sends could both see Session==null and both call
         // EnsureSessionConnectedAsync concurrently, leaking the first resumed session.
+        bool wasLazyResumed = false;
         if (state.Session == null)
         {
             try
             {
                 await EnsureSessionConnectedAsync(sessionName, state, cancellationToken);
+                wasLazyResumed = true;
             }
             catch
             {
@@ -3512,28 +3514,39 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // session but our event stream was dead so we never received the notification.
         // Force a reconnect NOW instead of sending to a dead session and discovering the
         // failure 10+ minutes later via the watchdog. (Issue #397)
-        try
+        // Skip if lazy-resume just ran — it already created a fresh session with a new
+        // events.jsonl, so the stale shutdown event from the old session ID is irrelevant.
+        if (!wasLazyResumed)
         {
-            var shutdownCheckSid = state.Info.SessionId;
-            if (!string.IsNullOrEmpty(shutdownCheckSid))
+            try
             {
-                var eventsPath = Path.Combine(SessionStatePath, shutdownCheckSid, "events.jsonl");
-                var lastEvent = GetLastEventType(eventsPath);
-                if (lastEvent == "session.shutdown")
+                var shutdownCheckSid = state.Info.SessionId;
+                if (!string.IsNullOrEmpty(shutdownCheckSid))
                 {
-                    Debug($"[SEND-SHUTDOWN-PRECHECK] '{sessionName}' events.jsonl ends with session.shutdown — forcing reconnect before send");
-                    try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
-                    state.Session = null;
-                    await EnsureSessionConnectedAsync(sessionName, state, cancellationToken);
+                    var eventsPath = Path.Combine(SessionStatePath, shutdownCheckSid, "events.jsonl");
+                    var lastEvent = GetLastEventType(eventsPath);
+                    if (lastEvent == "session.shutdown")
+                    {
+                        Debug($"[SEND-SHUTDOWN-PRECHECK] '{sessionName}' events.jsonl ends with session.shutdown — forcing reconnect before send");
+                        try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
+                        state.Session = null;
+                        await EnsureSessionConnectedAsync(sessionName, state, cancellationToken);
+                    }
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            Debug($"[SEND-SHUTDOWN-PRECHECK] '{sessionName}' reconnect after shutdown detection failed: {ex.Message}");
-            Interlocked.Exchange(ref state.SendingFlag, 0);
-            throw new InvalidOperationException(
-                $"Session '{sessionName}' was shut down by the server and reconnection failed. Try creating a new session.", ex);
+            catch (OperationCanceledException)
+            {
+                Debug($"[SEND-SHUTDOWN-PRECHECK] '{sessionName}' reconnect cancelled");
+                Interlocked.Exchange(ref state.SendingFlag, 0);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Debug($"[SEND-SHUTDOWN-PRECHECK] '{sessionName}' reconnect after shutdown detection failed: {ex.Message}");
+                Interlocked.Exchange(ref state.SendingFlag, 0);
+                throw new InvalidOperationException(
+                    $"Session '{sessionName}' reconnection failed after server shutdown was detected in events.jsonl. Try creating a new session.", ex);
+            }
         }
 
         long myGeneration = 0; // will be set right after the generation increment inside try
