@@ -782,4 +782,28 @@ public class ConnectionSettingsTests
             try { Directory.Delete(tempDir, true); } catch { }
         }
     }
+
+    [Fact]
+    public void SyncCliConfig_AbortsOnMalformedJson_PreservesFile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var configPath = Path.Combine(tempDir, "config.json");
+            var malformedContent = """{ not valid json """;
+            File.WriteAllText(configPath, malformedContent);
+
+            var settings = new ConnectionSettings { CompactPaste = true };
+            settings.SyncCliConfig(tempDir);
+
+            // File should be unchanged — method returns early on parse failure
+            var afterContent = File.ReadAllText(configPath);
+            Assert.Equal(malformedContent, afterContent);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
 }
