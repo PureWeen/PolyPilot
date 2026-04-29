@@ -323,7 +323,11 @@ public class ConnectionSettings
 #endif
     }
 
-    public void Save()
+    /// <summary>
+    /// Persist settings to disk. Returns true on success, false if any step fails.
+    /// Callers that don't check the return value are unaffected (backward compatible).
+    /// </summary>
+    public bool Save()
     {
         try
         {
@@ -336,8 +340,9 @@ public class ConnectionSettings
             var json = JsonSerializer.Serialize(this, new JsonSerializerOptions { WriteIndented = true });
 #endif
             File.WriteAllText(SettingsPath, json);
+            return true;
         }
-        catch { }
+        catch { return false; }
     }
 
 #if MACCATALYST
@@ -345,7 +350,8 @@ public class ConnectionSettings
     /// One-time reverse migration: PR 341 moved ServerPassword/RemoteToken/LanToken to
     /// SecureStorage on Mac Catalyst. Keychain is unreliable for SecureStorage on Mac Catalyst
     /// regardless of sandbox state. This recovers any values and writes them back to plain JSON.
-    /// Only removes each Keychain entry after confirming that specific value was recovered.
+    /// Only removes each Keychain entry after confirming that specific value was recovered
+    /// and Save() succeeded (not just that the file exists on disk).
     /// </summary>
     private static void RecoverSecretsFromSecureStorage(ConnectionSettings settings)
     {
@@ -372,12 +378,13 @@ public class ConnectionSettings
 
             if (needsSave)
             {
-                settings.Save();
+                bool saved = settings.Save();
 
                 // Per-key cleanup: only remove a Keychain entry if that specific value was recovered
-                // and Save() wrote the file. Prevents data loss if Keychain read fails transiently
-                // for one secret but succeeds for another.
-                if (File.Exists(SettingsPath))
+                // and Save() confirmed the write succeeded. Using Save()'s return value instead of
+                // File.Exists(SettingsPath) prevents data loss when Save() fails but an older
+                // settings file already exists on disk (e.g., disk full, permissions error).
+                if (saved)
                 {
                     if (recoveredRemote)
                         try { SecureStorage.Default.Remove("polypilot.connection.remoteToken"); } catch { }
@@ -388,9 +395,28 @@ public class ConnectionSettings
                 }
             }
         }
-        catch { }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[PolyPilot] RecoverSecretsFromSecureStorage failed: {ex}");
+            try
+            {
+                var crashLogDir = Path.GetDirectoryName(SettingsPath)!;
+                var crashLogPath = Path.Combine(crashLogDir, "crash.log");
+                Directory.CreateDirectory(crashLogDir);
+                File.AppendAllText(crashLogPath,
+                    $"\n[{DateTime.UtcNow:O}] RecoverSecretsFromSecureStorage failed: {ex}\n");
+            }
+            catch { /* best-effort logging */ }
+        }
     }
 
+    /// <summary>
+    /// Synchronously read a value from SecureStorage. Uses Task.Run to avoid
+    /// SynchronizationContext deadlock (GetAsync is async-only). The sync-over-async
+    /// pattern is intentional: this runs only during the one-time migration path on
+    /// Load(), not in hot UI paths. Acceptable tradeoff vs. making Load() async
+    /// (which would require cascading changes through all callers).
+    /// </summary>
     private static string? ReadSecureStorage(string key)
     {
         try { return Task.Run(() => SecureStorage.Default.GetAsync(key)).GetAwaiter().GetResult(); }
