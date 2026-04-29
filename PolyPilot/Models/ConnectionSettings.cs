@@ -131,6 +131,28 @@ public class ConnectionSettings
     /// </summary>
     public bool EnableVerboseEventTracing { get; set; } = false;
 
+    // ── Advanced CLI config ─────────────────────────────────────────
+    // These map to Copilot CLI configuration options and are synced
+    // to ~/.copilot/config.json so the CLI process picks them up.
+
+    /// <summary>
+    /// When true, the CLI collapses large pasted content into a compact
+    /// representation to save context-window tokens.
+    /// </summary>
+    public bool CompactPaste { get; set; } = false;
+
+    /// <summary>
+    /// When true, the CLI excludes files matched by .gitignore from
+    /// the working-tree context it sends to the model.
+    /// </summary>
+    public bool RespectGitignore { get; set; } = false;
+
+    /// <summary>
+    /// When true, all Copilot CLI hooks (pre-tool-use, post-tool-use, etc.)
+    /// are globally disabled for every session.
+    /// </summary>
+    public bool DisableAllHooks { get; set; } = false;
+
     /// <summary>
     /// Normalizes a remote URL by ensuring it has an http(s):// scheme.
     /// Plain IPs/hostnames get http://, devtunnels/known TLS hosts get https://.
@@ -343,6 +365,69 @@ public class ConnectionSettings
             return true;
         }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// Writes the advanced CLI config values (CompactPaste, RespectGitignore,
+    /// DisableAllHooks) to <c>~/.copilot/config.json</c> so the Copilot CLI
+    /// process picks them up. Merges with any existing keys in the file.
+    /// </summary>
+    /// <param name="copilotConfigDir">Override for testing — pass the directory to
+    /// write config.json into. When null, defaults to ~/.copilot/.</param>
+    public void SyncCliConfig(string? copilotConfigDir = null)
+    {
+        try
+        {
+            if (copilotConfigDir == null)
+            {
+                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                if (string.IsNullOrEmpty(home)) return;
+                copilotConfigDir = Path.Combine(home, ".copilot");
+            }
+            Directory.CreateDirectory(copilotConfigDir);
+            var configPath = Path.Combine(copilotConfigDir, "config.json");
+
+            // Read existing config to preserve unrelated keys
+            var existing = new Dictionary<string, JsonElement>();
+            if (File.Exists(configPath))
+            {
+                try
+                {
+                    using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
+                    foreach (var prop in doc.RootElement.EnumerateObject())
+                        existing[prop.Name] = prop.Value.Clone();
+                }
+                catch { /* ignore corrupt file — overwrite */ }
+            }
+
+            // Merge our values
+            using var ms = new System.IO.MemoryStream();
+            using (var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
+            {
+                writer.WriteStartObject();
+                // Write all existing keys first (excluding ours to avoid duplicates)
+                var ourKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                    { "compactPaste", "respectGitignore", "disableAllHooks" };
+                foreach (var kvp in existing)
+                {
+                    if (!ourKeys.Contains(kvp.Key))
+                    {
+                        writer.WritePropertyName(kvp.Key);
+                        kvp.Value.WriteTo(writer);
+                    }
+                }
+                // Write our values
+                writer.WriteBoolean("compactPaste", CompactPaste);
+                writer.WriteBoolean("respectGitignore", RespectGitignore);
+                writer.WriteBoolean("disableAllHooks", DisableAllHooks);
+                writer.WriteEndObject();
+            }
+            File.WriteAllBytes(configPath, ms.ToArray());
+        }
+        catch
+        {
+            // Best-effort — don't crash the app if the config write fails
+        }
     }
 
 #if MACCATALYST
