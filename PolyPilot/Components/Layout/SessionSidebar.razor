@@ -2100,14 +2100,7 @@ else
         if (firstRender)
         {
             // Set up Enter key handler via JS to avoid Blazor round-trips on every keystroke
-            await JS.InvokeVoidAsync("eval", @"
-                document.getElementById('sessionNameInput')?.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter') {
-                        e.preventDefault();
-                        document.querySelector('.new-session button')?.click();
-                    }
-                });
-            ");
+            await JS.InvokeVoidAsync("wireSessionNameInputEnter");
 
             // Initial disk size scan + periodic refresh
             _ = RepoManager.RefreshDiskSizesAsync();
@@ -2116,7 +2109,7 @@ else
 
             // Register .NET reference so JS chooseOption can invoke provider slash commands
             _sidebarRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("eval", "window.__sidebarRef = null;");
+            await JS.InvokeVoidAsync("clearSidebarRef");
             await JS.InvokeVoidAsync("__setSidebarRef", _sidebarRef);
 
             // Push current provider commands into the autocomplete JS layer (send even if empty)
@@ -2781,10 +2774,7 @@ else
         StateHasChanged();
         // Focus the input after render
         await Task.Yield();
-        await JS.InvokeVoidAsync("eval", @"
-            var el = document.getElementById('renameInput');
-            if (el) { el.focus(); el.select(); }
-        ");
+        await JS.InvokeVoidAsync("focusAndSelect", "renameInput");
     }
 
     private async Task CommitRename()
@@ -2817,10 +2807,7 @@ else
         renamingGroupId = groupId;
         StateHasChanged();
         await Task.Yield();
-        await JS.InvokeVoidAsync("eval", @"
-            var el = document.getElementById('groupRenameInput');
-            if (el) { el.focus(); el.select(); }
-        ");
+        await JS.InvokeVoidAsync("focusAndSelect", "groupRenameInput");
     }
 
     private async Task CommitGroupRename(string groupId)
@@ -2845,7 +2832,7 @@ else
         CopilotService.SetActiveSession(null);
         CopilotService.SaveUiState("/");
         currentPage = "/";
-        try { await JS.InvokeVoidAsync("eval", "window.__dashRef?.invokeMethodAsync('JsCollapseToGrid')"); } catch { }
+        try { await JS.InvokeVoidAsync("invokeDashboardCollapseToGrid"); } catch { }
         Nav.NavigateTo("/");
     }
 
@@ -4104,7 +4091,7 @@ Important conventions:
         _diskSizeTimer?.Dispose();
         // Null out JS reference before disposing to prevent ObjectDisposedException
         // if JS invokes the stale reference during teardown
-        try { _ = JS.InvokeVoidAsync("eval", "window.__sidebarRef = null;"); } catch { }
+        try { _ = JS.InvokeVoidAsync("clearSidebarRef"); } catch { }
         _sidebarRef?.Dispose();
         CopilotService.OnStateChanged -= RefreshSessions;
         CopilotService.OnSessionComplete -= HandleSessionComplete;

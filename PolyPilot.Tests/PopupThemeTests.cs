@@ -19,6 +19,7 @@ public class PopupThemeTests
 
     private static string AppCssPath => Path.Combine(GetRepoRoot(), "PolyPilot", "wwwroot", "app.css");
     private static string RazorPath => Path.Combine(GetRepoRoot(), "PolyPilot", "Components", "ExpandedSessionView.razor");
+    private static string JsInteropPath => Path.Combine(GetRepoRoot(), "PolyPilot", "wwwroot", "js", "polypilot-interop.js");
 
     private static string? ExtractCssBlock(string css, string selector)
     {
@@ -142,28 +143,33 @@ public class PopupThemeTests
     [Fact]
     public void Razor_AgentsPopup_UsesCssClasses()
     {
+        // Row HTML with CSS classes is built in the Razor file; overlay/popup rendering in JS
         var razor = File.ReadAllText(RazorPath);
         var startIdx = razor.IndexOf("private async Task ShowAgentsPopup()", StringComparison.Ordinal);
         Assert.True(startIdx >= 0, "ShowAgentsPopup method not found");
         var endIdx = razor.IndexOf("\n    private ", startIdx + 1, StringComparison.Ordinal);
         var methodBody = razor[startIdx..(endIdx < 0 ? razor.Length : endIdx)];
 
-        Assert.Contains("skills-popup-overlay", methodBody);
-        Assert.Contains("skills-popup", methodBody);
         Assert.Contains("skills-popup-header", methodBody);
         Assert.Contains("skills-popup-row", methodBody);
         Assert.Contains("skills-popup-row-name", methodBody);
         Assert.Contains("skills-popup-row-source", methodBody);
+
+        // Overlay structure is in the JS module
+        var js = File.ReadAllText(JsInteropPath);
+        Assert.Contains("skills-popup-overlay", js);
+        Assert.Contains("skills-popup", js);
     }
 
     [Fact]
     public void Razor_PromptsPopup_UsesCssClasses()
     {
-        var razor = File.ReadAllText(RazorPath);
-        var startIdx = razor.IndexOf("private async Task ShowPromptsPopup()", StringComparison.Ordinal);
-        Assert.True(startIdx >= 0, "ShowPromptsPopup method not found");
-        var endIdx = razor.IndexOf("\n    private ", startIdx + 1, StringComparison.Ordinal);
-        var methodBody = razor[startIdx..(endIdx < 0 ? razor.Length : endIdx)];
+        // Popup rendering moved to polypilot-interop.js; verify CSS classes there
+        var js = File.ReadAllText(JsInteropPath);
+        var startIdx = js.IndexOf("window.showPromptsPopup", StringComparison.Ordinal);
+        Assert.True(startIdx >= 0, "showPromptsPopup function not found in JS module");
+        var endIdx = js.IndexOf("\nwindow.", startIdx + 10, StringComparison.Ordinal);
+        var methodBody = js[startIdx..(endIdx < 0 ? js.Length : endIdx)];
 
         Assert.Contains("skills-popup-overlay", methodBody);
         Assert.Contains("skills-popup", methodBody);
@@ -175,20 +181,27 @@ public class PopupThemeTests
     [Fact]
     public void Razor_LogPopup_UsesCssClassesAndThemeVars()
     {
+        // Log popup uses showPopup from polypilot-interop.js for overlay/popup rendering,
+        // but theme color vars remain in the Razor method (building HTML rows server-side)
         var razor = File.ReadAllText(RazorPath);
         var startIdx = razor.IndexOf("private async Task ShowLogPopup()", StringComparison.Ordinal);
         Assert.True(startIdx >= 0, "ShowLogPopup method not found");
         var endIdx = razor.IndexOf("\n    private ", startIdx + 1, StringComparison.Ordinal);
         var methodBody = razor[startIdx..(endIdx < 0 ? razor.Length : endIdx)];
 
-        Assert.Contains("skills-popup-overlay", methodBody);
-        Assert.Contains("skills-popup skills-popup--wide", methodBody);
+        // CSS classes and theme vars in server-side HTML row building
         Assert.Contains("skills-popup-header", methodBody);
         Assert.Contains("skills-popup-log-row", methodBody);
         Assert.Contains("var(--accent-primary)", methodBody);
         Assert.Contains("var(--accent-success)", methodBody);
         Assert.Contains("var(--accent-warning)", methodBody);
         Assert.Contains("var(--accent-error)", methodBody);
+        // Wide class is passed as parameter to showPopup
+        Assert.Contains("skills-popup--wide", methodBody);
+
+        // Overlay/popup classes are in the JS module's showPopup function
+        var js = File.ReadAllText(JsInteropPath);
+        Assert.Contains("skills-popup-overlay", js);
     }
 
     // --- CSS overlay class ---

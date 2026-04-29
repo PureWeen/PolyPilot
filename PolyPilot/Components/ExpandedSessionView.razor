@@ -1197,28 +1197,8 @@
                 $"<span class=\"skills-popup-row-source\">{EscapeHtml(s.Source)}</span></div>" +
                 desc + "</div>";
         }));
-        var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div class=\"skills-popup-header\">Available Skills</div>");
-        await JS.InvokeVoidAsync("eval", $@"
-            (function(){{
-                var old = document.getElementById('skills-popup-overlay');
-                if(old) old.remove();
-                var trigger = document.querySelector('[data-trigger=""skills""]');
-                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
-                var ov = document.createElement('div');
-                ov.id = 'skills-popup-overlay';
-                ov.className = 'skills-popup-overlay';
-                ov.onclick = function(){{ ov.remove(); }};
-                var popup = document.createElement('div');
-                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
-                var bottom = window.innerHeight - rect.top + 8;
-                popup.className = 'skills-popup'; popup.style.bottom=bottom+'px'; popup.style.left=left+'px';
-                popup.innerHTML = '{headerHtml}{jsHtml}';
-                popup.onclick = function(e){{ e.stopPropagation(); }};
-                ov.appendChild(popup);
-                document.body.appendChild(ov);
-            }})()
-        ");
+        await JS.InvokeVoidAsync("showPopup", "skills",
+            "<div class=\"skills-popup-header\">Available Skills</div>", rows, "");
     }
 
     private async Task ShowAgentsPopup()
@@ -1234,46 +1214,13 @@
                 $"<span class=\"skills-popup-row-source\">{EscapeHtml(a.Source)}</span></div>" +
                 desc + "</div>";
         }));
-        var jsHtml = EscapeForJs(rows);
-        var headerHtml = EscapeForJs("<div class=\"skills-popup-header\">Available Agents (click to use)</div>");
-        await JS.InvokeVoidAsync("eval", $@"
-            (function(){{
-                var old = document.getElementById('skills-popup-overlay');
-                if(old) old.remove();
-                var trigger = document.querySelector('[data-trigger=""agents""]');
-                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
-                var ov = document.createElement('div');
-                ov.id = 'skills-popup-overlay';
-                ov.className = 'skills-popup-overlay';
-                ov.onclick = function(){{ ov.remove(); }};
-                var popup = document.createElement('div');
-                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 368));
-                var bottom = window.innerHeight - rect.top + 8;
-                popup.className = 'skills-popup'; popup.style.bottom=bottom+'px'; popup.style.left=left+'px';
-                popup.innerHTML = '{headerHtml}{jsHtml}';
-                popup.onclick = function(e){{
-                    var row = e.target.closest('.agent-row');
-                    if(row){{
-                        var name = row.getAttribute('data-agent');
-                        ov.remove();
-                        var inputEl = document.querySelector('[data-session=' + JSON.stringify('{EscapeForJs(Session.Name)}') + '] textarea');
-                        if(inputEl){{
-                            inputEl.value = '@' + name + ' ';
-                            inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
-                            inputEl.focus();
-                        }}
-                    }}
-                }};
-                ov.appendChild(popup);
-                document.body.appendChild(ov);
-            }})()
-        ");
+        await JS.InvokeVoidAsync("showAgentsPopup",
+            "<div class=\"skills-popup-header\">Available Agents (click to use)</div>", rows, Session.Name);
     }
 
     private async Task ShowPromptsPopup()
     {
         _promptDotNetRef ??= DotNetObjectReference.Create(this);
-        await JS.InvokeVoidAsync("eval", "window.__ppSetRef = window.__ppSetRef || function(r) { window.__ppRef = r; };");
         await JS.InvokeVoidAsync("__ppSetRef", _promptDotNetRef);
 
         // Re-validate PR number for current branch (fire-and-forget to avoid blocking popup).
@@ -1287,16 +1234,13 @@
             _ = FetchPrUrlAsync(dir);
         }
 
-        var promptJson = System.Text.Json.JsonSerializer.Serialize(
-            (availablePrompts ?? new List<SavedPrompt>()).Select(p => new {
-                name = p.Name,
-                description = p.Description ?? "",
-                content = p.Content ?? "",
-                sourceLabel = p.SourceLabel,
-                isUser = p.Source == PromptSource.User
-            })
-        );
-        var sessionName = EscapeForJs(Session.Name);
+        var prompts = (availablePrompts ?? new List<SavedPrompt>()).Select(p => new {
+            name = p.Name,
+            description = p.Description ?? "",
+            content = p.Content ?? "",
+            sourceLabel = p.SourceLabel,
+            isUser = p.Source == PromptSource.User
+        }).ToArray();
 
         var prNumber = "";
         if (_prLabel != null && _prLabel.StartsWith("#"))
@@ -1305,162 +1249,7 @@
         if (string.IsNullOrEmpty(prNumber) && Session.PrNumber > 0)
             prNumber = Session.PrNumber.Value.ToString();
 
-        await JS.InvokeVoidAsync("eval", $"window.__ppData = {promptJson};");
-        await JS.InvokeVoidAsync("eval", $"window.__ppPrNumber = '{EscapeForJs(prNumber)}';");
-        await JS.InvokeVoidAsync("eval", $@"
-            (function(){{
-                var old = document.getElementById('skills-popup-overlay');
-                if(old) old.remove();
-                var prompts = window.__ppData || [];
-                var trigger = document.querySelector('[data-trigger=""prompts""]');
-                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
-                var ov = document.createElement('div');
-                ov.id = 'skills-popup-overlay';
-                ov.className = 'skills-popup-overlay';
-                ov.onclick = function(){{ ov.remove(); }};
-                var popup = document.createElement('div');
-                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 408));
-                var bottom = window.innerHeight - rect.top + 8;
-                popup.className = 'skills-popup'; popup.style.bottom=bottom+'px'; popup.style.left=left+'px';
-                popup.onclick = function(e){{ e.stopPropagation(); }};
-
-                function renderList() {{
-                    popup.innerHTML = '';
-                    var h = document.createElement('div');
-                    h.className = 'skills-popup-header'; h.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
-                    var ht = document.createElement('span');
-                    ht.textContent = 'Prompts (click to use)';
-                    h.appendChild(ht);
-                    var newBtn = document.createElement('button');
-                    newBtn.textContent = '+ New';
-                    newBtn.style.cssText = 'background:var(--bg-tertiary);border:none;color:var(--text-bright);padding:3px 10px;border-radius:4px;cursor:pointer;font-size:var(--type-caption1)';
-                    newBtn.onmouseover = function(){{ this.style.background='var(--control-border)'; }};
-                    newBtn.onmouseout = function(){{ this.style.background='var(--bg-tertiary)'; }};
-                    newBtn.onclick = function(e){{ e.stopPropagation(); renderForm('','','','new'); }};
-                    h.appendChild(newBtn);
-                    popup.appendChild(h);
-
-                    if(prompts.length === 0) {{
-                        var empty = document.createElement('div');
-                        empty.className = 'skills-popup-empty';
-                        empty.textContent = 'No prompts yet. Click + New to create one.';
-                        popup.appendChild(empty);
-                    }} else {{
-                        prompts.forEach(function(p) {{
-                            var row = document.createElement('div');
-                            row.className = 'skills-popup-row skills-popup-row--clickable';
-                            var top = document.createElement('div');
-                            top.className = 'skills-popup-row-title';
-                            var nameSpan = document.createElement('span');
-                            nameSpan.className = 'skills-popup-row-name'; nameSpan.style.cssText = 'overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1';
-                            nameSpan.textContent = p.name;
-                            top.appendChild(nameSpan);
-                            var actions = document.createElement('span');
-                            actions.style.cssText = 'display:flex;align-items:center;gap:4px;margin-left:8px;flex-shrink:0';
-                            var srcLabel = document.createElement('span');
-                            srcLabel.className = 'skills-popup-row-source';
-                            srcLabel.textContent = p.sourceLabel;
-                            actions.appendChild(srcLabel);
-                            if(p.isUser) {{
-                                var editBtn = document.createElement('button');
-                                editBtn.textContent = '\u270F\uFE0F';
-                                editBtn.title = 'Edit prompt';
-                                editBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:var(--type-callout);padding:2px 4px;opacity:0.7';
-                                editBtn.onmouseover = function(){{ this.style.opacity='1'; }};
-                                editBtn.onmouseout = function(){{ this.style.opacity='0.7'; }};
-                                editBtn.onclick = function(e){{ e.stopPropagation(); renderForm(p.name, p.description, p.content, 'edit'); }};
-                                actions.appendChild(editBtn);
-                                var delBtn = document.createElement('button');
-                                delBtn.textContent = '\uD83D\uDDD1\uFE0F';
-                                delBtn.title = 'Delete prompt';
-                                delBtn.style.cssText = 'background:none;border:none;cursor:pointer;font-size:var(--type-callout);padding:2px 4px;opacity:0.7';
-                                delBtn.onmouseover = function(){{ this.style.opacity='1'; }};
-                                delBtn.onmouseout = function(){{ this.style.opacity='0.7'; }};
-                                delBtn.onclick = function(e){{
-                                    e.stopPropagation();
-                                    if(confirm('Delete prompt \""' + p.name + '\""?')) {{
-                                        if(!window.__ppRef){{ov.remove();return;}} window.__ppRef.invokeMethodAsync('DeletePromptFromPopup', p.name).then(function(){{ ov.remove(); }}).catch(function(e){{ alert('Delete failed: ' + (e.message || e)); }});
-                                    }}
-                                }};
-                                actions.appendChild(delBtn);
-                            }}
-                            top.appendChild(actions);
-                            row.appendChild(top);
-                            if(p.description) {{
-                                var desc = document.createElement('div');
-                                desc.className = 'skills-popup-row-desc';
-                                desc.textContent = p.description.length > 120 ? p.description.substring(0,117) + '\u2026' : p.description;
-                                row.appendChild(desc);
-                            }}
-                            row.onclick = function(e) {{
-                                if(e.target.tagName === 'BUTTON') return;
-                                ov.remove();
-                                var inputEl = document.querySelector('[data-session=""{sessionName}""] textarea');
-                                if(inputEl){{
-                                    var ctx = (p.sourceLabel === 'built-in' && window.__ppPrNumber) ? window.__ppPrNumber : '';
-                                    inputEl.value = ctx
-                                        ? '/prompt use ' + p.name + ' -- ' + ctx
-                                        : '/prompt use ' + p.name;
-                                    inputEl.dispatchEvent(new Event('input', {{bubbles: true}}));
-                                    inputEl.focus();
-                                    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
-                                }}
-                            }};
-                            popup.appendChild(row);
-                        }});
-                    }}
-                }}
-
-                function renderForm(name, desc, content, mode) {{
-                    popup.innerHTML = '';
-                    var h = document.createElement('div');
-                    h.style.cssText = 'padding:8px 14px;font-size:var(--type-footnote);color:var(--text-muted);border-bottom:1px solid var(--border-subtle);font-weight:600';
-                    h.textContent = mode === 'edit' ? 'Edit Prompt' : 'New Prompt';
-                    popup.appendChild(h);
-                    var form = document.createElement('div');
-                    form.style.cssText = 'padding:10px 14px';
-                    var mkLabel = function(text) {{ var l = document.createElement('div'); l.style.cssText = 'font-size:var(--type-caption1);color:var(--text-muted);margin-bottom:4px;margin-top:8px'; l.textContent = text; return l; }};
-                    var mkInput = function(val, ph) {{ var i = document.createElement('input'); i.style.cssText = 'width:100%;background:var(--bg-tertiary);border:1px solid var(--control-border);border-radius:4px;padding:6px 8px;color:var(--text-bright);font-size:var(--type-callout);box-sizing:border-box'; i.value = val||''; i.placeholder = ph; return i; }};
-                    form.appendChild(mkLabel('Name'));
-                    var nameInput = mkInput(name, 'Prompt name');
-                    if(mode === 'edit') {{ nameInput.readOnly = true; nameInput.style.opacity = '0.6'; }}
-                    form.appendChild(nameInput);
-                    form.appendChild(mkLabel('Description (optional)'));
-                    var descInput = mkInput(desc, 'Brief description');
-                    form.appendChild(descInput);
-                    form.appendChild(mkLabel('Content'));
-                    var contentArea = document.createElement('textarea');
-                    contentArea.style.cssText = 'width:100%;background:var(--bg-tertiary);border:1px solid var(--control-border);border-radius:4px;padding:6px 8px;color:var(--text-bright);font-size:var(--type-callout);min-height:100px;resize:vertical;box-sizing:border-box;font-family:inherit';
-                    contentArea.value = content||'';
-                    contentArea.placeholder = 'Prompt content...';
-                    form.appendChild(contentArea);
-                    var btns = document.createElement('div');
-                    btns.style.cssText = 'display:flex;justify-content:flex-end;gap:8px;margin-top:12px;padding-bottom:4px';
-                    var cancelBtn = document.createElement('button');
-                    cancelBtn.textContent = 'Cancel';
-                    cancelBtn.style.cssText = 'background:var(--bg-tertiary);border:none;color:var(--text-bright);padding:6px 14px;border-radius:4px;cursor:pointer;font-size:var(--type-footnote)';
-                    cancelBtn.onclick = function(){{ renderList(); }};
-                    btns.appendChild(cancelBtn);
-                    var saveBtn = document.createElement('button');
-                    saveBtn.textContent = 'Save';
-                    saveBtn.style.cssText = 'background:var(--accent-primary);border:none;color:var(--bg-primary);padding:6px 14px;border-radius:4px;cursor:pointer;font-size:var(--type-footnote);font-weight:600';
-                    saveBtn.onclick = function(){{
-                        var n = nameInput.value.trim();
-                        var c = contentArea.value.trim();
-                        if(!n || !c) return;
-                        if(!window.__ppRef){{ov.remove();return;}} window.__ppRef.invokeMethodAsync('SavePromptFromPopup', n, c, descInput.value.trim()).then(function(){{ ov.remove(); }}).catch(function(e){{ alert('Save failed: ' + (e.message || e)); }});
-                    }};
-                    btns.appendChild(saveBtn);
-                    form.appendChild(btns);
-                    popup.appendChild(form);
-                    if(mode !== 'edit') nameInput.focus(); else contentArea.focus();
-                }}
-
-                renderList();
-                ov.appendChild(popup);
-                document.body.appendChild(ov);
-            }})()
-        ");
+        await JS.InvokeVoidAsync("showPromptsPopup", prompts, Session.Name, prNumber);
     }
 
     private static string EscapeHtml(string s) =>
@@ -1500,29 +1289,9 @@
             }));
             rowsHtml = rows;
         }
-        var jsRows = EscapeForJs(rowsHtml);
-        var sessionTrigger = EscapeForJs("log-" + (Session.SessionId ?? ""));
-        var headerHtml = EscapeForJs($"<div class=\"skills-popup-header\" style=\"display:flex;justify-content:space-between\"><span>Session Event Log</span><span>{filtered.Count} events</span></div>");
-        await JS.InvokeVoidAsync("eval", $@"
-            (function(){{
-                var old = document.getElementById('skills-popup-overlay');
-                if(old) old.remove();
-                var trigger = document.querySelector('[data-trigger=""{sessionTrigger}""]');
-                var rect = trigger ? trigger.getBoundingClientRect() : {{left:20,bottom:60}};
-                var ov = document.createElement('div');
-                ov.id = 'skills-popup-overlay';
-                ov.className = 'skills-popup-overlay';
-                ov.onclick = function(){{ ov.remove(); }};
-                var popup = document.createElement('div');
-                var left = Math.max(8, Math.min(rect.left, window.innerWidth - 468));
-                var bottom = window.innerHeight - rect.top + 8;
-                popup.className = 'skills-popup skills-popup--wide'; popup.style.bottom=bottom+'px'; popup.style.left=left+'px';
-                popup.innerHTML = '{headerHtml}{jsRows}';
-                popup.onclick = function(e){{ e.stopPropagation(); }};
-                ov.appendChild(popup);
-                document.body.appendChild(ov);
-            }})()
-        ");
+        var triggerAttr = "log-" + (Session.SessionId ?? "");
+        var headerHtml = $"<div class=\"skills-popup-header\" style=\"display:flex;justify-content:space-between\"><span>Session Event Log</span><span>{filtered.Count} events</span></div>";
+        await JS.InvokeVoidAsync("showPopup", triggerAttr, headerHtml, rowsHtml, "skills-popup--wide");
     }
 
     private static string EscapeForJs(string s) =>
@@ -1538,7 +1307,7 @@
 
     public async ValueTask DisposeAsync()
     {
-        try { await JS.InvokeVoidAsync("eval", "window.__ppRef = null;"); } catch { }
+        try { await JS.InvokeVoidAsync("clearPromptRef"); } catch { }
         _promptDotNetRef?.Dispose();
         _promptDotNetRef = null;
         _syncMessageTimer?.Dispose();

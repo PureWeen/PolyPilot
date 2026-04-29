@@ -412,8 +412,7 @@ else
             _scrollCommentIntoView = false;
             try
             {
-                await JS.InvokeVoidAsync("eval",
-                    "setTimeout(()=>{var el=document.querySelector('.diff-comment-box');if(el){el.scrollIntoView({behavior:'smooth',block:'nearest'});var ta=el.querySelector('textarea');if(ta)ta.focus();}},50)");
+                await JS.InvokeVoidAsync("scrollAndFocusCommentBox");
             }
             catch { /* ignore if JS interop fails during dispose */ }
         }
