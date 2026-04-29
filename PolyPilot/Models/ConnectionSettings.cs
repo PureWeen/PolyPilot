@@ -427,7 +427,10 @@ public class ConnectionSettings
                 writer.WriteBoolean("disableAllHooks", DisableAllHooks);
                 writer.WriteEndObject();
             }
-            File.WriteAllBytes(configPath, ms.ToArray());
+            // Atomic write: write to temp file then rename to avoid torn reads
+            var tmpPath = configPath + ".tmp";
+            File.WriteAllBytes(tmpPath, ms.ToArray());
+            File.Move(tmpPath, configPath, overwrite: true);
         }
         catch
         {
