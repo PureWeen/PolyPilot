@@ -2509,11 +2509,12 @@ public class MultiAgentRegressionTests
         var servicePath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
         var source = File.ReadAllText(servicePath);
 
-        // Find SendPromptAsync method
-        var sendIdx = source.IndexOf("async Task<string> SendPromptAsync(", StringComparison.Ordinal);
-        Assert.True(sendIdx >= 0, "SendPromptAsync must exist in CopilotService.cs");
+        // Search from a closer anchor ("IsProcessing = true") to avoid fragile window sizing.
+        // PrematureIdleSignal.Reset() should appear shortly after IsProcessing is set.
+        var anchorIdx = source.IndexOf("state.Info.IsProcessing = true;", StringComparison.Ordinal);
+        Assert.True(anchorIdx >= 0, "IsProcessing = true must exist in CopilotService.cs");
 
-        var sendBlock = source.Substring(sendIdx, Math.Min(10000, source.Length - sendIdx));
+        var sendBlock = source.Substring(anchorIdx, Math.Min(2000, source.Length - anchorIdx));
         Assert.Contains("PrematureIdleSignal.Reset()", sendBlock);
     }
 
