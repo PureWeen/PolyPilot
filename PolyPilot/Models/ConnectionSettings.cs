@@ -368,9 +368,43 @@ public class ConnectionSettings
     }
 
     /// <summary>
+    /// Reads advanced CLI config values from <c>~/.copilot/config.json</c> and
+    /// imports any that differ from defaults into these settings. Call at startup
+    /// to pick up manual CLI edits without overwriting them.
+    /// </summary>
+    /// <param name="copilotConfigDir">Override for testing.</param>
+    public void ImportCliConfigValues(string? copilotConfigDir = null)
+    {
+        try
+        {
+            copilotConfigDir ??= GetCopilotConfigDir();
+            if (copilotConfigDir == null) return;
+
+            var configPath = Path.Combine(copilotConfigDir, "config.json");
+            if (!File.Exists(configPath)) return;
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
+            var root = doc.RootElement;
+
+            if (root.TryGetProperty("compactPaste", out var cp) && cp.ValueKind == JsonValueKind.True)
+                CompactPaste = true;
+            if (root.TryGetProperty("respectGitignore", out var rg) && rg.ValueKind == JsonValueKind.True)
+                RespectGitignore = true;
+            if (root.TryGetProperty("disableAllHooks", out var dh) && dh.ValueKind == JsonValueKind.True)
+                DisableAllHooks = true;
+        }
+        catch
+        {
+            // Best-effort — don't crash if config.json is corrupt or unreadable
+        }
+    }
+
+    /// <summary>
     /// Writes the advanced CLI config values (CompactPaste, RespectGitignore,
     /// DisableAllHooks) to <c>~/.copilot/config.json</c> so the Copilot CLI
     /// process picks them up. Merges with any existing keys in the file.
+    /// If config.json exists but is corrupt, aborts without overwriting to
+    /// avoid losing unrelated CLI configuration keys.
     /// </summary>
     /// <param name="copilotConfigDir">Override for testing — pass the directory to
     /// write config.json into. When null, defaults to ~/.copilot/.</param>
@@ -378,12 +412,9 @@ public class ConnectionSettings
     {
         try
         {
-            if (copilotConfigDir == null)
-            {
-                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-                if (string.IsNullOrEmpty(home)) return;
-                copilotConfigDir = Path.Combine(home, ".copilot");
-            }
+            copilotConfigDir ??= GetCopilotConfigDir();
+            if (copilotConfigDir == null) return;
+
             Directory.CreateDirectory(copilotConfigDir);
             var configPath = Path.Combine(copilotConfigDir, "config.json");
 
@@ -397,10 +428,14 @@ public class ConnectionSettings
                     foreach (var prop in doc.RootElement.EnumerateObject())
                         existing[prop.Name] = prop.Value.Clone();
                 }
-                catch { /* ignore corrupt file — overwrite */ }
+                catch
+                {
+                    // Corrupt config.json — abort to avoid losing unrelated keys
+                    return;
+                }
             }
 
-            // Merge our values
+            // Merge our values (atomic write via temp file)
             using var ms = new System.IO.MemoryStream();
             using (var writer = new Utf8JsonWriter(ms, new JsonWriterOptions { Indented = true }))
             {
@@ -422,12 +457,22 @@ public class ConnectionSettings
                 writer.WriteBoolean("disableAllHooks", DisableAllHooks);
                 writer.WriteEndObject();
             }
-            File.WriteAllBytes(configPath, ms.ToArray());
+            // Atomic write: write to temp file then rename to avoid torn reads
+            var tmpPath = configPath + ".tmp";
+            File.WriteAllBytes(tmpPath, ms.ToArray());
+            File.Move(tmpPath, configPath, overwrite: true);
         }
         catch
         {
             // Best-effort — don't crash the app if the config write fails
         }
+    }
+
+    private static string? GetCopilotConfigDir()
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        if (string.IsNullOrEmpty(home)) return null;
+        return Path.Combine(home, ".copilot");
     }
 
 #if MACCATALYST
