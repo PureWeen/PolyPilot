@@ -129,18 +129,101 @@ public class ShutdownPreCheckTests
         }
     }
 
-    // --- Behavioral test: SendPromptAsync on a shutdown session ---
-    // We can't call SendPromptAsync directly (requires SDK infrastructure), but we can
-    // verify the detection logic that guards it.
+    // --- Structural tests: verify SendPromptAsync shutdown pre-check code structure ---
+    // These verify the actual fix code rather than just re-testing GetLastEventType.
+
+    private static string GetRepoRoot()
+    {
+        var dir = AppContext.BaseDirectory;
+        while (dir != null && !File.Exists(Path.Combine(dir, "PolyPilot.slnx")))
+            dir = Path.GetDirectoryName(dir);
+        return dir ?? throw new InvalidOperationException("Could not find repo root");
+    }
+
+    private static string GetSendPromptPreCheckBlock()
+    {
+        var servicePath = Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.cs");
+        var source = File.ReadAllText(servicePath);
+
+        // Find the shutdown pre-check block by its diagnostic tag
+        var preCheckIdx = source.IndexOf("[SEND-SHUTDOWN-PRECHECK]", StringComparison.Ordinal);
+        Assert.True(preCheckIdx >= 0, "SEND-SHUTDOWN-PRECHECK must exist in CopilotService.cs");
+
+        // Extract a window around the pre-check for assertions
+        var start = Math.Max(0, preCheckIdx - 2000);
+        return source.Substring(start, Math.Min(4000, source.Length - start));
+    }
+
+    [Fact]
+    public void ShutdownPreCheck_HasWasAlreadyConnectedGuard()
+    {
+        // The pre-check must be gated on wasAlreadyConnected to prevent spurious
+        // double-reconnect when lazy-resume already reconnected the session.
+        var block = GetSendPromptPreCheckBlock();
+        Assert.Contains("wasAlreadyConnected", block);
+        Assert.Contains("bool wasAlreadyConnected = state.Session != null", block);
+        Assert.Contains("if (wasAlreadyConnected)", block);
+    }
+
+    [Fact]
+    public void ShutdownPreCheck_HasOperationCanceledExceptionCatch()
+    {
+        // The pre-check must catch OperationCanceledException separately to preserve
+        // cancellation semantics — wrapping it in InvalidOperationException loses the
+        // cancellation identity for callers.
+        var block = GetSendPromptPreCheckBlock();
+        Assert.Contains("catch (OperationCanceledException)", block);
+        Assert.Contains("throw; // Preserve cancellation semantics", block);
+    }
+
+    [Fact]
+    public void ShutdownPreCheck_ReleasesSendingFlagOnBothCatchPaths()
+    {
+        // Both catch blocks (OperationCanceledException and general Exception) must
+        // release SendingFlag to prevent session deadlock.
+        var block = GetSendPromptPreCheckBlock();
+
+        // Count SendingFlag releases in the pre-check block
+        var flagReleaseCount = 0;
+        var searchFrom = 0;
+        while (true)
+        {
+            var idx = block.IndexOf("Interlocked.Exchange(ref state.SendingFlag, 0)", searchFrom, StringComparison.Ordinal);
+            if (idx < 0) break;
+            flagReleaseCount++;
+            searchFrom = idx + 1;
+        }
+
+        Assert.True(flagReleaseCount >= 2, $"Expected at least 2 SendingFlag releases in pre-check catch blocks, found {flagReleaseCount}");
+    }
+
+    [Fact]
+    public void ShutdownPreCheck_ErrorMessageIncludesInnerExceptionDetails()
+    {
+        // The error message must include the inner exception's message so the user
+        // sees the actionable root cause (auth failure, network error, etc.),
+        // not a generic "shut down by the server" message.
+        var block = GetSendPromptPreCheckBlock();
+        Assert.Contains("ex.Message", block);
+        Assert.Contains("needs reconnection after detecting shutdown state", block);
+    }
+
+    [Fact]
+    public void ShutdownPreCheck_UsesNullForgivingAssignment()
+    {
+        // state.Session is a non-nullable required property — assigning null
+        // without ! produces CS8625. The pre-check must use null! for consistency
+        // with the 12+ other occurrences in the codebase.
+        var block = GetSendPromptPreCheckBlock();
+        Assert.Contains("state.Session = null!", block);
+        Assert.DoesNotContain("state.Session = null;", block);
+    }
+
+    // --- Detection logic tests (retained from original) ---
 
     [Fact]
     public void ShutdownPreCheck_SessionWithShutdownEvent_IsDetected()
     {
-        // Simulate the exact check from SendPromptAsync:
-        // 1. Get session ID
-        // 2. Build events path
-        // 3. Check GetLastEventType
-
         var svc = CreateService();
         var baseDir = TestSetup.TestBaseDir;
         var sessionStatePath = Path.Combine(baseDir, "session-state");
@@ -157,11 +240,9 @@ public class ShutdownPreCheckTests
                 """{"type":"session.shutdown","data":{}}"""
             ));
 
-            // This is the exact check added in the fix
             var lastEvent = CopilotService.GetLastEventType(eventsFile);
             Assert.Equal("session.shutdown", lastEvent);
 
-            // The fix would force reconnect when this condition is true
             bool shouldForceReconnect = lastEvent == "session.shutdown";
             Assert.True(shouldForceReconnect, "Should detect server-shutdown session and force reconnect");
         }
@@ -175,7 +256,6 @@ public class ShutdownPreCheckTests
     [Fact]
     public void ShutdownPreCheck_ActiveSession_NoReconnectNeeded()
     {
-        // Normal active session should NOT trigger the pre-check
         var baseDir = TestSetup.TestBaseDir;
         var sessionStatePath = Path.Combine(baseDir, "session-state");
         var sessionId = Guid.NewGuid().ToString();
@@ -206,7 +286,6 @@ public class ShutdownPreCheckTests
     [Fact]
     public void ShutdownPreCheck_ToolExecutionSession_NoReconnectNeeded()
     {
-        // Session with tool execution in progress should NOT trigger pre-check
         var baseDir = TestSetup.TestBaseDir;
         var sessionStatePath = Path.Combine(baseDir, "session-state");
         var sessionId = Guid.NewGuid().ToString();
@@ -236,7 +315,6 @@ public class ShutdownPreCheckTests
     [Fact]
     public void ShutdownPreCheck_NoEventsFile_NoReconnectNeeded()
     {
-        // New session with no events file should not trigger pre-check
         var lastEvent = CopilotService.GetLastEventType("/tmp/nonexistent-" + Guid.NewGuid().ToString("N"));
         bool shouldForceReconnect = lastEvent == "session.shutdown";
         Assert.False(shouldForceReconnect, "Missing events file should not trigger shutdown pre-check");
