@@ -782,4 +782,120 @@ public class ConnectionSettingsTests
             try { Directory.Delete(tempDir, true); } catch { }
         }
     }
+
+    [Fact]
+    public void SyncCliConfig_AbortsOnCorruptFile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var configPath = Path.Combine(tempDir, "config.json");
+            // Write corrupt JSON with an existing key that should be preserved
+            File.WriteAllText(configPath, "NOT VALID JSON {{{");
+
+            var settings = new ConnectionSettings { CompactPaste = true };
+            settings.SyncCliConfig(tempDir);
+
+            // File should remain unchanged — abort on parse failure
+            var content = File.ReadAllText(configPath);
+            Assert.Equal("NOT VALID JSON {{{", content);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SyncCliConfig_AtomicWrite_UsesRename()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            var settings = new ConnectionSettings { CompactPaste = true };
+            settings.SyncCliConfig(tempDir);
+
+            var configPath = Path.Combine(tempDir, "config.json");
+            Assert.True(File.Exists(configPath), "config.json should be created");
+            // Temp file should be cleaned up
+            Assert.False(File.Exists(configPath + ".tmp"), "Temp file should not remain");
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
+            Assert.True(doc.RootElement.GetProperty("compactPaste").GetBoolean());
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ImportCliConfigValues_ImportsFromConfigJson()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            File.WriteAllText(
+                Path.Combine(tempDir, "config.json"),
+                """{"compactPaste": true, "respectGitignore": true, "someOtherKey": 42}""");
+
+            var settings = new ConnectionSettings();
+            Assert.False(settings.CompactPaste);
+            Assert.False(settings.RespectGitignore);
+
+            settings.ImportCliConfigValues(tempDir);
+
+            Assert.True(settings.CompactPaste);
+            Assert.True(settings.RespectGitignore);
+            Assert.False(settings.DisableAllHooks); // not in config.json
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ImportCliConfigValues_IgnoresCorruptFile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            File.WriteAllText(Path.Combine(tempDir, "config.json"), "NOT VALID JSON");
+
+            var settings = new ConnectionSettings();
+            settings.ImportCliConfigValues(tempDir);
+
+            // Should remain at defaults — no crash
+            Assert.False(settings.CompactPaste);
+            Assert.False(settings.RespectGitignore);
+            Assert.False(settings.DisableAllHooks);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void ImportCliConfigValues_NoFileNoCrash()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            Directory.CreateDirectory(tempDir);
+            var settings = new ConnectionSettings();
+            settings.ImportCliConfigValues(tempDir);
+
+            // Should remain at defaults — no crash
+            Assert.False(settings.CompactPaste);
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
 }
