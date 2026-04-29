@@ -3492,6 +3492,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         if (Interlocked.CompareExchange(ref state.SendingFlag, 1, 0) != 0)
             throw new SessionBusyException(sessionName);
 
+        // Track whether we entered with an existing session — used to gate the shutdown
+        // pre-check below. If we just performed a lazy-resume, the session is fresh and
+        // events.jsonl is stale (still shows session.shutdown from the old session).
+        bool wasAlreadyConnected = state.Session != null;
+
         // Lazy resume INSIDE the SendingFlag guard to prevent double-resume race:
         // without this, two rapid sends could both see Session==null and both call
         // EnsureSessionConnectedAsync concurrently, leaking the first resumed session.
@@ -3512,28 +3517,39 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // session but our event stream was dead so we never received the notification.
         // Force a reconnect NOW instead of sending to a dead session and discovering the
         // failure 10+ minutes later via the watchdog. (Issue #397)
-        try
+        // Only check when we entered with an existing (possibly stale) session.
+        // If we just performed a lazy-resume above, the session is fresh and events.jsonl
+        // still shows the old shutdown event — checking would cause a spurious double-reconnect.
+        if (wasAlreadyConnected)
         {
-            var shutdownCheckSid = state.Info.SessionId;
-            if (!string.IsNullOrEmpty(shutdownCheckSid))
+            try
             {
-                var eventsPath = Path.Combine(SessionStatePath, shutdownCheckSid, "events.jsonl");
-                var lastEvent = GetLastEventType(eventsPath);
-                if (lastEvent == "session.shutdown")
+                var shutdownCheckSid = state.Info.SessionId;
+                if (!string.IsNullOrEmpty(shutdownCheckSid))
                 {
-                    Debug($"[SEND-SHUTDOWN-PRECHECK] '{sessionName}' events.jsonl ends with session.shutdown — forcing reconnect before send");
-                    try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
-                    state.Session = null;
-                    await EnsureSessionConnectedAsync(sessionName, state, cancellationToken);
+                    var eventsPath = Path.Combine(SessionStatePath, shutdownCheckSid, "events.jsonl");
+                    var lastEvent = GetLastEventType(eventsPath);
+                    if (lastEvent == "session.shutdown")
+                    {
+                        Debug($"[SEND-SHUTDOWN-PRECHECK] '{sessionName}' events.jsonl ends with session.shutdown — forcing reconnect before send");
+                        try { await state.Session.DisposeAsync(); } catch { /* session may already be disposed */ }
+                        state.Session = null!;
+                        await EnsureSessionConnectedAsync(sessionName, state, cancellationToken);
+                    }
                 }
             }
-        }
-        catch (Exception ex)
-        {
-            Debug($"[SEND-SHUTDOWN-PRECHECK] '{sessionName}' reconnect after shutdown detection failed: {ex.Message}");
-            Interlocked.Exchange(ref state.SendingFlag, 0);
-            throw new InvalidOperationException(
-                $"Session '{sessionName}' was shut down by the server and reconnection failed. Try creating a new session.", ex);
+            catch (OperationCanceledException)
+            {
+                Interlocked.Exchange(ref state.SendingFlag, 0);
+                throw; // Preserve cancellation semantics
+            }
+            catch (Exception ex)
+            {
+                Debug($"[SEND-SHUTDOWN-PRECHECK] '{sessionName}' reconnect after shutdown detection failed: {ex.Message}");
+                Interlocked.Exchange(ref state.SendingFlag, 0);
+                throw new InvalidOperationException(
+                    $"Session '{sessionName}' needs reconnection after detecting shutdown state: {ex.Message}", ex);
+            }
         }
 
         long myGeneration = 0; // will be set right after the generation increment inside try
