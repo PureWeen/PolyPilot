@@ -686,4 +686,100 @@ public class ConnectionSettingsTests
     {
         try { Directory.Delete(_testDir, true); } catch { }
     }
+
+    // ── Advanced CLI config tests ───────────────────────────────────
+
+    [Fact]
+    public void DefaultValues_AdvancedCliConfig_AreFalse()
+    {
+        var settings = new ConnectionSettings();
+        Assert.False(settings.CompactPaste);
+        Assert.False(settings.RespectGitignore);
+        Assert.False(settings.DisableAllHooks);
+    }
+
+    [Fact]
+    public void RoundTrip_AdvancedCliConfig()
+    {
+        var original = new ConnectionSettings
+        {
+            CompactPaste = true,
+            RespectGitignore = true,
+            DisableAllHooks = true
+        };
+
+        var json = JsonSerializer.Serialize(original);
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.True(loaded!.CompactPaste);
+        Assert.True(loaded.RespectGitignore);
+        Assert.True(loaded.DisableAllHooks);
+    }
+
+    [Fact]
+    public void BackwardCompatibility_OldJson_AdvancedCliConfigDefaultsFalse()
+    {
+        var json = """{"Mode":0,"Host":"localhost","Port":4321}""";
+        var loaded = JsonSerializer.Deserialize<ConnectionSettings>(json);
+
+        Assert.NotNull(loaded);
+        Assert.False(loaded!.CompactPaste);
+        Assert.False(loaded.RespectGitignore);
+        Assert.False(loaded.DisableAllHooks);
+    }
+
+    [Fact]
+    public void SyncCliConfig_WritesConfigFile()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            var settings = new ConnectionSettings
+            {
+                CompactPaste = true,
+                RespectGitignore = false,
+                DisableAllHooks = true
+            };
+            settings.SyncCliConfig(tempDir);
+
+            var configPath = Path.Combine(tempDir, "config.json");
+            Assert.True(File.Exists(configPath), "config.json should be created");
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
+            Assert.True(doc.RootElement.GetProperty("compactPaste").GetBoolean());
+            Assert.False(doc.RootElement.GetProperty("respectGitignore").GetBoolean());
+            Assert.True(doc.RootElement.GetProperty("disableAllHooks").GetBoolean());
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void SyncCliConfig_PreservesExistingKeys()
+    {
+        var tempDir = Path.Combine(Path.GetTempPath(), $"copilot-test-{Guid.NewGuid():N}");
+        try
+        {
+            // Pre-populate config with an existing key
+            Directory.CreateDirectory(tempDir);
+            File.WriteAllText(
+                Path.Combine(tempDir, "config.json"),
+                """{"existingKey": "existingValue", "compactPaste": false}""");
+
+            var settings = new ConnectionSettings { CompactPaste = true };
+            settings.SyncCliConfig(tempDir);
+
+            var configPath = Path.Combine(tempDir, "config.json");
+            using var doc = JsonDocument.Parse(File.ReadAllText(configPath));
+            Assert.Equal("existingValue", doc.RootElement.GetProperty("existingKey").GetString());
+            Assert.True(doc.RootElement.GetProperty("compactPaste").GetBoolean());
+        }
+        finally
+        {
+            try { Directory.Delete(tempDir, true); } catch { }
+        }
+    }
 }

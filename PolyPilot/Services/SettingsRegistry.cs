@@ -389,6 +389,68 @@ public static class SettingsRegistry
             SearchKeywords = "auto update main git watch relaunch rebuild developer",
         });
 
+        // ── Advanced ────────────────────────────────────────────────
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "advanced.compactPaste",
+            Label = "Compact Paste",
+            Description = "Collapse large pasted content into a compact representation to save context-window tokens.",
+            Category = "Advanced",
+            Section = "CLI Config",
+            Type = SettingType.Bool,
+            Order = 10,
+            SearchKeywords = "compact paste collapse token context cli config advanced",
+            GetValue = ctx => ctx.Settings.CompactPaste,
+            SetValue = (ctx, v) =>
+            {
+                if (v is bool b)
+                    ctx.Settings.CompactPaste = b;
+            },
+            IsVisible = ctx => ctx.Settings.Mode != ConnectionMode.Remote
+                            && ctx.Settings.Mode != ConnectionMode.Demo
+        });
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "advanced.respectGitignore",
+            Label = "Respect .gitignore",
+            Description = "Exclude files matched by .gitignore from the working-tree context sent to the model.",
+            Category = "Advanced",
+            Section = "CLI Config",
+            Type = SettingType.Bool,
+            Order = 20,
+            SearchKeywords = "gitignore ignore files context exclude respect cli config advanced",
+            GetValue = ctx => ctx.Settings.RespectGitignore,
+            SetValue = (ctx, v) =>
+            {
+                if (v is bool b)
+                    ctx.Settings.RespectGitignore = b;
+            },
+            IsVisible = ctx => ctx.Settings.Mode != ConnectionMode.Remote
+                            && ctx.Settings.Mode != ConnectionMode.Demo
+        });
+
+        list.Add(new SettingDescriptor
+        {
+            Id = "advanced.disableAllHooks",
+            Label = "Disable All Hooks",
+            Description = "Globally disable all Copilot CLI hooks (pre-tool-use, post-tool-use, etc.) for every session.",
+            Category = "Advanced",
+            Section = "CLI Config",
+            Type = SettingType.Bool,
+            Order = 30,
+            SearchKeywords = "hooks disable all global toggle cli config advanced",
+            GetValue = ctx => ctx.Settings.DisableAllHooks,
+            SetValue = (ctx, v) =>
+            {
+                if (v is bool b)
+                    ctx.Settings.DisableAllHooks = b;
+            },
+            IsVisible = ctx => ctx.Settings.Mode != ConnectionMode.Remote
+                            && ctx.Settings.Mode != ConnectionMode.Demo
+        });
+
         return list;
     }
 

@@ -358,4 +358,112 @@ public class SettingsRegistryTests
         ctx.IsDesktop = false;
         Assert.False(desc.IsVisible!(ctx));
     }
+
+    // ── Advanced CLI config tests ───────────────────────────────────
+
+    [Fact]
+    public void Categories_ContainsAdvanced()
+    {
+        Assert.Contains("Advanced", SettingsRegistry.Categories);
+    }
+
+    [Fact]
+    public void Advanced_CompactPaste_DefaultFalse()
+    {
+        var ctx = CreateContext();
+        var desc = SettingsRegistry.All.First(s => s.Id == "advanced.compactPaste");
+        Assert.False((bool)desc.GetValue!(ctx)!);
+    }
+
+    [Fact]
+    public void Advanced_CompactPaste_ToggleValue()
+    {
+        var settings = new ConnectionSettings { CompactPaste = false };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "advanced.compactPaste");
+        desc.SetValue!(ctx, true);
+        Assert.True(settings.CompactPaste);
+    }
+
+    [Fact]
+    public void Advanced_RespectGitignore_ToggleValue()
+    {
+        var settings = new ConnectionSettings();
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "advanced.respectGitignore");
+        Assert.False((bool)desc.GetValue!(ctx)!);
+        desc.SetValue!(ctx, true);
+        Assert.True(settings.RespectGitignore);
+    }
+
+    [Fact]
+    public void Advanced_DisableAllHooks_ToggleValue()
+    {
+        var settings = new ConnectionSettings();
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "advanced.disableAllHooks");
+        Assert.False((bool)desc.GetValue!(ctx)!);
+        desc.SetValue!(ctx, true);
+        Assert.True(settings.DisableAllHooks);
+    }
+
+    [Fact]
+    public void Advanced_HiddenInRemoteMode()
+    {
+        var settings = new ConnectionSettings { Mode = ConnectionMode.Remote };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "advanced.compactPaste");
+        Assert.False(desc.IsVisible!(ctx));
+    }
+
+    [Fact]
+    public void Advanced_HiddenInDemoMode()
+    {
+        var settings = new ConnectionSettings { Mode = ConnectionMode.Demo };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "advanced.respectGitignore");
+        Assert.False(desc.IsVisible!(ctx));
+    }
+
+    [Fact]
+    public void Advanced_VisibleInPersistentMode()
+    {
+        var settings = new ConnectionSettings { Mode = ConnectionMode.Persistent };
+        var ctx = CreateContext(settings);
+        var desc = SettingsRegistry.All.First(s => s.Id == "advanced.disableAllHooks");
+        Assert.True(desc.IsVisible!(ctx));
+    }
+
+    [Fact]
+    public void Advanced_VisibleInEmbeddedMode()
+    {
+        var settings = new ConnectionSettings { Mode = ConnectionMode.Embedded };
+        var ctx = CreateContext(settings);
+        var compactPaste = SettingsRegistry.All.First(s => s.Id == "advanced.compactPaste");
+        Assert.True(compactPaste.IsVisible!(ctx));
+    }
+
+    [Fact]
+    public void Search_FindsAdvancedByKeyword()
+    {
+        var ctx = CreateContext();
+        var results = SettingsRegistry.Search("compact paste", ctx).ToList();
+        Assert.Contains(results, s => s.Id == "advanced.compactPaste");
+    }
+
+    [Fact]
+    public void Search_FindsAdvancedByGitignore()
+    {
+        var ctx = CreateContext();
+        var results = SettingsRegistry.Search("gitignore", ctx).ToList();
+        Assert.Contains(results, s => s.Id == "advanced.respectGitignore");
+    }
+
+    [Fact]
+    public void Search_FindsAdvancedByHooks()
+    {
+        var ctx = CreateContext();
+        var results = SettingsRegistry.Search("hooks", ctx).ToList();
+        Assert.Contains(results, s => s.Id == "advanced.disableAllHooks");
+    }
 }
