@@ -397,7 +397,12 @@ public class ConnectionSettings
                     foreach (var prop in doc.RootElement.EnumerateObject())
                         existing[prop.Name] = prop.Value.Clone();
                 }
-                catch { /* ignore corrupt file — overwrite */ }
+                catch
+                {
+                    // Malformed config.json — abort to avoid silently dropping
+                    // non-PolyPilot config keys that the CLI or other tools set.
+                    return;
+                }
             }
 
             // Merge our values
