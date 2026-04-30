@@ -35,10 +35,9 @@ tools:
     toolsets: [repos, issues, pull_requests]
 
 safe-outputs:
-  create-pull-request:
-    auto-merge: false
-    draft: false
-    preserve-branch-name: true
+  push-to-pull-request-branch:
+    max: 1
+    target: "*"
     protected-files: fallback-to-issue
   add-comment:
     max: 3
@@ -124,31 +123,24 @@ If any tests fail, fix them before proceeding. All tests must pass.
 
 ## Step 5: Commit and Push (MANDATORY)
 
-> **🚨 You MUST use `create_pull_request` to push your fixes.** This is the only way to push commits in a gh-aw workflow. Do NOT try `git push` directly — it will fail.
+> **🚨 You MUST use `push_to_pull_request_branch` to push your fixes.** This pushes commits to the EXISTING PR branch. Do NOT use `create_pull_request` — that creates a duplicate PR. Do NOT try `git push` directly — it will fail.
 
-Commit all fixes locally, then create a patch and push via the `create_pull_request` safe output:
+Commit all fixes locally, then push to the existing PR branch:
 
 ```bash
 git add -A
 git commit -m "fix: address review findings round <detected_round>
 
 Co-authored-by: copilot-agentic-workflow[bot] <224017+copilot-agentic-workflow[bot]@users.noreply.github.com>"
-
-# Create the patch for safe-outputs
-git format-patch origin/main --stdout > /tmp/gh-aw/aw-review-fixes.patch
 ```
 
-Then call `create_pull_request` to push the fixes to the existing PR branch. Use the **exact same branch name** as the existing PR (check with `get_pull_request` if needed). The `preserve-branch-name: true` setting ensures the branch name is kept as-is.
-
-> **🚨 Do NOT pass a `base` field.** The base branch is inherited. Passing `base` causes a "Base branch override is not allowed" error that cancels all safe outputs.
+Then call `push_to_pull_request_branch` to push your commits to PR #${{ inputs.pr_number }}:
 
 ```
-create_pull_request({
-  "title": "fix: address review findings round <detected_round> (PR #${{ inputs.pr_number }})",
-  "body": "Addresses review findings from expert review round <detected_round>.",
-  "head": "<exact branch name from the existing PR>"
-})
+push_to_pull_request_branch({ "pr_number": "${{ inputs.pr_number }}" })
 ```
+
+This pushes all local commits to the existing PR's branch — no new PR is created.
 
 ## Step 6: Re-dispatch Expert Review (MANDATORY if detected round < 3)
 
