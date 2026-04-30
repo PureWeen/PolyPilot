@@ -25,6 +25,7 @@ public class JsInteropModuleTests : IntegrationTestBase
             "startSidebarResize", "blurActiveElement",
             "clearSettingsSearchInput", "scrollToSettingsCategory",
             "wireSettingsSearch", "setupCategoryIntersectionObserver",
+            "removeSettingsContentActiveClass", "clearSettingsRef",
             "ensureDashboardKeyHandlers", "clearDashRef",
             "ensureTextareaAutoResize", "setDashboardScrollTop",
             "getDashboardScrollTop", "ensureLoadMoreObserver",
@@ -35,6 +36,8 @@ public class JsInteropModuleTests : IntegrationTestBase
             "wireSessionNameInputEnter", "clearSidebarRef",
             "invokeDashboardCollapseToGrid", "scrollAndFocusCommentBox",
             "clearPromptRef",
+            "__setNavRef", "__setDashRef", "__setSettingsRef",
+            "__setSidebarRef", "__ppSetRef",
         };
 
         var checkExpr = "JSON.stringify([" +
@@ -57,12 +60,42 @@ public class JsInteropModuleTests : IntegrationTestBase
     [Fact]
     public async Task InteropModule_NoEvalInRazorComponents()
     {
-        await WaitForCdpReadyAsync();
+        // Structural scan: verify no Razor components still use eval-based JS interop.
+        // This catches regressions where new code introduces InvokeVoidAsync("eval", ...).
+        var componentsDir = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..",
+            "PolyPilot", "Components");
+        if (!Directory.Exists(componentsDir))
+        {
+            // Fallback for CI where source layout may differ
+            componentsDir = Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..",
+                "PolyPilot", "Components");
+        }
 
-        // Verify no eval calls remain — check that the page loaded without errors
-        // by testing a function that would previously have been an eval call
-        var result = await CdpEvalAsync("typeof window.focusAndSelect === 'function' ? 'ok' : 'missing'");
-        Assert.Equal("ok", result);
+        if (Directory.Exists(componentsDir))
+        {
+            var razorFiles = Directory.GetFiles(componentsDir, "*.razor", SearchOption.AllDirectories);
+            Assert.NotEmpty(razorFiles); // Sanity check: we found Razor files
+
+            var violations = new List<string>();
+            foreach (var file in razorFiles)
+            {
+                var content = await File.ReadAllTextAsync(file);
+                if (content.Contains("InvokeVoidAsync(\"eval\"") || content.Contains("InvokeAsync<string>(\"eval\""))
+                {
+                    violations.Add(Path.GetFileName(file));
+                }
+            }
+            Assert.True(violations.Count == 0,
+                $"Razor files still using eval-based JS interop: {string.Join(", ", violations)}. " +
+                "Use named functions from polypilot-interop.js instead.");
+        }
+        else
+        {
+            // If source not available, fall back to runtime check
+            await WaitForCdpReadyAsync();
+            var result = await CdpEvalAsync("typeof window.focusAndSelect === 'function' ? 'ok' : 'missing'");
+            Assert.Equal("ok", result);
+        }
     }
 
     [Fact]
