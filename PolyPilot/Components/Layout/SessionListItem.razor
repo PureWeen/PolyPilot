@@ -210,27 +210,6 @@
                     </button>
                 }
                 @{
-                    var currentGroupForMove = Groups?.FirstOrDefault(g => g.Id == Meta?.GroupId);
-                    var isInCodespace = currentGroupForMove?.IsCodespace == true;
-                    // Codespace sessions are bound to their codespace — don't allow moving them.
-                    // Also exclude codespace groups as move targets for regular sessions.
-                    var moveTargets = Groups?.Where(g => g.Id != Meta?.GroupId && !g.IsCodespace).ToList();
-                }
-                @if (!isInCodespace && !IsMultiAgentMember && moveTargets != null && moveTargets.Count > 0)
-                {
-                    <div class="menu-separator"></div>
-                    <div class="menu-submenu">
-                        <span class="menu-item submenu-label">📁 Move to…</span>
-                        @foreach (var g in moveTargets)
-                        {
-                            var targetId = g.Id;
-                            <button class="menu-item submenu-item" @onclick="() => { OnCloseMenu.InvokeAsync(); OnMove.InvokeAsync(targetId); }">
-                                @g.Name
-                            </button>
-                        }
-                    </div>
-                }
-                @{
                     var currentGroup = Groups?.FirstOrDefault(g => g.Id == Meta?.GroupId);
                 }
                 @if (currentGroup is { IsMultiAgent: true })

@@ -1350,6 +1350,57 @@ public partial class CopilotService
 
     public bool HasMultipleGroups => Organization.Groups.Count > 1;
 
+    /// <summary>
+    /// Returns all sessions in a flat list sorted by: pinned first, then by most recent
+    /// activity (LastUpdatedAt descending). No grouping applied — suitable for the flat
+    /// sidebar layout. IsOrchestratorWorker is still synced for NeedsAttention suppression.
+    /// </summary>
+    public IReadOnlyList<AgentSessionInfo> GetFlatSessions()
+    {
+        var metas = Organization.Sessions.ToDictionary(m => m.SessionName);
+        var allSessions = GetAllSessions().ToList();
+
+        // Sync IsOrchestratorWorker for NeedsAttention suppression
+        foreach (var s in allSessions)
+        {
+            if (metas.TryGetValue(s.Name, out var meta))
+            {
+                var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+                bool isOrchestratorGroup = group is { IsMultiAgent: true } &&
+                    (group.OrchestratorMode == MultiAgentMode.Orchestrator ||
+                     group.OrchestratorMode == MultiAgentMode.OrchestratorReflect);
+                bool shouldBeWorker = isOrchestratorGroup && meta.Role == MultiAgentRole.Worker;
+                if (s.IsOrchestratorWorker != shouldBeWorker)
+                    s.IsOrchestratorWorker = shouldBeWorker;
+            }
+        }
+
+        return allSessions
+            .OrderByDescending(s => metas.TryGetValue(s.Name, out var m) && m.IsPinned)
+            .ThenBy(s => UrgencyScore(s))
+            .ThenBy(s => DateTimeOffset.MaxValue - s.LastUpdatedAt)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Returns worktrees that have no active session currently using them.
+    /// These are shown in the sidebar so users can create sessions from them.
+    /// </summary>
+    public IReadOnlyList<WorktreeInfo> GetUnoccupiedWorktrees()
+    {
+        var activeWorktreeIds = new HashSet<string>();
+        foreach (var meta in Organization.Sessions)
+        {
+            if (!string.IsNullOrEmpty(meta.WorktreeId))
+                activeWorktreeIds.Add(meta.WorktreeId);
+        }
+
+        return _repoManager.Worktrees
+            .Where(wt => !activeWorktreeIds.Contains(wt.Id))
+            .OrderByDescending(wt => wt.CreatedAt)
+            .ToList();
+    }
+
     public SessionMeta? GetSessionMeta(string sessionName) =>
         Organization.Sessions.FirstOrDefault(m => m.SessionName == sessionName);
 
