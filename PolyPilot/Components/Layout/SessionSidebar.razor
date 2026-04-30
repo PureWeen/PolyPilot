@@ -2103,6 +2103,10 @@ else
         createError = null;
         try
         {
+            // Re-check occupancy at click time to prevent TOCTOU race
+            var currentUnoccupied = CopilotService.GetUnoccupiedWorktrees();
+            if (!currentUnoccupied.Any(w => w.Id == worktreeId))
+                throw new InvalidOperationException("Worktree is already in use");
             var wt = RepoManager.Worktrees.FirstOrDefault(w => w.Id == worktreeId);
             if (wt == null) throw new InvalidOperationException("Worktree not found");
             await CopilotService.CreateSessionWithWorktreeAsync(
