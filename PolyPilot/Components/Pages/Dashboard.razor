@@ -265,31 +265,7 @@
                 <button class="toolbar-overflow-btn" @onclick="() => toolbarMenuOpen = !toolbarMenuOpen"
                         @onclick:stopPropagation="true" title="More options">⋯</button>
                 <div class="toolbar-controls @(toolbarMenuOpen ? "open" : "")">
-                    @if (isAddingDashGroup)
                     {
-                        <input type="text" class="new-group-input" id="dashNewGroupInput"
-                               placeholder="Group name..."
-                               @onblur="CommitDashGroup"
-                               @onkeydown="HandleDashGroupKeyDown" />
-                    }
-                    else if (isAddingMultiAgentGroup)
-                    {
-                        <input type="text" class="new-group-input" id="dashNewMultiAgentGroupInput"
-                               placeholder="Multi-agent group name..."
-                               @onblur="CommitMultiAgentGroup"
-                               @onkeydown="HandleMultiAgentGroupKeyDown" />
-                    }
-                    else
-                    {
-                        <button class="grid-density-btn toolbar-action-btn" @onclick="() => { isAddingDashGroup = true; }" title="New group">
-                            <span class="toolbar-action-icon add-group" aria-hidden="true"></span>
-                            <span>Group</span>
-                        </button>
-                        <button class="grid-density-btn toolbar-action-btn multi-agent-btn" @onclick="() => { isAddingMultiAgentGroup = true; }" title="New multi-agent group">
-                            <span class="toolbar-action-icon multi-agent" aria-hidden="true"></span>
-                            <span>Multi-Agent</span>
-                        </button>
-                    }
                     <span class="grid-columns-control">
                         <span class="toolbar-control-label">Grid</span>
                         <button class="grid-col-btn" @onclick="DecrementGridColumns" disabled="@(_gridColumns <= 2)" title="Fewer columns">−</button>
@@ -405,112 +381,11 @@
             }
         }
 
-        @foreach (var (group, groupSessions) in CopilotService.GetOrganizedSessions())
+        <div class="session-grid" style="grid-template-columns: repeat(@_gridColumns, 1fr)">
+        @foreach (var session in CopilotService.GetFlatSessions())
         {
-            var showGroupHeaders = CopilotService.HasMultipleGroups;
-            var isOrchestratorGroup = group.IsMultiAgent &&
-                (group.OrchestratorMode == MultiAgentMode.Orchestrator ||
-                 group.OrchestratorMode == MultiAgentMode.OrchestratorReflect);
-            var workersExpanded = _expandedWorkerGroups.Contains(group.Id);
-            var visibleSessions = isOrchestratorGroup && !workersExpanded
-                ? groupSessions.Where(s => {
-                    var m = CopilotService.GetSessionMeta(s.Name);
-                    return m?.Role != MultiAgentRole.Worker;
-                  }).ToList()
-                : groupSessions;
-            var workerCount = isOrchestratorGroup
-                ? groupSessions.Count(s => CopilotService.GetSessionMeta(s.Name)?.Role == MultiAgentRole.Worker)
-                : 0;
-            @if (showGroupHeaders)
-            {
-                <div class="group-divider @(group.IsCollapsed ? "collapsed" : "") @(group.IsMultiAgent ? "multi-agent-group" : "")"
-                     @onclick="() => CopilotService.ToggleGroupCollapsed(group.Id)">
-                    @if (group.IsMultiAgent)
-                    {
-                        <span class="group-divider-badge" aria-hidden="true"></span>
-                    }
-                    <span class="group-divider-name">@group.Name</span>
-                    @if (group.IsMultiAgent)
-                    {
-                        <span class="group-divider-mode" @onclick:stopPropagation="true">
-                            <span class="ma-mode-picker" @onclick:stopPropagation="true">
-                                <span class="dashboard-ma-mode-icon @GetDashboardMultiAgentModeIconClass(group.OrchestratorMode)" aria-hidden="true"></span>
-                                <select class="ma-mode-select" aria-label="Orchestration mode" @onchange="(e) => OnMultiAgentModeChanged(group.Id, e)">
-                                    <option value="Broadcast" selected="@(group.OrchestratorMode == MultiAgentMode.Broadcast)">Broadcast</option>
-                                    <option value="Sequential" selected="@(group.OrchestratorMode == MultiAgentMode.Sequential)">Sequential</option>
-                                    <option value="Orchestrator" selected="@(group.OrchestratorMode == MultiAgentMode.Orchestrator)">Orchestrate</option>
-                                    <option value="OrchestratorReflect" selected="@(group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)">Reflect</option>
-                                </select>
-                            </span>
-                        </span>
-                    }
-                    <span class="group-divider-count">@groupSessions.Count sessions</span>
-                    @if (group.IsCollapsed && groupSessions.Any(s => s.IsProcessing))
-                    {
-                        <span class="group-divider-busy">● working</span>
-                    }
-                    @if (group.IsMultiAgent && !group.IsCollapsed)
-                    {
-                        var progress = CopilotService.GetMultiAgentProgress(group.Id);
-                        @if (progress.Processing > 0)
-                        {
-                            <span class="group-divider-progress">
-                                @progress.Completed/@progress.Total done
-                            </span>
-                        }
-                        @if (_groupPhases.TryGetValue(group.Id, out var gridPhase))
-                        {
-                            <span class="phase-indicator">@PhaseLabel(gridPhase.Phase, gridPhase.Detail)</span>
-                        }
-                    }
-                    <span class="group-divider-chevron">@(group.IsCollapsed ? "▶" : "▼")</span>
-                </div>
-            }
-
-            @if (!group.IsCollapsed || !showGroupHeaders)
-            {
-                @if (group.IsMultiAgent && showGroupHeaders)
-                {
-                    @if (group.OrchestratorMode == MultiAgentMode.OrchestratorReflect)
-                    {
-                        <div class="multi-agent-input-bar" @onclick:stopPropagation="true">
-                            <span class="reflect-iter-inline">
-                                <label>Iterations:</label>
-                                <input type="number" min="1" max="100" value="@GetMaxIterations(group.Id)"
-                                       @onchange="(e) => SetMaxIterations(group.Id, e)"
-                                       @onclick:stopPropagation="true" class="reflect-iter-input" />
-                            </span>
-                        </div>
-                    }
-                    else if (group.OrchestratorMode != MultiAgentMode.Orchestrator)
-                    {
-                    <div class="multi-agent-input-bar" @onclick:stopPropagation="true">
-                        <textarea id="ma-input-@group.Id" class="ma-broadcast-input" placeholder="@GetInputPlaceholder(group.OrchestratorMode)"
-                                  autocorrect="off" rows="1"></textarea>
-                        <button class="ma-send-btn" @onclick="() => SendToMultiAgentGroup(group.Id)" title="Send to all sessions">
-                            📡 Send All
-                        </button>
-                    </div>
-                    }
-                }
-                @* Workers expand/collapse bar — only for Orchestrator/Reflect groups *@
-                @if (isOrchestratorGroup)
-                {
-                    <div class="workers-toggle-bar">
-                        <button class="workers-toggle-btn"
-                                @onclick="() => { if (!_expandedWorkerGroups.Remove(group.Id)) _expandedWorkerGroups.Add(group.Id); StateHasChanged(); }">
-                            👷 @(workerCount > 0 ? $"{workerCount} worker{(workerCount != 1 ? "s" : "")}" : "no workers yet")
-                            @(workersExpanded ? " ▼ hide" : " ▶ show")
-                        </button>
-                    </div>
-                }
-                <div class="session-grid" style="grid-template-columns: repeat(@_gridColumns, 1fr)">
-                @foreach (var session in visibleSessions)
-                {
                     var isCompleted = completedSessions.Contains(session.Name);
-                    var cardClass = session.IsProcessing ? "processing" : isCompleted ? "completed" : "idle";
                     var meta = CopilotService.GetSessionMeta(session.Name);
-                    var isPinned = meta?.IsPinned ?? false;
                     <SessionCard Session="session"
                                  @key="session.Name"
                                  Meta="meta"
@@ -542,11 +417,8 @@
                                  OnStartRename="() => StartCardRename(session.Name)"
                                  OnCommitRename="(newName) => CommitCardRename()"
                                  OnCloseMenu="() => { cardMenuSession = null; }" />
-
-                }
-                </div>
-            }
         }
+        </div>
     }
 
     @{
