@@ -871,7 +871,7 @@ else
             {
                 <p class="no-sessions" style="padding:1rem 0.5rem;font-style:italic;color:var(--text-dim)">No @(_statusFilter.ToString().ToLowerInvariant()) sessions</p>
             }
-            else
+            else if (flatSessions.Any())
             {
                 <div class="section-header"><span class="section-header-label">Sessions</span></div>
                 @foreach (var session in flatSessions)
@@ -916,6 +916,10 @@ else
             {
                 <div class="sidebar-divider"></div>
                 <div class="section-header"><span class="section-header-label">Worktrees</span></div>
+                @if (!string.IsNullOrEmpty(_worktreeCreateError))
+                {
+                    <div class="create-error" style="padding:0.25rem 0.5rem;font-size:var(--type-caption1);color:var(--error-fg)">⚠️ @_worktreeCreateError</div>
+                }
                 @foreach (var wt in worktrees)
                 {
                     var wtId = wt.Id;
@@ -1369,6 +1373,7 @@ else
 
     private List<AgentSessionInfo> _flatSessionList = new();
     private IReadOnlyList<PolyPilot.Models.WorktreeInfo> _unoccupiedWorktrees = Array.Empty<PolyPilot.Models.WorktreeInfo>();
+    private string? _worktreeCreateError = null;
     private List<(SessionGroup Group, List<AgentSessionInfo> Sessions)> _codespaceGroups = new();
 
     // RenderFilterBar runs first in the template, before the session list reads
@@ -2101,6 +2106,7 @@ else
         if (isCreating) return;
         isCreating = true;
         createError = null;
+        _worktreeCreateError = null;
         try
         {
             // Re-check occupancy at click time to prevent TOCTOU race
@@ -2119,6 +2125,7 @@ else
         catch (Exception ex)
         {
             createError = ex.Message;
+            _worktreeCreateError = ex.Message;
             Console.WriteLine($"Error creating session for worktree: {ex}");
         }
         finally

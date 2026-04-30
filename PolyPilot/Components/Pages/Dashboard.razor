@@ -3362,13 +3362,14 @@
     [JSInvokable]
     public async Task JsCycleExpandedSession(bool reverse)
     {
-        if (expandedSession == null || sessions.Count < 2) return;
+        // Use _flatSessions to match the visible grid ordering (pinned → urgency → recency)
+        if (expandedSession == null || _flatSessions.Count < 2) return;
         await SaveDraftsAndCursor();
-        var idx = sessions.FindIndex(s => s.Name == expandedSession);
+        var idx = _flatSessions.FindIndex(s => s.Name == expandedSession);
         if (idx < 0) idx = 0;
-        idx = reverse ? (idx - 1 + sessions.Count) % sessions.Count : (idx + 1) % sessions.Count;
-        expandedSession = sessions[idx].Name;
-        TouchMru(sessions[idx].Name);
+        idx = reverse ? (idx - 1 + _flatSessions.Count) % _flatSessions.Count : (idx + 1) % _flatSessions.Count;
+        expandedSession = _flatSessions[idx].Name;
+        TouchMru(_flatSessions[idx].Name);
         CopilotService.SwitchSession(expandedSession);
         var cs = CopilotService.GetSession(expandedSession);
         if (cs != null) cs.LastReadMessageCount = cs.History.Count;
