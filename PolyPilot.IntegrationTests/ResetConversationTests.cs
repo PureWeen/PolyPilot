@@ -31,7 +31,7 @@ public class ResetConversationTests : IntegrationTestBase
         if (menuItemExists == "no session item")
         {
             Output.WriteLine("No session items found — skipping (app may not have sessions in CI)");
-            return;
+            Assert.Skip("No session items available in CI — cannot verify context menu");
         }
 
         // Wait for menu to open
