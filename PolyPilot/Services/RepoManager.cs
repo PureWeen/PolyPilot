@@ -1326,6 +1326,103 @@ public class RepoManager
     }
 
     /// <summary>
+    /// Returns tracked worktrees whose IDs are absent from the active set.
+    /// Pure function — no side effects. Used as the identification layer for orphan cleanup.
+    /// </summary>
+    internal static IReadOnlyList<WorktreeInfo> FindOrphanedWorktrees(
+        IEnumerable<WorktreeInfo> worktrees,
+        IEnumerable<string?> activeWorktreeIds)
+    {
+        var activeSet = new HashSet<string>(
+            activeWorktreeIds.Where(id => id != null)!,
+            StringComparer.Ordinal);
+        return worktrees.Where(w => !activeSet.Contains(w.Id)).ToList();
+    }
+
+    /// <summary>
+    /// Checks whether an orphaned worktree is safe to auto-remove.
+    /// Safe when: directory is missing, OR working tree is clean AND remote tracking branch is gone.
+    /// </summary>
+    internal async Task<bool> IsSafeToRemoveAsync(WorktreeInfo wt, CancellationToken ct = default)
+    {
+        if (!Directory.Exists(wt.Path))
+            return true;
+
+        try
+        {
+            // Check for uncommitted/untracked files
+            var status = await RunGitAsync(wt.Path, ct, "status", "--porcelain");
+            if (!string.IsNullOrWhiteSpace(status))
+                return false; // dirty working tree
+
+            // Check if the remote tracking branch is gone
+            var branchInfo = await RunGitAsync(wt.Path, ct, "branch", "-vv", "--list", wt.Branch);
+            return branchInfo.Contains("[gone]", StringComparison.Ordinal);
+        }
+        catch
+        {
+            // If git commands fail (e.g., corrupted repo), don't auto-remove
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Discovers orphaned worktrees (not referenced by any active session/group),
+    /// checks each for safety, and removes those that are safe.
+    /// Per-worktree errors are caught individually so one failure doesn't abort the rest.
+    /// </summary>
+    public async Task<int> PruneOrphanedWorktreesAsync(
+        IEnumerable<string?> activeWorktreeIds,
+        CancellationToken ct = default)
+    {
+        EnsureLoaded();
+        List<WorktreeInfo> snapshot;
+        lock (_stateLock)
+            snapshot = _state.Worktrees.ToList();
+
+        var orphans = FindOrphanedWorktrees(snapshot, activeWorktreeIds);
+        if (orphans.Count == 0)
+            return 0;
+
+        var removed = 0;
+        foreach (var wt in orphans)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                if (await IsSafeToRemoveAsync(wt, ct))
+                {
+                    await RemoveWorktreeAsync(wt.Id, deleteBranch: false, ct);
+                    removed++;
+                    Console.WriteLine($"[RepoManager] Pruned orphaned worktree: {wt.Id} ({wt.Branch}) at {wt.Path}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[RepoManager] Failed to prune worktree {wt.Id}: {ex.Message}");
+            }
+        }
+
+        // Clean up stale git worktree refs after removal
+        if (removed > 0)
+        {
+            var repos = new HashSet<string>();
+            lock (_stateLock)
+            {
+                foreach (var r in _state.Repositories)
+                    if (!string.IsNullOrWhiteSpace(r.BareClonePath))
+                        repos.Add(r.BareClonePath);
+            }
+            foreach (var bareClone in repos)
+            {
+                try { await RunGitAsync(bareClone, ct, "worktree", "prune"); } catch { }
+            }
+        }
+
+        return removed;
+    }
+
+    /// <summary>
     /// Add a worktree to the in-memory list (for remote mode — tracks server worktrees without running git).
     /// </summary>
     public void AddRemoteWorktree(WorktreeInfo wt)
