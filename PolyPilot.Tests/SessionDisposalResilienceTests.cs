@@ -363,7 +363,8 @@ public class SessionDisposalResilienceTests
         Assert.Equal(2, session.History.Count);
         Assert.Equal(2, session.MessageCount);
 
-        await svc.ClearHistoryAsync("clear-async");
+        var truncated = await svc.ClearHistoryAsync("clear-async");
+        Assert.False(truncated); // demo mode = no server truncation
         Assert.Empty(session.History);
         Assert.Equal(0, session.MessageCount);
     }
@@ -373,7 +374,8 @@ public class SessionDisposalResilienceTests
     {
         var svc = CreateService();
         // Should not throw even for sessions that don't exist
-        await svc.ClearHistoryAsync("ghost-async");
+        var result = await svc.ClearHistoryAsync("ghost-async");
+        Assert.False(result);
     }
 
     [Fact]
@@ -388,9 +390,25 @@ public class SessionDisposalResilienceTests
         await svc.SendPromptAsync("demo-clear", "hello");
         Assert.Single(session.History);
 
-        await svc.ClearHistoryAsync("demo-clear");
+        var truncated = await svc.ClearHistoryAsync("demo-clear");
+        Assert.False(truncated); // demo mode = no server truncation
         Assert.Empty(session.History);
         Assert.Equal(0, session.MessageCount);
+    }
+
+    [Fact]
+    public async Task ClearHistoryAsync_ClearsChatDatabase()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("db-clear");
+        await svc.SendPromptAsync("db-clear", "hello");
+
+        await svc.ClearHistoryAsync("db-clear");
+
+        // Verify that ClearSessionAsync was called on the chat database
+        Assert.Contains(_chatDb.ClearedSessions, id => id == session.SessionId);
     }
 
     // --- DisposeAsync edge cases ---
