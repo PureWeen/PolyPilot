@@ -398,9 +398,7 @@
             });
         };
 
-        window.setAppFontSize = function(size) {
-            document.documentElement.style.setProperty('--app-font-size', size + 'px');
-        };
+        // setAppFontSize is defined in polypilot-interop.js (canonical location)
 
         // Safe DOM helpers — avoid eval() with interpolated strings
         // Normalize smart punctuation (macOS/WebKit converts -- to em dash, etc.)
