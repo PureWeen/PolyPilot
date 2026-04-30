@@ -148,8 +148,9 @@ do_relaunch() {
     for ATTEMPT in $(seq 1 "$MAX_ATTEMPTS"); do
         echo "Launching attempt $ATTEMPT/$MAX_ATTEMPTS..." >> "$LOG"
         mkdir -p ~/.polypilot
-        nohup "$STAGING_DIR/$APP_NAME/Contents/MacOS/PolyPilot" > ~/.polypilot/console.log 2>&1 &
-        NEW_PID=$!
+        nohup open -a "$STAGING_DIR/$APP_NAME" --stdout ~/.polypilot/console.log --stderr ~/.polypilot/console.log &
+        sleep 2
+        NEW_PID=$(pgrep -n -f "$STAGING_DIR/$APP_NAME/Contents/MacOS/PolyPilot" 2>/dev/null || echo "")
 
         if [ -z "$NEW_PID" ]; then
             echo "Failed to launch" >> "$LOG"
