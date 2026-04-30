@@ -5230,31 +5230,43 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     }
 
     /// <summary>
-    /// Clears session history both locally and on the server via HistoryApi.TruncateAsync.
-    /// Falls back to local-only clear if the SDK call fails or the session has no live connection.
+    /// Clears session history locally and in the chat database.
+    /// Returns true if a live SDK session existed (server state may retain history
+    /// until the next compaction). Returns false for demo/remote mode or missing sessions.
     /// </summary>
-    public async Task ClearHistoryAsync(string name)
+    /// <remarks>
+    /// SDK-gap: HistoryApi.TruncateAsync requires an eventId parameter — there is no
+    /// "clear all" overload. Events.jsonl entries lack individual IDs accessible to the
+    /// client, so we cannot call TruncateAsync correctly. Local clear + DB clear is the
+    /// safe fallback until the SDK adds a parameterless clear API.
+    /// </remarks>
+    public async Task<bool> ClearHistoryAsync(string name)
     {
         if (!_sessions.TryGetValue(name, out var state))
-            return;
+            return false;
 
-        // Attempt server-side truncation if we have a live SDK session
-        if (!IsDemoMode && !IsRemoteMode && state.Session is { } session)
+        var hadLiveSession = !IsDemoMode && !IsRemoteMode
+            && state.Session is not null
+            && !string.IsNullOrEmpty(state.Info.SessionId);
+
+        // Clear the local chat database so LoadBestHistoryAsync won't restore cleared messages
+        if (!string.IsNullOrEmpty(state.Info.SessionId))
         {
             try
             {
-                await session.Rpc.History.TruncateAsync(state.Info.SessionId ?? "", CancellationToken.None);
+                await _chatDb.ClearSessionAsync(state.Info.SessionId);
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[ClearHistory] Server-side truncation failed for '{name}': {ex.Message}");
-                // Fall through to local clear — the user still gets a reset UI
+                System.Diagnostics.Debug.WriteLine($"[ClearHistory] DB clear failed for '{name}': {ex.Message}");
             }
         }
 
         state.Info.History.Clear();
         state.Info.MessageCount = 0;
+        state.Info.LastReadMessageCount = 0;
         OnStateChanged?.Invoke();
+        return hadLiveSession;
     }
 
     public IEnumerable<AgentSessionInfo> GetAllSessions() => _sessions.Values.Select(s => s.Info).Where(s => !s.IsHidden);
