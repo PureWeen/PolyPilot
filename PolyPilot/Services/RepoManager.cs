@@ -356,7 +356,7 @@ public class RepoManager
         {
             var stateFile = StateFile; // resolve once
             Directory.CreateDirectory(Path.GetDirectoryName(stateFile)!);
-            var json = JsonSerializer.Serialize(_state, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(_state, JsonDefaults.Indented);
             // Atomic write: write to .tmp then rename, so a crash during write
             // doesn't leave repos.json truncated/corrupt.
             var tmp = stateFile + ".tmp";

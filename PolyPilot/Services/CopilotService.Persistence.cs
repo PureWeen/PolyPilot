@@ -156,7 +156,7 @@ public partial class CopilotService
                 Debug($"Failed to merge existing sessions: {ex.Message}");
             }
             
-            var json = JsonSerializer.Serialize(entries, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(entries, JsonDefaults.Indented);
             // Atomic write: write to temp file then rename to prevent corruption on crash
             var tempFile = ActiveSessionsFile + ".tmp";
             File.WriteAllText(tempFile, json);
@@ -1472,7 +1472,7 @@ public partial class CopilotService
         {
             // Ensure directory exists (required on iOS where it may not exist by default)
             Directory.CreateDirectory(PolyPilotBaseDir);
-            var json = JsonSerializer.Serialize(aliases, new JsonSerializerOptions { WriteIndented = true });
+            var json = JsonSerializer.Serialize(aliases, JsonDefaults.Indented);
             File.WriteAllText(SessionAliasesFile, json);
         }
         catch { }
@@ -1568,7 +1568,7 @@ public partial class CopilotService
                     .ToList();
                 if (kept.Count != entries.Count)
                 {
-                    var updatedJson = JsonSerializer.Serialize(kept, new JsonSerializerOptions { WriteIndented = true });
+                    var updatedJson = JsonSerializer.Serialize(kept, JsonDefaults.Indented);
                     var tempFile = ActiveSessionsFile + ".tmp";
                     File.WriteAllText(tempFile, updatedJson);
                     File.Move(tempFile, ActiveSessionsFile, overwrite: true);
