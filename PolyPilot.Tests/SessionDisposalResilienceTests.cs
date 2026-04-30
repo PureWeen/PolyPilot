@@ -349,6 +349,50 @@ public class SessionDisposalResilienceTests
         svc.ClearHistory("ghost");
     }
 
+    // --- ClearHistoryAsync (server-side truncation) ---
+
+    [Fact]
+    public async Task ClearHistoryAsync_ResetsMessageCount()
+    {
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("clear-async");
+        await svc.SendPromptAsync("clear-async", "msg1");
+        await svc.SendPromptAsync("clear-async", "msg2");
+        Assert.Equal(2, session.History.Count);
+        Assert.Equal(2, session.MessageCount);
+
+        await svc.ClearHistoryAsync("clear-async");
+        Assert.Empty(session.History);
+        Assert.Equal(0, session.MessageCount);
+    }
+
+    [Fact]
+    public async Task ClearHistoryAsync_NonExistentSession_DoesNotThrow()
+    {
+        var svc = CreateService();
+        // Should not throw even for sessions that don't exist
+        await svc.ClearHistoryAsync("ghost-async");
+    }
+
+    [Fact]
+    public async Task ClearHistoryAsync_DemoMode_ClearsLocalOnly()
+    {
+        // In demo mode there's no SDK session, so server-side truncation
+        // is skipped but local history is still cleared.
+        var svc = CreateService();
+        await svc.ReconnectAsync(new ConnectionSettings { Mode = ConnectionMode.Demo });
+
+        var session = await svc.CreateSessionAsync("demo-clear");
+        await svc.SendPromptAsync("demo-clear", "hello");
+        Assert.Single(session.History);
+
+        await svc.ClearHistoryAsync("demo-clear");
+        Assert.Empty(session.History);
+        Assert.Equal(0, session.MessageCount);
+    }
+
     // --- DisposeAsync edge cases ---
 
     [Fact]
