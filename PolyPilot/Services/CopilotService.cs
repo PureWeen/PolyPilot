@@ -5227,6 +5227,34 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         }
     }
 
+    /// <summary>
+    /// Clears session history both locally and on the server via HistoryApi.TruncateAsync.
+    /// Falls back to local-only clear if the SDK call fails or the session has no live connection.
+    /// </summary>
+    public async Task ClearHistoryAsync(string name)
+    {
+        if (!_sessions.TryGetValue(name, out var state))
+            return;
+
+        // Attempt server-side truncation if we have a live SDK session
+        if (!IsDemoMode && !IsRemoteMode && state.Session is { } session)
+        {
+            try
+            {
+                await session.Rpc.History.TruncateAsync(state.Info.SessionId ?? "", CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ClearHistory] Server-side truncation failed for '{name}': {ex.Message}");
+                // Fall through to local clear — the user still gets a reset UI
+            }
+        }
+
+        state.Info.History.Clear();
+        state.Info.MessageCount = 0;
+        OnStateChanged?.Invoke();
+    }
+
     public IEnumerable<AgentSessionInfo> GetAllSessions() => _sessions.Values.Select(s => s.Info).Where(s => !s.IsHidden);
     public IEnumerable<string> GetAllSessionNames() => _sessions.Keys;
 

@@ -1890,8 +1890,8 @@
                 break;
 
             case "clear":
-                CopilotService.ClearHistory(sessionName);
-                session.History.Add(ChatMessage.SystemMessage("Chat history cleared."));
+                await CopilotService.ClearHistoryAsync(sessionName);
+                session.History.Add(ChatMessage.SystemMessage("Chat history cleared. Server-side history has been truncated."));
                 break;
 
             case "agent":

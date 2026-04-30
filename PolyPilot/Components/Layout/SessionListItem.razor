@@ -285,6 +285,12 @@
                         🔄 Continue in new session
                     </button>
                 }
+                @if (!Session.IsProcessing)
+                {
+                    <button class="menu-item" @onclick="async () => { await OnCloseMenu.InvokeAsync(); await OnClearHistory.InvokeAsync(); }">
+                        🧹 Reset Conversation
+                    </button>
+                }
                 <div class="menu-separator"></div>
                 @if (PlatformHelper.IsDesktop && !string.IsNullOrEmpty(Session.SessionId) && currentGroup?.IsCodespace != true)
                 {
@@ -344,6 +350,7 @@
     [Parameter] public EventCallback OnFixWithCopilot { get; set; }
     [Parameter] public EventCallback OnAnalyze { get; set; }
     [Parameter] public EventCallback OnContinueInNewSession { get; set; }
+    [Parameter] public EventCallback OnClearHistory { get; set; }
     [Parameter] public EventCallback OnToggleChildren { get; set; }
     [Parameter] public EventCallback<MultiAgentMode> OnInlineModeChanged { get; set; }
 

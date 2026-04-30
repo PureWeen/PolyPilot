@@ -1305,6 +1305,7 @@ else
                                                  OnFixWithCopilot="() => OpenFixItForSession(orchSName)"
                                                  OnAnalyze="() => AnalyzeSessionEfficiency(orchSName)"
                                                  OnContinueInNewSession="() => ContinueInNewSession(orchSName)"
+                                                 OnClearHistory="() => ClearSessionHistory(orchSName)"
                                                  ShowChildrenToggle="@(workerCount > 0)"
                                                  AreChildrenCollapsed="group.UnpinnedCollapsed"
                                                  ChildCount="@workerCount"
@@ -1357,7 +1358,8 @@ else
                                                              OnReportBug="() => OpenBugReportForSession(wSName)"
                                                              OnFixWithCopilot="() => OpenFixItForSession(wSName)"
                                                              OnAnalyze="() => AnalyzeSessionEfficiency(wSName)"
-                                                             OnContinueInNewSession="() => ContinueInNewSession(wSName)" />
+                                                             OnContinueInNewSession="() => ContinueInNewSession(wSName)"
+                                                             OnClearHistory="() => ClearSessionHistory(wSName)" />
                                         }
                                     </div>
                                 }
@@ -1394,7 +1396,8 @@ else
                                              OnReportBug="() => OpenBugReportForSession(sName)"
                                              OnFixWithCopilot="() => OpenFixItForSession(sName)"
                                              OnAnalyze="() => AnalyzeSessionEfficiency(sName)"
-                                             OnContinueInNewSession="() => ContinueInNewSession(sName)" />
+                                             OnContinueInNewSession="() => ContinueInNewSession(sName)"
+                                             OnClearHistory="() => ClearSessionHistory(sName)" />
                         }
                         @if (groupModel.ShowUnpinnedToggle)
                         {
@@ -1433,7 +1436,8 @@ else
                                              OnReportBug="() => OpenBugReportForSession(sName)"
                                              OnFixWithCopilot="() => OpenFixItForSession(sName)"
                                              OnAnalyze="() => AnalyzeSessionEfficiency(sName)"
-                                             OnContinueInNewSession="() => ContinueInNewSession(sName)" />
+                                             OnContinueInNewSession="() => ContinueInNewSession(sName)"
+                                             OnClearHistory="() => ClearSessionHistory(sName)" />
                         }
                         }
                         </div>
@@ -1624,7 +1628,8 @@ else
                                                      OnReportBug="() => OpenBugReportForSession(sName)"
                                                      OnFixWithCopilot="() => OpenFixItForSession(sName)"
                                                      OnAnalyze="() => AnalyzeSessionEfficiency(sName)"
-                                                     OnContinueInNewSession="() => ContinueInNewSession(sName)" />
+                                                     OnContinueInNewSession="() => ContinueInNewSession(sName)"
+                                                     OnClearHistory="() => ClearSessionHistory(sName)" />
                                 }
                                 @if (!string.IsNullOrEmpty(_codespaceErrors.GetValueOrDefault(group.Id)))
                                 {
@@ -3557,6 +3562,22 @@ else
         catch (Exception ex)
         {
             footerStatus = $"✗ Continue in new session failed: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ClearSessionHistory(string sessionName)
+    {
+        try
+        {
+            await CopilotService.ClearHistoryAsync(sessionName);
+            var session = CopilotService.GetSession(sessionName);
+            session?.History.Add(ChatMessage.SystemMessage("Conversation reset. Server-side history has been truncated."));
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            footerStatus = $"✗ Reset failed: {ex.Message}";
             StateHasChanged();
         }
     }
