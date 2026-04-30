@@ -379,7 +379,12 @@ window.captureDrafts = function () {
         if (el.id) result[el.id] = el.value || '';
     });
     if (active && active.id) result['__focused'] = active.id;
-    if (active) { result['__selStart'] = active.selectionStart || 0; result['__selEnd'] = active.selectionEnd || 0; }
+    try {
+        if (active && typeof active.selectionStart === 'number') {
+            result['__selStart'] = String(active.selectionStart);
+            result['__selEnd'] = String(active.selectionEnd ?? 0);
+        }
+    } catch (_) { /* non-text input type (e.g. number) throws InvalidStateError */ }
     return JSON.stringify(result);
 };
 
@@ -460,6 +465,7 @@ window.showPopup = function (triggerAttr, headerHtml, contentHtml, extraClass) {
     popup.className = 'skills-popup' + (extraClass ? ' ' + extraClass : '');
     popup.style.bottom = bottom + 'px';
     popup.style.left = left + 'px';
+    // SAFETY: callers MUST EscapeHtml() all user-supplied content before passing to this function.
     popup.innerHTML = headerHtml + contentHtml;
     popup.onclick = function (e) { e.stopPropagation(); };
     ov.appendChild(popup);
@@ -488,7 +494,7 @@ window.showAgentsPopup = function (headerHtml, contentHtml, sessionName) {
         if (row) {
             var name = row.getAttribute('data-agent');
             ov.remove();
-            var inputEl = document.querySelector('[data-session=' + JSON.stringify(sessionName) + '] textarea');
+            var inputEl = document.querySelector('[data-session="' + CSS.escape(sessionName) + '"] textarea');
             if (inputEl) {
                 inputEl.value = '@' + name + ' ';
                 inputEl.dispatchEvent(new Event('input', { bubbles: true }));
@@ -590,7 +596,7 @@ window.showPromptsPopup = function (prompts, sessionName, prNumber) {
                 row.onclick = function (e) {
                     if (e.target.tagName === 'BUTTON') return;
                     ov.remove();
-                    var inputEl = document.querySelector('[data-session=' + JSON.stringify(sessionName) + '] textarea');
+                    var inputEl = document.querySelector('[data-session="' + CSS.escape(sessionName) + '"] textarea');
                     if (inputEl) {
                         var ctx = (p.sourceLabel === 'built-in' && prNumber) ? prNumber : '';
                         inputEl.value = ctx
