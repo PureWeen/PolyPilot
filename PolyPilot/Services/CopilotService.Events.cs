@@ -1432,7 +1432,7 @@ public partial class CopilotService
                 var kind = sysNotification.Data?.Kind;
                 switch (kind)
                 {
-                    case SystemNotificationDataKindAgentCompleted agentDone:
+                    case SystemNotificationAgentCompleted agentDone:
                         Debug($"[SYS-NOTIFY] '{sessionName}' agent completed: {agentDone.AgentId} ({agentDone.AgentType}) status={agentDone.Status}");
                         Invoke(() =>
                         {
@@ -1441,11 +1441,11 @@ public partial class CopilotService
                         });
                         break;
 
-                    case SystemNotificationDataKindAgentIdle agentIdle:
+                    case SystemNotificationAgentIdle agentIdle:
                         Debug($"[SYS-NOTIFY] '{sessionName}' agent idle: {agentIdle.AgentId} ({agentIdle.AgentType})");
                         break;
 
-                    case SystemNotificationDataKindShellCompleted shellDone:
+                    case SystemNotificationShellCompleted shellDone:
                         Debug($"[SYS-NOTIFY] '{sessionName}' shell completed: {shellDone.ShellId} exit={shellDone.ExitCode}");
                         Invoke(() =>
                         {
@@ -1454,7 +1454,7 @@ public partial class CopilotService
                         });
                         break;
 
-                    case SystemNotificationDataKindShellDetachedCompleted shellDetached:
+                    case SystemNotificationShellDetachedCompleted shellDetached:
                         Debug($"[SYS-NOTIFY] '{sessionName}' detached shell completed: {shellDetached.ShellId}");
                         Invoke(() =>
                         {
@@ -1530,11 +1530,11 @@ public partial class CopilotService
     {
         try
         {
-            var attachments = new List<UserMessageDataAttachmentsItem>();
+            var attachments = new List<UserMessageAttachment>();
             foreach (var path in imagePaths)
             {
                 if (!File.Exists(path)) continue;
-                var fileItem = new UserMessageDataAttachmentsItemFile
+                var fileItem = new UserMessageAttachmentFile
                 {
                     Path = path,
                     DisplayName = System.IO.Path.GetFileName(path)

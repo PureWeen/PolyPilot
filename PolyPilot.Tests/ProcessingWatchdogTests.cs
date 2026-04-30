@@ -2363,11 +2363,11 @@ public class ProcessingWatchdogTests
     {
         var source = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Services", "CopilotService.Events.cs"));
-        // Must handle all 4 SystemNotificationDataKind variants
-        Assert.Contains("SystemNotificationDataKindAgentCompleted", source);
-        Assert.Contains("SystemNotificationDataKindAgentIdle", source);
-        Assert.Contains("SystemNotificationDataKindShellCompleted", source);
-        Assert.Contains("SystemNotificationDataKindShellDetachedCompleted", source);
+        // Must handle all 4 SystemNotification kind variants (renamed in SDK 0.3.0)
+        Assert.Contains("SystemNotificationAgentCompleted", source);
+        Assert.Contains("SystemNotificationAgentIdle", source);
+        Assert.Contains("SystemNotificationShellCompleted", source);
+        Assert.Contains("SystemNotificationShellDetachedCompleted", source);
     }
 
     // ===== Periodic mid-watchdog flush =====
