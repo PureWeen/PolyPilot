@@ -363,17 +363,20 @@ public class SessionDisposalResilienceTests
         Assert.Equal(2, session.History.Count);
         Assert.Equal(2, session.MessageCount);
 
-        await svc.ClearHistoryAsync("clear-async");
+        var result = await svc.ClearHistoryAsync("clear-async");
+        Assert.False(result); // Demo mode — no live SDK session
         Assert.Empty(session.History);
         Assert.Equal(0, session.MessageCount);
+        Assert.Equal(0, session.LastReadMessageCount);
     }
 
     [Fact]
     public async Task ClearHistoryAsync_NonExistentSession_DoesNotThrow()
     {
         var svc = CreateService();
-        // Should not throw even for sessions that don't exist
-        await svc.ClearHistoryAsync("ghost-async");
+        // Should not throw even for sessions that don't exist, returns false
+        var result = await svc.ClearHistoryAsync("ghost-async");
+        Assert.False(result);
     }
 
     [Fact]
@@ -388,9 +391,11 @@ public class SessionDisposalResilienceTests
         await svc.SendPromptAsync("demo-clear", "hello");
         Assert.Single(session.History);
 
-        await svc.ClearHistoryAsync("demo-clear");
+        var result = await svc.ClearHistoryAsync("demo-clear");
+        Assert.False(result); // Demo mode returns false
         Assert.Empty(session.History);
         Assert.Equal(0, session.MessageCount);
+        Assert.Equal(0, session.LastReadMessageCount);
     }
 
     // --- DisposeAsync edge cases ---
