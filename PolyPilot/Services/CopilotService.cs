@@ -5233,10 +5233,12 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     /// Clears session history both locally and on the server via HistoryApi.TruncateAsync.
     /// Falls back to local-only clear if the SDK call fails or the session has no live connection.
     /// </summary>
-    public async Task ClearHistoryAsync(string name)
+    public async Task<bool> ClearHistoryAsync(string name)
     {
         if (!_sessions.TryGetValue(name, out var state))
-            return;
+            return false;
+
+        bool serverTruncated = false;
 
         // Attempt server-side truncation if we have a live SDK session
         if (!IsDemoMode && !IsRemoteMode && state.Session is { } session)
@@ -5244,6 +5246,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             try
             {
                 await session.Rpc.History.TruncateAsync(state.Info.SessionId ?? "", CancellationToken.None);
+                serverTruncated = true;
             }
             catch (Exception ex)
             {
@@ -5252,9 +5255,14 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             }
         }
 
+        // Clear local chat database so LoadBestHistoryAsync doesn't restore cleared messages
+        if (!string.IsNullOrEmpty(state.Info.SessionId))
+            await _chatDb.ClearSessionAsync(state.Info.SessionId);
+
         state.Info.History.Clear();
         state.Info.MessageCount = 0;
         OnStateChanged?.Invoke();
+        return serverTruncated;
     }
 
     public IEnumerable<AgentSessionInfo> GetAllSessions() => _sessions.Values.Select(s => s.Info).Where(s => !s.IsHidden);
