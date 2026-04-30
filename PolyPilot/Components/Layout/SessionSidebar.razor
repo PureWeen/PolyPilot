@@ -3570,9 +3570,14 @@ else
     {
         try
         {
-            await CopilotService.ClearHistoryAsync(sessionName);
+            var truncated = await CopilotService.ClearHistoryAsync(sessionName);
             var session = CopilotService.GetSession(sessionName);
-            session?.History.Add(ChatMessage.SystemMessage("Conversation reset. Server-side history has been truncated."));
+            var msg = truncated
+                ? "Conversation reset. Server-side history will be compacted on next turn."
+                : "Conversation reset (local only).";
+            session?.History.Add(ChatMessage.SystemMessage(msg));
+            if (session != null)
+                session.MessageCount = session.History.Count;
             StateHasChanged();
         }
         catch (Exception ex)
