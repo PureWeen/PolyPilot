@@ -529,8 +529,6 @@ else
         else
         {
             <div class="toolbar-actions">
-                <button class="new-group-btn" @onclick="StartAddGroup" title="New group">+ Group</button>
-                <button class="new-group-btn" @onclick="StartAddMultiAgentGroup" title="New multi-agent group">🤖 Multi</button>
                 <button class="new-group-btn" @onclick="OpenAddRepoForm" title="Add repository">+ Repo</button>
                 <button class="new-group-btn" @onclick="RefreshSessionsManually" title="Refresh sessions">↻</button>
             </div>
@@ -856,7 +854,6 @@ else
 
         <div class="session-list">
             @{
-                var showGroupHeaders = true;
                 var sessionIndex = 0;
                 var codespaceGroups = _codespaceGroups;
                 var flatSessions = _flatSessionList;
@@ -897,7 +894,6 @@ else
                                      OnClose="() => CloseSession(sName)"
                                      OnCloseWithOptions="(opts) => CloseSessionWithOptions(sName, opts.DeleteWorktree, opts.DeleteBranch)"
                                      OnPin="(pinned) => { CopilotService.PinSession(sName, pinned); }"
-                                     OnMove="(groupId) => CopilotService.MoveSession(sName, groupId)"
                                      OnStartRename="() => StartRename(sName)"
                                      OnCommitRename="CommitRename"
                                      OnToggleMenu="() => ToggleSessionMenu(sName)"
@@ -954,7 +950,7 @@ else
                         var csDisconnected = group.ConnectionState != CodespaceConnectionState.Connected;
                         var csState = group.ConnectionState;
                         var gId = group.Id;
-                        @if (showGroupHeaders)
+                        @if (true)
                         {
                         <div class="group-header codespace-group @(group.IsCollapsed ? "collapsed" : "") @(csDisconnected ? "cs-group-disabled" : "")"
                              title="GitHub Codespace: @group.CodespaceName"
@@ -1097,9 +1093,9 @@ else
                         </div>
                         }
 
-                        @if (!group.IsCollapsed || !showGroupHeaders)
+                        @if (!group.IsCollapsed)
                         {
-                            <div class="group-session-tree @(showGroupHeaders ? "" : "ungrouped-tree") codespace-session-tree">
+                            <div class="group-session-tree codespace-session-tree">
                                 @foreach (var session in groupSessions)
                                 {
                                     sessionIndex++;
@@ -1706,14 +1702,22 @@ else
     {
         var organized = CopilotService.GetOrganizedSessions();
         _codespaceGroups = new List<(SessionGroup Group, List<AgentSessionInfo> Sessions)>();
+        var codespaceSessionNames = new HashSet<string>();
         foreach (var (group, groupSessions) in organized)
         {
             if (group.IsCodespace)
+            {
                 _codespaceGroups.Add((group, groupSessions));
+                foreach (var s in groupSessions)
+                    codespaceSessionNames.Add(s.Name);
+            }
         }
 
         var flat = CopilotService.GetFlatSessions();
-        _flatSessionList = ApplyStatusFilter(flat.ToList());
+        // Filter out codespace sessions to avoid rendering them twice
+        _flatSessionList = ApplyStatusFilter(flat
+            .Where(s => !codespaceSessionNames.Contains(s.Name))
+            .ToList());
 
         try { _unoccupiedWorktrees = CopilotService.GetUnoccupiedWorktrees(); }
         catch { _unoccupiedWorktrees = Array.Empty<PolyPilot.Models.WorktreeInfo>(); }

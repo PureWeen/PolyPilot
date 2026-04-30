@@ -1378,7 +1378,7 @@ public partial class CopilotService
         return allSessions
             .OrderByDescending(s => metas.TryGetValue(s.Name, out var m) && m.IsPinned)
             .ThenBy(s => UrgencyScore(s))
-            .ThenBy(s => DateTimeOffset.MaxValue - s.LastUpdatedAt)
+            .ThenBy(s => ApplySort(s, metas))
             .ToList();
     }
 
@@ -1393,6 +1393,16 @@ public partial class CopilotService
         {
             if (!string.IsNullOrEmpty(meta.WorktreeId))
                 activeWorktreeIds.Add(meta.WorktreeId);
+        }
+
+        // Also exclude worktrees claimed at the group level (multi-agent groups)
+        foreach (var group in Organization.Groups)
+        {
+            if (!string.IsNullOrEmpty(group.WorktreeId))
+                activeWorktreeIds.Add(group.WorktreeId);
+            if (group.CreatedWorktreeIds != null)
+                foreach (var id in group.CreatedWorktreeIds)
+                    activeWorktreeIds.Add(id);
         }
 
         return _repoManager.Worktrees

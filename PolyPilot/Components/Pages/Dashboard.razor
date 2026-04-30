@@ -382,7 +382,7 @@
         }
 
         <div class="session-grid" style="grid-template-columns: repeat(@_gridColumns, 1fr)">
-        @foreach (var session in CopilotService.GetFlatSessions())
+        @foreach (var session in _dashboardFlatSessions)
         {
                     var isCompleted = completedSessions.Contains(session.Name);
                     var meta = CopilotService.GetSessionMeta(session.Name);
@@ -459,6 +459,7 @@
 
 @code {
     private List<AgentSessionInfo> sessions = new();
+    private IReadOnlyList<AgentSessionInfo> _dashboardFlatSessions = Array.Empty<AgentSessionInfo>();
     private HashSet<string> completedSessions = new();
     private Dictionary<string, string> streamingBySession = new();
     private Dictionary<string, string> activityBySession = new();
@@ -1122,6 +1123,7 @@
                 return;
 
             sessions = CopilotService.GetAllSessions().ToList();
+            _dashboardFlatSessions = CopilotService.GetFlatSessions();
 
             if (!_initialGridSet && sessions.Count > 1)
             {
@@ -1216,6 +1218,7 @@
         streamingBySession.Remove(sessionName);
         activityBySession.Remove(sessionName);
         sessions = CopilotService.GetAllSessions().ToList();
+        _dashboardFlatSessions = CopilotService.GetFlatSessions();
         StateHasChanged();
         // Clear the completed badge after 10 seconds
         _ = Task.Delay(10000).ContinueWith(_ =>
@@ -3401,28 +3404,24 @@
     [JSInvokable]
     public async Task JsSwitchToSessionByIndex(int index)
     {
-        // Use organized sessions to match sidebar badge ordering
-        var organized = CopilotService.GetOrganizedSessions();
+        // Use flat sessions to match the dashboard's rendering order
+        var flatSessions = CopilotService.GetFlatSessions();
         var sessionIndex = 0;
-        foreach (var (group, groupSessions) in organized)
+        foreach (var session in flatSessions)
         {
-            if (group.IsCollapsed && CopilotService.HasMultipleGroups) continue;
-            foreach (var session in groupSessions)
+            sessionIndex++;
+            if (sessionIndex == index)
             {
-                sessionIndex++;
-                if (sessionIndex == index)
+                if (expandedSession != null)
                 {
-                    if (expandedSession != null)
-                    {
-                        await SaveDraftsAndCursor();
-                        expandedSession = session.Name;
-                        TouchMru(session.Name);
-                        _focusedInputId = $"input-{session.Name.Replace(" ", "-")}";
-                    }
-                    CopilotService.SwitchSession(session.Name);
-                    StateHasChanged();
-                    return;
+                    await SaveDraftsAndCursor();
+                    expandedSession = session.Name;
+                    TouchMru(session.Name);
+                    _focusedInputId = $"input-{session.Name.Replace(" ", "-")}";
                 }
+                CopilotService.SwitchSession(session.Name);
+                StateHasChanged();
+                return;
             }
         }
     }
