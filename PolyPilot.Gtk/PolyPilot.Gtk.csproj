@@ -6,7 +6,7 @@
     <AssemblyName>PolyPilot</AssemblyName>
     <RootNamespace>PolyPilot</RootNamespace>
     <UseMaui>true</UseMaui>
-    <MauiVersion>10.0.50</MauiVersion>
+    <MauiVersion>10.0.60</MauiVersion>
     <SingleProject>true</SingleProject>
     <ImplicitUsings>enable</ImplicitUsings>
     <EnableDefaultCssItems>false</EnableDefaultCssItems>
@@ -55,12 +55,12 @@
     <PackageReference Include="Platform.Maui.Linux.Gtk4" Version="0.6.0" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4.Essentials" Version="0.6.0" />
     <PackageReference Include="Platform.Maui.Linux.Gtk4.BlazorWebView" Version="0.6.0" />
-    <PackageReference Include="GitHub.Copilot.SDK" Version="0.2.2" />
-    <PackageReference Include="Markdig" Version="1.1.2" />
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebView" Version="10.0.5" GeneratePathProperty="true" />
+    <PackageReference Include="GitHub.Copilot.SDK" Version="0.3.0" />
+    <PackageReference Include="Markdig" Version="1.1.3" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebView" Version="10.0.7" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
     <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
-    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.5" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.7" />
     <PackageReference Include="sqlite-net-pcl" Version="1.9.172" />
     <PackageReference Include="SQLitePCLRaw.bundle_green" Version="2.1.11" />
     <PackageReference Include="QRCoder" Version="*" />
@@ -68,8 +68,8 @@
 
   <!-- MauiDevFlow is a dev-time inspection tool — exclude from Release builds. -->
   <ItemGroup Condition="'$(Configuration)' == 'Debug'">
-    <PackageReference Include="Microsoft.Maui.DevFlow.Agent.Gtk" Version="0.1.0-preview.4.26202.3" />
-    <PackageReference Include="Microsoft.Maui.DevFlow.Blazor.Gtk" Version="0.1.0-preview.4.26202.3" />
+    <PackageReference Include="Microsoft.Maui.DevFlow.Agent.Gtk" Version="0.1.0-preview.7.26230.1" />
+    <PackageReference Include="Microsoft.Maui.DevFlow.Blazor.Gtk" Version="0.1.0-preview.7.26230.1" />
   </ItemGroup>
 
   <ItemGroup>
