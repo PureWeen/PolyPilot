@@ -1012,263 +1012,16 @@
     {
         if (firstRender)
         {
-            await JS.InvokeVoidAsync("eval", @"
-                if (!window.__dashboardKeydownRegistered) {
-                    window.__dashboardKeydownRegistered = true;
-                    document.addEventListener('keydown', function(e) {
-                        var sel = '.card-input input, .card-input textarea, .input-row textarea';
-                        var isInput = e.target.matches && e.target.matches(sel);
-                        if (e.key === 'Enter' && !e.shiftKey && isInput) {
-                            e.preventDefault();
-                            if (window.__sendPending) return;
-                            window.__sendPending = true;
-                            setTimeout(function() { window.__sendPending = false; }, 500);
-                            var container = e.target.closest('.card-input') || e.target.closest('.input-row');
-                            if (container) {
-                                var btn = container.querySelector('.send-btn:not(.stop-btn)') || container.querySelectorAll('button')[container.querySelectorAll('button').length - 1];
-                                if (btn) btn.click();
-                            }
-                        }
-                        // ArrowUp/Down: command history navigation
-                        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && isInput && !e.shiftKey && !e.metaKey && !e.ctrlKey) {
-                            var ta = e.target;
-                            var atStart = ta.selectionStart === 0 && ta.selectionEnd === 0;
-                            var atEnd = ta.selectionStart === ta.value.length;
-                            var card = ta.closest('[data-session]');
-                            var sessionName = card ? card.dataset.session : '';
-                            var histNavActive = sessionName && window.__histNavActive && window.__histNavActive[sessionName];
-                            if ((e.key === 'ArrowUp' && atStart) || (e.key === 'ArrowDown' && (atEnd || histNavActive))) {
-                                if (sessionName && window.__dashRef) {
-                                    e.preventDefault();
-                                    window.__dashRef.invokeMethodAsync('JsNavigateHistory', sessionName, e.key === 'ArrowUp', ta.value || '').then(function(isNav) {
-                                        if (!window.__histNavActive) window.__histNavActive = {};
-                                        window.__histNavActive[sessionName] = isNav;
-                                    }).catch(function() {
-                                        if (window.__histNavActive) window.__histNavActive[sessionName] = false;
-                                    });
-                                }
-                            }
-                        }
-                        if (e.key === 'Tab' && isInput) {
-                            e.preventDefault();
-                            e.stopImmediatePropagation();
-                            var expandedCard = document.querySelector('.expanded-card');
-                            if (expandedCard && window.__dashRef) {
-                                window.__dashRef.invokeMethodAsync('JsCycleExpandedSession', e.shiftKey);
-                                return;
-                            }
-                            var inputs = Array.from(document.querySelectorAll(sel));
-                            if (inputs.length < 2) return;
-                            var idx = inputs.indexOf(e.target);
-                            if (idx < 0) idx = 0;
-                            idx = e.shiftKey ? (idx - 1 + inputs.length) % inputs.length : (idx + 1) % inputs.length;
-                            inputs[idx].focus();
-                            var card = inputs[idx].closest('.session-card');
-                            if (card && card.dataset.session && window.__dashRef) {
-                                window.__dashRef.invokeMethodAsync('JsSelectSession', card.dataset.session);
-                            }
-                        }
-                        // Emacs-style Ctrl keybindings for text navigation (macOS)
-                        if (isInput && e.ctrlKey && !e.metaKey && !e.altKey && /^mac/i.test(navigator.userAgentData?.platform ?? navigator.platform)) {
-                            var ta = e.target;
-                            var text = ta.value;
-                            var pos = ta.selectionStart;
-                            // Surrogate-pair-aware helpers: determine how many UTF-16 code units
-                            // the character at `idx` occupies (2 for supplementary chars / emoji, else 1).
-                            // Note: these handle surrogate pairs (2 UTF-16 code units per codepoint) but
-                            // not multi-codepoint grapheme clusters (e.g., flag emoji 🇺🇸, ZWJ sequences
-                            // 👨‍👩‍👧). This matches native macOS Emacs Ctrl-F/B/D behavior.
-                            function charLen(s, idx) {
-                                var code = s.charCodeAt(idx);
-                                return (code >= 0xD800 && code <= 0xDBFF && idx + 1 < s.length) ? 2 : 1;
-                            }
-                            // Length of the character *ending* at idx-1 (for backward movement).
-                            function charLenBefore(s, idx) {
-                                if (idx <= 0) return 0;
-                                var code = s.charCodeAt(idx - 1);
-                                return (code >= 0xDC00 && code <= 0xDFFF && idx - 2 >= 0) ? 2 : 1;
-                            }
-                            // Ctrl-A / Ctrl-Shift-A: beginning of line (+ select)
-                            if (e.key === 'a' || e.key === 'A') {
-                                e.preventDefault();
-                                var lineStart = text.lastIndexOf('\n', pos - 1) + 1;
-                                ta.setSelectionRange(lineStart, e.shiftKey ? ta.selectionEnd : lineStart);
-                                return;
-                            }
-                            // Ctrl-E / Ctrl-Shift-E: end of line (+ select)
-                            if (e.key === 'e' || e.key === 'E') {
-                                e.preventDefault();
-                                var lineEnd = text.indexOf('\n', pos);
-                                if (lineEnd === -1) lineEnd = text.length;
-                                ta.setSelectionRange(e.shiftKey ? ta.selectionStart : lineEnd, lineEnd);
-                                return;
-                            }
-                            // Ctrl-F / Ctrl-Shift-F: forward one character (+ select)
-                            if (e.key === 'f' || e.key === 'F') {
-                                e.preventDefault();
-                                var np = Math.min(pos + charLen(text, pos), text.length);
-                                ta.setSelectionRange(e.shiftKey ? ta.selectionStart : np, np);
-                                return;
-                            }
-                            // Ctrl-B / Ctrl-Shift-B: backward one character (+ select)
-                            if (e.key === 'b' || e.key === 'B') {
-                                e.preventDefault();
-                                var np = Math.max(pos - charLenBefore(text, pos), 0);
-                                ta.setSelectionRange(np, e.shiftKey ? ta.selectionEnd : np);
-                                return;
-                            }
-                            // Ctrl-D: delete forward
-                            if (e.key === 'd' && !e.shiftKey) {
-                                e.preventDefault();
-                                if (pos < text.length) {
-                                    var cl = charLen(text, pos);
-                                    ta.value = text.slice(0, pos) + text.slice(pos + cl);
-                                    ta.setSelectionRange(pos, pos);
-                                    ta.dispatchEvent(new Event('input', {bubbles: true}));
-                                }
-                                return;
-                            }
-                            // Ctrl-H: delete backward
-                            if (e.key === 'h' && !e.shiftKey) {
-                                e.preventDefault();
-                                if (pos > 0) {
-                                    var cl = charLenBefore(text, pos);
-                                    ta.value = text.slice(0, pos - cl) + text.slice(pos);
-                                    ta.setSelectionRange(pos - cl, pos - cl);
-                                    ta.dispatchEvent(new Event('input', {bubbles: true}));
-                                }
-                                return;
-                            }
-                            // Ctrl-K: kill to end of line
-                            if (e.key === 'k' && !e.shiftKey) {
-                                e.preventDefault();
-                                var lineEnd = text.indexOf('\n', pos);
-                                if (lineEnd === -1) lineEnd = text.length;
-                                if (lineEnd === pos && pos < text.length) lineEnd = pos + 1;
-                                ta.value = text.slice(0, pos) + text.slice(lineEnd);
-                                ta.setSelectionRange(pos, pos);
-                                ta.dispatchEvent(new Event('input', {bubbles: true}));
-                                return;
-                            }
-                            // Ctrl-N: next line
-                            if (e.key === 'n' && !e.shiftKey) {
-                                e.preventDefault();
-                                var lineEnd = text.indexOf('\n', pos);
-                                if (lineEnd !== -1) {
-                                    var colStart = text.lastIndexOf('\n', pos - 1) + 1;
-                                    var col = pos - colStart;
-                                    var nextLineStart = lineEnd + 1;
-                                    var nextLineEnd = text.indexOf('\n', nextLineStart);
-                                    if (nextLineEnd === -1) nextLineEnd = text.length;
-                                    ta.setSelectionRange(Math.min(nextLineStart + col, nextLineEnd), Math.min(nextLineStart + col, nextLineEnd));
-                                }
-                                return;
-                            }
-                            // Ctrl-P: previous line
-                            if (e.key === 'p' && !e.shiftKey) {
-                                e.preventDefault();
-                                var colStart = text.lastIndexOf('\n', pos - 1) + 1;
-                                if (colStart > 0) {
-                                    var col = pos - colStart;
-                                    var prevLineEnd = colStart - 1;
-                                    var prevLineStart = text.lastIndexOf('\n', prevLineEnd - 1) + 1;
-                                    ta.setSelectionRange(Math.min(prevLineStart + col, prevLineEnd), Math.min(prevLineStart + col, prevLineEnd));
-                                }
-                                return;
-                            }
-                            // Ctrl-T: transpose characters (surrogate-pair-aware)
-                            // At end of text, transposes the two characters before cursor (standard Emacs behavior).
-                            if (e.key === 't' && !e.shiftKey) {
-                                e.preventDefault();
-                                var tp = pos;
-                                if (tp >= text.length && tp > 0) tp = tp - charLenBefore(text, tp);
-                                if (tp > 0 && tp < text.length) {
-                                    var clBefore = charLenBefore(text, tp);
-                                    var clAt = charLen(text, tp);
-                                    var charBefore = text.slice(tp - clBefore, tp);
-                                    var charAt = text.slice(tp, tp + clAt);
-                                    ta.value = text.slice(0, tp - clBefore) + charAt + charBefore + text.slice(tp + clAt);
-                                    ta.setSelectionRange(tp + clAt, tp + clAt);
-                                    ta.dispatchEvent(new Event('input', {bubbles: true}));
-                                }
-                                return;
-                            }
-                        }
-                        if ((e.metaKey || e.ctrlKey) && e.key === 'e') {
-                            e.preventDefault();
-                            var collapseBtn = document.querySelector('.collapse-card-btn');
-                            if (collapseBtn) { collapseBtn.click(); return; }
-                            var card = isInput ? e.target.closest('.session-card') : document.querySelector('.session-card');
-                            if (card && card.dataset.session && window.__dashRef) {
-                                window.__dashRef.invokeMethodAsync('JsExpandSession', card.dataset.session);
-                            }
-                        }
-                        if (e.key === 'Escape') {
-                            var collapseBtn = document.querySelector('.collapse-card-btn');
-                            if (collapseBtn) collapseBtn.click();
-                        }
-                        // ⌘1-9 / Ctrl+1-9: switch to session by index
-                        if ((e.metaKey || e.ctrlKey) && e.key >= '1' && e.key <= '9') {
-                            e.preventDefault();
-                            if (window.__dashRef) {
-                                window.__dashRef.invokeMethodAsync('JsSwitchToSessionByIndex', parseInt(e.key));
-                            }
-                        }
-                        // ⌘+/⌘- / Ctrl+=/Ctrl+-: font size, ⌘0 reset
-                        if ((e.metaKey || e.ctrlKey) && (e.key === '=' || e.key === '+' || e.key === '-' || e.key === '0')) {
-                            e.preventDefault();
-                            if (window.__dashRef) {
-                                var delta = (e.key === '=' || e.key === '+') ? 1 : e.key === '-' ? -1 : 0;
-                                window.__dashRef.invokeMethodAsync('JsChangeFontSize', delta);
-                            }
-                        }
-                        // Ctrl+C: interrupt running session (only when no text selected)
-                        if (e.ctrlKey && e.key === 'c' && !e.metaKey && !e.shiftKey) {
-                            var selection = window.getSelection();
-                            if (!selection || selection.toString().length === 0) {
-                                e.preventDefault();
-                                if (window.__dashRef) {
-                                    window.__dashRef.invokeMethodAsync('JsInterruptSession');
-                                }
-                            }
-                        }
-                    });
-                    // Reset histNavActive when user edits text, so ArrowDown doesn't
-                    // overwrite their changes with a history entry.
-                    document.addEventListener('input', function(e) {
-                        if (e.target.matches && e.target.matches('.card-input input, .card-input textarea, .input-row textarea')) {
-                            if (!window.__liveDrafts) window.__liveDrafts = {};
-                            if (e.target.id) {
-                                if (e.target.value) window.__liveDrafts[e.target.id] = e.target.value;
-                                else delete window.__liveDrafts[e.target.id];
-                            }
-                            var card = e.target.closest('[data-session]');
-                            var sn = card ? card.dataset.session : '';
-                            if (sn && window.__histNavActive) window.__histNavActive[sn] = false;
-                        }
-                    });
-                }
-            ");
+            await JS.InvokeVoidAsync("ensureDashboardKeyHandlers");
             try
             {
                 var dotNetRef = DotNetObjectReference.Create(this);
                 if (_disposed) { dotNetRef.Dispose(); return; }
-                await JS.InvokeVoidAsync("eval", "window.__dashRef = null;");
+                await JS.InvokeVoidAsync("clearDashRef");
                 _dotNetRef = dotNetRef;
-                await JS.InvokeVoidAsync("eval", "window.__setDashRef = function(ref) { window.__dashRef = ref; };");
                 if (_disposed) return;
                 await JS.InvokeVoidAsync("__setDashRef", _dotNetRef);
-                await JS.InvokeVoidAsync("eval", @"
-                if (!window.__textareaAutoResize) {
-                    window.__textareaAutoResize = true;
-                    document.addEventListener('input', function(e) {
-                        if (e.target.tagName === 'TEXTAREA' && e.target.closest('.input-row')) {
-                            e.target.style.height = 'auto';
-                            e.target.style.height = Math.min(e.target.scrollHeight, 150) + 'px';
-                        }
-                    });
-                }
-            ");
+                await JS.InvokeVoidAsync("ensureTextareaAutoResize");
             }
             catch (ObjectDisposedException) { }
         }
@@ -1309,7 +1062,7 @@
         {
             var scrollTop = _pendingScrollTop;
             _pendingScrollTop = 0;
-            _ = JS.InvokeVoidAsync("eval", $"var d = document.querySelector('.dashboard'); if (d) d.scrollTop = {scrollTop.ToString(System.Globalization.CultureInfo.InvariantCulture)};");
+            _ = JS.InvokeVoidAsync("setDashboardScrollTop", scrollTop);
         }
 
         // Set initial active slot on first render (MutationObserver will maintain it after user interactions)
@@ -1322,18 +1075,7 @@
         if (!_loadMoreObserverInitialized || forceScroll)
         {
             _loadMoreObserverInitialized = true;
-            _ = JS.InvokeVoidAsync("eval", @"
-                if (!window.__loadMoreObserver) {
-                    window.__loadMoreObserver = new IntersectionObserver(function(entries) {
-                        entries.forEach(function(entry) {
-                            if (entry.isIntersecting) entry.target.click();
-                        });
-                    }, { threshold: 0.1 });
-                }
-                document.querySelectorAll('.messages .load-more-btn').forEach(function(btn) {
-                    if (!btn.__observed) { btn.__observed = true; window.__loadMoreObserver.observe(btn); }
-                });
-            ");
+            _ = JS.InvokeVoidAsync("ensureLoadMoreObserver");
         }
     }
 
@@ -1426,18 +1168,7 @@
             // Capture all card input values before re-render wipes them
             try
             {
-                var json = await JS.InvokeAsync<string>("eval", @"
-                    (function() {
-                        var result = {};
-                        var active = document.activeElement;
-                        document.querySelectorAll('.card-input input, .card-input textarea, .expanded-card .input-area textarea').forEach(function(el) {
-                            if (el.id) result[el.id] = el.value || '';
-                        });
-                        if (active && active.id) result['__focused'] = active.id;
-                        if (active) { result['__selStart'] = active.selectionStart || 0; result['__selEnd'] = active.selectionEnd || 0; }
-                        return JSON.stringify(result);
-                    })();
-                ");
+                var json = await JS.InvokeAsync<string>("captureDrafts");
                 if (!string.IsNullOrEmpty(json))
                 {
                     var saved = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, string>>(json);
@@ -1478,8 +1209,7 @@
         {
             try
             {
-                var scrollJson = await JS.InvokeAsync<string>("eval",
-                    "JSON.stringify({ top: document.querySelector('.dashboard')?.scrollTop ?? 0 })");
+                var scrollJson = await JS.InvokeAsync<string>("getDashboardScrollTop");
                 if (!string.IsNullOrEmpty(scrollJson))
                 {
                     var scrollData = System.Text.Json.JsonSerializer.Deserialize<Dictionary<string, double>>(scrollJson);
@@ -1939,16 +1669,7 @@
         activityBySession.Remove(sessionName);
 
         // Force scroll to bottom immediately after sending
-        await JS.InvokeVoidAsync("eval", @"
-            document.querySelectorAll('.card-messages, .messages').forEach(function(el) {
-                el.scrollTop = el.scrollHeight;
-            });
-            setTimeout(function() {
-                document.querySelectorAll('.card-messages, .messages').forEach(function(el) {
-                    el.scrollTop = el.scrollHeight;
-                });
-            }, 100);
-        ");
+        await JS.InvokeVoidAsync("scrollMessagesToBottom");
 
         try
         {
@@ -3409,10 +3130,7 @@
         await Task.Yield();
         StateHasChanged();
         await Task.Yield();
-        await JS.InvokeVoidAsync("eval", @"
-            var el = document.getElementById('cardRenameInput');
-            if (el) { el.focus(); el.select(); }
-        ");
+        await JS.InvokeVoidAsync("focusAndSelect", "cardRenameInput");
     }
 
     private async Task CommitCardRename()
@@ -3593,19 +3311,7 @@
 
     private async Task SaveDraftsAndCursor()
     {
-        var json = await JS.InvokeAsync<string>("eval", @"
-            (function() {
-                var focused = document.activeElement;
-                var sel = '.card-input input, .card-input textarea, .input-row textarea';
-                var focusId = (focused && focused.id && focused.matches(sel)) ? focused.id : null;
-                var selStart = focusId ? (focused.selectionStart || 0) : 0;
-                var selEnd = focusId ? (focused.selectionEnd || 0) : 0;
-                var items = Array.from(document.querySelectorAll(sel))
-                    .filter(el => el.id)
-                    .map(el => ({ id: el.id, value: el.value || '' }));
-                return JSON.stringify({ focusId: focusId, selStart: selStart, selEnd: selEnd, items: items });
-            })()
-        ");
+        var json = await JS.InvokeAsync<string>("saveDraftsAndCursor");
         if (!string.IsNullOrEmpty(json))
         {
             try
@@ -3816,8 +3522,7 @@
 
         var (text, cursorAtStart) = result.Value;
         var inputId = $"input-{sessionName.Replace(" ", "-")}";
-        var cursorExpr = cursorAtStart ? "0" : "el.value.length";
-        await JS.InvokeVoidAsync("eval", $"(function(){{ var el = document.getElementById('{inputId}'); if(el){{ el.value = {System.Text.Json.JsonSerializer.Serialize(text)}; var p = {cursorExpr}; el.setSelectionRange(p, p); }} }})()");
+        await JS.InvokeVoidAsync("setInputValueAndCursor", inputId, text, cursorAtStart);
         return hist.IsNavigating;
     }
 
@@ -4082,7 +3787,7 @@
         foreach (var images in pendingImagesBySession.Values)
             foreach (var img in images)
                 try { File.Delete(img.TempPath); } catch { }
-        try { await JS.InvokeVoidAsync("eval", "window.__dashRef = null;"); } catch { }
+        try { await JS.InvokeVoidAsync("clearDashRef"); } catch { }
         _dotNetRef?.Dispose();
     }
 }

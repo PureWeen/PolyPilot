@@ -826,13 +826,13 @@
     private async Task ClearSearch()
     {
         searchQuery = "";
-        await JS.InvokeVoidAsync("eval", "document.getElementById('settings-search').value = ''");
+        await JS.InvokeVoidAsync("clearSettingsSearchInput");
     }
 
     private async Task ScrollToCategory(string category)
     {
         activeCategory = category;
-        await JS.InvokeVoidAsync("eval", $"document.getElementById('settings-{category}')?.scrollIntoView({{behavior:'smooth',block:'start'}})");
+        await JS.InvokeVoidAsync("scrollToSettingsCategory", category);
     }
 
     private bool SectionVisible(string keywords)
@@ -903,7 +903,7 @@
                 await ApplyTheme(settings.Theme);
                 break;
             case "ui.fontSize":
-                await JS.InvokeVoidAsync("eval", $"document.documentElement.style.setProperty('--app-font-size', '{fontSize}px')");
+                await JS.InvokeVoidAsync("setAppFontSize", fontSize);
                 CopilotService.SaveUiState("/settings", fontSize: fontSize);
                 break;
             case "cli.source":
@@ -992,50 +992,11 @@
     private async Task InitializeAfterRenderAsync()
     {
         _selfRef = DotNetObjectReference.Create(this);
-        await JS.InvokeVoidAsync("eval", "window.__setSettingsRef = function(ref) { window.__settingsRef = ref; };");
         await JS.InvokeVoidAsync("__setSettingsRef", _selfRef);
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var el = document.getElementById('settings-search');
-                if (!el || el.__searchWired) return;
-                el.__searchWired = true;
-                var timer = null;
-                el.addEventListener('input', function() {
-                    clearTimeout(timer);
-                    var val = el.value;
-                    timer = setTimeout(function() {
-                        if (window.__settingsRef) window.__settingsRef.invokeMethodAsync('JsUpdateSearch', val);
-                    }, 150);
-                });
-
-                var content = document.querySelector('article.content');
-                if (content) {
-                    content.classList.add('settings-content-active');
-                    content.scrollTop = 0;
-                    requestAnimationFrame(function() { content.scrollTop = 0; });
-                }
-
-                var page = document.querySelector('.settings-page');
-                if (page) page.scrollTop = 0;
-            })()");
+        await JS.InvokeVoidAsync("wireSettingsSearch");
 
         // IntersectionObserver to highlight active category on scroll
-        await JS.InvokeVoidAsync("eval", @"
-            (function() {
-                var container = document.getElementById('settings-scroll-container');
-                if (!container) return;
-                var ids = ['settings-connection','settings-cli','settings-ui','settings-developer'];
-                var observer = new IntersectionObserver(function(entries) {
-                    entries.forEach(function(e) {
-                        if (e.isIntersecting && window.__settingsRef) {
-                            var cat = e.target.id.replace('settings-','');
-                            window.__settingsRef.invokeMethodAsync('JsSetActiveCategory', cat);
-                        }
-                    });
-                }, { root: container, rootMargin: '-10% 0px -80% 0px', threshold: 0 });
-                ids.forEach(function(id) { var el = document.getElementById(id); if (el) observer.observe(el); });
-                container.__settingsObserver = observer;
-            })()");
+        await JS.InvokeVoidAsync("setupCategoryIntersectionObserver");
 
         // Run slow detection tasks in parallel (after first paint)
         var cliInfoTask = Task.Run(CopilotService.GetCliSourceInfo);
@@ -1064,8 +1025,8 @@
         FiestaService.OnStateChanged -= OnFiestaStateChanged;
         FiestaService.OnPairRequested -= OnFiestaPairRequested;
         FiestaService.OnPairApprovalSendFailed -= OnFiestaPairApprovalSendFailed;
-        _ = JS.InvokeVoidAsync("eval", "document.querySelector('article.content')?.classList.remove('settings-content-active');");
-        _ = JS.InvokeVoidAsync("eval", "window.__settingsRef = null;");
+        _ = JS.InvokeVoidAsync("removeSettingsContentActiveClass");
+        _ = JS.InvokeVoidAsync("clearSettingsRef");
         _selfRef?.Dispose();
     }
 
@@ -1404,7 +1365,7 @@
 
     private async Task ApplyFontSize()
     {
-        await JS.InvokeVoidAsync("eval", $"document.documentElement.style.setProperty('--app-font-size', '{fontSize}px')");
+        await JS.InvokeVoidAsync("setAppFontSize", fontSize);
         CopilotService.SaveUiState("/settings", fontSize: fontSize);
     }
 
@@ -1649,7 +1610,7 @@
     private async Task ApplyTheme(UiTheme theme)
     {
         var dataTheme = HolidayThemeHelper.GetDataThemeString(theme);
-        await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
+        await JS.InvokeVoidAsync("setDataTheme", dataTheme);
     }
 
     private string GetThemeLabel(UiTheme theme) => theme switch

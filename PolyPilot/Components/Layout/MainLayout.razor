@@ -68,15 +68,14 @@
             }
 
             var dataTheme = HolidayThemeHelper.GetDataThemeString(effectiveTheme);
-            await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dataTheme}')");
-            await JS.InvokeVoidAsync("eval", $"document.body.setAttribute('data-platform', '{PlatformHelper.PlatformName}')");
+            await JS.InvokeVoidAsync("setDataTheme", dataTheme);
+            await JS.InvokeVoidAsync("setDataPlatform", PlatformHelper.PlatformName);
 
             // Start timer to detect date transitions (e.g., midnight crossing into/out of March 8)
             _holidayTimer = new Timer(OnHolidayTimerTick, null, TimeSpan.FromSeconds(60), TimeSpan.FromSeconds(60));
 
             // Register nav ref for global keyboard shortcuts (Cmd+,)
             _navRef = DotNetObjectReference.Create(this);
-            await JS.InvokeVoidAsync("eval", "window.__setNavRef = function(ref) { window._navRef = ref; };");
             await JS.InvokeVoidAsync("__setNavRef", _navRef);
 
             // Load saved font size and navigate to last page
@@ -125,7 +124,7 @@
                     CopilotService.HolidayThemeDismissed = false;
                     CopilotService.Theme = holidayTheme!.Value;
                     var dt = HolidayThemeHelper.GetDataThemeString(holidayTheme!.Value);
-                    await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dt}')");
+                    await JS.InvokeVoidAsync("setDataTheme", dt);
                     StateHasChanged();
                 }
                 catch (Exception ex)
@@ -147,7 +146,7 @@
                     var saved = ConnectionSettings.Load();
                     CopilotService.Theme = saved.Theme;
                     var dt = HolidayThemeHelper.GetDataThemeString(saved.Theme);
-                    await JS.InvokeVoidAsync("eval", $"document.documentElement.setAttribute('data-theme', '{dt}')");
+                    await JS.InvokeVoidAsync("setDataTheme", dt);
                     StateHasChanged();
                 }
                 catch (Exception ex)
@@ -167,7 +166,7 @@
 
     private async Task ApplyFontSize()
     {
-        await JS.InvokeVoidAsync("eval", $"document.documentElement.style.setProperty('--app-font-size', '{fontSize}px')");
+        await JS.InvokeVoidAsync("setAppFontSize", fontSize);
     }
 
     private async Task StartResize(MouseEventArgs e)
@@ -175,28 +174,7 @@
         if (sidebarRailMode)
             return;
 
-        await JS.InvokeVoidAsync("eval", $@"
-            (function() {{
-                var sidebar = document.querySelector('.sidebar.desktop-only');
-                if (!sidebar) return;
-                var startX = {e.ClientX};
-                var startW = sidebar.offsetWidth;
-                function onMove(e) {{
-                    var w = Math.min(Math.max(startW + e.clientX - startX, 200), 600);
-                    sidebar.style.width = w + 'px';
-                }}
-                function onUp() {{
-                    document.removeEventListener('mousemove', onMove);
-                    document.removeEventListener('mouseup', onUp);
-                    document.body.style.userSelect = '';
-                    document.body.style.cursor = '';
-                }}
-                document.body.style.userSelect = 'none';
-                document.body.style.cursor = 'col-resize';
-                document.addEventListener('mousemove', onMove);
-                document.addEventListener('mouseup', onUp);
-            }})();
-        ");
+        await JS.InvokeVoidAsync("startSidebarResize", e.ClientX);
     }
 
     private Task HandleDesktopRailModeChanged(bool enabled)
@@ -213,7 +191,7 @@
         if (flyoutOpen)
         {
             // Dismiss the keyboard on mobile — the chat input retains focus behind the flyout
-            _ = JS.InvokeVoidAsync("eval", "document.activeElement?.blur()")
+            _ = JS.InvokeVoidAsync("blurActiveElement")
                 .AsTask().ContinueWith(t => Console.WriteLine($"[MainLayout] blur failed: {t.Exception?.InnerException?.Message}"),
                     TaskContinuationOptions.OnlyOnFaulted);
         }

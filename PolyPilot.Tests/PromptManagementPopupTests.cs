@@ -23,6 +23,12 @@ public class PromptManagementPopupTests
         return File.ReadAllText(file);
     }
 
+    private string ReadJsInteropModule()
+    {
+        var file = Path.Combine(GetRepoRoot(), "PolyPilot", "wwwroot", "js", "polypilot-interop.js");
+        return File.ReadAllText(file);
+    }
+
     [Fact]
     public void PromptsTrigger_ShownWhenAvailablePromptsNotNull()
     {
@@ -50,7 +56,7 @@ public class PromptManagementPopupTests
     [Fact]
     public void PromptsPopup_HasNewButton()
     {
-        var content = ReadExpandedSessionView();
+        var content = ReadJsInteropModule();
         // The popup JS should contain a "New" button
         Assert.Contains("+ New", content);
     }
@@ -58,14 +64,14 @@ public class PromptManagementPopupTests
     [Fact]
     public void PromptsPopup_HasEditButton()
     {
-        var content = ReadExpandedSessionView();
+        var content = ReadJsInteropModule();
         Assert.Contains("Edit prompt", content);
     }
 
     [Fact]
     public void PromptsPopup_HasDeleteButton()
     {
-        var content = ReadExpandedSessionView();
+        var content = ReadJsInteropModule();
         Assert.Contains("Delete prompt", content);
     }
 
@@ -88,15 +94,15 @@ public class PromptManagementPopupTests
     [Fact]
     public void PromptsPopup_EditButtonOnlyForUserPrompts()
     {
-        var content = ReadExpandedSessionView();
+        var content = ReadJsInteropModule();
         // Edit/delete buttons should only appear for user-owned prompts (isUser check)
-        Assert.Contains("if(p.isUser)", content);
+        Assert.Contains("p.isUser", content);
     }
 
     [Fact]
     public void PromptsPopup_HasFormWithNameContentFields()
     {
-        var content = ReadExpandedSessionView();
+        var content = ReadJsInteropModule();
         // The form should have name and content inputs
         Assert.Contains("Prompt name", content);
         Assert.Contains("Prompt content", content);
@@ -105,7 +111,7 @@ public class PromptManagementPopupTests
     [Fact]
     public void PromptsPopup_ShowsEmptyStateMessage()
     {
-        var content = ReadExpandedSessionView();
+        var content = ReadJsInteropModule();
         // When no prompts exist, should show a helpful message
         Assert.Contains("No prompts yet", content);
     }

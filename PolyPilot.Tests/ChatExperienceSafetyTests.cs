@@ -1293,7 +1293,10 @@ public class ChatExperienceSafetyTests
         var dashboard = File.ReadAllText(
             Path.Combine(GetRepoRoot(), "PolyPilot", "Components", "Pages", "Dashboard.razor"));
 
-        Assert.Contains("window.__liveDrafts", dashboard);
+        // __liveDrafts tracking moved to polypilot-interop.js; check both Razor and JS module
+        var jsModule = File.ReadAllText(
+            Path.Combine(GetRepoRoot(), "PolyPilot", "wwwroot", "js", "polypilot-interop.js"));
+        Assert.Contains("window.__liveDrafts", jsModule);
         Assert.Contains("hasDivergedUserText", indexHtml);
         Assert.Contains("current !== desired && current !== lastRestored", indexHtml);
         Assert.Contains("delete window.__liveDrafts[elementId]", indexHtml);
