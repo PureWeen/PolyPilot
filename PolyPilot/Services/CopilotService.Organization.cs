@@ -2506,10 +2506,18 @@ public partial class CopilotService
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await EnsureSessionModelAsync(workerName, cancellationToken);
 
-        // Worker identity, worktree note, shared context, and tool honesty policy are now
+        // Worker identity, worktree note, shared context, and tool honesty policy are
         // delivered via SystemMessageConfig sections (set at session creation/revival time).
-        // The user prompt contains only the task-specific content.
-        var workerPrompt = BuildWorkerPrompt(originalPrompt, task);
+        // However, dynamic state (SharedContext, SystemPrompt) may change after creation
+        // (e.g., user edits decisions.md or calls SetSessionSystemPrompt). Re-read fresh
+        // values and include them in the user prompt to ensure dispatch-time freshness.
+        var meta = GetSessionMeta(workerName);
+        var group = meta?.GroupId != null
+            ? Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId) : null;
+        var freshSharedContext = group?.SharedContext ?? "";
+        var freshIdentity = meta?.SystemPrompt;
+
+        var workerPrompt = BuildWorkerPrompt(originalPrompt, task, freshIdentity, freshSharedContext);
 
         const int maxRetries = 2;
         var dispatchTime = DateTimeOffset.UtcNow;
@@ -3031,13 +3039,26 @@ public partial class CopilotService
     }
 
     /// <summary>
-    /// Build a user-facing prompt for a worker that contains only the task-specific content.
-    /// System-level content (identity, tool policy, worktree, shared context) is now delivered
+    /// Build a user-facing prompt for a worker that contains the task-specific content.
+    /// System-level content (identity, tool policy, worktree, shared context) is delivered
     /// via SystemMessageConfig sections — see <see cref="BuildWorkerSystemMessageSections"/>.
+    /// Fresh dynamic context (identity, shared context) is included in the user prompt when
+    /// provided, ensuring dispatch-time changes are picked up even when sections are stale.
     /// </summary>
-    internal static string BuildWorkerPrompt(string originalPrompt, string task)
+    internal static string BuildWorkerPrompt(string originalPrompt, string task,
+        string? freshIdentity = null, string? freshSharedContext = null)
     {
-        return $"## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
+        var sb = new System.Text.StringBuilder();
+        sb.Append($"## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}");
+
+        // Include fresh dynamic context so mid-session changes to identity/SharedContext
+        // are reflected even though system message sections are baked at creation time.
+        if (!string.IsNullOrEmpty(freshIdentity))
+            sb.Append($"\n\n## Your Role\n{freshIdentity}");
+        if (!string.IsNullOrEmpty(freshSharedContext))
+            sb.Append($"\n\n## Team Context (latest)\n{freshSharedContext}");
+
+        return sb.ToString();
     }
 
     /// <summary>
