@@ -2145,6 +2145,40 @@ The user can also check configured servers with the /mcp command.
     }
 
     /// <summary>
+    /// Merges dynamic content (relaunch instructions, MCP guidance) into section overrides
+    /// so it's delivered via sections rather than <see cref="SystemMessageConfig.Content"/>.
+    /// This avoids relying on <c>Content</c> being honored alongside <c>Sections</c> in
+    /// <see cref="SystemMessageMode.Customize"/> mode.
+    /// </summary>
+    internal static Dictionary<string, SectionOverride> MergeDynamicContentIntoSections(
+        Dictionary<string, SectionOverride> sections, string dynamicContent)
+    {
+        if (string.IsNullOrWhiteSpace(dynamicContent))
+            return sections;
+
+        // Merge into EnvironmentContext — this content is environment-specific guidance
+        // (relaunch script instructions, MCP server awareness).
+        if (sections.TryGetValue(SystemPromptSections.EnvironmentContext, out var existing))
+        {
+            sections[SystemPromptSections.EnvironmentContext] = new SectionOverride
+            {
+                Action = SectionOverrideAction.Append,
+                Content = existing.Content + "\n" + dynamicContent
+            };
+        }
+        else
+        {
+            sections[SystemPromptSections.EnvironmentContext] = new SectionOverride
+            {
+                Action = SectionOverrideAction.Append,
+                Content = dynamicContent
+            };
+        }
+
+        return sections;
+    }
+
+    /// <summary>
     /// Discover all available skills from installed plugins and project-level skill directories.
     /// Returns a list of (Name, Description, Source) tuples.
     /// </summary>
@@ -2830,8 +2864,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 ? new SystemMessageConfig
                 {
                     Mode = SystemMessageMode.Customize,
-                    Sections = systemMessageSections,
-                    Content = systemContent.ToString()
+                    Sections = MergeDynamicContentIntoSections(systemMessageSections, systemContent.ToString()),
                 }
                 : new SystemMessageConfig
                 {
@@ -4395,8 +4428,7 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
                 ? new SystemMessageConfig
                 {
                     Mode = SystemMessageMode.Customize,
-                    Sections = workerSections,
-                    Content = systemContent.ToString()
+                    Sections = MergeDynamicContentIntoSections(workerSections, systemContent.ToString()),
                 }
                 : new SystemMessageConfig
                 {
@@ -4421,14 +4453,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     /// </summary>
     private Dictionary<string, SectionOverride>? BuildWorkerSectionsForSession(string sessionName)
     {
-        var meta = GetSessionMeta(sessionName);
+        // Use thread-safe snapshots — this method is called from background threads
+        // (BuildFreshSessionConfig via reconnect/revival paths in Task.Run).
+        var metas = SnapshotSessionMetas();
+        var meta = metas.FirstOrDefault(m => m.SessionName == sessionName);
         if (meta?.Role != MultiAgentRole.Worker) return null;
 
         var identity = !string.IsNullOrEmpty(meta.SystemPrompt)
             ? meta.SystemPrompt
             : "You are a worker agent. Complete the following task thoroughly.";
 
-        var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+        var groups = SnapshotGroups();
+        var group = groups.FirstOrDefault(g => g.Id == meta.GroupId);
         var sharedContext = group?.SharedContext ?? "";
 
         var wtInfo = meta.WorktreeId != null
