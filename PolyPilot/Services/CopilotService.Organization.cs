@@ -3222,10 +3222,51 @@ public partial class CopilotService
         });
     }
 
+    /// <summary>
+    /// Checks whether a worker session is idle for purposes of orchestration resume monitoring.
+    /// A worker is NOT idle if:
+    /// 1. Its in-memory IsProcessing flag is true, OR
+    /// 2. It's a lazy placeholder (Session == null) and the CLI events.jsonl shows active processing.
+    ///
+    /// Case 2 handles the race condition (issue #400) where IsProcessing is set via InvokeOnUI
+    /// (async UI thread dispatch) but MonitorAndSynthesizeAsync checks it from a background thread
+    /// before the callback fires.
+    /// </summary>
+    internal bool IsWorkerIdleForMonitor(string workerName)
+    {
+        if (!_sessions.TryGetValue(workerName, out var state))
+            return true; // session not found — will be handled in result collection
+
+        if (state.Info.IsProcessing)
+            return false;
+
+        // Lazy placeholder workers: check events.jsonl directly.
+        // IsProcessing may not be set yet (InvokeOnUI hasn't fired on UI thread).
+        if (state.Session == null && !string.IsNullOrEmpty(state.Info.SessionId)
+            && IsSessionStillProcessing(state.Info.SessionId))
+        {
+            Debug($"[DISPATCH] Worker '{workerName}' is a lazy placeholder with active CLI session — treating as not idle");
+            return false;
+        }
+
+        return true;
+    }
+
     private async Task MonitorAndSynthesizeAsync(PendingOrchestration pending, CancellationToken ct)
     {
         var timeout = TimeSpan.FromMinutes(15);
         var started = DateTime.UtcNow;
+
+        // Wait for session restore to complete before checking worker state.
+        // Worker IsProcessing flags are set via InvokeOnUI during restore, which is
+        // async (queued on UI thread). Without this wait, we may see workers as idle
+        // before the restore loop has set their processing state (issue #400).
+        var restoreWaitStart = DateTime.UtcNow;
+        while (IsRestoring && !ct.IsCancellationRequested && (DateTime.UtcNow - restoreWaitStart).TotalSeconds < 30)
+            await Task.Delay(500, ct);
+
+        // Extra settle time for queued InvokeOnUI callbacks to execute on the UI thread
+        await Task.Delay(2000, ct);
 
         // Poll every 5 seconds until all workers are idle
         while (!ct.IsCancellationRequested && (DateTime.UtcNow - started) < timeout)
@@ -3233,7 +3274,7 @@ public partial class CopilotService
             var allIdle = true;
             foreach (var workerName in pending.WorkerNames)
             {
-                if (_sessions.TryGetValue(workerName, out var state) && state.Info.IsProcessing)
+                if (!IsWorkerIdleForMonitor(workerName))
                 {
                     allIdle = false;
                     break;
