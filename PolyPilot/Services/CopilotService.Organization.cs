@@ -2511,9 +2511,13 @@ public partial class CopilotService
         // However, dynamic state (SharedContext, SystemPrompt) may change after creation
         // (e.g., user edits decisions.md or calls SetSessionSystemPrompt). Re-read fresh
         // values and include them in the user prompt to ensure dispatch-time freshness.
-        var meta = GetSessionMeta(workerName);
+        // Use thread-safe snapshots — ExecuteWorkerAsync runs on background threads
+        // (dispatched via Task.WhenAll from orchestration).
+        var metas = SnapshotSessionMetas();
+        var meta = metas.FirstOrDefault(m => m.SessionName == workerName);
+        var groups = SnapshotGroups();
         var group = meta?.GroupId != null
-            ? Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId) : null;
+            ? groups.FirstOrDefault(g => g.Id == meta.GroupId) : null;
         var freshSharedContext = group?.SharedContext ?? "";
         var freshIdentity = meta?.SystemPrompt;
 
