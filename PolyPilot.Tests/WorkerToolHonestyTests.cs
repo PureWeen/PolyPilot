@@ -1,3 +1,4 @@
+using GitHub.Copilot.SDK;
 using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Models;
 using PolyPilot.Services;
@@ -19,26 +20,115 @@ public class WorkerToolHonestyTests
             new RepoManager(), services.BuildServiceProvider(), new StubDemoService());
     }
 
-    #region Worker Prompt Tool-Honesty Instructions
+    #region Worker Prompt — Task-Only Content
 
     [Fact]
-    public void WorkerPrompt_ContainsToolHonestyInstructions()
+    public void WorkerPrompt_ContainsOnlyTaskContent()
     {
-        var svc = CreateService();
-        var method = typeof(CopilotService).GetMethod("BuildWorkerPrompt",
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
-        Assert.NotNull(method);
+        var workerPrompt = CopilotService.BuildWorkerPrompt("Fix the tests", "Run the unit tests");
 
-        var workerPrompt = (string)method!.Invoke(null, new object[] {
+        Assert.Contains("Original User Request", workerPrompt);
+        Assert.Contains("Fix the tests", workerPrompt);
+        Assert.Contains("Your Assigned Task", workerPrompt);
+        Assert.Contains("Run the unit tests", workerPrompt);
+        // System-level content is now in sections, not the user prompt
+        Assert.DoesNotContain("CRITICAL: Tool Usage & Honesty Policy", workerPrompt);
+        Assert.DoesNotContain("NEVER fabricate", workerPrompt);
+    }
+
+    #endregion
+
+    #region Worker System Message Sections — Tool Honesty
+
+    [Fact]
+    public void WorkerSystemMessageSections_ContainsToolHonestyInstructions()
+    {
+        var sections = CopilotService.BuildWorkerSystemMessageSections(
             "You are a worker agent. Complete the following task thoroughly.",
-            "", "", "Fix the tests", "Run the unit tests"
-        })!;
+            worktreeNote: "",
+            sharedContext: "");
 
-        Assert.Contains("CRITICAL: Tool Usage & Honesty Policy", workerPrompt);
-        Assert.Contains("NEVER fabricate", workerPrompt);
-        Assert.Contains("TOOL_FAILURE:", workerPrompt);
-        Assert.Contains("REPORT THE FAILURE", workerPrompt);
-        Assert.Contains("NEVER evaluate or assess", workerPrompt);
+        Assert.True(sections.ContainsKey(SystemPromptSections.ToolEfficiency));
+        var toolSection = sections[SystemPromptSections.ToolEfficiency];
+        Assert.Equal(SectionOverrideAction.Append, toolSection.Action);
+        Assert.Contains("CRITICAL: Tool Usage & Honesty Policy", toolSection.Content);
+        Assert.Contains("NEVER fabricate", toolSection.Content);
+        Assert.Contains("TOOL_FAILURE:", toolSection.Content);
+        Assert.Contains("REPORT THE FAILURE", toolSection.Content);
+        Assert.Contains("NEVER evaluate or assess", toolSection.Content);
+    }
+
+    [Fact]
+    public void WorkerSystemMessageSections_ContainsIdentity()
+    {
+        var charter = "You are a code review specialist.";
+        var sections = CopilotService.BuildWorkerSystemMessageSections(
+            charter, worktreeNote: "", sharedContext: "");
+
+        Assert.True(sections.ContainsKey(SystemPromptSections.Identity));
+        var identitySection = sections[SystemPromptSections.Identity];
+        Assert.Equal(SectionOverrideAction.Append, identitySection.Action);
+        Assert.Contains(charter, identitySection.Content);
+        Assert.Contains("synthesized with other workers", identitySection.Content);
+    }
+
+    [Fact]
+    public void WorkerSystemMessageSections_IncludesWorktreeNote()
+    {
+        var worktreeNote = "\n\n## Your Worktree\nYou have an isolated git worktree at `/tmp/wt` (branch: main).\n";
+        var sections = CopilotService.BuildWorkerSystemMessageSections(
+            "worker", worktreeNote: worktreeNote, sharedContext: "");
+
+        Assert.True(sections.ContainsKey(SystemPromptSections.EnvironmentContext));
+        var envSection = sections[SystemPromptSections.EnvironmentContext];
+        Assert.Equal(SectionOverrideAction.Append, envSection.Action);
+        Assert.Contains("/tmp/wt", envSection.Content);
+    }
+
+    [Fact]
+    public void WorkerSystemMessageSections_OmitsWorktreeWhenEmpty()
+    {
+        var sections = CopilotService.BuildWorkerSystemMessageSections(
+            "worker", worktreeNote: "", sharedContext: "");
+
+        Assert.False(sections.ContainsKey(SystemPromptSections.EnvironmentContext));
+    }
+
+    [Fact]
+    public void WorkerSystemMessageSections_IncludesSharedContext()
+    {
+        var sharedContext = "Always use TDD. Run tests before committing.";
+        var sections = CopilotService.BuildWorkerSystemMessageSections(
+            "worker", worktreeNote: "", sharedContext: sharedContext);
+
+        Assert.True(sections.ContainsKey(SystemPromptSections.CustomInstructions));
+        var customSection = sections[SystemPromptSections.CustomInstructions];
+        Assert.Equal(SectionOverrideAction.Append, customSection.Action);
+        Assert.Contains("Team Context", customSection.Content);
+        Assert.Contains(sharedContext, customSection.Content);
+    }
+
+    [Fact]
+    public void WorkerSystemMessageSections_OmitsSharedContextWhenEmpty()
+    {
+        var sections = CopilotService.BuildWorkerSystemMessageSections(
+            "worker", worktreeNote: "", sharedContext: "");
+
+        Assert.False(sections.ContainsKey(SystemPromptSections.CustomInstructions));
+    }
+
+    [Fact]
+    public void WorkerSystemMessageSections_AllSectionsUseAppendAction()
+    {
+        var sections = CopilotService.BuildWorkerSystemMessageSections(
+            "You are a specialist.",
+            "\n\n## Your Worktree\nAt /tmp/wt (branch: dev).\n",
+            "Shared team decisions.");
+
+        foreach (var (key, section) in sections)
+        {
+            Assert.Equal(SectionOverrideAction.Append, section.Action);
+        }
     }
 
     #endregion

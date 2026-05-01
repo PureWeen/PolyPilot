@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using GitHub.Copilot.SDK;
 using Microsoft.Extensions.DependencyInjection;
 using PolyPilot.Models;
 
@@ -127,7 +128,14 @@ public partial class CopilotService
             while (_sessions.ContainsKey(workerName) || Organization.Sessions.Any(s => s.SessionName == workerName))
                 workerName = $"{groupName}-Worker-{i}-{suffix++}";
 
-            var workerSession = await CreateSessionAsync(workerName, workerModel, null);
+            // Build worker system message sections with default identity (no charter in simple path)
+            var workerSections = BuildWorkerSystemMessageSections(
+                "You are a worker agent. Complete the following task thoroughly.",
+                worktreeNote: "",
+                sharedContext: "");
+
+            var workerSession = await CreateSessionAsync(workerName, workerModel, null,
+                systemMessageSections: workerSections);
             var workerMeta = GetOrCreateSessionMeta(workerSession.Name);
             workerMeta.GroupId = group.Id;
             workerMeta.Role = MultiAgentRole.Worker;
@@ -2498,30 +2506,10 @@ public partial class CopilotService
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await EnsureSessionModelAsync(workerName, cancellationToken);
 
-        // Use per-worker system prompt if set, otherwise generic.
-        // Note: .github/copilot-instructions.md is auto-loaded by the SDK for each session's working directory,
-        // so workers already inherit repo-level copilot instructions without explicit injection here.
-        var meta = GetSessionMeta(workerName);
-        var identity = !string.IsNullOrEmpty(meta?.SystemPrompt)
-            ? meta.SystemPrompt
-            : "You are a worker agent. Complete the following task thoroughly.";
-
-        // Inject shared context (e.g., Squad decisions.md) if the group has it
-        var group = meta != null ? Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId) : null;
-        var sharedPrefix = !string.IsNullOrEmpty(group?.SharedContext)
-            ? $"## Team Context (shared knowledge)\n{group.SharedContext}\n\n"
-            : "";
-
-        // Inject worktree awareness if the worker has an isolated worktree
-        var wtInfo = meta?.WorktreeId != null
-            ? _repoManager.Worktrees.FirstOrDefault(wt => wt.Id == meta.WorktreeId) : null;
-        var worktreeNote = wtInfo != null && group?.WorktreeStrategy != WorktreeStrategy.Shared
-            ? $"\n\n## Your Worktree\nYou have an isolated git worktree at `{wtInfo.Path}` (branch: {wtInfo.Branch}). " +
-              "You can safely run any git operations without affecting other workers. " +
-              "To check out a PR: `git fetch origin pull/<N>/head:pr-<N> && git checkout pr-<N>`\n"
-            : "";
-
-        var workerPrompt = BuildWorkerPrompt(identity, worktreeNote, sharedPrefix, originalPrompt, task);
+        // Worker identity, worktree note, shared context, and tool honesty policy are now
+        // delivered via SystemMessageConfig sections (set at session creation/revival time).
+        // The user prompt contains only the task-specific content.
+        var workerPrompt = BuildWorkerPrompt(originalPrompt, task);
 
         const int maxRetries = 2;
         var dispatchTime = DateTimeOffset.UtcNow;
@@ -3042,17 +3030,67 @@ public partial class CopilotService
         catch { return null; }
     }
 
-    private static string BuildWorkerPrompt(string identity, string worktreeNote, string sharedPrefix, string originalPrompt, string task)
+    /// <summary>
+    /// Build a user-facing prompt for a worker that contains only the task-specific content.
+    /// System-level content (identity, tool policy, worktree, shared context) is now delivered
+    /// via SystemMessageConfig sections — see <see cref="BuildWorkerSystemMessageSections"/>.
+    /// </summary>
+    internal static string BuildWorkerPrompt(string originalPrompt, string task)
     {
-        return $"{identity}{worktreeNote}\n\nYour response will be collected and synthesized with other workers' responses.\n\n" +
-            "## CRITICAL: Tool Usage & Honesty Policy\n" +
-            "- You MUST use your CLI tools (file reads, builds, tests, grep, etc.) to complete your task. Do NOT rely on assumptions or memory.\n" +
-            "- If a tool call fails or is unavailable, REPORT THE FAILURE explicitly. Say what you tried, what failed, and why.\n" +
-            "- NEVER fabricate, invent, or assume tool outputs. If you cannot run a tool, say so — do NOT generate plausible-looking results.\n" +
-            "- NEVER evaluate or assess code, tests, or behavior without actually running the relevant tools first.\n" +
-            "- If you cannot complete your task because tools are unavailable, respond with: " +
-            "\"TOOL_FAILURE: [description of what failed and why]\"\n\n" +
-            $"{sharedPrefix}## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
+        return $"## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}";
+    }
+
+    /// <summary>
+    /// Build section overrides for a worker session's system message.
+    /// Uses the SDK's SystemMessageConfig Customize mode to place worker-specific content
+    /// in the appropriate system prompt sections instead of concatenating into the user message.
+    /// </summary>
+    internal static Dictionary<string, SectionOverride> BuildWorkerSystemMessageSections(
+        string identity, string worktreeNote, string sharedContext)
+    {
+        var sections = new Dictionary<string, SectionOverride>();
+
+        // Worker charter/identity appended to the Identity section
+        sections[SystemPromptSections.Identity] = new SectionOverride
+        {
+            Action = SectionOverrideAction.Append,
+            Content = $"\n\n{identity}\n\nYour response will be collected and synthesized with other workers' responses."
+        };
+
+        // Tool honesty policy appended to the ToolEfficiency section
+        sections[SystemPromptSections.ToolEfficiency] = new SectionOverride
+        {
+            Action = SectionOverrideAction.Append,
+            Content = "\n\n## CRITICAL: Tool Usage & Honesty Policy\n" +
+                "- You MUST use your CLI tools (file reads, builds, tests, grep, etc.) to complete your task. Do NOT rely on assumptions or memory.\n" +
+                "- If a tool call fails or is unavailable, REPORT THE FAILURE explicitly. Say what you tried, what failed, and why.\n" +
+                "- NEVER fabricate, invent, or assume tool outputs. If you cannot run a tool, say so — do NOT generate plausible-looking results.\n" +
+                "- NEVER evaluate or assess code, tests, or behavior without actually running the relevant tools first.\n" +
+                "- If you cannot complete your task because tools are unavailable, respond with: " +
+                "\"TOOL_FAILURE: [description of what failed and why]\""
+        };
+
+        // Worktree note appended to EnvironmentContext section
+        if (!string.IsNullOrEmpty(worktreeNote))
+        {
+            sections[SystemPromptSections.EnvironmentContext] = new SectionOverride
+            {
+                Action = SectionOverrideAction.Append,
+                Content = worktreeNote
+            };
+        }
+
+        // Shared context (e.g., Squad decisions.md) appended to CustomInstructions section
+        if (!string.IsNullOrEmpty(sharedContext))
+        {
+            sections[SystemPromptSections.CustomInstructions] = new SectionOverride
+            {
+                Action = SectionOverrideAction.Append,
+                Content = $"\n\n## Team Context (shared knowledge)\n{sharedContext}"
+            };
+        }
+
+        return sections;
     }
 
     private string BuildSynthesisPrompt(string originalPrompt, List<WorkerResult> results)
@@ -3836,10 +3874,30 @@ public partial class CopilotService
             }
             var workerModel = ModelHelper.ResolvePreferredModel(preset.WorkerModels[i], AvailableModels, "claude-opus-4.6");
             var workerWorkDir = workerWorkDirs[i] ?? orchWorkDir ?? workingDirectory;
-            Debug($"[WorktreeStrategy] Worker '{workerName}': wtId={workerWtIds[i] ?? "(none)"}, dir={workerWorkDir ?? "(null)"}");
+            var systemPrompt = preset.WorkerSystemPrompts != null && i < preset.WorkerSystemPrompts.Length
+                ? preset.WorkerSystemPrompts[i] : null;
+
+            // Build worker system message sections from known charter, worktree, and shared context.
+            // This uses SDK Customize mode so identity, tool policy, worktree, and shared context
+            // are structured as system prompt sections instead of concatenated into the user prompt.
+            var effectiveWtId = workerWtIds[i] ?? orchWtId ?? worktreeId;
+            var wtInfo = effectiveWtId != null
+                ? _repoManager.Worktrees.FirstOrDefault(wt => wt.Id == effectiveWtId) : null;
+            var worktreeNote = wtInfo != null && group.WorktreeStrategy != WorktreeStrategy.Shared
+                ? $"\n\n## Your Worktree\nYou have an isolated git worktree at `{wtInfo.Path}` (branch: {wtInfo.Branch}). " +
+                  "You can safely run any git operations without affecting other workers. " +
+                  "To check out a PR: `git fetch origin pull/<N>/head:pr-<N> && git checkout pr-<N>`\n"
+                : "";
+            var workerSections = BuildWorkerSystemMessageSections(
+                systemPrompt ?? "You are a worker agent. Complete the following task thoroughly.",
+                worktreeNote,
+                group.SharedContext ?? "");
+
+            Debug($"[WorktreeStrategy] Worker '{workerName}': wtId={effectiveWtId ?? "(none)"}, dir={workerWorkDir ?? "(null)"}");
             try
             {
-                await CreateSessionAsync(workerName, workerModel, workerWorkDir, ct);
+                await CreateSessionAsync(workerName, workerModel, workerWorkDir, ct,
+                    systemMessageSections: workerSections);
             }
             catch (Exception ex)
             {
@@ -3849,15 +3907,12 @@ public partial class CopilotService
             MoveSession(workerName, group.Id);
             SetSessionRole(workerName, MultiAgentRole.Worker);
             SetSessionPreferredModel(workerName, workerModel);
-            var systemPrompt = preset.WorkerSystemPrompts != null && i < preset.WorkerSystemPrompts.Length
-                ? preset.WorkerSystemPrompts[i] : null;
             var meta = GetSessionMeta(workerName);
             if (meta != null)
             {
-                meta.WorktreeId = workerWtIds[i] ?? orchWtId ?? worktreeId;
+                meta.WorktreeId = effectiveWtId;
                 if (systemPrompt != null) meta.SystemPrompt = systemPrompt;
             }
-            var effectiveWtId = workerWtIds[i] ?? orchWtId ?? worktreeId;
             if (effectiveWtId != null && _sessions.TryGetValue(workerName, out var workerState))
                 workerState.Info.WorktreeId = effectiveWtId;
         }

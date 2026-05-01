@@ -2710,7 +2710,7 @@ The user can also check configured servers with the /mcp command.
     private static Task<PermissionRequestResult> AutoApprovePermissions(PermissionRequest request, PermissionInvocation invocation)
         => Task.FromResult(new PermissionRequestResult { Kind = PermissionRequestResultKind.Approved });
 
-    public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default, string? groupId = null)
+    public async Task<AgentSessionInfo> CreateSessionAsync(string name, string? model = null, string? workingDirectory = null, CancellationToken cancellationToken = default, string? groupId = null, Dictionary<string, SectionOverride>? systemMessageSections = null)
     {
         // In demo mode, create a local mock session
         if (IsDemoMode)
@@ -2826,11 +2826,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             McpServers = mcpServers,
             SkillDirectories = skillDirs,
             Tools = new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() },
-            SystemMessage = new SystemMessageConfig
-            {
-                Mode = SystemMessageMode.Append,
-                Content = systemContent.ToString()
-            },
+            SystemMessage = systemMessageSections != null
+                ? new SystemMessageConfig
+                {
+                    Mode = SystemMessageMode.Customize,
+                    Sections = systemMessageSections,
+                    Content = systemContent.ToString()
+                }
+                : new SystemMessageConfig
+                {
+                    Mode = SystemMessageMode.Append,
+                    Content = systemContent.ToString()
+                },
             // Auto-approve all tool permission requests so worker sessions (which have no
             // interactive user) can execute tools without getting "Permission denied".
             OnPermissionRequest = AutoApprovePermissions,
@@ -4343,7 +4350,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
     /// <summary>
     /// Build a fresh SessionConfig with MCP servers, skill directories, and system message.
     /// Mirrors the reconnect handler's "Session not found" path to ensure revived/fresh sessions
-    /// have full external tool access.
+    /// have full external tool access. For worker sessions, uses Customize mode with section
+    /// overrides for identity, tool policy, worktree, and shared context.
     /// </summary>
     private SessionConfig BuildFreshSessionConfig(SessionState state, List<Microsoft.Extensions.AI.AIFunction>? tools = null)
     {
@@ -4371,6 +4379,11 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Add MCP server awareness so the model can guide users when MCP tools fail
         AppendMcpServerGuidance(systemContent, mcpServers);
         var finalTools = tools ?? new List<Microsoft.Extensions.AI.AIFunction> { ShowImageTool.CreateFunction() };
+
+        // For worker sessions, build section overrides so identity, tool policy, worktree, and
+        // shared context are delivered via structured SystemMessageConfig sections.
+        var workerSections = BuildWorkerSectionsForSession(state.Info.Name);
+
         var config = new SessionConfig
         {
             Model = Models.ModelHelper.NormalizeToSlug(state.Info.Model) ?? DefaultModel,
@@ -4378,11 +4391,18 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             McpServers = mcpServers,
             SkillDirectories = skillDirs,
             Tools = finalTools,
-            SystemMessage = new SystemMessageConfig
-            {
-                Mode = SystemMessageMode.Append,
-                Content = systemContent.ToString()
-            },
+            SystemMessage = workerSections != null
+                ? new SystemMessageConfig
+                {
+                    Mode = SystemMessageMode.Customize,
+                    Sections = workerSections,
+                    Content = systemContent.ToString()
+                }
+                : new SystemMessageConfig
+                {
+                    Mode = SystemMessageMode.Append,
+                    Content = systemContent.ToString()
+                },
             OnPermissionRequest = AutoApprovePermissions,
             InfiniteSessions = new InfiniteSessionConfig { Enabled = true },
         };
@@ -4390,7 +4410,36 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             Debug($"[FRESH-CONFIG] Includes {mcpServers.Count} MCP server(s)");
         if (skillDirs != null)
             Debug($"[FRESH-CONFIG] Includes {skillDirs.Count} skill dir(s)");
+        if (workerSections != null)
+            Debug($"[FRESH-CONFIG] Worker session — {workerSections.Count} system message section(s)");
         return config;
+    }
+
+    /// <summary>
+    /// Build worker system message sections for a session if it's a multi-agent worker.
+    /// Returns null for non-worker sessions.
+    /// </summary>
+    private Dictionary<string, SectionOverride>? BuildWorkerSectionsForSession(string sessionName)
+    {
+        var meta = GetSessionMeta(sessionName);
+        if (meta?.Role != MultiAgentRole.Worker) return null;
+
+        var identity = !string.IsNullOrEmpty(meta.SystemPrompt)
+            ? meta.SystemPrompt
+            : "You are a worker agent. Complete the following task thoroughly.";
+
+        var group = Organization.Groups.FirstOrDefault(g => g.Id == meta.GroupId);
+        var sharedContext = group?.SharedContext ?? "";
+
+        var wtInfo = meta.WorktreeId != null
+            ? _repoManager.Worktrees.FirstOrDefault(wt => wt.Id == meta.WorktreeId) : null;
+        var worktreeNote = wtInfo != null && group?.WorktreeStrategy != WorktreeStrategy.Shared
+            ? $"\n\n## Your Worktree\nYou have an isolated git worktree at `{wtInfo.Path}` (branch: {wtInfo.Branch}). " +
+              "You can safely run any git operations without affecting other workers. " +
+              "To check out a PR: `git fetch origin pull/<N>/head:pr-<N> && git checkout pr-<N>`\n"
+            : "";
+
+        return BuildWorkerSystemMessageSections(identity, worktreeNote, sharedContext);
     }
 
     public async Task AbortSessionAsync(string sessionName, bool markAsInterrupted = false)
