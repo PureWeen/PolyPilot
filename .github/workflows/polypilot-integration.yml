@@ -479,15 +479,14 @@ jobs:
           webview_eval() {
             local expr="$1"
             local payload
-            # Try v1 endpoint first (simple payload: {"expression":"..."})
-            payload=$(python3 -c "import json,sys; print(json.dumps({'expression':sys.argv[1]}))" "$expr")
+            # v1 endpoint uses CDP command passthrough: {"method":"Runtime.evaluate","params":{"expression":"..."}}
+            payload=$(python3 -c "import json,sys; print(json.dumps({'method':'Runtime.evaluate','params':{'expression':sys.argv[1]}}))" "$expr")
             local result
             result=$(curl -s -X POST "$EVAL_URL" -H "Content-Type: application/json" -d "$payload" 2>/dev/null)
-            if [ $? -eq 0 ] && echo "$result" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+            if [ $? -eq 0 ] && echo "$result" | python3 -c "import sys,json; d=json.load(sys.stdin); exit(1 if 'error' in d and 'Route not found' in str(d.get('error','')) else 0)" 2>/dev/null; then
               echo "$result"
             else
               # Fallback to old CDP route
-              payload=$(python3 -c "import json,sys; print(json.dumps({'method':'Runtime.evaluate','params':{'expression':sys.argv[1]}}))" "$expr")
               curl -s -X POST "$EVAL_URL_FALLBACK" -H "Content-Type: application/json" -d "$payload" 2>/dev/null
             fi
           }
