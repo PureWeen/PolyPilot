@@ -2149,6 +2149,8 @@ The user can also check configured servers with the /mcp command.
     /// so it's delivered via sections rather than <see cref="SystemMessageConfig.Content"/>.
     /// This avoids relying on <c>Content</c> being honored alongside <c>Sections</c> in
     /// <see cref="SystemMessageMode.Customize"/> mode.
+    /// <para><b>Warning:</b> Mutates <paramref name="sections"/> in-place and returns the
+    /// same reference. Callers must pass a fresh dictionary if the original must not be modified.</para>
     /// </summary>
     internal static Dictionary<string, SectionOverride> MergeDynamicContentIntoSections(
         Dictionary<string, SectionOverride> sections, string dynamicContent)
@@ -3341,10 +3343,15 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
         // Preserve group assignment so the new session stays in the same group (e.g., codespace group)
         var meta = Organization.Sessions.FirstOrDefault(m => m.SessionName == name);
         var groupId = meta?.GroupId;
-        
+
+        // For worker sessions, build system message sections BEFORE closing (meta is still available).
+        // Without this, the recreated session loses identity, tool honesty, worktree, and shared context.
+        var workerSections = BuildWorkerSectionsForSession(name);
+
         await CloseSessionAsync(name);
         
-        return await CreateSessionAsync(name, newModel, workingDir, groupId: groupId);
+        return await CreateSessionAsync(name, newModel, workingDir, groupId: groupId,
+            systemMessageSections: workerSections);
     }
 
     /// <summary>
