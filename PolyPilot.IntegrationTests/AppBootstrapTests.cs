@@ -9,9 +9,9 @@ namespace PolyPilot.IntegrationTests;
 /// </summary>
 [Collection("PolyPilot")]
 [Trait("Category", "AppBootstrap")]
-public class WorkerSystemMessageTests : IntegrationTestBase
+public class AppBootstrapTests : IntegrationTestBase
 {
-    public WorkerSystemMessageTests(AppFixture app, ITestOutputHelper output)
+    public AppBootstrapTests(AppFixture app, ITestOutputHelper output)
         : base(app, output) { }
 
     [Fact]
