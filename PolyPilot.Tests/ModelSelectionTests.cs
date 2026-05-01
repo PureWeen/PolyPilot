@@ -676,4 +676,93 @@ public class ModelSelectionTests
         var result = ModelHelper.ResolvePreferredModel("claude-opus-4.6-1m", available, "claude-opus-4.6", "claude-sonnet-4.6");
         Assert.Equal("claude-sonnet-4.6", result);
     }
+
+    // === GetCapabilitiesOverride tests ===
+
+    [Theory]
+    [InlineData("gemini-3-pro")]
+    [InlineData("gemini-3-pro-preview")]
+    public void GetCapabilitiesOverride_VisionModel_SetsVisionSupport(string model)
+    {
+        var result = ModelCapabilities.GetCapabilitiesOverride(model);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Supports);
+        Assert.True(result.Supports!.Vision);
+    }
+
+    [Theory]
+    [InlineData("gemini-3-pro")]
+    [InlineData("gemini-3-pro-preview")]
+    public void GetCapabilitiesOverride_VisionModel_SetsVisionLimits(string model)
+    {
+        var result = ModelCapabilities.GetCapabilitiesOverride(model);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Limits);
+        Assert.NotNull(result.Limits!.Vision);
+        Assert.NotNull(result.Limits.Vision!.SupportedMediaTypes);
+        Assert.Contains("image/png", result.Limits.Vision.SupportedMediaTypes!);
+        Assert.Contains("image/jpeg", result.Limits.Vision.SupportedMediaTypes);
+        Assert.True(result.Limits.Vision.MaxPromptImages > 0);
+        Assert.True(result.Limits.Vision.MaxPromptImageSize > 0);
+    }
+
+    [Theory]
+    [InlineData("claude-opus-4.6")]
+    [InlineData("claude-opus-4.5")]
+    [InlineData("gpt-5")]
+    [InlineData("gpt-5.1")]
+    public void GetCapabilitiesOverride_ReasoningModel_SetsReasoningEffort(string model)
+    {
+        var result = ModelCapabilities.GetCapabilitiesOverride(model);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Supports);
+        Assert.True(result.Supports!.ReasoningEffort);
+    }
+
+    [Theory]
+    [InlineData("claude-haiku-4.5")]
+    [InlineData("gpt-5-mini")]
+    [InlineData("gpt-4.1")]
+    public void GetCapabilitiesOverride_NonVisionNonReasoning_ReturnsNull(string model)
+    {
+        var result = ModelCapabilities.GetCapabilitiesOverride(model);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public void GetCapabilitiesOverride_UnknownModel_ReturnsNull()
+    {
+        var result = ModelCapabilities.GetCapabilitiesOverride("totally-unknown-model-xyz");
+
+        Assert.Null(result);
+    }
+
+    [Theory]
+    [InlineData("gemini-3-pro")]
+    [InlineData("gemini-3-pro-preview")]
+    public void GetCapabilitiesOverride_VisionModel_AlsoSetsReasoningEffort(string model)
+    {
+        // Gemini models have both Vision and ReasoningExpert flags
+        var result = ModelCapabilities.GetCapabilitiesOverride(model);
+
+        Assert.NotNull(result);
+        Assert.NotNull(result.Supports);
+        Assert.True(result.Supports!.Vision);
+        Assert.True(result.Supports.ReasoningEffort);
+    }
+
+    [Theory]
+    [InlineData("claude-sonnet-4.5")]
+    [InlineData("claude-sonnet-4")]
+    public void GetCapabilitiesOverride_NonReasoningNonVision_WithToolUse_ReturnsNull(string model)
+    {
+        // Sonnet models have CodeExpert + ToolUse + Fast, but not ReasoningExpert or Vision
+        var result = ModelCapabilities.GetCapabilitiesOverride(model);
+
+        Assert.Null(result);
+    }
 }
