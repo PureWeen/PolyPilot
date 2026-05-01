@@ -37,28 +37,39 @@ public class WorkerToolHonestyTests
         // No dynamic context when called without optional params
         Assert.DoesNotContain("Your Role", workerPrompt);
         Assert.DoesNotContain("Team Context (latest)", workerPrompt);
+        Assert.DoesNotContain("Current Worktree", workerPrompt);
     }
 
     [Fact]
-    public void WorkerPrompt_IncludesFreshIdentityWhenProvided()
+    public void WorkerPrompt_IncludesFreshWorktreeNoteWhenProvided()
     {
         var workerPrompt = CopilotService.BuildWorkerPrompt(
             "Fix the tests", "Run the unit tests",
-            freshIdentity: "You are a security auditor.");
+            freshWorktreeNote: "\n\n## Your Worktree\nAt `/tmp/wt` (branch: main).\n");
 
-        Assert.Contains("Your Role", workerPrompt);
-        Assert.Contains("You are a security auditor.", workerPrompt);
+        Assert.Contains("Current Worktree (latest)", workerPrompt);
+        Assert.Contains("/tmp/wt", workerPrompt);
     }
 
     [Fact]
-    public void WorkerPrompt_IncludesFreshSharedContextWhenProvided()
+    public void WorkerPrompt_OmitsWorktreeWhenEmpty()
     {
         var workerPrompt = CopilotService.BuildWorkerPrompt(
             "Fix the tests", "Run the unit tests",
-            freshSharedContext: "Always use TDD.");
+            freshWorktreeNote: "");
 
-        Assert.Contains("Team Context (latest)", workerPrompt);
-        Assert.Contains("Always use TDD.", workerPrompt);
+        Assert.DoesNotContain("Current Worktree", workerPrompt);
+    }
+
+    [Fact]
+    public void WorkerPrompt_DoesNotDuplicateIdentityOrSharedContext()
+    {
+        // Identity and shared context are delivered via system message sections only.
+        // The user prompt must NOT include them to avoid token waste and conflicting instructions.
+        var workerPrompt = CopilotService.BuildWorkerPrompt("Fix the tests", "Run the unit tests");
+
+        Assert.DoesNotContain("Your Role", workerPrompt);
+        Assert.DoesNotContain("Team Context", workerPrompt);
     }
 
     #endregion

@@ -2506,11 +2506,11 @@ public partial class CopilotService
         var sw = System.Diagnostics.Stopwatch.StartNew();
         await EnsureSessionModelAsync(workerName, cancellationToken);
 
-        // Worker identity, worktree note, shared context, and tool honesty policy are
-        // delivered via SystemMessageConfig sections (set at session creation/revival time).
-        // However, dynamic state (SharedContext, SystemPrompt) may change after creation
-        // (e.g., user edits decisions.md or calls SetSessionSystemPrompt). Re-read fresh
-        // values and include them in the user prompt to ensure dispatch-time freshness.
+        // Worker identity, shared context, and tool honesty policy are delivered via
+        // SystemMessageConfig sections (set at session creation/revival time) — not
+        // duplicated in the user prompt to avoid token waste and conflicting instructions.
+        // Worktree info is re-read at dispatch time because branch/path can change
+        // between session creation and dispatch (e.g., git checkout, worktree reassignment).
         // Use thread-safe snapshots — ExecuteWorkerAsync runs on background threads
         // (dispatched via Task.WhenAll from orchestration).
         var metas = SnapshotSessionMetas();
@@ -2518,10 +2518,17 @@ public partial class CopilotService
         var groups = SnapshotGroups();
         var group = meta?.GroupId != null
             ? groups.FirstOrDefault(g => g.Id == meta.GroupId) : null;
-        var freshSharedContext = group?.SharedContext ?? "";
-        var freshIdentity = meta?.SystemPrompt;
 
-        var workerPrompt = BuildWorkerPrompt(originalPrompt, task, freshIdentity, freshSharedContext);
+        // Recompute worktree note from current meta — may differ from creation-time value
+        var wtInfo = meta?.WorktreeId != null
+            ? _repoManager.Worktrees.FirstOrDefault(wt => wt.Id == meta.WorktreeId) : null;
+        var freshWorktreeNote = wtInfo != null && group?.WorktreeStrategy != WorktreeStrategy.Shared
+            ? $"\n\n## Your Worktree\nYou have an isolated git worktree at `{wtInfo.Path}` (branch: {wtInfo.Branch}). " +
+              "You can safely run any git operations without affecting other workers. " +
+              "To check out a PR: `git fetch origin pull/<N>/head:pr-<N> && git checkout pr-<N>`\n"
+            : "";
+
+        var workerPrompt = BuildWorkerPrompt(originalPrompt, task, freshWorktreeNote);
 
         const int maxRetries = 2;
         var dispatchTime = DateTimeOffset.UtcNow;
@@ -3044,23 +3051,21 @@ public partial class CopilotService
 
     /// <summary>
     /// Build a user-facing prompt for a worker that contains the task-specific content.
-    /// System-level content (identity, tool policy, worktree, shared context) is delivered
-    /// via SystemMessageConfig sections — see <see cref="BuildWorkerSystemMessageSections"/>.
-    /// Fresh dynamic context (identity, shared context) is included in the user prompt when
-    /// provided, ensuring dispatch-time changes are picked up even when sections are stale.
+    /// System-level content (identity, tool policy, shared context) is delivered via
+    /// SystemMessageConfig sections — see <see cref="BuildWorkerSystemMessageSections"/>.
+    /// Only worktree info is included here for dispatch-time freshness, since branch/path
+    /// can change between session creation and dispatch.
     /// </summary>
     internal static string BuildWorkerPrompt(string originalPrompt, string task,
-        string? freshIdentity = null, string? freshSharedContext = null)
+        string? freshWorktreeNote = null)
     {
         var sb = new System.Text.StringBuilder();
         sb.Append($"## Original User Request (context)\n{originalPrompt}\n\n## Your Assigned Task\n{task}");
 
-        // Include fresh dynamic context so mid-session changes to identity/SharedContext
-        // are reflected even though system message sections are baked at creation time.
-        if (!string.IsNullOrEmpty(freshIdentity))
-            sb.Append($"\n\n## Your Role\n{freshIdentity}");
-        if (!string.IsNullOrEmpty(freshSharedContext))
-            sb.Append($"\n\n## Team Context (latest)\n{freshSharedContext}");
+        // Include fresh worktree note so mid-session worktree changes (branch checkout,
+        // reassignment) are reflected even though system message sections are baked at creation.
+        if (!string.IsNullOrEmpty(freshWorktreeNote))
+            sb.Append($"\n\n## Current Worktree (latest)\n{freshWorktreeNote}");
 
         return sb.ToString();
     }
