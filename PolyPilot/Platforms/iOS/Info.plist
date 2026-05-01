@@ -36,6 +36,8 @@
     <string>PolyPilot uses speech recognition to convert your voice into text messages.</string>
     <key>NSMicrophoneUsageDescription</key>
     <string>PolyPilot needs microphone access for speech-to-text input.</string>
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>PolyPilot does not use Bluetooth.</string>
     <key>UIViewControllerBasedStatusBarAppearance</key>
     <true/>
     <!-- Required by App Store validation (ITMS-90683) — referenced by linked frameworks -->

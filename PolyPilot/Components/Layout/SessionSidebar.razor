@@ -1166,6 +1166,23 @@ else
                         <input type="text" @bind="sessionFilter" @bind:event="oninput" 
                                placeholder="Filter sessions..." class="filter-input" />
                     </div>
+
+                    @if (!isImporting)
+                    {
+                        <div style="padding: 4px 8px;">
+                            <button class="btn-import-all" @onclick="ImportAllCliSessions" 
+                                    title="Import all CLI sessions into PolyPilot"
+                                    style="width: 100%; padding: 6px 10px; font-size: var(--type-caption1); cursor: pointer; background: var(--color-accent-subtle, #1a1b26); border: 1px solid var(--color-border-default, #444); border-radius: 6px; color: var(--color-fg-default, #c9d1d9);">
+                                📥 Import All CLI Sessions
+                            </button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div style="padding: 4px 8px; font-size: var(--type-caption1); color: var(--color-fg-muted, #8b949e);">
+                            📥 Importing... @importProgress
+                        </div>
+                    }
                     
                     @foreach (var persisted in filteredPersistedSessions.Take(30))
                     {
@@ -1338,6 +1355,8 @@ else
     private bool showDirectoryPicker;
     private List<AgentSessionInfo> sessions = new();
     private List<PersistedSessionInfo> persistedSessions = new();
+    private bool isImporting = false;
+    private string importProgress = "";
 
     // --- Status filter ---
     private enum SessionStatusFilter { All, Processing, NeedsAttention, Stuck, Idle }
@@ -1763,6 +1782,38 @@ else
     {
         showPersistedSessions = !showPersistedSessions;
         if (showPersistedSessions) LoadPersistedSessions();
+    }
+
+    private async Task ImportAllCliSessions()
+    {
+        if (isImporting) return;
+        isImporting = true;
+        importProgress = "Scanning...";
+        StateHasChanged();
+
+        try
+        {
+            var progress = new Progress<(int scanned, int imported, int total)>(p =>
+            {
+                importProgress = $"{p.imported} imported ({p.scanned}/{p.total} scanned)";
+                InvokeAsync(StateHasChanged);
+            });
+
+            var count = await Task.Run(() => CopilotService.ImportCliSessionsAsync(progress));
+            importProgress = $"Done! {count} sessions imported.";
+        }
+        catch (Exception ex)
+        {
+            importProgress = $"Error: {ex.Message}";
+            Console.WriteLine($"Import error: {ex}");
+        }
+        finally
+        {
+            isImporting = false;
+            StateHasChanged();
+            // Refresh the persisted session list since many are now "open"
+            LoadPersistedSessions();
+        }
     }
 
     private void ToggleExternalSessions() => showExternalSessions = !showExternalSessions;

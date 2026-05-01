@@ -796,6 +796,12 @@ public partial class CopilotService : IAsyncDisposable
         /// clears HasDeferredIdle — the two fields are an inseparable companion pair.
         /// </summary>
         public long SubagentDeferStartedAtTicks;
+        /// <summary>
+        /// True for sessions imported from CLI via "Import CLI Sessions".
+        /// History is not loaded during restore — it loads lazily on first select.
+        /// Once history is loaded, this stays true to preserve the Imported flag in saves.
+        /// </summary>
+        public bool IsImported;
     }
 
     private static void DisposePrematureIdleSignal(SessionState? state)
@@ -4957,6 +4963,13 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             _ = _bridgeClient.SwitchSessionAsync(name)
                 .ContinueWith(t => Console.WriteLine($"[CopilotService] SwitchSession bridge error: {t.Exception?.InnerException?.Message}"),
                     TaskContinuationOptions.OnlyOnFaulted);
+
+        // Lazy-load history for imported sessions on first select
+        if (_sessions.TryGetValue(name, out var state) && state.IsImported && state.Info.History.Count <= 1)
+        {
+            _ = LoadImportedSessionHistoryAsync(name);
+        }
+
         ClearPendingCompletions();
         OnStateChanged?.Invoke();
         return true;
@@ -5467,6 +5480,12 @@ public class ActiveSessionEntry
     public string? LastPrompt { get; set; }
     public string? GroupId { get; set; }
     public string? RecoveredFromSessionId { get; set; }
+    /// <summary>
+    /// True for sessions imported from the CLI via "Import CLI Sessions".
+    /// Imported sessions skip history loading on restore — history is loaded
+    /// lazily when the user first opens the session.
+    /// </summary>
+    public bool Imported { get; set; }
     // Usage stats persisted across reconnects
     public int TotalInputTokens { get; set; }
     public int TotalOutputTokens { get; set; }

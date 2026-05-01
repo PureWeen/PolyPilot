@@ -46,6 +46,7 @@ public partial class CopilotService
                     WorkingDirectory = s.Info.WorkingDirectory,
                     GroupId = sessionMetas.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
                     RecoveredFromSessionId = s.Info.RecoveredFromSessionId,
+                    Imported = s.IsImported,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
                         : null,
@@ -94,6 +95,7 @@ public partial class CopilotService
                     ReasoningEffort = s.Info.ReasoningEffort,
                     GroupId = sessionMetas.FirstOrDefault(m => m.SessionName == s.Info.Name)?.GroupId,
                     RecoveredFromSessionId = s.Info.RecoveredFromSessionId,
+                    Imported = s.IsImported,
                     LastPrompt = s.Info.IsProcessing
                         ? s.Info.History.LastOrDefault(m => m.IsUser)?.Content
                         : null,
@@ -423,6 +425,24 @@ public partial class CopilotService
                 throw new InvalidOperationException("Copilot is not connected yet. Go to Settings to configure.");
 
             Debug($"Lazy-resuming session '{sessionName}' (id={sessionId})...");
+
+            // Load history for imported sessions before SDK resume — they were restored
+            // without history to keep startup fast.
+            if (state.IsImported && state.Info.History.Count <= 1)
+            {
+                Debug($"Loading history for imported session '{sessionName}' before SDK resume...");
+                var (importHistory, importFromDb) = await LoadBestHistoryAsync(sessionId);
+                state.Info.History.Clear();
+                foreach (var msg in importHistory)
+                    state.Info.History.Add(msg);
+                foreach (var msg in state.Info.History.Where(m =>
+                    (m.MessageType == ChatMessageType.ToolCall || m.MessageType == ChatMessageType.Reasoning) && !m.IsComplete))
+                    msg.IsComplete = true;
+                state.Info.MessageCount = state.Info.History.Count;
+                state.Info.LastReadMessageCount = state.Info.History.Count;
+                if (importHistory.Count > 0 && !importFromDb)
+                    await _chatDb.BulkInsertAsync(sessionId, importHistory);
+            }
 
             // Use snapshot for thread safety — may be called from ThreadPool via SendPromptAsync
             var groupId = SnapshotSessionMetas().FirstOrDefault(m => m.SessionName == sessionName)?.GroupId;
@@ -894,6 +914,34 @@ public partial class CopilotService
                                 _activeSessionName ??= entry.DisplayName;
                                 Debug($"Created placeholder for codespace session: {entry.DisplayName}");
                                 continue;
+                            }
+
+                            // Imported sessions (from CLI bulk import): create ultra-lightweight
+                            // placeholder with no history loading. History loads lazily when the
+                            // user first opens the session. This keeps startup fast even with
+                            // thousands of imported sessions.
+                            if (entry.Imported)
+                            {
+                                var importModel = Models.ModelHelper.NormalizeToSlug(entry.Model ?? DefaultModel);
+                                if (string.IsNullOrEmpty(importModel)) importModel = DefaultModel;
+                                var importInfo = new AgentSessionInfo
+                                {
+                                    Name = entry.DisplayName,
+                                    Model = importModel,
+                                    CreatedAt = entry.CreatedAt ?? DateTimeOffset.UtcNow,
+                                    SessionId = entry.SessionId,
+                                    WorkingDirectory = entry.WorkingDirectory
+                                };
+                                importInfo.LastUpdatedAt = entry.LastUpdatedAt ?? DateTime.Now;
+                                importInfo.GitBranch = GetGitBranch(importInfo.WorkingDirectory);
+                                // Placeholder message so session isn't empty in UI
+                                importInfo.History.Add(ChatMessage.SystemMessage("📥 Imported CLI session · Open to load conversation history"));
+                                importInfo.MessageCount = 1;
+                                importInfo.LastReadMessageCount = 1;
+                                var importState = new SessionState { Session = null!, Info = importInfo };
+                                importState.IsImported = true;
+                                _sessions[entry.DisplayName] = importState;
+                                continue; // Don't set _activeSessionName for imported sessions
                             }
 
                             // Create lightweight placeholder — actual SDK resume happens lazily
@@ -1521,6 +1569,247 @@ public partial class CopilotService
             File.WriteAllText(SessionAliasesFile, json);
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Import all CLI sessions from ~/.copilot/session-state into PolyPilot.
+    /// Reads only workspace.yaml (lightweight — no events.jsonl loading).
+    /// History loads lazily when the user first opens the session.
+    /// Returns the number of sessions imported.
+    /// </summary>
+    public async Task<int> ImportCliSessionsAsync(IProgress<(int scanned, int imported, int total)>? progress = null, CancellationToken cancellationToken = default)
+    {
+        if (!Directory.Exists(SessionStatePath))
+            return 0;
+
+        // Collect session IDs already tracked by PolyPilot
+        var ownedSessionIds = new HashSet<string>(
+            _sessions.Values
+                .Where(s => !string.IsNullOrEmpty(s.Info.SessionId))
+                .Select(s => s.Info.SessionId!),
+            StringComparer.OrdinalIgnoreCase);
+
+        // Also check closed sessions to avoid reimporting
+        foreach (var closedId in _closedSessionIds.Keys)
+            ownedSessionIds.Add(closedId);
+
+        string[] dirs;
+        try
+        {
+            dirs = Directory.GetDirectories(SessionStatePath);
+        }
+        catch { return 0; }
+
+        // Create or get the "Imported from CLI" group
+        const string importedGroupName = "Imported from CLI";
+        var importedGroup = Organization.Groups.FirstOrDefault(g => g.Name == importedGroupName);
+        if (importedGroup == null)
+        {
+            importedGroup = CreateGroup(importedGroupName);
+        }
+
+        var imported = 0;
+        var scanned = 0;
+        var total = dirs.Length;
+        // Track display names we've used to avoid collisions within this import batch
+        var usedNames = new HashSet<string>(
+            _sessions.Keys,
+            StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dir in dirs)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            scanned++;
+            if (scanned % 100 == 0)
+                progress?.Report((scanned, imported, total));
+
+            var dirName = Path.GetFileName(dir);
+            if (!Guid.TryParse(dirName, out _)) continue;
+
+            // Skip sessions already in PolyPilot
+            if (ownedSessionIds.Contains(dirName)) continue;
+
+            var workspaceFile = Path.Combine(dir, "workspace.yaml");
+            var eventsFile = Path.Combine(dir, "events.jsonl");
+            if (!File.Exists(workspaceFile) || !File.Exists(eventsFile)) continue;
+
+            // Parse workspace.yaml for lightweight metadata
+            string? sessionId = null;
+            string? cwd = null;
+            string? summary = null;
+            DateTimeOffset? createdAt = null;
+            DateTimeOffset? updatedAt = null;
+
+            try
+            {
+                foreach (var line in File.ReadLines(workspaceFile).Take(20))
+                {
+                    if (line.StartsWith("id:", StringComparison.OrdinalIgnoreCase))
+                        sessionId = line["id:".Length..].Trim().Trim('"', '\'');
+                    else if (line.StartsWith("cwd:", StringComparison.OrdinalIgnoreCase))
+                        cwd = line["cwd:".Length..].Trim().Trim('"', '\'');
+                    else if (line.StartsWith("summary:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var summaryText = line["summary:".Length..].Trim().Trim('"', '\'');
+                        if (!string.IsNullOrEmpty(summaryText))
+                            summary = summaryText;
+                    }
+                    else if (line.StartsWith("created_at:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var val = line["created_at:".Length..].Trim().Trim('"', '\'');
+                        if (DateTimeOffset.TryParse(val, out var ca))
+                            createdAt = ca;
+                    }
+                    else if (line.StartsWith("updated_at:", StringComparison.OrdinalIgnoreCase))
+                    {
+                        var val = line["updated_at:".Length..].Trim().Trim('"', '\'');
+                        if (DateTimeOffset.TryParse(val, out var ua))
+                            updatedAt = ua;
+                    }
+                }
+            }
+            catch { continue; }
+
+            // Validate session ID matches directory name
+            if (string.IsNullOrEmpty(sessionId) || !string.Equals(sessionId, dirName, StringComparison.OrdinalIgnoreCase))
+                continue;
+
+            // Skip sessions with empty events (no meaningful content)
+            try
+            {
+                var eventsFileInfo = new FileInfo(eventsFile);
+                if (eventsFileInfo.Length < 50) continue; // Too small to be meaningful
+            }
+            catch { continue; }
+
+            // Generate display name: summary > cwd basename > short guid
+            var baseName = GenerateImportDisplayName(summary, cwd, sessionId);
+            var displayName = baseName;
+
+            // Dedup: add suffix if name is already taken
+            if (usedNames.Contains(displayName))
+            {
+                for (int i = 2; i <= 9999; i++)
+                {
+                    var candidate = $"{baseName} ({i})";
+                    if (!usedNames.Contains(candidate))
+                    {
+                        displayName = candidate;
+                        break;
+                    }
+                }
+            }
+            usedNames.Add(displayName);
+
+            // Create lightweight placeholder with no history
+            var info = new AgentSessionInfo
+            {
+                Name = displayName,
+                SessionId = sessionId,
+                Model = DefaultModel,
+                WorkingDirectory = cwd,
+                CreatedAt = createdAt ?? DateTimeOffset.UtcNow,
+            };
+            info.LastUpdatedAt = (updatedAt ?? createdAt)?.LocalDateTime ?? DateTime.Now;
+            info.GitBranch = GetGitBranch(cwd);
+
+            // Add a placeholder message so the session isn't completely empty in the UI
+            info.History.Add(ChatMessage.SystemMessage(
+                summary != null
+                    ? $"📥 Imported CLI session · {summary}"
+                    : "📥 Imported CLI session · Open to load conversation history"));
+            info.MessageCount = 1;
+            info.LastReadMessageCount = 1;
+
+            var state = new SessionState { Session = null!, Info = info };
+            state.IsImported = true;
+
+            _sessions[displayName] = state;
+            ownedSessionIds.Add(sessionId);
+
+            // Add to the imported group
+            AddSessionMeta(new SessionMeta
+            {
+                SessionName = displayName,
+                GroupId = importedGroup.Id,
+            });
+
+            imported++;
+
+            // Yield every 500 sessions to avoid blocking the thread too long
+            if (imported % 500 == 0)
+                await Task.Yield();
+        }
+
+        progress?.Report((scanned, imported, total));
+
+        if (imported > 0)
+        {
+            Debug($"Imported {imported} CLI sessions into PolyPilot");
+            FlushSaveActiveSessionsToDisk();
+            FlushSaveOrganization();
+            OnStateChanged?.Invoke();
+        }
+
+        return imported;
+    }
+
+    /// <summary>
+    /// Generate a display name for an imported session from available metadata.
+    /// </summary>
+    internal static string GenerateImportDisplayName(string? summary, string? cwd, string sessionId)
+    {
+        // Prefer summary (truncated to 50 chars)
+        if (!string.IsNullOrWhiteSpace(summary))
+        {
+            var clean = summary.Replace("\n", " ").Replace("\r", "").Trim();
+            return clean.Length > 50 ? clean[..47] + "..." : clean;
+        }
+
+        // Fall back to cwd basename
+        if (!string.IsNullOrWhiteSpace(cwd))
+        {
+            var basename = Path.GetFileName(cwd.TrimEnd('/', '\\'));
+            if (!string.IsNullOrEmpty(basename))
+                return basename;
+        }
+
+        // Last resort: short GUID
+        return sessionId.Length >= 8 ? sessionId[..8] : sessionId;
+    }
+
+    /// <summary>
+    /// Loads history for an imported session that hasn't had its history loaded yet.
+    /// Called when the user first selects an imported session.
+    /// </summary>
+    public async Task LoadImportedSessionHistoryAsync(string sessionName)
+    {
+        if (!_sessions.TryGetValue(sessionName, out var state)) return;
+        if (!state.IsImported) return;
+        if (string.IsNullOrEmpty(state.Info.SessionId)) return;
+
+        // Check if history is already loaded (more than just the placeholder)
+        if (state.Info.History.Count > 1) return;
+
+        var (history, _) = await LoadBestHistoryAsync(state.Info.SessionId);
+
+        // Replace the placeholder with real history
+        InvokeOnUI(() =>
+        {
+            state.Info.History.Clear();
+            foreach (var msg in history)
+                state.Info.History.Add(msg);
+
+            // Mark stale incomplete tool calls/reasoning as complete
+            foreach (var msg in state.Info.History.Where(m =>
+                (m.MessageType == ChatMessageType.ToolCall || m.MessageType == ChatMessageType.Reasoning) && !m.IsComplete))
+                msg.IsComplete = true;
+
+            state.Info.MessageCount = state.Info.History.Count;
+            state.Info.LastReadMessageCount = state.Info.History.Count;
+            NotifyStateChanged();
+        });
     }
 
     /// <summary>
