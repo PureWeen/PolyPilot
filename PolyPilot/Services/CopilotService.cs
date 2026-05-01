@@ -3369,7 +3369,8 @@ ALWAYS run the relaunch script as the final step after making changes to this pr
             // Use the SDK's Model.SwitchToAsync for a lightweight mid-session model switch.
             // This preserves the session, conversation history, and event handlers — no need
             // to dispose/recreate the session or rewire event callbacks.
-            await state.Session.Rpc.Model.SwitchToAsync(normalizedModel, reasoningEffort, null, cancellationToken);
+            var capabilitiesOverride = Models.ModelCapabilities.GetCapabilitiesOverride(normalizedModel);
+            await state.Session.Rpc.Model.SwitchToAsync(normalizedModel, reasoningEffort, capabilitiesOverride, cancellationToken);
 
             state.Info.Model = normalizedModel;
             state.Info.ReasoningEffort = reasoningEffort;

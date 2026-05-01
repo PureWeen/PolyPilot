@@ -1,3 +1,5 @@
+using GitHub.Copilot.SDK.Rpc;
+
 namespace PolyPilot.Models;
 
 /// <summary>
@@ -140,6 +142,50 @@ public static class ModelCapabilities
         }
 
         return warnings;
+    }
+
+    /// <summary>
+    /// Build a <see cref="ModelCapabilitiesOverride"/> for the given model slug.
+    /// Returns null for unknown models (server defaults apply).
+    /// Sets vision limits for vision-capable models and reasoning effort support flags.
+    /// </summary>
+    public static ModelCapabilitiesOverride? GetCapabilitiesOverride(string modelSlug)
+    {
+        var caps = GetCapabilities(modelSlug);
+        if (caps == ModelCapability.None)
+            return null;
+
+        var hasVision = caps.HasFlag(ModelCapability.Vision);
+        var hasReasoning = caps.HasFlag(ModelCapability.ReasoningExpert);
+
+        if (!hasVision && !hasReasoning)
+            return null;
+
+        var supports = new ModelCapabilitiesOverrideSupports
+        {
+            Vision = hasVision,
+            ReasoningEffort = hasReasoning,
+        };
+
+        ModelCapabilitiesOverrideLimits? limits = null;
+        if (hasVision)
+        {
+            limits = new ModelCapabilitiesOverrideLimits
+            {
+                Vision = new ModelCapabilitiesOverrideLimitsVision
+                {
+                    SupportedMediaTypes = ["image/png", "image/jpeg", "image/gif", "image/webp"],
+                    MaxPromptImages = 10,
+                    MaxPromptImageSize = 20 * 1024 * 1024, // 20 MB
+                },
+            };
+        }
+
+        return new ModelCapabilitiesOverride
+        {
+            Supports = supports,
+            Limits = limits,
+        };
     }
 }
 
