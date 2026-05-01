@@ -121,7 +121,8 @@ jobs:
               echo "=== stderr ===" && cat /tmp/polypilot-stderr.log || true
               exit 1
             fi
-            if curl -s --max-time 2 http://localhost:9223/api/status > /dev/null 2>&1; then
+            if curl -s --max-time 2 http://localhost:9223/api/v1/agent/status > /dev/null 2>&1 || \
+               curl -s --max-time 2 http://localhost:9223/api/status > /dev/null 2>&1; then
               echo "✅ PolyPilot ready after ${i}s"
               break
             fi
@@ -175,10 +176,12 @@ jobs:
           # Try common DevFlow ports
           AGENT_PORT=""
           for port in 9223 9224 9225 9226 9227 9228 9229 9230 5000 5001 8080; do
-            if curl -s --max-time 2 http://localhost:$port/api/status > /dev/null 2>&1; then
+            if curl -s --max-time 2 http://localhost:$port/api/v1/agent/status > /dev/null 2>&1 || \
+               curl -s --max-time 2 http://localhost:$port/api/status > /dev/null 2>&1; then
               AGENT_PORT=$port
               echo "✅ Found agent on port $port"
-              curl -s http://localhost:$port/api/status
+              curl -s http://localhost:$port/api/v1/agent/status 2>/dev/null || \
+                curl -s http://localhost:$port/api/status
               break
             fi
           done
@@ -205,18 +208,18 @@ jobs:
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
           echo "=== Agent Status ==="
-          curl -s http://localhost:$PORT/api/status | python3 -m json.tool
+          curl -s http://localhost:$PORT/api/v1/agent/status | python3 -m json.tool 2>/dev/null || \
+            curl -s http://localhost:$PORT/api/status | python3 -m json.tool
 
           echo "=== Trying common routes ==="
           for route in \
-            /api/tree /api/visual-tree /api/visualtree \
-            /api/screenshot /api/capture \
-            /api/cdp /api/cdp/status /api/cdp/list \
+            /api/v1/agent/status /api/v1/agent/capabilities \
+            /api/v1/ui/tree /api/v1/ui/screenshot \
+            /api/v1/webview/contexts /api/v1/webview/evaluate \
+            /api/v1/webview/dom \
+            /api/status /api/tree /api/screenshot \
+            /api/cdp /api/cdp/status \
             /api/logs /api/log \
-            /api/maui /api/maui/tree /api/maui/status \
-            /api/elements /api/query \
-            /tree /screenshot /status \
-            /api/info /api/routes /api/help \
             / /api; do
             RESULT=$(curl -s --max-time 2 -o /dev/null -w "%{http_code}" http://localhost:$PORT$route 2>/dev/null)
             if [ "$RESULT" != "000" ] && [ "$RESULT" != "404" ]; then
@@ -231,14 +234,15 @@ jobs:
         if: steps.devflow.outputs.agent_port != ''
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
-          # The screenshot endpoint might return binary data
-          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-ci-screenshot.png 2>&1 || true
+          # The screenshot endpoint might return binary data (try v1 first, fallback to old)
+          curl -s http://localhost:$PORT/api/v1/ui/screenshot -o /tmp/polypilot-ci-screenshot.png 2>&1 || \
+            curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-ci-screenshot.png 2>&1 || true
           if [ -f /tmp/polypilot-ci-screenshot.png ] && [ $(wc -c < /tmp/polypilot-ci-screenshot.png) -gt 100 ]; then
             echo "✅ Screenshot saved ($(wc -c < /tmp/polypilot-ci-screenshot.png) bytes)"
           else
             echo "Screenshot too small or not found, trying other paths..."
-            curl -s http://localhost:$PORT/screenshot -o /tmp/polypilot-ci-screenshot.png 2>&1 || true
-            curl -s http://localhost:$PORT/api/capture -o /tmp/polypilot-ci-screenshot2.png 2>&1 || true
+            curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-ci-screenshot.png 2>&1 || true
+            curl -s http://localhost:$PORT/api/v1/ui/screenshot -o /tmp/polypilot-ci-screenshot2.png 2>&1 || true
             ls -la /tmp/polypilot-ci-screenshot*.png 2>/dev/null || echo "No screenshots captured"
           fi
 
@@ -375,7 +379,8 @@ jobs:
               cat /tmp/polypilot-stderr.log || true
               exit 1
             fi
-            if curl -s --max-time 2 http://localhost:9223/api/status > /dev/null 2>&1; then
+            if curl -s --max-time 2 http://localhost:9223/api/v1/agent/status > /dev/null 2>&1 || \
+               curl -s --max-time 2 http://localhost:9223/api/status > /dev/null 2>&1; then
               echo "✅ PolyPilot ready after ${i}s"
               break
             fi
@@ -399,10 +404,12 @@ jobs:
         run: |
           AGENT_PORT=""
           for port in 9223 9224 9225 9226 9227 9228 9229 9230; do
-            if curl -s --max-time 2 http://localhost:$port/api/status > /dev/null 2>&1; then
+            if curl -s --max-time 2 http://localhost:$port/api/v1/agent/status > /dev/null 2>&1 || \
+               curl -s --max-time 2 http://localhost:$port/api/status > /dev/null 2>&1; then
               AGENT_PORT=$port
               echo "✅ Found agent on port $port"
-              curl -s http://localhost:$port/api/status | python3 -m json.tool
+              curl -s http://localhost:$port/api/v1/agent/status 2>/dev/null || \
+                curl -s http://localhost:$port/api/status | python3 -m json.tool
               break
             fi
           done
@@ -412,9 +419,9 @@ jobs:
         if: steps.devflow.outputs.agent_port != ''
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
-          echo "=== Status ===" && curl -s http://localhost:$PORT/api/status | python3 -m json.tool
-          echo "=== Tree ===" && curl -s http://localhost:$PORT/api/tree | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d[:3], indent=2))" 2>/dev/null || curl -s http://localhost:$PORT/api/tree | head -50
-          echo "=== Screenshot ===" && curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-ci-screenshot.png && echo "✅ $(wc -c < /tmp/polypilot-ci-screenshot.png) bytes"
+          echo "=== Status ===" && (curl -s http://localhost:$PORT/api/v1/agent/status 2>/dev/null || curl -s http://localhost:$PORT/api/status) | python3 -m json.tool
+          echo "=== Tree ===" && (curl -s http://localhost:$PORT/api/v1/ui/tree 2>/dev/null || curl -s http://localhost:$PORT/api/tree) | python3 -c "import sys,json; d=json.load(sys.stdin); print(json.dumps(d[:3], indent=2))" 2>/dev/null || (curl -s http://localhost:$PORT/api/v1/ui/tree 2>/dev/null || curl -s http://localhost:$PORT/api/tree) | head -50
+          echo "=== Screenshot ===" && curl -s http://localhost:$PORT/api/v1/ui/screenshot -o /tmp/polypilot-ci-screenshot.png 2>/dev/null || curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-ci-screenshot.png && echo "✅ $(wc -c < /tmp/polypilot-ci-screenshot.png) bytes"
 
       - name: "Copilot: Check headless server"
         run: |
@@ -446,7 +453,7 @@ jobs:
           PORT=${{ steps.devflow.outputs.agent_port }}
           
           echo "=== Visual tree ==="
-          curl -s http://localhost:$PORT/api/tree | python3 -c "
+          (curl -s http://localhost:$PORT/api/v1/ui/tree 2>/dev/null || curl -s http://localhost:$PORT/api/tree) | python3 -c "
           import sys, json
           tree = json.load(sys.stdin)
           def walk(nodes, depth=0):
@@ -465,91 +472,124 @@ jobs:
         if: steps.devflow.outputs.agent_port != ''
         run: |
           PORT=${{ steps.devflow.outputs.agent_port }}
-          CDP="http://localhost:$PORT/api/cdp"
+          EVAL_URL="http://localhost:$PORT/api/v1/webview/evaluate"
+          EVAL_URL_FALLBACK="http://localhost:$PORT/api/cdp"
           
-          cdp_eval() {
+          # Evaluate JS via DevFlow preview.7 API (falls back to old CDP route)
+          webview_eval() {
+            local expr="$1"
             local payload
-            payload=$(python3 -c "import json,sys; print(json.dumps({'method':'Runtime.evaluate','params':{'expression':sys.argv[1]}}))" "$1")
-            curl -s -X POST "$CDP" -H "Content-Type: application/json" -d "$payload" 2>/dev/null
+            # Try v1 endpoint first (simple payload: {"expression":"..."})
+            payload=$(python3 -c "import json,sys; print(json.dumps({'expression':sys.argv[1]}))" "$expr")
+            local result
+            result=$(curl -s -X POST "$EVAL_URL" -H "Content-Type: application/json" -d "$payload" 2>/dev/null)
+            if [ $? -eq 0 ] && echo "$result" | python3 -c "import sys,json; json.load(sys.stdin)" 2>/dev/null; then
+              echo "$result"
+            else
+              # Fallback to old CDP route
+              payload=$(python3 -c "import json,sys; print(json.dumps({'method':'Runtime.evaluate','params':{'expression':sys.argv[1]}}))" "$expr")
+              curl -s -X POST "$EVAL_URL_FALLBACK" -H "Content-Type: application/json" -d "$payload" 2>/dev/null
+            fi
+          }
+
+          # Parse v1 response: {"result": <value>} or old CDP: {"result":{"result":{"value":"..."}}}
+          parse_eval_result() {
+            python3 -c "
+          import sys, json
+          try:
+              r = json.load(sys.stdin)
+              # v1 format: {'result': <value>}
+              if 'result' in r and not isinstance(r['result'], dict):
+                  v = r['result']
+              elif 'result' in r and isinstance(r['result'], dict) and 'result' in r['result']:
+                  # Old CDP format
+                  v = r['result']['result'].get('value', '')
+              else:
+                  v = r.get('result', '')
+              if isinstance(v, str) and v.startswith('{'):
+                  print(json.dumps(json.loads(v), indent=2))
+              else:
+                  print(v)
+          except: print(sys.stdin.read() if hasattr(sys.stdin, 'read') else '')
+          " 2>/dev/null || echo "parse failed"
           }
           
           echo "=== Step 1: Page state ==="
-          cdp_eval "JSON.stringify({title: document.title, buttons: [...document.querySelectorAll('button')].map(b => b.title || b.textContent?.trim()?.substring(0,30)).filter(Boolean)})"
+          webview_eval "JSON.stringify({title: document.title, buttons: [...document.querySelectorAll('button')].map(b => b.title || b.textContent?.trim()?.substring(0,30)).filter(Boolean)})"
           
           echo ""
           echo "=== Step 2: Click 'Create something new' ==="
-          cdp_eval "const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('+')); btn?.click(); btn ? 'clicked +' : 'no + btn'"
+          webview_eval "const btn = [...document.querySelectorAll('button')].find(b => b.textContent?.includes('+')); btn?.click(); btn ? 'clicked +' : 'no + btn'"
           sleep 2
           
           echo "=== Step 3: Click 'Session' in the popover ==="
-          cdp_eval "const items = [...document.querySelectorAll('.sidebar-new-menu-item')]; const sessionBtn = items.find(b => b.textContent?.includes('Session')); sessionBtn?.click(); sessionBtn ? 'clicked Session' : 'no Session btn. Items: ' + items.map(i => i.textContent?.trim()?.substring(0,20)).join('|')"
+          webview_eval "const items = [...document.querySelectorAll('.sidebar-new-menu-item')]; const sessionBtn = items.find(b => b.textContent?.includes('Session')); sessionBtn?.click(); sessionBtn ? 'clicked Session' : 'no Session btn. Items: ' + items.map(i => i.textContent?.trim()?.substring(0,20)).join('|')"
           sleep 3
           
           echo ""
           echo "=== Step 4: Check create form state ==="
-          curl -s $CDP -X POST -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({inputs: [...document.querySelectorAll(\"input,textarea\")].map(i => ({tag: i.tagName, id: i.id, class: i.className, placeholder: i.placeholder})), pageText: document.body?.innerText?.substring(0,500)})"}}' | python3 -c "import sys,json; r=json.load(sys.stdin); v=r.get('result',{}).get('result',{}).get('value',''); print(json.dumps(json.loads(v), indent=2) if v.startswith('{') else v)" 2>/dev/null || echo "parse failed"
+          webview_eval "JSON.stringify({inputs: [...document.querySelectorAll('input,textarea')].map(i => ({tag: i.tagName, id: i.id, class: i.className, placeholder: i.placeholder})), pageText: document.body?.innerText?.substring(0,500)})" | parse_eval_result
           
-          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-create-form.png
+          curl -s http://localhost:$PORT/api/v1/ui/screenshot -o /tmp/polypilot-after-create-form.png 2>/dev/null || \
+            curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-create-form.png
           echo "Screenshot: $(wc -c < /tmp/polypilot-after-create-form.png) bytes"
           
           echo ""
           echo "=== Step 5: Fill session name and submit ==="
           # The CreateSessionForm has input fields. Find and fill them.
-          cdp_eval "const nameInput = document.querySelector('input[placeholder*=\"session\"], input[placeholder*=\"name\"], .session-name-input, input.create-session-input'); nameInput ? 'found name input: ' + nameInput.placeholder : 'no name input. All inputs: ' + [...document.querySelectorAll('input')].map(i => i.placeholder || i.className || i.id).join('|')"
+          webview_eval "const nameInput = document.querySelector('input[placeholder*=\"session\"], input[placeholder*=\"name\"], .session-name-input, input.create-session-input'); nameInput ? 'found name input: ' + nameInput.placeholder : 'no name input. All inputs: ' + [...document.querySelectorAll('input')].map(i => i.placeholder || i.className || i.id).join('|')"
           
           # Try filling any visible input
-          cdp_eval "const inp = [...document.querySelectorAll('input:not([type=hidden])')].find(i => i.offsetParent !== null); if (inp) { inp.value = 'CI Test Session'; inp.dispatchEvent(new Event('input', {bubbles:true})); inp.dispatchEvent(new Event('change', {bubbles:true})); 'filled: ' + inp.placeholder; } else { 'no visible input'; }"
+          webview_eval "const inp = [...document.querySelectorAll('input:not([type=hidden])')].find(i => i.offsetParent !== null); if (inp) { inp.value = 'CI Test Session'; inp.dispatchEvent(new Event('input', {bubbles:true})); inp.dispatchEvent(new Event('change', {bubbles:true})); 'filled: ' + inp.placeholder; } else { 'no visible input'; }"
           
           sleep 1
           
           # Click the create/submit button
-          cdp_eval "const btn = document.querySelector('.create-btn, .submit-btn, button[type=submit]') || [...document.querySelectorAll('button')].find(b => b.textContent?.includes('Create') && !b.textContent?.includes('something')); btn?.click(); btn ? 'submitted: ' + btn.textContent?.trim()?.substring(0,30) : 'no create btn'"
+          webview_eval "const btn = document.querySelector('.create-btn, .submit-btn, button[type=submit]') || [...document.querySelectorAll('button')].find(b => b.textContent?.includes('Create') && !b.textContent?.includes('something')); btn?.click(); btn ? 'submitted: ' + btn.textContent?.trim()?.substring(0,30) : 'no create btn'"
           
           sleep 5
           
           echo ""
           echo "=== Step 6: Check if session was created ==="
-          cdp_eval "JSON.stringify({sessionItems: document.querySelectorAll('.session-item, .session-list-item, .sidebar-session')?.length || 0, cards: document.querySelectorAll('.session-card, .card')?.length || 0, pageText: document.body?.innerText?.substring(0,300)})"
+          webview_eval "JSON.stringify({sessionItems: document.querySelectorAll('.session-item, .session-list-item, .sidebar-session')?.length || 0, cards: document.querySelectorAll('.session-card, .card')?.length || 0, pageText: document.body?.innerText?.substring(0,300)})"
           
-          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-create.png
+          curl -s http://localhost:$PORT/api/v1/ui/screenshot -o /tmp/polypilot-after-create.png 2>/dev/null || \
+            curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-create.png
           echo "Screenshot: $(wc -c < /tmp/polypilot-after-create.png) bytes"
           
           echo ""
           echo "=== Step 7: Click on the session to expand it ==="
           # Click the first session item in the sidebar to open it
-          cdp_eval "const item = document.querySelector('.session-item, .session-list-item, .sidebar-session, [data-session]'); if (item) { item.click(); 'clicked session: ' + (item.dataset?.session || item.textContent?.trim()?.substring(0,30)); } else { 'no session item found'; }"
+          webview_eval "const item = document.querySelector('.session-item, .session-list-item, .sidebar-session, [data-session]'); if (item) { item.click(); 'clicked session: ' + (item.dataset?.session || item.textContent?.trim()?.substring(0,30)); } else { 'no session item found'; }"
           sleep 3
           
           echo ""
           echo "=== Step 8: Find and fill the chat input ==="
           # The session card should now have an input
-          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({inputs: [...document.querySelectorAll(\"input:not([type=hidden]), textarea\")].filter(i => i.offsetParent !== null).map(i => ({tag: i.tagName, id: i.id, class: i.className, placeholder: i.placeholder?.substring(0,50), parent: i.parentElement?.className?.substring(0,30)}))})"}}' | python3 -c "import sys,json; r=json.load(sys.stdin); v=r.get('result',{}).get('result',{}).get('value',''); print(json.dumps(json.loads(v), indent=2) if v.startswith('{') else v)" 2>/dev/null || echo "parse failed"
+          webview_eval "JSON.stringify({inputs: [...document.querySelectorAll('input:not([type=hidden]), textarea')].filter(i => i.offsetParent !== null).map(i => ({tag: i.tagName, id: i.id, class: i.className, placeholder: i.placeholder?.substring(0,50), parent: i.parentElement?.className?.substring(0,30)}))})" | parse_eval_result
           
           # Fill the card input or textarea
-          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"const sel = \".card-input input, .card-input textarea, .input-row textarea, .expanded-card .input-area textarea, textarea\"; const input = [...document.querySelectorAll(sel)].find(i => i.offsetParent !== null); if (input) { input.value = \"Hello from CI! Testing PolyPilot integration.\"; input.dispatchEvent(new Event(\"input\", {bubbles:true})); input.dispatchEvent(new Event(\"change\", {bubbles:true})); \"filled: \" + input.tagName + \" \" + input.id + \" \" + input.className; } else { \"no visible input\"; }"}}' 2>/dev/null
+          webview_eval "const sel = '.card-input input, .card-input textarea, .input-row textarea, .expanded-card .input-area textarea, textarea'; const input = [...document.querySelectorAll(sel)].find(i => i.offsetParent !== null); if (input) { input.value = 'Hello from CI! Testing PolyPilot integration.'; input.dispatchEvent(new Event('input', {bubbles:true})); input.dispatchEvent(new Event('change', {bubbles:true})); 'filled: ' + input.tagName + ' ' + input.id + ' ' + input.className; } else { 'no visible input'; }"
           
           sleep 1
-          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-fill.png
+          curl -s http://localhost:$PORT/api/v1/ui/screenshot -o /tmp/polypilot-after-fill.png 2>/dev/null || \
+            curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-fill.png
           echo "After fill: $(wc -c < /tmp/polypilot-after-fill.png) bytes"
           
           echo ""
           echo "=== Step 9: Send the message ==="
           # Simulate Enter key to send, or click the send button
-          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"const sel = \".card-input input, .card-input textarea, .input-row textarea, .expanded-card .input-area textarea, textarea\"; const input = [...document.querySelectorAll(sel)].find(i => i.offsetParent !== null); if (input) { const container = input.closest(\".card-input\") || input.closest(\".input-row\"); const sendBtn = container?.querySelector(\".send-btn:not(.stop-btn)\") || container?.querySelectorAll(\"button\")?.[container?.querySelectorAll(\"button\")?.length - 1]; if (sendBtn) { sendBtn.click(); \"clicked send: \" + sendBtn.className; } else { input.dispatchEvent(new KeyboardEvent(\"keydown\", {key: \"Enter\", bubbles: true})); \"dispatched Enter\"; } } else { \"no input to send from\"; }"}}' 2>/dev/null
+          webview_eval "const sel = '.card-input input, .card-input textarea, .input-row textarea, .expanded-card .input-area textarea, textarea'; const input = [...document.querySelectorAll(sel)].find(i => i.offsetParent !== null); if (input) { const container = input.closest('.card-input') || input.closest('.input-row'); const sendBtn = container?.querySelector('.send-btn:not(.stop-btn)') || container?.querySelectorAll('button')?.[container?.querySelectorAll('button')?.length - 1]; if (sendBtn) { sendBtn.click(); 'clicked send: ' + sendBtn.className; } else { input.dispatchEvent(new KeyboardEvent('keydown', {key: 'Enter', bubbles: true})); 'dispatched Enter'; } } else { 'no input to send from'; }"
           
           echo ""
           echo "=== Step 10: Wait for Copilot response ==="
           sleep 20
           
           # Check for messages
-          curl -s -X POST "$CDP" -H "Content-Type: application/json" \
-            -d '{"method":"Runtime.evaluate","params":{"expression":"JSON.stringify({processingIndicators: document.querySelectorAll(\".thinking, .processing, .spinner, .loading\")?.length || 0, messages: [...document.querySelectorAll(\".message-content, .chat-bubble, .response-text, .markdown-body\")].map(m => m.textContent?.substring(0,100)).filter(Boolean), bodySnippet: document.body?.innerText?.substring(0,500)})"}}' | python3 -c "import sys,json; r=json.load(sys.stdin); v=r.get('result',{}).get('result',{}).get('value',''); print(json.dumps(json.loads(v), indent=2) if v.startswith('{') else v)" 2>/dev/null || echo "parse failed"
+          webview_eval "JSON.stringify({processingIndicators: document.querySelectorAll('.thinking, .processing, .spinner, .loading')?.length || 0, messages: [...document.querySelectorAll('.message-content, .chat-bubble, .response-text, .markdown-body')].map(m => m.textContent?.substring(0,100)).filter(Boolean), bodySnippet: document.body?.innerText?.substring(0,500)})" | parse_eval_result
           
-          curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-session.png
+          curl -s http://localhost:$PORT/api/v1/ui/screenshot -o /tmp/polypilot-after-session.png 2>/dev/null || \
+            curl -s http://localhost:$PORT/api/screenshot -o /tmp/polypilot-after-session.png
           echo "✅ Final screenshot: $(wc -c < /tmp/polypilot-after-session.png) bytes"
 
       - name: "Feature Test: Scheduled Tasks (Mac Catalyst)"
@@ -671,14 +711,25 @@ jobs:
           $agentPort = ""
           foreach ($port in 9223..9230) {
             try {
-              $r = Invoke-WebRequest -Uri "http://localhost:$port/api/status" -TimeoutSec 2 -ErrorAction Stop
+              $r = Invoke-WebRequest -Uri "http://localhost:$port/api/v1/agent/status" -TimeoutSec 2 -ErrorAction Stop
               if ($r.StatusCode -eq 200) {
                 $agentPort = $port
                 Write-Host "✅ Found agent on port $port"
                 $r.Content | ConvertFrom-Json | ConvertTo-Json -Depth 5
                 break
               }
-            } catch { }
+            } catch {
+              # Fallback to old route
+              try {
+                $r = Invoke-WebRequest -Uri "http://localhost:$port/api/status" -TimeoutSec 2 -ErrorAction Stop
+                if ($r.StatusCode -eq 200) {
+                  $agentPort = $port
+                  Write-Host "✅ Found agent on port $port (legacy route)"
+                  $r.Content | ConvertFrom-Json | ConvertTo-Json -Depth 5
+                  break
+                }
+              } catch { }
+            }
           }
           "agent_port=$agentPort" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
 
@@ -688,11 +739,14 @@ jobs:
         run: |
           $port = "${{ steps.devflow.outputs.agent_port }}"
           Write-Host "=== Status ==="
-          (Invoke-WebRequest "http://localhost:$port/api/status").Content | ConvertFrom-Json | ConvertTo-Json
+          try { (Invoke-WebRequest "http://localhost:$port/api/v1/agent/status").Content | ConvertFrom-Json | ConvertTo-Json }
+          catch { (Invoke-WebRequest "http://localhost:$port/api/status").Content | ConvertFrom-Json | ConvertTo-Json }
           Write-Host "=== Tree ==="
-          (Invoke-WebRequest "http://localhost:$port/api/tree").Content | Out-String | Select-Object -First 50
+          try { (Invoke-WebRequest "http://localhost:$port/api/v1/ui/tree").Content | Out-String | Select-Object -First 50 }
+          catch { (Invoke-WebRequest "http://localhost:$port/api/tree").Content | Out-String | Select-Object -First 50 }
           Write-Host "=== Screenshot ==="
-          Invoke-WebRequest "http://localhost:$port/api/screenshot" -OutFile "$env:RUNNER_TEMP\polypilot-ci-screenshot.png"
+          try { Invoke-WebRequest "http://localhost:$port/api/v1/ui/screenshot" -OutFile "$env:RUNNER_TEMP\polypilot-ci-screenshot.png" }
+          catch { Invoke-WebRequest "http://localhost:$port/api/screenshot" -OutFile "$env:RUNNER_TEMP\polypilot-ci-screenshot.png" }
           $size = (Get-Item "$env:RUNNER_TEMP\polypilot-ci-screenshot.png").Length
           Write-Host "✅ Screenshot saved ($size bytes)"
 
