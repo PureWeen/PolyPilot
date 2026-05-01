@@ -3,19 +3,19 @@ using PolyPilot.IntegrationTests.Fixtures;
 namespace PolyPilot.IntegrationTests;
 
 /// <summary>
-/// Integration tests verifying that multi-agent worker sessions use
-/// SystemMessageConfig with section overrides for identity, tool policy,
-/// worktree, and shared context (issue #496).
+/// Smoke tests verifying app bootstrap succeeds after the SystemMessageConfig
+/// refactoring (issue #496). These don't test section overrides directly —
+/// they confirm the refactored CreateSessionAsync doesn't break initialization.
 /// </summary>
 [Collection("PolyPilot")]
-[Trait("Category", "WorkerSystemMessage")]
+[Trait("Category", "AppBootstrap")]
 public class WorkerSystemMessageTests : IntegrationTestBase
 {
     public WorkerSystemMessageTests(AppFixture app, ITestOutputHelper output)
         : base(app, output) { }
 
     [Fact]
-    public async Task Dashboard_ShowsMultiAgentGroupCreation()
+    public async Task AppBootstrap_DashboardLoads()
     {
         await WaitForCdpReadyAsync();
 
@@ -40,7 +40,7 @@ public class WorkerSystemMessageTests : IntegrationTestBase
     }
 
     [Fact]
-    public async Task App_RespondsToApiStatus()
+    public async Task AppBootstrap_RespondsToApiStatus()
     {
         // Verify the app is running and responsive — this confirms that the
         // refactored CreateSessionAsync (with systemMessageSections parameter)

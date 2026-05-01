@@ -34,6 +34,31 @@ public class WorkerToolHonestyTests
         // System-level content is now in sections, not the user prompt
         Assert.DoesNotContain("CRITICAL: Tool Usage & Honesty Policy", workerPrompt);
         Assert.DoesNotContain("NEVER fabricate", workerPrompt);
+        // No dynamic context when called without optional params
+        Assert.DoesNotContain("Your Role", workerPrompt);
+        Assert.DoesNotContain("Team Context (latest)", workerPrompt);
+    }
+
+    [Fact]
+    public void WorkerPrompt_IncludesFreshIdentityWhenProvided()
+    {
+        var workerPrompt = CopilotService.BuildWorkerPrompt(
+            "Fix the tests", "Run the unit tests",
+            freshIdentity: "You are a security auditor.");
+
+        Assert.Contains("Your Role", workerPrompt);
+        Assert.Contains("You are a security auditor.", workerPrompt);
+    }
+
+    [Fact]
+    public void WorkerPrompt_IncludesFreshSharedContextWhenProvided()
+    {
+        var workerPrompt = CopilotService.BuildWorkerPrompt(
+            "Fix the tests", "Run the unit tests",
+            freshSharedContext: "Always use TDD.");
+
+        Assert.Contains("Team Context (latest)", workerPrompt);
+        Assert.Contains("Always use TDD.", workerPrompt);
     }
 
     #endregion
@@ -129,6 +154,50 @@ public class WorkerToolHonestyTests
         {
             Assert.Equal(SectionOverrideAction.Append, section.Action);
         }
+    }
+
+    #endregion
+
+    #region MergeDynamicContentIntoSections
+
+    [Fact]
+    public void MergeDynamicContent_AddsToEnvironmentContext_WhenNoExistingSection()
+    {
+        var sections = CopilotService.BuildWorkerSystemMessageSections(
+            "worker", worktreeNote: "", sharedContext: "");
+
+        Assert.False(sections.ContainsKey(SystemPromptSections.EnvironmentContext));
+
+        var merged = CopilotService.MergeDynamicContentIntoSections(sections, "MCP guidance here");
+
+        Assert.True(merged.ContainsKey(SystemPromptSections.EnvironmentContext));
+        Assert.Contains("MCP guidance here", merged[SystemPromptSections.EnvironmentContext].Content);
+    }
+
+    [Fact]
+    public void MergeDynamicContent_MergesWithExistingEnvironmentContext()
+    {
+        var sections = CopilotService.BuildWorkerSystemMessageSections(
+            "worker", worktreeNote: "\n\n## Your Worktree\nAt /tmp/wt\n", sharedContext: "");
+
+        Assert.True(sections.ContainsKey(SystemPromptSections.EnvironmentContext));
+
+        var merged = CopilotService.MergeDynamicContentIntoSections(sections, "Relaunch instructions");
+
+        var envContent = merged[SystemPromptSections.EnvironmentContext].Content;
+        Assert.Contains("/tmp/wt", envContent);
+        Assert.Contains("Relaunch instructions", envContent);
+    }
+
+    [Fact]
+    public void MergeDynamicContent_NoOpWhenContentEmpty()
+    {
+        var sections = CopilotService.BuildWorkerSystemMessageSections(
+            "worker", worktreeNote: "", sharedContext: "");
+
+        var merged = CopilotService.MergeDynamicContentIntoSections(sections, "  ");
+
+        Assert.False(merged.ContainsKey(SystemPromptSections.EnvironmentContext));
     }
 
     #endregion

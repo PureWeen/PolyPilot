@@ -338,6 +338,8 @@ public class ConnectionRecoveryTests
         var helperBlock = source.Substring(helperIdx, Math.Min(3000, source.Length - helperIdx));
         Assert.Contains("SystemMessage = ", helperBlock);
         Assert.Contains("SystemMessageMode.Append", helperBlock);
+        Assert.Contains("SystemMessageMode.Customize", helperBlock);
+        Assert.Contains("BuildWorkerSectionsForSession", helperBlock);
     }
 
     [Fact]
